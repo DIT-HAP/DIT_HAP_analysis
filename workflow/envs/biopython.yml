@@ -8,10 +8,13 @@ dependencies:
   - numpy>=2.5.0
   - biopython>=1.87
   - gffutils>=0.13
-  - codonbias
-  - goatools>=1.6.5
+  - goatools
   - openpyxl
+  - xlrd
   - loguru
   - tqdm
   - requests
   - pyyaml
+  - pip
+  - pip:
+    - codon-bias>=0.3.5
