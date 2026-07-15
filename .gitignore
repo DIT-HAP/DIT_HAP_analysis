@@ -1,0 +1,27 @@
+# Snakemake
+.snakemake/
+
+# Python
+__pycache__/
+*.py[cod]
+*/__pycache__/
+
+# Pipeline outputs
+/results/
+/reports/
+/logs/
+
+# Regenerable local copies of external databases (see resources/curated/ which IS tracked)
+/resources/external/
+/resources/literature/
+
+# Claude/editor artifacts
+.claude
+CLAUDE.md
+.vscode
+.cursor
+.pytest_cache
+
+# Temporary
+tmp/
+*.log

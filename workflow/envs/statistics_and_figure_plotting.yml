@@ -1,0 +1,15 @@
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.12
+  - matplotlib>=3.11
+  - seaborn>=0.13.2
+  - numpy>=2.5.0
+  - pandas>=3.0.3
+  - scipy>=1.18
+  - openpyxl
+  - tqdm
+  - loguru
+  - pyyaml

@@ -1,0 +1,3 @@
+# This project's own analysis parameters (as opposed to config/datasets.yaml,
+# which only points at where upstream data lives). Populated incrementally as
+# each analysis stage is migrated — see design doc §9.

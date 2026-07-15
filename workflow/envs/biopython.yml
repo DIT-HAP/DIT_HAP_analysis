@@ -1,0 +1,17 @@
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas>=3.0.3
+  - numpy>=2.5.0
+  - biopython>=1.87
+  - gffutils>=0.13
+  - codonbias
+  - goatools>=1.6.5
+  - openpyxl
+  - loguru
+  - tqdm
+  - requests
+  - pyyaml
