@@ -22,7 +22,7 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 # Includes
 # ---------------------------------------------------------------------------
-# include: "workflow/rules/features.smk"
+include: "workflow/rules/features.smk"
 # include: "workflow/rules/enrichment.smk"
 # include: "workflow/rules/clustering.smk"
 # (Phase 1 delivers only features.smk; remaining rules are follow-up work)
@@ -32,7 +32,6 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 rule all:
     input:
-        # Uncommented in Task 5 once features.smk exists:
-        # f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv",
+        f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv",
     message:
         "*** DIT-HAP analysis complete"
