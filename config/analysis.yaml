@@ -8,3 +8,9 @@ clustering:
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
   k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers)
   k_max: 20             # k-sweep upper bound
+
+# --- Ontology enrichment (enrichment.smk) ---
+enrichment:
+  fdr_threshold: 0.05   # alpha for goatools FDR-BH
+  wt_cluster: 9         # WT/background cluster id; clusters < this get nonWT comparison
+  pop_count_max: 400    # max pop_count for the filtered GO output
