@@ -14,3 +14,8 @@ enrichment:
   fdr_threshold: 0.05   # alpha for goatools FDR-BH
   wt_cluster: 9         # WT/background cluster id; clusters < this get nonWT comparison
   pop_count_max: 400    # max pop_count for the filtered GO output
+
+# --- Machine learning (ml.smk) ---
+ml:
+  um_split_threshold: 0.35   # um > / <= this defines the um_gt_p35 / um_le_p35 splits
+  wt_cluster: 9              # DIT_HAP_cluster != this defines the nonWT split
