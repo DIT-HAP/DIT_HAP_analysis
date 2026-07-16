@@ -1,0 +1,17 @@
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas>=3.0.3
+  - numpy>=2.5.0
+  - scikit-learn
+  - scipy
+  - matplotlib
+  - joblib
+  - loguru
+  - pip
+  - pip:
+    # Pinned: mljar defaults (algorithm lists, seeds) differ across versions;
+    # pinning keeps AutoML runs reproducible.
+    - mljar-supervised==1.1.18

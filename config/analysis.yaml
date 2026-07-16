@@ -19,3 +19,6 @@ enrichment:
 ml:
   um_split_threshold: 0.35   # um > / <= this defines the um_gt_p35 / um_le_p35 splits
   wt_cluster: 9              # DIT_HAP_cluster != this defines the nonWT split
+  test_size: 0.2             # AutoML train/test split fraction
+  random_state: 42           # AutoML split + mljar seed (reproducibility)
+  total_time_limit: 14400    # mljar budget (s); large so full algorithm list always finishes
