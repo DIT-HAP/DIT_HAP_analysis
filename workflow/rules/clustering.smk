@@ -2,7 +2,7 @@
 # clustering.smk — Deterministic gene-level clustering (candidate labeling)
 # =============================================================================
 
-# Per-dataset: clusters genes in the 2-D depletion feature space (um, lam) from
+# Per-dataset: clusters genes in the 2-D depletion feature space (DR, DL) from
 # gene-level curve fitting. Produces CANDIDATE labels only — the manual 64->9
 # merge lives in notebooks/clustering/finalize_gene_clusters.ipynb, which writes
 # resources/curated/final_clusters.tsv (design doc §5).

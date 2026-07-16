@@ -35,8 +35,8 @@ def test_transform_data_applies_each_transformation():
             "Strand": ["+", "-", "+", "-"],
             "GC_content_of_gene": [0.4, 0.5, 0.45, 0.6],
             "A": [1.0, 2.0, 3.0, 4.0],
-            "um": [0.1, 0.2, 0.3, 0.4],
-            "lam": [5.0, 6.0, 7.0, 8.0],
+            "DR": [0.1, 0.2, 0.3, 0.4],
+            "DL": [5.0, 6.0, 7.0, 8.0],
             "DIT_HAP_cluster": [1, 2, 3, 9],
         },
         index=["g1", "g2", "g3", "g4"],
@@ -59,7 +59,7 @@ def test_transform_data_applies_each_transformation():
 def test_transform_data_skips_absent_features():
     """A configured feature missing from the data is skipped (not a KeyError)."""
     df = pd.DataFrame(
-        {"GC3": [0.1, 0.2], "A": [1.0, 2.0], "um": [0.1, 0.2], "lam": [1.0, 2.0], "DIT_HAP_cluster": [1, 2]},
+        {"GC3": [0.1, 0.2], "A": [1.0, 2.0], "DR": [0.1, 0.2], "DL": [1.0, 2.0], "DIT_HAP_cluster": [1, 2]},
         index=["g1", "g2"],
     )
     # set_index first (mirrors the real dict, which always starts with Systematic_ID).
@@ -76,7 +76,7 @@ def test_merge_uses_revised_cluster_as_dit_hap_cluster(tmp_path):
     feat.to_csv(feat_path, sep="\t", index=False)
 
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2"], "A": [1.0, 2.0], "um": [0.5, 0.1], "lam": [3.0, 4.0], "revised_cluster": [1, 9]}
+        {"Systematic ID": ["SPAC1", "SPAC2"], "A": [1.0, 2.0], "DR": [0.5, 0.1], "DL": [3.0, 4.0], "revised_cluster": [1, 9]}
     )
     clusters_path = tmp_path / "final_clusters.tsv"
     clusters.to_csv(clusters_path, sep="\t", index=False)

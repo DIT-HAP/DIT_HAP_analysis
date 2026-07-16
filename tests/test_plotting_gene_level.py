@@ -26,8 +26,8 @@ def _synthetic(n: int, n_clusters: int, cluster_col: str) -> pd.DataFrame:
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {
-            "um": rng.random(n),
-            "lam": rng.random(n) * 10,
+            "DR": rng.random(n),
+            "DL": rng.random(n) * 10,
             cluster_col: rng.integers(1, n_clusters + 1, n),
             "Name": [f"g{i}" for i in range(n)],
         }

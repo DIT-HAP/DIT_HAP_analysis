@@ -2,7 +2,7 @@
 Gene-Level Plotting
 ===================
 
-Gene-level visualizations for the depletion feature space (um = DR, lam = DL):
+Gene-level visualizations for the depletion feature space (DR = depletion rate, DL = depletion lag):
 per-group depletion curves, feature-space scatters, and the cluster-merge
 review plot used by notebooks/clustering/finalize_gene_clusters.ipynb. Ported
 from DIT_HAP_pipeline/workflow/src/subset_visualization.py plus the notebook's
@@ -132,8 +132,8 @@ def plot_given_genes_on_feature_space(
     genes: list[str],
     gene_column: str,
     title: str,
-    x_feature: str = "um",
-    y_feature: str = "lam",
+    x_feature: str = "DR",
+    y_feature: str = "DL",
     cmap: str | LinearSegmentedColormap = "viridis",
     label: str = "Selected Genes",
     title_with_count: bool = True,
@@ -163,8 +163,8 @@ def plot_groups_on_feature_space(
     group_column: str,
     gene_column: str,
     col_num: int = 4,
-    x_feature: str = "um",
-    y_feature: str = "lam",
+    x_feature: str = "DR",
+    y_feature: str = "DL",
     **kwargs: Any,
 ) -> Figure:
     """Grid of feature-space subplots, one per group value in group_column."""
@@ -231,8 +231,8 @@ def visualize_cluster_on_feature_space(
     fig, axes = plt.subplots(1, 2, figsize=(18, 7), sharex=True, sharey=True)
     for cluster, cluster_df in df.groupby(cluster_col, sort=True):
         cluster = int(cluster)
-        x = cluster_df["um"]
-        y = cluster_df["lam"]
+        x = cluster_df["DR"]
+        y = cluster_df["DL"]
         cluster_idx = cluster - 1 if cluster_minus_one else cluster
 
         # Index palettes with modulo so the 64-cluster candidate review does not

@@ -35,7 +35,7 @@
 
 **Steps:**
 1. Load fitting_results (`index_col=0`), inject `RevisedDeletion_essentiality` at position 3 (verified dict, fallback to `DeletionLibrary_essentiality`) — quirk #2.
-2. Custom scaling (quirk #1): `um` capped at 1.3 (`x if x < 1.3 else 1.3`), `lam`/10; `dropna()` defines the clustered set.
+2. Custom scaling (quirk #1): `DR` capped at 1.3 (`x if x < 1.3 else 1.3`), `DL`/10; `dropna()` defines the clustered set.
 3. `evaluate_cluster_numbers(k_range=range(2,21))` → metrics table.
 4. 4 algorithms at `n_clusters=64`, `random_state=42`, KMeans `n_init=10`: kmeans, agg-ward-euclidean, div-complete-cityblock (`fcluster-1`), gmm.
 5. **Pin `best_method="kmeans"` explicitly** (quirk #3 — drop the fragile `set()[0]` selection); map labels back to `data_df`.
@@ -72,7 +72,7 @@
 
 **Quirks:** `cluster_minus_one=True` in final plot (revised_cluster is 1-based); 10-color palette assumes ≤10 clusters; WT cluster ends up = 9.
 
-**Verify:** notebook runs top-to-bottom against LD candidates; `final_clusters.tsv` has expected columns (`Systematic ID`, `revised_cluster`, `um`, `lam`, `A`, YES fitted cols). No pytest (human notebook).
+**Verify:** notebook runs top-to-bottom against LD candidates; `final_clusters.tsv` has expected columns (`Systematic ID`, `revised_cluster`, `DR`, `DL`, `A`, YES fitted cols). No pytest (human notebook).
 
 **Commit:** `feat: add plotting modules + finalize_gene_clusters notebook (Phase 2 Task 2)`
 
@@ -156,12 +156,12 @@
 
 **Inputs:** `results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv` (from Phase 1), `resources/curated/final_clusters.tsv`.
 
-**Outputs (per dataset):** `results/ml/features_targets/{dataset}/{split}_transformed_{features,targets,features_and_targets}.csv` for splits `all|um_gt_p35|um_le_p35|nonWT`, plus `all_features_with_target_values.csv`, `missing_value_analysis.csv`.
+**Outputs (per dataset):** `results/ml/features_targets/{dataset}/{split}_transformed_{features,targets,features_and_targets}.csv` for splits `all|DR_gt_p35|DR_le_p35|nonWT`, plus `all_features_with_target_values.csv`, `missing_value_analysis.csv`.
 
 **Steps:**
-1. Left-merge feature matrix (`gene_systematic_id`) with targets from `final_clusters.tsv` (`Systematic ID`→`Systematic_ID`, `revised_cluster`→`DIT_HAP_cluster`, cols `A,um,lam`).
-2. Targets: `A,um,lam` (regression) + `DIT_HAP_cluster` (from `revised_cluster` — NOT `cluster`).
-3. Splits: `all`, `um>0.35` (`um_gt_p35`), `um<=0.35` (`um_le_p35`), `nonWT` (`DIT_HAP_cluster!=9`). Thresholds→config.
+1. Left-merge feature matrix (`gene_systematic_id`) with targets from `final_clusters.tsv` (`Systematic ID`→`Systematic_ID`, `revised_cluster`→`DIT_HAP_cluster`, cols `A,DR,DL`).
+2. Targets: `A,DR,DL` (regression) + `DIT_HAP_cluster` (from `revised_cluster` — NOT `cluster`).
+3. Splits: `all`, `DR>0.35` (`DR_gt_p35`), `DR<=0.35` (`DR_le_p35`), `nonWT` (`DIT_HAP_cluster!=9`). Thresholds→config.
 4. Per-feature transform via `selected_features_and_transformations` dict (~83 entries: StandardScaler / PowerTransformer / OneHotEncoder(`dummy_na=True`) / binary-encode `+`→1/`-`→0 / set_index) — apply column-by-column with `.reshape(-1,1)` to match byte-for-byte (quirk #5).
 5. **No imputation, no train/test split** — `dropna(how='any')` only (drop the unused SimpleImputer/train_test_split imports). Float format `%.5f` raw, `%.3f` transformed.
 
@@ -181,17 +181,17 @@
 - Create: `workflow/envs/machine_learning.yml` (pin `mljar-supervised` version + scikit-learn, xgboost, lightgbm, catboost, shap)
 - Create: `tests/test_train_automl.py`
 
-**Inputs:** `results/ml/features_targets/{dataset}/all_transformed_features_and_targets.csv` (from Task 6; replaces the notebook's in-Config merge+`um>0.3` filter).
+**Inputs:** `results/ml/features_targets/{dataset}/all_transformed_features_and_targets.csv` (from Task 6; replaces the notebook's in-Config merge+`DR>0.3` filter).
 
 **Outputs (per dataset × target × mode):** `results/ml/models/{dataset}/{target}_{mode}/` (mljar tree: leaderboard.csv, per-model dirs, predictions), `prediction_and_residuals.pdf`, and a **new** persisted `metrics.tsv` (R2/RMSE/MAE/Pearson) + `features_importance.csv` (aggregated from per-model `learner_fold_*_importance.csv` — the notebook's dead-code bug, quirk #1).
 
 **Steps:**
-1. Fan out target∈{um,lam} × mode∈{Explain,Perform}. `AutoML(mode, ml_task="regression", results_path, explain_level=2)` — **explicitly pass `random_state`** and **set `total_time_limit` large** (Perform must finish full algorithm list; quirk — default 3600s can silently skip → non-deterministic).
+1. Fan out target∈{DR,DL} × mode∈{Explain,Perform}. `AutoML(mode, ml_task="regression", results_path, explain_level=2)` — **explicitly pass `random_state`** and **set `total_time_limit` large** (Perform must finish full algorithm list; quirk — default 3600s can silently skip → non-deterministic).
 2. train_test_split (`test_size=0.2`, `random_state=42`); PowerTransform features+target on train only; predict; inverse-transform for original-scale metrics.
 3. **Persist fitted scalers** (joblib — needed to inverse-transform future predictions; quirk #3). **Clean output dir before run** (mljar errors/resumes on non-empty; quirk #5). Aggregate feature importance manually → write `features_importance.csv` + top-20 PDF.
 4. Replace deprecated `mean_squared_error(squared=False)` → `root_mean_squared_error`.
 
-**Quirks:** `um>0.3` filter (now in Task 6 splits or config); metrics on original scale vs mljar leaderboard on transformed scale (document); `A`/`DIT_HAP_cluster` declared-but-unmodeled.
+**Quirks:** `DR>0.3` filter (now in Task 6 splits or config); metrics on original scale vs mljar leaderboard on transformed scale (document); `A`/`DIT_HAP_cluster` declared-but-unmodeled.
 
 **Verify:** unit test metrics computation + importance aggregation on synthetic predictions (no mljar training in unit tests — too slow); integration = one Explain run on LD (~60s) checked into a `@pytest.mark.slow` or manual step; `snakemake -n`. Perform mode validated manually (30-60min).
 

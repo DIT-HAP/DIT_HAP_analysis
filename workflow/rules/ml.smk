@@ -2,12 +2,12 @@
 # ml.smk — mljar AutoML analysis (target x mode fan-out)
 # =============================================================================
 
-# Per-dataset regression of a growth-fitness target (um/lam) from gene features,
+# Per-dataset regression of a growth-fitness target (DR/DL) from gene features,
 # in two mljar modes (Explain: fast hold-out; Perform: 5-fold CV, slow). Reads
 # the raw feature matrix + curated final_clusters directly (byte-faithful to the
 # self-contained source notebook — NOT the Task 6 transformed tables).
 wildcard_constraints:
-    target="um|lam",
+    target="DR|DL",
     mode="Explain|Perform",
 
 rule train_automl:

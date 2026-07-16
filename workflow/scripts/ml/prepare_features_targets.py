@@ -8,7 +8,7 @@ ML Feature/Target Preparation
 Merges the per-gene feature matrix with DIT-HAP curve-fit targets + cluster
 labels, then applies per-feature transformations (PowerTransformer /
 StandardScaler / one-hot / binary), emitting transformed feature/target tables
-for the `all`, `um_gt_p35`, `um_le_p35`, and `nonWT` splits. Deterministic port
+for the `all`, `DR_gt_p35`, `DR_le_p35`, and `nonWT` splits. Deterministic port
 of DIT_HAP_pipeline/workflow/notebooks/machine_learning_data_preparation.ipynb
 (the canonical version — not the obsolete Feature_organization copy).
 
@@ -18,13 +18,13 @@ No imputation and no train/test split: missing values are dropped
 Input
 -----
 - Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, um, lam, revised_cluster)
+- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
 
 Output
 ------
 - all_features_with_target_values.csv, missing_value_analysis.csv
 - {split}_transformed_{features,targets,features_and_targets}.csv for
-  split in {all, um_gt_p35, um_le_p35, nonWT}
+  split in {all, DR_gt_p35, DR_le_p35, nonWT}
 
 Usage
 -----
@@ -57,9 +57,9 @@ from sklearn.preprocessing import PowerTransformer, StandardScaler
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-UM_SPLIT_THRESHOLD = 0.35
+DR_SPLIT_THRESHOLD = 0.35
 WT_CLUSTER = 9
-TARGET_FEATURES = ["A", "um", "lam", "DIT_HAP_cluster"]
+TARGET_FEATURES = ["A", "DR", "DL", "DIT_HAP_cluster"]
 
 # Per-feature transformation map (byte-faithful to the canonical notebook).
 # Commented entries in the notebook (copies_per_cell_*, t1/2) are excluded here too.
@@ -156,7 +156,7 @@ class PrepConfig:
     feature_matrix: Path
     final_clusters: Path
     output_dir: Path
-    um_split_threshold: float = UM_SPLIT_THRESHOLD
+    dr_split_threshold: float = DR_SPLIT_THRESHOLD
     wt_cluster: int = WT_CLUSTER
     transformations: dict = field(default_factory=lambda: dict(SELECTED_FEATURES_AND_TRANSFORMATIONS))
 
@@ -181,12 +181,12 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def merge_features_targets(feature_matrix: Path, final_clusters: Path) -> pd.DataFrame:
-    """Left-join the feature matrix with A/um/lam/DIT_HAP_cluster targets from final_clusters.tsv."""
+    """Left-join the feature matrix with A/DR/DL/DIT_HAP_cluster targets from final_clusters.tsv."""
     gene_features = pd.read_csv(feature_matrix, sep="\t")
     metrics = pd.read_csv(final_clusters, sep="\t").rename(columns={"Systematic ID": "Systematic_ID"})
 
     # DIT_HAP_cluster comes from the curated revised_cluster (NOT the raw cluster).
-    target_values = metrics[["Systematic_ID", "A", "um", "lam", "revised_cluster"]].rename(
+    target_values = metrics[["Systematic_ID", "A", "DR", "DL", "revised_cluster"]].rename(
         columns={"revised_cluster": "DIT_HAP_cluster"}
     )
 
@@ -248,8 +248,8 @@ def run_preparation(config: PrepConfig) -> None:
     # Build the three primary splits (no imputation — dropna defines each set).
     working = {
         "all": merged[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "um_gt_p35": merged.query(f"um > {config.um_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "um_le_p35": merged.query(f"um <= {config.um_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
+        "DR_gt_p35": merged.query(f"DR > {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
+        "DR_le_p35": merged.query(f"DR <= {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
     }
 
     transformed = {des: transform_data(data, config.transformations, TARGET_FEATURES) for des, data in working.items()}
@@ -281,7 +281,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
     parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output dir for features_targets tables")
-    parser.add_argument("--um-split-threshold", type=float, default=UM_SPLIT_THRESHOLD, help="um split threshold (default 0.35)")
+    parser.add_argument("--dr-split-threshold", type=float, default=DR_SPLIT_THRESHOLD, help="DR split threshold (default 0.35)")
     parser.add_argument("--wt-cluster", type=int, default=WT_CLUSTER, help="WT cluster id for nonWT split (default 9)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -297,7 +297,7 @@ def main() -> int:
             feature_matrix=args.feature_matrix,
             final_clusters=args.final_clusters,
             output_dir=args.output_dir,
-            um_split_threshold=args.um_split_threshold,
+            dr_split_threshold=args.dr_split_threshold,
             wt_cluster=args.wt_cluster,
         )
         run_preparation(config)

@@ -53,7 +53,7 @@ rule all:
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
         # f"results/enrichment/network/{_DATASET}/{_REF}/go_enrichment_full_revigo.tsv",
         # ML AutoML (target x mode):
-        # f"results/ml/models/{_DATASET}/{_REF}/um_Explain/metrics.tsv",
-        # f"results/ml/models/{_DATASET}/{_REF}/lam_Explain/metrics.tsv",
+        # f"results/ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
+        # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
     message:
         "*** DIT-HAP analysis complete"

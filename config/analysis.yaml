@@ -17,7 +17,7 @@ enrichment:
 
 # --- Machine learning (ml.smk) ---
 ml:
-  um_split_threshold: 0.35   # um > / <= this defines the um_gt_p35 / um_le_p35 splits
+  dr_split_threshold: 0.35   # DR > / <= this defines the DR_gt_p35 / DR_le_p35 splits
   wt_cluster: 9              # DIT_HAP_cluster != this defines the nonWT split
   test_size: 0.2             # AutoML train/test split fraction
   random_state: 42           # AutoML split + mljar seed (reproducibility)

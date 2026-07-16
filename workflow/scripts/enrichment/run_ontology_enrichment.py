@@ -18,7 +18,7 @@ given the same DAG and gene sets, so results are identical.
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, Name, revised_cluster, um, lam)
+- Curated final_clusters.tsv (Systematic ID, Name, revised_cluster, DR, DL)
 - PomBase ontology triples (OBO + GAF/PHAF + slim tables) for GO / FYPO / MONDO
 - Gene metadata + curated deletion-library table (for id->name mapping)
 

@@ -5,8 +5,8 @@
 Gene-Level Clustering — Candidate Labeling
 ============================================
 
-Clusters genes in the 2-D depletion feature space (um = max depletion rate,
-lam = lag) derived from time-resolved fitness curve fitting, producing a
+Clusters genes in the 2-D depletion feature space (DR = max depletion rate,
+DL = lag) derived from time-resolved fitness curve fitting, producing a
 candidate cluster labeling for downstream manual merge. This is the
 DETERMINISTIC half of DIT_HAP_pipeline/workflow/notebooks/gene_level_clustering.ipynb
 (cells 4, 6, 11, 14, 16, 18); the manual 64->9 cluster merge stays in
@@ -66,12 +66,12 @@ from workflow.src.io import read_file
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Curve-fit features considered for correlation (viz only); clustering uses um+lam.
-ALL_FEATURES = ["A", "um", "lam", "t10", "t50", "t90", "t_window", "t_inflection", "y_inflection", "auc"]
-SELECTED_FEATURES = ["um", "lam"]
-# um above this cap is clamped; lam is divided by this divisor (byte-faithful quirk).
-UM_CAP = 1.3
-LAM_DIVISOR = 10
+# Curve-fit features considered for correlation (viz only); clustering uses DR+DL.
+ALL_FEATURES = ["A", "DR", "DL", "t10", "t50", "t90", "t_window", "t_inflection", "y_inflection", "auc"]
+SELECTED_FEATURES = ["DR", "DL"]
+# DR above this cap is clamped; DL is divided by this divisor (byte-faithful quirk).
+DR_CAP = 1.3
+DL_DIVISOR = 10
 # Pinned best method — the notebook selected via set()[0] which is non-deterministic;
 # it historically resolved to kmeans (hence kmeans_cluster_result.tsv). Pin it explicitly.
 BEST_METHOD = "kmeans"
@@ -141,10 +141,10 @@ def load_and_annotate(config: ClusteringConfig) -> pd.DataFrame:
 
 @logger.catch
 def scale_features(data_df: pd.DataFrame, selected_features: list[str]) -> pd.DataFrame:
-    """Apply the notebook's bespoke scaling: cap um at 1.3, divide lam by 10; dropna defines the clustered set."""
+    """Apply the notebook's bespoke scaling: cap DR at 1.3, divide DL by 10; dropna defines the clustered set."""
     scaled_data = data_df[selected_features].dropna().copy()
-    scaled_data["um"] = scaled_data["um"].apply(lambda x: x if x < UM_CAP else UM_CAP)
-    scaled_data["lam"] = scaled_data["lam"].apply(lambda x: x / LAM_DIVISOR)
+    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x < DR_CAP else DR_CAP)
+    scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / DL_DIVISOR)
     logger.info(f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features")
     return scaled_data
 

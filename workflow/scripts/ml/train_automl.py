@@ -6,7 +6,7 @@ ML AutoML Analysis (mljar-supervised)
 =====================================
 
 Trains an mljar-supervised AutoML regressor to predict a growth-fitness target
-(um or lam) from ~70 gene/protein features, in one mljar mode (Explain or
+(DR or DL) from ~70 gene/protein features, in one mljar mode (Explain or
 Perform). Deterministic port of
 DIT_HAP_pipeline/workflow/notebooks/machine_learning_analysis.ipynb.
 
@@ -23,7 +23,7 @@ reproducible (mljar's default 3600s budget can silently skip algorithms).
 Input
 -----
 - Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, um, lam, revised_cluster)
+- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
 
 Output
 ------
@@ -38,8 +38,8 @@ Usage
     python train_automl.py \\
         --feature-matrix results/features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
         --final-clusters resources/curated/final_clusters.tsv \\
-        --target um --mode Explain \\
-        --output-dir results/ml/models/{dataset}/um_explain
+        --target DR --mode Explain \\
+        --output-dir results/ml/models/{dataset}/DR_explain
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-16
@@ -75,7 +75,7 @@ import matplotlib.pyplot as plt
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-UM_FILTER = 0.3          # notebook filters genes to um > 0.3 before modeling
+DR_FILTER = 0.3          # notebook filters genes to DR > 0.3 before modeling
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 # Generous budget so every algorithm in the mode's list finishes (else mljar
@@ -118,7 +118,7 @@ class AutoMLConfig:
     test_size: float = TEST_SIZE
     random_state: int = RANDOM_STATE
     total_time_limit: int = TOTAL_TIME_LIMIT
-    um_filter: float = UM_FILTER
+    dr_filter: float = DR_FILTER
     feature_columns: list = field(default_factory=lambda: list(FEATURE_COLUMNS))
 
     def validate(self) -> None:
@@ -126,8 +126,8 @@ class AutoMLConfig:
         for path in [self.feature_matrix, self.final_clusters]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        if self.target not in {"um", "lam"}:
-            raise ValueError(f"target must be 'um' or 'lam', got {self.target!r}")
+        if self.target not in {"DR", "DL"}:
+            raise ValueError(f"target must be 'DR' or 'DL', got {self.target!r}")
         if self.mode not in {"Explain", "Perform"}:
             raise ValueError(f"mode must be 'Explain' or 'Perform', got {self.mode!r}")
 
@@ -143,19 +143,19 @@ def setup_logger(log_level: str = "INFO") -> None:
 
 @logger.catch(reraise=True)
 def load_modeling_data(config: AutoMLConfig) -> pd.DataFrame:
-    """Merge feature matrix + targets, filter to um > threshold (notebook behavior)."""
+    """Merge feature matrix + targets, filter to DR > threshold (notebook behavior)."""
     features = pd.read_csv(config.feature_matrix, sep="\t")
     targets = pd.read_csv(config.final_clusters, sep="\t").rename(
         columns={"Systematic ID": "Systematic_ID", "revised_cluster": "DIT_HAP_cluster"}
-    )[["Systematic_ID", "A", "um", "lam", "DIT_HAP_cluster"]]
+    )[["Systematic_ID", "A", "DR", "DL", "DIT_HAP_cluster"]]
 
     data = (
         pd.merge(features, targets, left_on="gene_systematic_id", right_on="Systematic_ID", how="left")
         .drop(columns=["Systematic_ID"])
         .rename(columns={"gene_systematic_id": "Systematic_ID"})
-        .query(f"um > {config.um_filter}")
+        .query(f"DR > {config.dr_filter}")
     )
-    logger.info(f"Modeling data (um > {config.um_filter}): {data.shape}")
+    logger.info(f"Modeling data (DR > {config.dr_filter}): {data.shape}")
     return data
 
 
@@ -293,7 +293,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train mljar AutoML regressor for one target x mode")
     parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
     parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
-    parser.add_argument("--target", required=True, choices=["um", "lam"], help="Regression target")
+    parser.add_argument("--target", required=True, choices=["DR", "DL"], help="Regression target")
     parser.add_argument("--mode", required=True, choices=["Explain", "Perform"], help="mljar AutoML mode")
     parser.add_argument("--output-dir", type=Path, required=True, help="mljar results_path / output dir")
     parser.add_argument("--test-size", type=float, default=TEST_SIZE, help="Test split fraction (default 0.2)")

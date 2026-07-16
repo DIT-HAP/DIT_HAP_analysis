@@ -18,7 +18,7 @@ from workflow.scripts.ml.train_automl import (
 )
 
 
-def _cfg(tmp_path, target="um", mode="Explain", **kw):
+def _cfg(tmp_path, target="DR", mode="Explain", **kw):
     return AutoMLConfig(
         feature_matrix=tmp_path / "f.tsv",
         final_clusters=tmp_path / "c.tsv",
@@ -30,7 +30,7 @@ def _cfg(tmp_path, target="um", mode="Explain", **kw):
 
 
 def test_config_validate_rejects_bad_target(tmp_path):
-    """validate() rejects a target outside {um, lam}."""
+    """validate() rejects a target outside {DR, DL}."""
     (tmp_path / "f.tsv").write_text("gene_systematic_id\n")
     (tmp_path / "c.tsv").write_text("Systematic ID\n")
     with pytest.raises(ValueError, match="target must be"):
@@ -57,17 +57,17 @@ def test_feature_list_uses_renamed_half_life_column():
     assert "t1/2 (min)" not in FEATURE_COLUMNS
 
 
-def test_load_modeling_data_filters_um_and_maps_cluster(tmp_path):
-    """load_modeling_data left-joins targets, filters um > 0.3, maps revised_cluster."""
+def test_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
+    """load_modeling_data left-joins targets, filters DR > 0.3, maps revised_cluster."""
     feat = pd.DataFrame({"gene_systematic_id": ["SPAC1", "SPAC2", "SPAC3"], "GC3": [0.1, 0.2, 0.3]})
     feat.to_csv(tmp_path / "f.tsv", sep="\t", index=False)
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2", "SPAC3"], "A": [1.0, 2.0, 3.0], "um": [0.5, 0.1, 0.9], "lam": [3.0, 4.0, 5.0], "revised_cluster": [1, 9, 2]}
+        {"Systematic ID": ["SPAC1", "SPAC2", "SPAC3"], "A": [1.0, 2.0, 3.0], "DR": [0.5, 0.1, 0.9], "DL": [3.0, 4.0, 5.0], "revised_cluster": [1, 9, 2]}
     )
     clusters.to_csv(tmp_path / "c.tsv", sep="\t", index=False)
 
     data = load_modeling_data(_cfg(tmp_path))
-    # um > 0.3 keeps SPAC1 (0.5) and SPAC3 (0.9), drops SPAC2 (0.1).
+    # DR > 0.3 keeps SPAC1 (0.5) and SPAC3 (0.9), drops SPAC2 (0.1).
     assert set(data["Systematic_ID"]) == {"SPAC1", "SPAC3"}
     assert "DIT_HAP_cluster" in data.columns
 
