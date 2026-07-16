@@ -1,3 +1,10 @@
 # This project's own analysis parameters (as opposed to config/datasets.yaml,
 # which only points at where upstream data lives). Populated incrementally as
 # each analysis stage is migrated — see design doc §9.
+
+# --- Gene-level clustering (clustering.smk) ---
+clustering:
+  n_clusters: 64        # candidate cluster count fed to the 4 algorithms
+  random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
+  k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers)
+  k_max: 20             # k-sweep upper bound

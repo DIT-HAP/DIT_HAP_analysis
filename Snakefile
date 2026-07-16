@@ -10,6 +10,11 @@ min_version("9.0")
 
 workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis"
 
+# This project's analysis parameters (clustering k, enrichment thresholds, ml
+# splits, ...). Unlike datasets.yaml (a data registry read directly below), these
+# ARE experiment parameters, so they flow through Snakemake's `config` object.
+configfile: "config/analysis.yaml"
+
 # ---------------------------------------------------------------------------
 # Dataset registry (not a Snakemake configfile — see design doc §8)
 # ---------------------------------------------------------------------------
@@ -23,9 +28,10 @@ wildcard_constraints:
 # Includes
 # ---------------------------------------------------------------------------
 include: "workflow/rules/features.smk"
+include: "workflow/rules/clustering.smk"
 # include: "workflow/rules/enrichment.smk"
-# include: "workflow/rules/clustering.smk"
-# (Phase 1 delivers only features.smk; remaining rules are follow-up work)
+# include: "workflow/rules/ml.smk"
+# (Phase 2 adds clustering; enrichment/ml follow as their inputs become available)
 
 # ---------------------------------------------------------------------------
 # Target rule
