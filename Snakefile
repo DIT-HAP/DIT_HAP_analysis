@@ -29,15 +29,31 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 include: "workflow/rules/features.smk"
 include: "workflow/rules/clustering.smk"
-# include: "workflow/rules/enrichment.smk"
-# include: "workflow/rules/ml.smk"
-# (Phase 2 adds clustering; enrichment/ml follow as their inputs become available)
+include: "workflow/rules/enrichment.smk"
+include: "workflow/rules/enrichment_network.smk"
+include: "workflow/rules/ml.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
 # ---------------------------------------------------------------------------
+# Following the repo convention, per-stage targets are listed but commented —
+# uncomment (or pass on the CLI) to run a specific stage. The core chain is:
+#   clustering -> [manual: finalize_gene_clusters.ipynb] -> resources/curated/final_clusters.tsv
+#   -> enrichment / ml. The manual finalize step is why the chain is not one DAG.
+_REF = DATASETS["reference"]["pombase_version"]
+_DATASET = DATASETS["default_dataset"]
+
 rule all:
     input:
-        f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv",
+        f"results/features/{_REF}/pombe_coding_gene_protein_features.tsv",
+        # Clustering candidates (per dataset):
+        # f"results/clustering/candidates/{_DATASET}/candidate_clusters.tsv",
+        # Enrichment (needs resources/curated/final_clusters.tsv from the manual notebook):
+        # f"results/enrichment/raw/{_DATASET}/{_REF}/go_enrichment_full_filtered.tsv",
+        # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
+        # f"results/enrichment/network/{_DATASET}/{_REF}/go_enrichment_full_revigo.tsv",
+        # ML AutoML (target x mode):
+        # f"results/ml/models/{_DATASET}/{_REF}/um_Explain/metrics.tsv",
+        # f"results/ml/models/{_DATASET}/{_REF}/lam_Explain/metrics.tsv",
     message:
         "*** DIT-HAP analysis complete"
