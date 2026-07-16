@@ -50,6 +50,15 @@ from goatools.obo_parser import GODag
 from workflow.src.io import read_file
 
 # =============================================================================
+# GLOBAL CONSTANTS
+# =============================================================================
+# Fixed provenance header for the reformatted GAF files. The original used
+# date.today(), which broke byte-level reproducibility of the intermediate
+# files; a fixed stamp keeps the reformatted GAF deterministic across runs.
+_GAF_HEADER_DATE = "2025-09-01"
+
+
+# =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
@@ -112,3 +121,150 @@ def load_ontology_data(
     go2genes = objanno.get_id2gos_nss(go2geneids=True, **kwargs)
 
     return dag, objanno, ns2assoc, gene2go, go2genes, slim_dag
+
+
+@dataclass(kw_only=True, frozen=True)
+class GeneMetaData:
+    """Gene metadata joined with deletion-library essentiality, plus an id->name dict."""
+    gene_info_with_essentiality: pd.DataFrame
+    id2name: dict
+
+
+@dataclass(kw_only=True, frozen=True)
+class GeneMetaConfig:
+    """Paths for gene metadata + curated deletion-library essentiality."""
+    gene_IDs_names_products: Path
+    deletion_library_essentiality: Path
+
+    def validate_paths(self) -> None:
+        """Raise if either metadata file is missing or is not a file."""
+        for file_path in [self.gene_IDs_names_products, self.deletion_library_essentiality]:
+            if not file_path.exists():
+                raise FileNotFoundError(f"Gene metadata file not found: {file_path}")
+            if not file_path.is_file():
+                raise ValueError(f"Path is not a file: {file_path}")
+
+    def load_data(self) -> GeneMetaData:
+        """Load metadata, fill missing gene_name with the systematic id, and left-join essentiality."""
+        gene_IDs_names_products = read_file(self.gene_IDs_names_products)
+        deletion_library_essentiality = read_file(self.deletion_library_essentiality)
+
+        gene_IDs_names_products["gene_name"] = gene_IDs_names_products["gene_name"].fillna(
+            gene_IDs_names_products["gene_systematic_id"]
+        )
+        id2name = dict(
+            zip(
+                list(gene_IDs_names_products["gene_systematic_id"]),
+                list(gene_IDs_names_products["gene_name"]),
+            )
+        )
+
+        gene_info_with_essentiality = gene_IDs_names_products.merge(
+            deletion_library_essentiality[
+                [
+                    "Updated_Systematic_ID",
+                    "Gene dispensability. This study",
+                    "Deletion mutant phenotype description",
+                    "Phenotypic classification used for analysis",
+                    "Category",
+                ]
+            ],
+            how="left",
+            left_on="gene_systematic_id",
+            right_on="Updated_Systematic_ID",
+        ).drop(columns=["Updated_Systematic_ID"])
+
+        return GeneMetaData(gene_info_with_essentiality=gene_info_with_essentiality, id2name=id2name)
+
+
+# =============================================================================
+# GAF REFORMATTING (FYPO / MONDO -> GO-style)
+# =============================================================================
+def assign_term_name(term_id: str, term_dag: GODag) -> str:
+    """Return a term's name from the DAG, or a placeholder when the term is absent."""
+    if term_id in term_dag:
+        return term_dag[term_id].name
+    return f"No record for {term_id}"
+
+
+# GO-style GAF 2.2 column order shared by both reformatters.
+_GAF_COLUMNS = [
+    "DB", "DB_Object_ID", "DB_Object_Symbol", "Qualifier", "GO_ID", "DB:Reference",
+    "Evidence", "With", "Aspect", "DB_Object_Name", "Synonym", "DB_Object_Type",
+    "Taxon", "Date", "Assigned_By", "Annotation_Extension", "Gene_Product_Form_ID",
+]
+
+
+def _write_gaf(reformatted: pd.DataFrame, output_path: Path, url: str) -> Path:
+    """Write a GO-style GAF 2.2 file: fixed header (no date.today stamp) + headerless rows."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(
+            "!gaf-version: 2.2\n"
+            "!generated-by: Yusheng Yang\n"
+            f"!date-generated: {_GAF_HEADER_DATE}\n"
+            f"!URL: {url}\n"
+            "!contact: yangyusheng@nibs.ac.cn\n"
+        )
+    reformatted.to_csv(output_path, sep="\t", index=False, header=False, mode="a")
+    return output_path
+
+
+def format_phaf_file(fypo_obo_file: Path, phaf_file: Path, output_path: Path) -> Path:
+    """Reformat a PomBase PHAF into a GO-style GAF (deletion/disruption alleles, standard condition only)."""
+    phaf_dag = GODag(str(fypo_obo_file))
+    phaf = pd.read_csv(phaf_file, sep="\t").query(
+        "(`Allele type` == 'deletion' or `Allele type` == 'disruption') and Condition.str.contains('FYECO:0000005')"
+    )
+    phaf["DB"] = "PomBase"
+    phaf["DB_Object_ID"] = phaf["Gene systematic ID"]
+    phaf["DB_Object_Symbol"] = phaf["Gene symbol"]
+    phaf["Qualifier"] = ""
+    phaf["GO_ID"] = phaf["FYPO ID"]
+    phaf["DB:Reference"] = phaf["Reference"]
+    phaf["Evidence"] = phaf["Evidence"]
+    phaf["With"] = ""
+    phaf["Aspect"] = "FYPO"
+    phaf["DB_Object_Name"] = phaf["FYPO ID"].apply(assign_term_name, term_dag=phaf_dag)
+    phaf["Synonym"] = ""
+    phaf["DB_Object_Type"] = "protein"
+    phaf["Taxon"] = "taxon:4896"
+    phaf["Date"] = phaf["Date"].str.replace("-", "")
+    phaf["Assigned_By"] = phaf["#Database name"]
+    phaf["Annotation_Extension"] = phaf["Extension"]
+    phaf["Gene_Product_Form_ID"] = ""
+    reformat_phaf = phaf[_GAF_COLUMNS].copy()
+    return _write_gaf(
+        reformat_phaf,
+        output_path,
+        "https://www.pombase.org/data/annotations/Phenotype_annotations/phenotype_annotations.pombase.phaf.gz",
+    )
+
+
+def format_mondo_gaf_file(mondo_obo_file: Path, mondo_gaf_file: Path, output_path: Path) -> Path:
+    """Reformat a PomBase human-disease (MONDO) association into a GO-style GAF."""
+    mondo_dag = GODag(str(mondo_obo_file))
+    mondo = pd.read_csv(mondo_gaf_file, sep="\t")
+    mondo["DB"] = "Pombase"
+    mondo["DB_Object_ID"] = mondo["#gene_systematic_id"]
+    mondo["DB_Object_Symbol"] = mondo["gene_name"]
+    mondo["Qualifier"] = ""
+    mondo["GO_ID"] = mondo["mondo_id"]
+    mondo["DB:Reference"] = mondo["reference"]
+    mondo["Evidence"] = ""
+    mondo["With"] = ""
+    mondo["Aspect"] = "MONDO"
+    mondo["DB_Object_Name"] = mondo["mondo_id"].apply(assign_term_name, term_dag=mondo_dag)
+    mondo["Synonym"] = ""
+    mondo["DB_Object_Type"] = "protein"
+    mondo["Taxon"] = "taxon:4896"
+    mondo["Date"] = mondo["date"].fillna(_GAF_HEADER_DATE).str.replace("-", "")
+    mondo["Assigned_By"] = "PomBase"
+    mondo["Annotation_Extension"] = ""
+    mondo["Gene_Product_Form_ID"] = ""
+    reformat_mondo = mondo[_GAF_COLUMNS].copy()
+    return _write_gaf(
+        reformat_mondo,
+        output_path,
+        "https://www.pombase.org/data/annotations/Disease_associations/human_disease_association.tsv",
+    )
