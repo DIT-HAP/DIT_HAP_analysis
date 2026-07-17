@@ -1,0 +1,28 @@
+# Genome landmark coordinates for the S. pombe reference assembly (used by the
+# DNA-level feature collection to compute per-gene telomere/centromere distances).
+#
+# These are properties of the genome ASSEMBLY, not experiment parameters — hence
+# a dedicated file rather than config/analysis.yaml. They are stable across recent
+# PomBase releases (all built on the same assembly); adjust only if the underlying
+# assembly coordinates change.
+
+# Outer boundary of each chromosome arm's "usable" sequence:
+#   left  = end of the left telomere (chr I/II) or ribosomal-DNA block (chr III)
+#   right = start of the right telomere (chr I/II) or ribosomal-DNA block (chr III)
+# Distance-from-telomere is min(|midpoint - left|, |midpoint - right|).
+chromosome_end:
+  left:
+    I: 29663
+    II: 39186
+    III: 23130     # CHR3_LEFT_RIBOSOMAL_DNA_END
+  right:
+    I: 5554844
+    II: 4500619
+    III: 2440994   # CHR3_RIGHT_RIBOSOMAL_DNA_START
+
+# Centromere span [start, end] per chromosome; distance-from-centromere uses the
+# span midpoint (np.mean of the two coordinates).
+centromere_positions:
+  I: [3753687, 3789421]
+  II: [1602418, 1644747]
+  III: [1070904, 1137003]

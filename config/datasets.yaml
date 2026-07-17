@@ -52,7 +52,7 @@ datasets:
     has_imputation: false   # release/ populated on disk
 
 reference:
-  pombase_version: "2025-10-01"
+  pombase_version: "2026-06-01"
   # AlphaFold structures are too large to copy locally (design doc §4) — referenced
   # by absolute external path instead of a resources/ copy.
   alphafold_dir: /data/c/yangyusheng_optimized/resource/AlphaFold_Dataset/20251107_downloaded/UP000002485_284812_SCHPO_v6

@@ -1,46 +1,34 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Pombe Coding Gene Feature Collection
-=======================================
+Pombe Feature Assembly (per-level)
+====================================
 
-Assembles a per-coding-gene feature matrix from 15 heterogeneous sources —
-PomBase annotations, AlphaFold structures, BioGrid, Ensembl paralogs, and
-8 literature supplementary tables — reproducing
-DIT_HAP_pipeline/workflow/notebooks/pombe_feature_collection.ipynb exactly.
-Dataset-independent: depends only on the PomBase reference version, not on
-any DIT-HAP sequencing project (design doc §8).
+Per-level feature-assembly functions shared by the six `collect_*_features.py`
+driver scripts and the `merge_features.py` merge script. Split out of the
+former monolithic `collect_pombe_features.py` so each biological level
+(DNA / RNA / protein / evolutionary / network / phenotype) can be a separate
+Snakemake rule while the assembly logic lives in one importable place.
+
+The DNA level is the "spine": it enumerates every coding gene, and every other
+level filters its rows to that gene set. Drivers therefore read the DNA-level
+table to recover `coding_genes` before assembling their own level.
 
 Input
 -----
-- A PomBase version directory (genome FASTA/GFF3, gene metadata, protein
-  features, ontology OBO/GAF files, curated orthologs)
-- An AlphaFold structure directory (.pdb.gz files)
-- 8 literature supplementary tables (xlsx/xls)
-- Curated deletion-library and essentiality-verification tables
-- BioGrid interaction table, Ensembl paralog export
+- A PomBase version directory + literature tables (per level; see each function)
+- The DNA-level table's Gene_id column, used as `coding_genes` by other levels
 
 Output
 ------
-- A tab-separated per-gene feature matrix (one row per coding gene)
-- A tab-separated codon (anti-codon) usage matrix
+- One DataFrame per level; `merge_all_features` outer-joins the six into the
+  final per-gene feature matrix.
 
 Usage
 -----
-    python collect_pombe_features.py \\
-        --pombase-dir resources/external/pombase/2025-10-01 \\
-        --alphafold-dir /path/to/AlphaFold_Dataset \\
-        --literature-dir resources/literature \\
-        --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
-        --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --biogrid-tsv resources/external/biogrid/BIOGRID-....tab3.txt \\
-        --ensembl-paralogs-tsv resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
-        --output results/features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
-        --codon-usage-output results/features/2025-10-01/codon_usage_matrix.tsv
+    from workflow.src.features.assembly import collect_rna_level_features
+    rna_df = collect_rna_level_features(literature_dir, gene_meta_file, coding_genes)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
-Date:     2026-07-15
+Date:     2026-07-17
 Version:  1.0.0
 """
 
@@ -48,13 +36,9 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import argparse
-import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
-import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
@@ -63,10 +47,11 @@ from loguru import logger
 from tqdm import tqdm
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
-from workflow.src.features.genome import DNA_level_features, PombaseGenomeConfig, calculate_anticodon_usage_matrix
-from workflow.src.features.protein import extract_protein_features_from_peptide_sequence, pLDDT_statistics_report
+from workflow.src.features.genome import DNA_level_features, PombaseGenomeConfig
+from workflow.src.features.protein import (
+    extract_protein_features_from_peptide_sequence,
+    pLDDT_statistics_report,
+)
 from workflow.src.gene_ids import update_sysIDs
 
 # =============================================================================
@@ -81,55 +66,10 @@ SELECTED_PEPTIDE_FEATURE_COLUMNS = [
     "aa_percent_Met", "aa_percent_Asn", "aa_percent_Pro", "aa_percent_Gln", "aa_percent_Arg",
     "aa_percent_Ser", "aa_percent_Thr", "aa_percent_Val", "aa_percent_Trp", "aa_percent_Tyr",
 ]
-# =============================================================================
-# CONFIGURATION & DATACLASSES
-# =============================================================================
-@dataclass(kw_only=True, slots=True, frozen=True)
-class InputOutputConfig:
-    """Validated input/output paths for the feature collection pipeline."""
-    pombase_dir: Path
-    alphafold_dir: Path
-    literature_dir: Path
-    deletion_library_xlsx: Path
-    essentiality_verification_csv: Path
-    biogrid_tsv: Path
-    ensembl_paralogs_tsv: Path
-    output_features: Path
-    output_codon_usage: Path
-
-    def __post_init__(self) -> None:
-        """Validate all input paths exist, then ensure output directories exist."""
-        required_inputs = [
-            self.pombase_dir, self.alphafold_dir, self.literature_dir,
-            self.deletion_library_xlsx, self.essentiality_verification_csv,
-            self.biogrid_tsv, self.ensembl_paralogs_tsv,
-        ]
-        for path in required_inputs:
-            if not path.exists():
-                raise ValueError(f"Required input path does not exist: {path}")
-        self.output_features.parent.mkdir(parents=True, exist_ok=True)
-        self.output_codon_usage.parent.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def gene_meta_file(self) -> Path:
-        """PomBase gene_IDs_names_products.tsv, used throughout for update_sysIDs()."""
-        return self.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv"
 
 
 # =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
-# =============================================================================
-# CORE LOGIC
+# SHARED HELPERS
 # =============================================================================
 @logger.catch
 def load_gene_meta(gene_meta_file: Path) -> tuple[pd.DataFrame, dict]:
@@ -152,6 +92,24 @@ def get_ortholog_counts(ortholog_file: Path) -> pd.Series:
 
 
 @logger.catch
+def read_coding_genes(dna_pickle: Path) -> list[str]:
+    """Recover the coding-gene set (unique Gene_id) from the DNA-level pickle."""
+    return pd.read_pickle(dna_pickle)["Gene_id"].unique().tolist()
+
+
+@logger.catch
+def load_phyloP_and_divergence(literature_dir: Path, gene_meta_file: Path) -> pd.DataFrame:
+    """Load the Grech 2019 phyloP/divergence table (shared by evolutionary + phenotype levels)."""
+    phyloP_and_divergence = pd.read_excel(
+        literature_dir / "grechFitnessLandscapeFission2019.xlsx", sheet_name="Table 2", skiprows=list(range(14))
+    ).drop_duplicates(subset=["gene"])
+    phyloP_and_divergence["gene_systematic_id"] = update_sysIDs(phyloP_and_divergence["gene"].tolist(), gene_meta_file)
+    return phyloP_and_divergence
+
+# =============================================================================
+# DNA LEVEL (the "spine" — enumerates coding genes)
+# =============================================================================
+@logger.catch
 def collect_dna_level_features(db: gffutils.FeatureDB, genome_cfg: PombaseGenomeConfig) -> tuple[pd.DataFrame, list[str]]:
     """Compute DNA-level features for every mRNA, and return the list of coding gene IDs."""
     mRNAs = list(db.features_of_type("mRNA"))
@@ -162,6 +120,11 @@ def collect_dna_level_features(db: gffutils.FeatureDB, genome_cfg: PombaseGenome
     df = pd.DataFrame(records)
     coding_genes = df["Gene_id"].unique().tolist()
     return df, coding_genes
+
+
+# =============================================================================
+# RNA LEVEL
+# =============================================================================
 @logger.catch
 def collect_rna_level_features(literature_dir: Path, gene_meta_file: Path, coding_genes: list[str]) -> pd.DataFrame:
     """Assemble mRNA abundance (Marguerat 2012) and mRNA kinetics (Harigaya 2016) features."""
@@ -206,6 +169,10 @@ def collect_rna_level_features(literature_dir: Path, gene_meta_file: Path, codin
     )
 
     return pd.concat([abundance_stats, kinetics], axis=1, join="outer")
+
+# =============================================================================
+# PROTEIN LEVEL
+# =============================================================================
 @logger.catch
 def collect_protein_level_features(
     pombase_dir: Path,
@@ -263,6 +230,10 @@ def collect_protein_level_features(
     merged = merged[merged.index.isin(coding_genes)].copy()
     merged["PFAM_domain_count"] = merged["PFAM_domain_count"].fillna(0).astype(int)
     return merged
+
+# =============================================================================
+# EVOLUTIONARY LEVEL
+# =============================================================================
 @logger.catch
 def collect_evolutionary_level_features(
     pombase_dir: Path,
@@ -270,12 +241,13 @@ def collect_evolutionary_level_features(
     literature_dir: Path,
     gene_meta_file: Path,
     coding_genes: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    phyloP_and_divergence: pd.DataFrame,
+) -> pd.DataFrame:
     """Assemble ortholog/paralog counts, evolutionary rate, and phyloP/divergence scores.
 
-    Returns (evolutionary_features_df, phyloP_and_divergence_df) — the second is reused
-    by collect_phenotype_level_features for transposon-insertion-density features that
-    live in the same source table (grechFitnessLandscapeFission2019.xlsx).
+    `phyloP_and_divergence` (Grech 2019) is loaded once via load_phyloP_and_divergence()
+    and shared with collect_phenotype_level_features, which reads transposon-insertion-density
+    columns from the same source table.
     """
     orthologs_dir = pombase_dir / "curated_orthologs"
     num_japonicus = get_ortholog_counts(orthologs_dir / "pombe_japonicus_orthologs.txt")
@@ -300,11 +272,6 @@ def collect_evolutionary_level_features(
         evolutionary_rate["Genes"].str.split(";").str[0].tolist(), gene_meta_file
     )
 
-    phyloP_and_divergence = pd.read_excel(
-        literature_dir / "grechFitnessLandscapeFission2019.xlsx", sheet_name="Table 2", skiprows=list(range(14))
-    ).drop_duplicates(subset=["gene"])
-    phyloP_and_divergence["gene_systematic_id"] = update_sysIDs(phyloP_and_divergence["gene"].tolist(), gene_meta_file)
-
     evolutionary_df = pd.concat(
         [
             num_japonicus.rename("japonicus_ortholog_count"),
@@ -321,7 +288,11 @@ def collect_evolutionary_level_features(
     evolutionary_df = evolutionary_df[evolutionary_df.index.isin(coding_genes)].copy()
     evolutionary_df["paralog_count"] = evolutionary_df["paralog_count"].fillna(0).astype(int)
 
-    return evolutionary_df, phyloP_and_divergence
+    return evolutionary_df
+
+# =============================================================================
+# NETWORK LEVEL
+# =============================================================================
 @logger.catch
 def collect_network_level_features(
     pombase_dir: Path,
@@ -357,6 +328,11 @@ def collect_network_level_features(
     network_df = network_df[network_df.index.isin(coding_genes)].copy()
     network_df = network_df.fillna(0).astype({"PPI_degree": int, "GI_degree": int})
     return network_df
+
+
+# =============================================================================
+# PHENOTYPE LEVEL
+# =============================================================================
 @logger.catch
 def collect_phenotype_level_features(
     pombase_dir: Path,
@@ -429,6 +405,10 @@ def collect_phenotype_level_features(
         join="outer", axis=1,
     )
     return phenotype_df[phenotype_df.index.isin(coding_genes)].copy()
+
+# =============================================================================
+# MERGE
+# =============================================================================
 @logger.catch
 def merge_all_features(
     dna_df: pd.DataFrame,
@@ -462,114 +442,3 @@ def merge_all_features(
     pombe_features["DeletionLibrary_category"] = pombe_features["DeletionLibrary_category"].fillna("Not_determined")
     pombe_features["RevisedDeletionLibrary_essentiality"] = pombe_features["RevisedDeletionLibrary_essentiality"].fillna("Not_determined")
     return pombe_features
-@logger.catch
-def run_feature_collection(config: InputOutputConfig) -> pd.DataFrame:
-    """Execute the full 6-group feature collection pipeline and write both output files."""
-    logger.info(f"Building gffutils DB from {config.pombase_dir}")
-    genome_dir = config.pombase_dir / "genome_sequence_and_features"
-    genome_cfg = PombaseGenomeConfig.from_pombase_dir(config.pombase_dir)
-    db = gffutils.create_db(genome_cfg.gff3_file, genome_cfg.database_file, force=True, merge_strategy="create_unique")
-    db = gffutils.FeatureDB(genome_cfg.database_file)
-
-    gene_meta, uniprot2id = load_gene_meta(config.gene_meta_file)
-
-    logger.info("Collecting DNA-level features")
-    dna_df, coding_genes = collect_dna_level_features(db, genome_cfg)
-
-    logger.info("Writing codon usage matrix")
-    codon_usage_matrix = calculate_anticodon_usage_matrix(db, genome_cfg)
-    codon_usage_matrix.to_csv(config.output_codon_usage, sep="\t", index=True)
-
-    logger.info("Collecting RNA-level features")
-    rna_df = collect_rna_level_features(config.literature_dir, config.gene_meta_file, coding_genes)
-
-    logger.info("Collecting protein-level features")
-    protein_meta = pd.read_csv(config.pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0)
-    protein_df = collect_protein_level_features(
-        config.pombase_dir, config.alphafold_dir, config.literature_dir,
-        config.gene_meta_file, protein_meta, uniprot2id, coding_genes,
-    )
-
-    logger.info("Collecting evolutionary-level features")
-    evolutionary_df, phyloP_and_divergence = collect_evolutionary_level_features(
-        config.pombase_dir, config.ensembl_paralogs_tsv, config.literature_dir, config.gene_meta_file, coding_genes,
-    )
-
-    logger.info("Loading GO ontology data for network-level features")
-    ontology_cfg = OntologyDataConfig(
-        ontology_obo=config.pombase_dir / "ontologies_and_associations" / "go-basic.obo",
-        ontology_association_gaf=config.pombase_dir / "ontologies_and_associations" / "gene_ontology_annotation.gaf.tsv",
-        slim_terms_table=[
-            config.pombase_dir / "ontologies_and_associations" / "bp_go_slim_terms.tsv",
-            config.pombase_dir / "ontologies_and_associations" / "mf_go_slim_terms.tsv",
-            config.pombase_dir / "ontologies_and_associations" / "cc_go_slim_terms.tsv",
-        ],
-    )
-    _, _, _, gene2go, _, _ = load_ontology_data(
-        ontology_cfg.load_data(),
-        relationships={"is_a", "part_of"}, propagate_counts=True, load_obsolete=False, prt=None,
-    )
-
-    logger.info("Collecting network-level features")
-    network_df = collect_network_level_features(config.pombase_dir, config.biogrid_tsv, gene2go, coding_genes)
-
-    logger.info("Collecting phenotype-level features")
-    phenotype_df = collect_phenotype_level_features(
-        config.pombase_dir, config.deletion_library_xlsx, config.essentiality_verification_csv,
-        config.literature_dir, config.gene_meta_file, coding_genes, phyloP_and_divergence,
-    )
-
-    logger.info("Merging all feature groups")
-    pombe_features = merge_all_features(dna_df, rna_df, protein_df, evolutionary_df, network_df, phenotype_df, gene_meta)
-
-    pombe_features.to_csv(config.output_features, sep="\t", index=False)
-    logger.success(f"Wrote {len(pombe_features)} gene records to {config.output_features}")
-
-    return pombe_features
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Collect pombe coding gene features from 15 sources")
-    parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--alphafold-dir", type=Path, required=True, help="AlphaFold structure directory (.pdb.gz files)")
-    parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion library categories xlsx")
-    parser.add_argument("--essentiality-verification-csv", type=Path, required=True, help="Curated essentiality verification csv")
-    parser.add_argument("--biogrid-tsv", type=Path, required=True, help="BioGrid interaction table")
-    parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table")
-    parser.add_argument("--output", type=Path, required=True, dest="output_features", help="Output feature matrix path")
-    parser.add_argument("--codon-usage-output", type=Path, required=True, dest="output_codon_usage", help="Output codon usage matrix path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
-    return parser.parse_args()
-
-
-def main() -> int:
-    """Main orchestrator: validate paths, run the feature collection pipeline, report results."""
-    args = parse_args()
-    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
-
-    try:
-        config = InputOutputConfig(
-            pombase_dir=args.pombase_dir,
-            alphafold_dir=args.alphafold_dir,
-            literature_dir=args.literature_dir,
-            deletion_library_xlsx=args.deletion_library_xlsx,
-            essentiality_verification_csv=args.essentiality_verification_csv,
-            biogrid_tsv=args.biogrid_tsv,
-            ensembl_paralogs_tsv=args.ensembl_paralogs_tsv,
-            output_features=args.output_features,
-            output_codon_usage=args.output_codon_usage,
-        )
-        run_feature_collection(config)
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        return 1
-
-    return 0
-
-
-if __name__ == "__main__":
-    setup_logger()
-    sys.exit(main())

@@ -21,7 +21,7 @@ Output
 Usage
 -----
     from workflow.src.features.genome import PombaseGenomeConfig, DNA_level_features
-    cfg = PombaseGenomeConfig.from_pombase_dir(pombase_dir)
+    cfg = PombaseGenomeConfig.from_pombase_dir(pombase_dir, landmarks_file)
     db = gffutils.FeatureDB(cfg.database_file)
     features = [DNA_level_features.from_gffutils_feature(m, db, cfg) for m in db.features_of_type("mRNA")]
 
@@ -45,6 +45,7 @@ import pandas as pd
 
 # 3. Third-party Imports
 import gffutils
+import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqUtils import GC123, gc_fraction
@@ -52,25 +53,19 @@ from codonbias.scores import EffectiveNumberOfCodons
 from loguru import logger
 
 # =============================================================================
-# GLOBAL CONSTANTS
+# GENOME LANDMARKS
 # =============================================================================
-CHR1_LEFT_TELOMERE_END = 29663
-CHR1_RIGHT_TELOMERE_START = 5554844
-CHR2_LEFT_TELOMERE_END = 39186
-CHR2_RIGHT_TELOMERE_START = 4500619
-CHR3_LEFT_RIBOSOMAL_DNA_END = 23130
-CHR3_RIGHT_RIBOSOMAL_DNA_START = 2440994
-
-CHROMOSOME_END = {
-    "left": {"I": CHR1_LEFT_TELOMERE_END, "II": CHR2_LEFT_TELOMERE_END, "III": CHR3_LEFT_RIBOSOMAL_DNA_END},
-    "right": {"I": CHR1_RIGHT_TELOMERE_START, "II": CHR2_RIGHT_TELOMERE_START, "III": CHR3_RIGHT_RIBOSOMAL_DNA_START},
-}
-
-CENTROMERE_POSITIONS = {
-    "I": (3753687, 3789421),
-    "II": (1602418, 1644747),
-    "III": (1070904, 1137003),
-}
+# Telomere/ribosomal-DNA boundaries and centromere spans used for per-gene
+# distance features live in config/genome_landmarks.yaml (they are assembly
+# properties, not experiment parameters). This module never hard-codes them or
+# resolves the path itself — the caller passes the file in (design doc §3/§4).
+def load_genome_landmarks(landmarks_file: Path) -> tuple[dict, dict]:
+    """Load chromosome_end and centromere_positions dicts from a genome-landmarks YAML."""
+    with open(landmarks_file) as f:
+        landmarks = yaml.safe_load(f)
+    chromosome_end = landmarks["chromosome_end"]
+    centromere_positions = {chrom: tuple(span) for chrom, span in landmarks["centromere_positions"].items()}
+    return chromosome_end, centromere_positions
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -85,14 +80,21 @@ class PombaseGenomeConfig:
     genome_sequence_dict: dict[str, Seq]
     genome_length_dict: dict[str, int]
     primary_peptide_length: dict[str, int]
+    chromosome_end: dict[str, dict[str, int]]
+    centromere_positions: dict[str, tuple[int, int]]
 
     @classmethod
-    def from_pombase_dir(cls, pombase_dir: Path) -> PombaseGenomeConfig:
-        """Build config from a PomBase version directory (e.g. resources/external/pombase/2025-10-01)."""
+    def from_pombase_dir(cls, pombase_dir: Path, landmarks_file: Path) -> PombaseGenomeConfig:
+        """Build config from a PomBase version directory + a genome-landmarks YAML.
+
+        `landmarks_file` (config/genome_landmarks.yaml) supplies the telomere/centromere
+        coordinates; the caller passes it in rather than the module hard-coding them.
+        """
         genome_dir = pombase_dir / "genome_sequence_and_features"
         fasta_file = str(genome_dir / "Schizosaccharomyces_pombe_all_chromosomes.fa")
         peptide_stats = pd.read_csv(pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0)
         genome_sequence_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, "fasta"))
+        chromosome_end, centromere_positions = load_genome_landmarks(landmarks_file)
 
         return cls(
             fasta_file=fasta_file,
@@ -102,6 +104,8 @@ class PombaseGenomeConfig:
             genome_sequence_dict=genome_sequence_dict,
             genome_length_dict={k: len(v) for k, v in genome_sequence_dict.items()},
             primary_peptide_length=peptide_stats["Residues"].to_dict(),
+            chromosome_end=chromosome_end,
+            centromere_positions=centromere_positions,
         )
 
 
@@ -111,12 +115,16 @@ class PombaseGenomeConfig:
 @logger.catch
 def determine_primary_candidate(gene_id: str, mRNA_id: str, peptide_length: int, primary_peptide_length: int) -> bool:
     """Determine if the mRNA is the primary transcript, with hardcoded exceptions for known mis-annotated loci."""
-    if gene_id in ["SPBC119.04", "SPBC17A3.07"]:
+    # Known mis-annotated loci whose ".1" isoform is primary regardless of peptide length.
+    # (Two separate exception lists in the source notebook, merged here: both applied the
+    # identical ".1" rule, so the split was cosmetic.)
+    primary_is_dot_one = [
+        "SPBC119.04", "SPBC17A3.07",
+        "SPAC212.11", "SPAC2E12.05", "SPAC977.01", "SPMIT.03", "SPMIT.06", "SPMIT.08",
+    ]
+    if gene_id in primary_is_dot_one:
         return mRNA_id.endswith(".1")
-    elif gene_id in ["SPAC212.11", "SPAC2E12.05", "SPAC977.01", "SPMIT.03", "SPMIT.06", "SPMIT.08"]:
-        return mRNA_id.endswith(".1")
-    else:
-        return peptide_length == primary_peptide_length
+    return peptide_length == primary_peptide_length
 
 
 @dataclass
@@ -169,11 +177,11 @@ class DNA_level_features:
         midpoint = (start + end) // 2
 
         abs_distance_from_telomere = min(
-            abs(midpoint - CHROMOSOME_END["left"].get(chrom, np.nan)),
-            abs(midpoint - CHROMOSOME_END["right"].get(chrom, np.nan)),
+            abs(midpoint - cfg.chromosome_end["left"].get(chrom, np.nan)),
+            abs(midpoint - cfg.chromosome_end["right"].get(chrom, np.nan)),
         )
         relative_distance_from_telomere = round(abs_distance_from_telomere / cfg.genome_length_dict[chrom], 3)
-        abs_distance_from_centromere = abs(midpoint - np.mean(CENTROMERE_POSITIONS.get(chrom, (np.nan, np.nan))))
+        abs_distance_from_centromere = abs(midpoint - np.mean(cfg.centromere_positions.get(chrom, (np.nan, np.nan))))
         relative_distance_from_centromere = round(abs_distance_from_centromere / cfg.genome_length_dict[chrom], 3)
 
         gene_length = abs(end - start) + 1
