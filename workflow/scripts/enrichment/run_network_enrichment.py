@@ -40,7 +40,7 @@ Version:  1.0.0
 # 1. Standard Library Imports
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -70,6 +70,7 @@ class NetworkConfig:
     output_dir: Path
     cache_dir: Path
     wt_cluster: int = WT_CLUSTER
+    revigo_cutoffs: list[float] = field(default_factory=lambda: list(REVIGO_CUTOFFS))
 
     def validate(self) -> None:
         """Raise ValueError if the upstream enrichment dir is missing."""
@@ -124,7 +125,7 @@ def annotate_go_with_revigo(config: NetworkConfig) -> pd.DataFrame:
     annotated_parts = []
     for (cluster, namespace), ns_df in go_df.groupby(["Cluster", "namespace"]):
         ns_df = ns_df.copy()
-        for threshold in REVIGO_CUTOFFS:
+        for threshold in config.revigo_cutoffs:
             revigo = revigo_analysis(ns_df, cut_off=threshold, cache_dir=config.cache_dir)
             revigo = (
                 revigo.set_index("Term ID")[["Dispensability", "Eliminated", "Representative"]]
@@ -168,6 +169,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True, help="Output dir for network results")
     parser.add_argument("--cache-dir", type=Path, required=True, help="Cache dir for API responses")
     parser.add_argument("--wt-cluster", type=int, default=WT_CLUSTER, help="WT/background cluster id (default 9)")
+    parser.add_argument(
+        "--revigo-cutoffs", type=float, nargs="+", default=list(REVIGO_CUTOFFS),
+        help=f"REVIGO semantic-similarity cutoffs, run in order (default {REVIGO_CUTOFFS})",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -183,6 +188,7 @@ def main() -> int:
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
             wt_cluster=args.wt_cluster,
+            revigo_cutoffs=args.revigo_cutoffs,
         )
         run_network_enrichment(config)
     except ValueError as e:

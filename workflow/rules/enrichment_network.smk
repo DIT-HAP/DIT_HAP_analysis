@@ -20,6 +20,9 @@ rule run_network_enrichment:
         output_dir="results/enrichment/network/{dataset}/{pombase_version}",
         cache_dir="resources/external/enrichment_cache/{dataset}",
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
+        revigo_cutoffs=" ".join(
+            str(c) for c in config.get("enrichment_network", {}).get("revigo_cutoffs", [0.7, 0.5])
+        ),
     log:
         "logs/enrichment/run_network_enrichment_{dataset}_{pombase_version}.log",
     conda:
@@ -32,5 +35,6 @@ rule run_network_enrichment:
             --enrichment-dir {params.enrichment_dir} \
             --output-dir {params.output_dir} \
             --cache-dir {params.cache_dir} \
-            --wt-cluster {params.wt_cluster} &> {log}
+            --wt-cluster {params.wt_cluster} \
+            --revigo-cutoffs {params.revigo_cutoffs} &> {log}
         """

@@ -42,6 +42,17 @@ def test_scale_features_caps_DR_and_divides_DL():
     assert list(scaled["DL"]) == [1.0, 2.0, 0.5, 10.0]
 
 
+def test_scale_features_respects_custom_dr_cap_and_dl_divisor():
+    """Non-default dr_cap/dl_divisor (as would come from config/analysis.yaml) are honored."""
+    df = pd.DataFrame(
+        {"DR": [0.5, 1.0, 2.0], "DL": [10.0, 20.0, 5.0]},
+        index=["g1", "g2", "g3"],
+    )
+    scaled = scale_features(df, ["DR", "DL"], dr_cap=1.0, dl_divisor=5)
+    assert list(scaled["DR"]) == [0.5, 1.0, 1.0]
+    assert list(scaled["DL"]) == [2.0, 4.0, 1.0]
+
+
 def test_scale_features_drops_nan_rows():
     """dropna defines the clustered set — genes with NaN DR/DL are excluded."""
     df = pd.DataFrame(
