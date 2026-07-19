@@ -1,15 +1,16 @@
 # Dataset registry — points at DIT_HAP_snakemake's packaged release/ dirs.
 # See docs/plans/2026-07-15-DIT-HAP-analysis-design.md §3.
-default_dataset: HD_DIT_HAP_generationRAW
+default_dataset: HD_DIT_HAP
 
 snakemake_repo: /data/c/yangyusheng_optimized/DIT_HAP_snakemake
 
+reference:
+  pombase_version: "2026-06-01"
+  # AlphaFold structures are too large to copy locally (design doc §4) — referenced
+  # by absolute external path instead of a resources/ copy.
+  alphafold_dir: /hugedata/YushengYang/AFdb/UP000002485_284812_SCHPO_v6
+
 datasets:
-  HD_DIT_HAP_generationRAW:
-    label: "HD, raw generations"
-    release_dir: projects/HD_DIT_HAP_generationRAW/release
-    has_time_points: true
-    has_imputation: true
   LD_DIT_HAP_generationRAW:
     label: "LD, raw generations"
     release_dir: projects/LD_DIT_HAP_generationRAW/release
@@ -18,16 +19,6 @@ datasets:
   HD_DIT_HAP:
     label: "HD DIT-HAP"
     release_dir: projects/HD_DIT_HAP/release
-    has_time_points: true
-    has_imputation: false
-  HD_DIT_HAP_generationPLUS1:
-    label: "HD, generation+1"
-    release_dir: projects/HD_DIT_HAP_generationPLUS1/release
-    has_time_points: true
-    has_imputation: true
-  LD_DIT_HAP_generationPLUS1:
-    label: "LD, generation+1"
-    release_dir: projects/LD_DIT_HAP_generationPLUS1/release
     has_time_points: true
     has_imputation: true
   HD_diploid:
@@ -51,8 +42,4 @@ datasets:
     has_time_points: true
     has_imputation: false   # release/ populated on disk
 
-reference:
-  pombase_version: "2026-06-01"
-  # AlphaFold structures are too large to copy locally (design doc §4) — referenced
-  # by absolute external path instead of a resources/ copy.
-  alphafold_dir: /data/c/yangyusheng_optimized/resource/AlphaFold_Dataset/20251107_downloaded/UP000002485_284812_SCHPO_v6
+
