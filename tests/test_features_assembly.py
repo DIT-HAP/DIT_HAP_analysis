@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.src.features.assembly import get_ortholog_counts, read_coding_genes
+from workflow.src.features.assembly import get_ortholog_counts, merge_all_features, read_coding_genes
 from workflow.scripts.features.collect_dna_features import DnaConfig
 from workflow.scripts.features.collect_rna_features import RnaConfig
 from workflow.scripts.features.merge_features import MergeConfig
@@ -60,6 +60,34 @@ def test_rna_config_gene_meta_file_property(tmp_path):
         output_rna=tmp_path / "out" / "rna.pkl",
     )
     assert cfg.gene_meta_file == tmp_path / "pombase" / "2025-10-01" / "Gene_metadata" / "gene_IDs_names_products.tsv"
+
+
+def test_merge_all_features_fills_new_deletion_library_columns(tmp_path):
+    """Sub_category/Growth_tier ride along with the other DeletionLibrary_* columns and get NA-filled."""
+    dna_df = pd.DataFrame({"Gene_id": ["g1", "g2"], "Primary_candidate": [True, True]})
+    empty_df = pd.DataFrame(index=pd.Index(["g1", "g2"], name="Gene_id"))
+    network_df = pd.DataFrame(
+        {"GO_term_richness": [1, 2], "PPI_degree": [0, 0], "GI_degree": [0, 0]},
+        index=pd.Index(["g1", "g2"], name="Gene_id"),
+    )
+    phenotype_df = pd.DataFrame(
+        {
+            "DeletionLibrary_essentiality": ["V", None],
+            "DeletionLibrary_category": ["WT-like", None],
+            "RevisedDeletionLibrary_essentiality": ["V", None],
+            "Sub_category": ["WT-like", None],
+            "Growth_tier": [11, None],
+        },
+        index=pd.Index(["g1", "g2"], name="Gene_id"),
+    )
+    gene_meta = pd.DataFrame({"gene_systematic_id": ["g1", "g2"], "gene_name": ["a", "b"]})
+
+    merged = merge_all_features(dna_df, empty_df, empty_df, empty_df, network_df, phenotype_df, gene_meta)
+
+    assert merged.set_index("gene_systematic_id").loc["g2", "Sub_category"] == "Not_determined"
+    assert merged.set_index("gene_systematic_id").loc["g2", "Growth_tier"] == 0
+    assert merged.set_index("gene_systematic_id").loc["g1", "Growth_tier"] == 11
+    assert merged["Growth_tier"].dtype == int
 
 
 def test_merge_config_rejects_missing_level_pickle(tmp_path):
