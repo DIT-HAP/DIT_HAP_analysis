@@ -1,12 +1,28 @@
 # =============================================================================
 # clustering.smk — Deterministic gene-level clustering (candidate labeling)
 # =============================================================================
-
+#
 # Per-dataset: clusters genes in the 2-D depletion feature space (DR, DL) from
 # gene-level curve fitting. Produces CANDIDATE labels only — the manual 64->9
 # merge lives in notebooks/clustering/finalize_gene_clusters.ipynb, which writes
 # resources/curated/final_clusters.tsv (design doc §5).
-rule generate_candidate_clusters:
+#
+# Split by clustering method, mirroring ml.smk's target x mode fan-out:
+#   prepare  -> scaled (DR, DL) matrix + k-sweep (the shared "spine")
+#   cluster  -> one job per method (kmeans / hierarchical_agg / hierarchical_div / gmm)
+#   select   -> attach the pinned best-method (kmeans) labels + aggregate metrics
+# Per-method intermediates are pickles under _work/ so label dtype and exact
+# metric precision survive round-trip; only the final two files are TSV.
+
+_CLUSTER_METHODS = ["kmeans", "hierarchical_agg", "hierarchical_div", "gmm"]
+_CWORK = "results/clustering/candidates/{dataset}/_work"
+
+wildcard_constraints:
+    method="|".join(_CLUSTER_METHODS),
+
+
+# --- Preprocessing spine (load/annotate/scale/k-sweep) ---
+rule prepare_clustering_data:
     input:
         fitting_results=lambda wc: (
             f"{DATASETS['snakemake_repo']}/"
@@ -14,24 +30,84 @@ rule generate_candidate_clusters:
         ),
         essentiality_verification_csv="resources/curated/essentiality_verification.csv",
     output:
-        clusters="results/clustering/candidates/{dataset}/candidate_clusters.tsv",
-        metrics="results/clustering/candidates/{dataset}/clustering_metrics.tsv",
+        annotated=f"{_CWORK}/annotated_data.pkl",
+        scaled=f"{_CWORK}/scaled_data.pkl",
+        ksweep=f"{_CWORK}/k_sweep_metrics.pkl",
+    params:
+        random_state=config.get("clustering", {}).get("random_state", 42),
+        k_min=config.get("clustering", {}).get("k_min", 2),
+        k_max=config.get("clustering", {}).get("k_max", 20),
+    log:
+        "logs/clustering/prepare_clustering_data_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Preparing scaled matrix + k-sweep for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/prepare_clustering_data.py \
+            --fitting-results {input.fitting_results} \
+            --essentiality-verification-csv {input.essentiality_verification_csv} \
+            --output-annotated {output.annotated} \
+            --output-scaled {output.scaled} \
+            --output-ksweep {output.ksweep} \
+            --random-state {params.random_state} \
+            --k-min {params.k_min} \
+            --k-max {params.k_max} &> {log}
+        """
+
+
+# --- One clustering method (fanned out by the `method` wildcard) ---
+rule cluster_one_method:
+    input:
+        scaled=f"{_CWORK}/scaled_data.pkl",
+    output:
+        labels=f"{_CWORK}/{{method}}_labels.pkl",
+        metrics=f"{_CWORK}/{{method}}_metrics.pkl",
     params:
         n_clusters=config.get("clustering", {}).get("n_clusters", 64),
         random_state=config.get("clustering", {}).get("random_state", 42),
     log:
-        "logs/clustering/generate_candidate_clusters_{dataset}.log",
+        "logs/clustering/cluster_{method}_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
-        "*** Generating candidate clusters for {wildcards.dataset}..."
+        "*** [clustering] Running {wildcards.method} for {wildcards.dataset}..."
     shell:
         """
-        python workflow/scripts/clustering/generate_candidate_clusters.py \
-            --fitting-results {input.fitting_results} \
-            --essentiality-verification-csv {input.essentiality_verification_csv} \
-            --output {output.clusters} \
-            --metrics-output {output.metrics} \
+        python workflow/scripts/clustering/cluster_one_method.py \
+            --method {wildcards.method} \
+            --scaled-data {input.scaled} \
+            --output-labels {output.labels} \
+            --output-metrics {output.metrics} \
             --n-clusters {params.n_clusters} \
             --random-state {params.random_state} &> {log}
+        """
+
+
+# --- Select best-method labels + aggregate metrics ---
+rule select_candidate_clusters:
+    input:
+        annotated=f"{_CWORK}/annotated_data.pkl",
+        ksweep=f"{_CWORK}/k_sweep_metrics.pkl",
+        best_labels=f"{_CWORK}/kmeans_labels.pkl",
+        method_metrics=expand(f"{_CWORK}/{{method}}_metrics.pkl", method=_CLUSTER_METHODS, allow_missing=True),
+    output:
+        clusters="results/clustering/candidates/{dataset}/candidate_clusters.tsv",
+        metrics="results/clustering/candidates/{dataset}/clustering_metrics.tsv",
+    log:
+        "logs/clustering/select_candidate_clusters_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Selecting candidate clusters for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/select_candidate_clusters.py \
+            --annotated-data {input.annotated} \
+            --ksweep {input.ksweep} \
+            --best-labels {input.best_labels} \
+            --method-metrics {input.method_metrics} \
+            --output {output.clusters} \
+            --metrics-output {output.metrics} &> {log}
         """

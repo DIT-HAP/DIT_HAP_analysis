@@ -1,4 +1,4 @@
-"""Tests for workflow/scripts/clustering/generate_candidate_clusters.py."""
+"""Tests for the split gene-level clustering pipeline (shared module + driver configs)."""
 
 import sys
 from pathlib import Path
@@ -9,20 +9,24 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.scripts.clustering.generate_candidate_clusters import (
-    ClusteringConfig,
+from workflow.src.clustering.candidates import (
+    BEST_METHOD,
     DR_CAP,
     DL_DIVISOR,
-    BEST_METHOD,
+    METHODS,
+    cluster_one_method,
     scale_features,
-    perform_clustering_analysis,
-    calculate_clustering_metrics,
+    score_labels,
 )
+from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
+from workflow.scripts.clustering.cluster_one_method import MethodConfig
+from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
 
 
 def test_best_method_is_pinned_to_kmeans():
     """The fragile set()[0] selection is replaced by an explicit pin (quirk #3)."""
     assert BEST_METHOD == "kmeans"
+    assert METHODS[0] == "kmeans"
 
 
 def test_scale_features_caps_DR_and_divides_DL():
@@ -48,43 +52,91 @@ def test_scale_features_drops_nan_rows():
     assert list(scaled.index) == ["g1"]
 
 
-def test_perform_clustering_analysis_returns_four_methods_0based():
-    """All four algorithms return 0-based labels for the requested cluster count."""
+def test_cluster_one_method_all_four_return_0based_labels():
+    """Each of the four methods returns 0-based labels for the requested cluster count."""
     rng = np.random.default_rng(0)
     data = pd.DataFrame(rng.random((60, 2)), columns=["DR", "DL"])
-    results = perform_clustering_analysis(data, n_clusters=4, random_state=42)
-    assert set(results) == {"kmeans", "hierarchical_agg", "hierarchical_div", "gmm"}
-    for method, labels in results.items():
+    for method in METHODS:
+        labels = cluster_one_method(method, data, n_clusters=4, random_state=42)
         assert labels.min() == 0, method
         assert len(np.unique(labels)) == 4, method
 
 
-def test_calculate_clustering_metrics_scores_each_method():
-    """Metrics table has one row per method with the three scores + n_clusters."""
+def test_cluster_one_method_rejects_unknown_method():
+    """cluster_one_method raises ValueError on an unrecognized method name."""
+    data = pd.DataFrame(np.random.default_rng(0).random((20, 2)), columns=["DR", "DL"])
+    with pytest.raises(ValueError, match="Unknown clustering method"):
+        cluster_one_method("dbscan", data, n_clusters=3, random_state=42)
+
+
+def test_score_labels_reports_three_scores_and_count():
+    """score_labels returns the three sklearn scores plus the cluster count."""
     rng = np.random.default_rng(1)
     data = pd.DataFrame(rng.random((60, 2)), columns=["DR", "DL"])
-    results = perform_clustering_analysis(data, n_clusters=3, random_state=42)
-    metrics = calculate_clustering_metrics(data, results)
-    assert set(metrics["method"]) == {"kmeans", "hierarchical_agg", "hierarchical_div", "gmm"}
-    assert {"silhouette_score", "calinski_harabasz_score", "davies_bouldin_score", "n_clusters"} <= set(metrics.columns)
+    labels = cluster_one_method("kmeans", data, n_clusters=3, random_state=42)
+    scores = score_labels(data, labels)
+    assert set(scores) == {"silhouette_score", "calinski_harabasz_score", "davies_bouldin_score", "n_clusters"}
+    assert scores["n_clusters"] == 3
 
 
 def test_kmeans_is_deterministic_given_seed():
     """Same seed + same data -> identical kmeans labels (reproducibility guarantee)."""
     rng = np.random.default_rng(2)
     data = pd.DataFrame(rng.random((80, 2)), columns=["DR", "DL"])
-    r1 = perform_clustering_analysis(data, n_clusters=5, random_state=42)["kmeans"]
-    r2 = perform_clustering_analysis(data, n_clusters=5, random_state=42)["kmeans"]
+    r1 = cluster_one_method("kmeans", data, n_clusters=5, random_state=42)
+    r2 = cluster_one_method("kmeans", data, n_clusters=5, random_state=42)
     assert np.array_equal(r1, r2)
 
 
-def test_config_validate_rejects_missing_input(tmp_path):
-    """validate() raises ValueError when a required input file is absent."""
-    cfg = ClusteringConfig(
+def test_combine_metrics_stacks_ksweep_then_rounded_methods():
+    """combine_metrics concatenates the unrounded k-sweep and 3dp-rounded method rows."""
+    ksweep = pd.DataFrame({"k": [2], "inertia": [1.23456], "silhouette": [0.5]})
+    methods = pd.DataFrame(
+        {"method": ["kmeans"], "silhouette_score": [0.4531111], "n_clusters": [64]}
+    )
+    combined = combine_metrics(ksweep, methods)
+    assert list(combined["table"]) == ["k_sweep", "method_comparison"]
+    # k-sweep row keeps full precision; method row is rounded to 3 dp.
+    assert combined.loc[0, "inertia"] == 1.23456
+    assert combined.loc[1, "silhouette_score"] == 0.453
+
+
+def test_prepare_config_rejects_missing_input(tmp_path):
+    """PrepareConfig.validate raises ValueError when a required input file is absent."""
+    cfg = PrepareConfig(
         fitting_results=tmp_path / "nope.tsv",
         essentiality_verification_csv=tmp_path / "also_nope.csv",
-        output_clusters=tmp_path / "out.tsv",
-        output_metrics=tmp_path / "metrics.tsv",
+        output_annotated=tmp_path / "w" / "ann.pkl",
+        output_scaled=tmp_path / "w" / "scaled.pkl",
+        output_ksweep=tmp_path / "w" / "ksweep.pkl",
+    )
+    with pytest.raises(ValueError, match="Required input not found"):
+        cfg.validate()
+
+
+def test_method_config_rejects_unknown_method(tmp_path):
+    """MethodConfig.validate raises ValueError on an unrecognized method name."""
+    scaled = tmp_path / "scaled.pkl"
+    scaled.write_bytes(b"")
+    cfg = MethodConfig(
+        method="spectral",
+        scaled_data=scaled,
+        output_labels=tmp_path / "w" / "l.pkl",
+        output_metrics=tmp_path / "w" / "m.pkl",
+    )
+    with pytest.raises(ValueError, match="Unknown clustering method"):
+        cfg.validate()
+
+
+def test_select_config_rejects_missing_input(tmp_path):
+    """SelectConfig.validate raises ValueError when a required input is absent."""
+    cfg = SelectConfig(
+        annotated_data=tmp_path / "ann.pkl",
+        ksweep=tmp_path / "ksweep.pkl",
+        best_labels=tmp_path / "labels.pkl",
+        method_metrics=[tmp_path / "m.pkl"],
+        output_clusters=tmp_path / "out" / "candidate_clusters.tsv",
+        output_metrics=tmp_path / "out" / "clustering_metrics.tsv",
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
