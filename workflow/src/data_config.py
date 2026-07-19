@@ -45,7 +45,7 @@ import yaml
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-DATASETS_YAML = Path("config/datasets.yaml")
+DATASETS_YAML = Path(__file__).resolve().parents[2] / "config" / "datasets.yaml"
 
 # Pre-release intermediate subdir holding merge_strand_insertions output (the
 # strand-resolved PBL/PBR/Reads tables per sample_timepoint_condition). release/
