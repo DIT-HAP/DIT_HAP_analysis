@@ -37,6 +37,8 @@ rule prepare_clustering_data:
         random_state=config.get("clustering", {}).get("random_state", 42),
         k_min=config.get("clustering", {}).get("k_min", 2),
         k_max=config.get("clustering", {}).get("k_max", 20),
+        dr_cap=config.get("clustering", {}).get("dr_cap", 1.3),
+        dl_divisor=config.get("clustering", {}).get("dl_divisor", 10),
     log:
         "logs/clustering/prepare_clustering_data_{dataset}.log",
     conda:
@@ -53,7 +55,9 @@ rule prepare_clustering_data:
             --output-ksweep {output.ksweep} \
             --random-state {params.random_state} \
             --k-min {params.k_min} \
-            --k-max {params.k_max} &> {log}
+            --k-max {params.k_max} \
+            --dr-cap {params.dr_cap} \
+            --dl-divisor {params.dl_divisor} &> {log}
         """
 
 

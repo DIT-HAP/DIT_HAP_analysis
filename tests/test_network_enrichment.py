@@ -17,6 +17,7 @@ from workflow.src.enrichment.pipeline import (
     stringdb_enrichment,
     revigo_analysis,
 )
+from workflow.scripts.enrichment.run_network_enrichment import NetworkConfig, annotate_go_with_revigo
 
 
 def test_cache_key_is_deterministic_and_order_independent_per_arg():
@@ -61,6 +62,35 @@ def test_revigo_analysis_uses_cache_without_network(tmp_path):
 
     result = revigo_analysis(enrich_df, cut_off=0.7, cache_dir=tmp_path)
     pd.testing.assert_frame_equal(result, seeded)
+
+
+def test_annotate_go_with_revigo_uses_configured_cutoffs(tmp_path):
+    """annotate_go_with_revigo runs one REVIGO round per configured cutoff, not the hardcoded [0.7, 0.5]."""
+    enrichment_dir = tmp_path / "enrichment"
+    enrichment_dir.mkdir()
+    go_df = pd.DataFrame(
+        {"Cluster": [1], "namespace": ["BP"], "term_id": ["GO:0001"], "p_fdr": [0.01]}
+    )
+    go_df.to_csv(enrichment_dir / "go_enrichment_full.tsv", sep="\t", index=False)
+
+    cache_dir = tmp_path / "cache"
+    key = _cache_key("revigo", "0.9", "GO:0001:0.01")
+    seeded = pd.DataFrame(
+        {"Term ID": ["GO:0001"], "Dispensability": [0.1], "Eliminated": [False], "Representative": ["mitosis"]}
+    )
+    _cache_store(cache_dir, key, seeded)
+
+    config = NetworkConfig(
+        enrichment_dir=enrichment_dir, output_dir=tmp_path / "out", cache_dir=cache_dir,
+        revigo_cutoffs=[0.9],
+    )
+    result = annotate_go_with_revigo(config)
+
+    # Only the single configured cutoff (0.9) produced suffixed columns; the
+    # hardcoded defaults (0.7, 0.5) must not appear.
+    assert "Representative_0.9" in result.columns
+    assert "Representative_0.7" not in result.columns
+    assert "Representative_0.5" not in result.columns
 
 
 def test_format_string_enrichment_maps_namespaces_and_schema():

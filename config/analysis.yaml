@@ -8,12 +8,18 @@ clustering:
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
   k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers)
   k_max: 20             # k-sweep upper bound
+  dr_cap: 1.3           # DR above this is clamped to this value (byte-faithful quirk)
+  dl_divisor: 10        # DL is divided by this before clustering
 
 # --- Ontology enrichment (enrichment.smk) ---
 enrichment:
   fdr_threshold: 0.05   # alpha for goatools FDR-BH
   wt_cluster: 9         # WT/background cluster id; clusters < this get nonWT comparison
   pop_count_max: 400    # max pop_count for the filtered GO output
+
+# --- Network enrichment: STRING + REVIGO (enrichment_network.smk) ---
+enrichment_network:
+  revigo_cutoffs: [0.7, 0.5]   # REVIGO semantic-similarity cutoffs, run in order (loose then tight)
 
 # --- Machine learning (ml.smk) ---
 ml:

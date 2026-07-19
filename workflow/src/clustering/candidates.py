@@ -110,11 +110,13 @@ def load_and_annotate(fitting_results: Path, essentiality_verification_csv: Path
 
 
 @logger.catch
-def scale_features(data_df: pd.DataFrame, selected_features: list[str]) -> pd.DataFrame:
-    """Apply the notebook's bespoke scaling: cap DR at 1.3, divide DL by 10; dropna defines the clustered set."""
+def scale_features(
+    data_df: pd.DataFrame, selected_features: list[str], dr_cap: float = DR_CAP, dl_divisor: float = DL_DIVISOR
+) -> pd.DataFrame:
+    """Apply the notebook's bespoke scaling: cap DR at dr_cap, divide DL by dl_divisor; dropna defines the clustered set."""
     scaled_data = data_df[selected_features].dropna().copy()
-    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x < DR_CAP else DR_CAP)
-    scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / DL_DIVISOR)
+    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x < dr_cap else dr_cap)
+    scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / dl_divisor)
     logger.info(f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features")
     return scaled_data
 
