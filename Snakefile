@@ -45,9 +45,9 @@ _DATASET = DATASETS["default_dataset"]
 
 rule all:
     input:
-        f"results/features/{_REF}/pombe_coding_gene_protein_features.tsv",
+        # f"results/features/{_REF}/pombe_coding_gene_protein_features.tsv",
         # Clustering candidates (per dataset):
-        # f"results/clustering/candidates/{_DATASET}/candidate_clusters.tsv",
+        f"results/clustering/candidates/{_DATASET}/candidate_clusters.tsv",
         # Enrichment (needs resources/curated/final_clusters.tsv from the manual notebook):
         # f"results/enrichment/raw/{_DATASET}/{_REF}/go_enrichment_full_filtered.tsv",
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
