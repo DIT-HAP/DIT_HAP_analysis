@@ -358,8 +358,8 @@ def collect_phenotype_level_features(
     ).set_index("gene_systematic_id")
 
     DeletionLibrary_essentiality = pd.read_excel(deletion_library_xlsx)[
-        ["Updated_Systematic_ID", "Gene dispensability. This study", "Category"]
-    ].set_index("Updated_Systematic_ID").rename(
+        ["Systematic ID", "Gene dispensability. This study", "Category", "Sub_category", "Growth_tier"]
+    ].set_index("Systematic ID").rename(
         columns={"Gene dispensability. This study": "DeletionLibrary_essentiality", "Category": "DeletionLibrary_category"}
     )
 
@@ -447,4 +447,6 @@ def merge_all_features(
     pombe_features["DeletionLibrary_essentiality"] = pombe_features["DeletionLibrary_essentiality"].fillna("Not_determined")
     pombe_features["DeletionLibrary_category"] = pombe_features["DeletionLibrary_category"].fillna("Not_determined")
     pombe_features["RevisedDeletionLibrary_essentiality"] = pombe_features["RevisedDeletionLibrary_essentiality"].fillna("Not_determined")
+    pombe_features["Sub_category"] = pombe_features["Sub_category"].fillna("Not_determined")
+    pombe_features["Growth_tier"] = pombe_features["Growth_tier"].fillna(0).astype(int)
     return pombe_features

@@ -162,7 +162,7 @@ class GeneMetaConfig:
         gene_info_with_essentiality = gene_IDs_names_products.merge(
             deletion_library_essentiality[
                 [
-                    "Updated_Systematic_ID",
+                    "Systematic ID",
                     "Gene dispensability. This study",
                     "Deletion mutant phenotype description",
                     "Phenotypic classification used for analysis",
@@ -171,8 +171,8 @@ class GeneMetaConfig:
             ],
             how="left",
             left_on="gene_systematic_id",
-            right_on="Updated_Systematic_ID",
-        ).drop(columns=["Updated_Systematic_ID"])
+            right_on="Systematic ID",
+        ).drop(columns=["Systematic ID"])
 
         return GeneMetaData(gene_info_with_essentiality=gene_info_with_essentiality, id2name=id2name)
 
