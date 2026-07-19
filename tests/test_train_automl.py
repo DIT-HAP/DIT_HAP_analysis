@@ -1,4 +1,4 @@
-"""Tests for workflow/scripts/ml/train_automl.py (no mljar training — that's an integration step)."""
+"""Tests for the split ML pipeline: src.ml.data spine + train_automl driver (no mljar training)."""
 
 import sys
 from pathlib import Path
@@ -9,19 +9,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from workflow.src.ml.data import load_modeling_data
+from workflow.scripts.ml.prepare_ml_data import PrepareConfig
 from workflow.scripts.ml.train_automl import (
     AutoMLConfig,
     FEATURE_COLUMNS,
     aggregate_feature_importance,
     evaluate,
-    load_modeling_data,
+    load_modeling_data as load_modeling_data_pickle,
 )
 
 
 def _cfg(tmp_path, target="DR", mode="Explain", **kw):
     return AutoMLConfig(
-        feature_matrix=tmp_path / "f.tsv",
-        final_clusters=tmp_path / "c.tsv",
+        modeling_data=tmp_path / "modeling_data.pkl",
         target=target,
         mode=mode,
         output_dir=tmp_path / "out",
@@ -31,22 +32,20 @@ def _cfg(tmp_path, target="DR", mode="Explain", **kw):
 
 def test_config_validate_rejects_bad_target(tmp_path):
     """validate() rejects a target outside {DR, DL}."""
-    (tmp_path / "f.tsv").write_text("gene_systematic_id\n")
-    (tmp_path / "c.tsv").write_text("Systematic ID\n")
+    (tmp_path / "modeling_data.pkl").write_bytes(b"")
     with pytest.raises(ValueError, match="target must be"):
         _cfg(tmp_path, target="A").validate()
 
 
 def test_config_validate_rejects_bad_mode(tmp_path):
     """validate() rejects a mode outside {Explain, Perform}."""
-    (tmp_path / "f.tsv").write_text("gene_systematic_id\n")
-    (tmp_path / "c.tsv").write_text("Systematic ID\n")
+    (tmp_path / "modeling_data.pkl").write_bytes(b"")
     with pytest.raises(ValueError, match="mode must be"):
         _cfg(tmp_path, mode="Compete").validate()
 
 
 def test_config_validate_rejects_missing_input(tmp_path):
-    """validate() raises when inputs are absent."""
+    """validate() raises when the modeling-data pickle is absent."""
     with pytest.raises(ValueError, match="Required input not found"):
         _cfg(tmp_path).validate()
 
@@ -57,8 +56,19 @@ def test_feature_list_uses_renamed_half_life_column():
     assert "t1/2 (min)" not in FEATURE_COLUMNS
 
 
-def test_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
-    """load_modeling_data left-joins targets, filters DR > 0.3, maps revised_cluster."""
+def test_prepare_config_rejects_missing_input(tmp_path):
+    """prepare_ml_data PrepareConfig.validate raises when a required input is absent."""
+    cfg = PrepareConfig(
+        feature_matrix=tmp_path / "f.tsv",
+        final_clusters=tmp_path / "c.tsv",
+        output=tmp_path / "work" / "modeling_data.pkl",
+    )
+    with pytest.raises(ValueError, match="Required input not found"):
+        cfg.validate()
+
+
+def test_src_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
+    """src.ml.data.load_modeling_data left-joins targets, filters DR > 0.3, maps revised_cluster."""
     feat = pd.DataFrame({"gene_systematic_id": ["SPAC1", "SPAC2", "SPAC3"], "GC3": [0.1, 0.2, 0.3]})
     feat.to_csv(tmp_path / "f.tsv", sep="\t", index=False)
     clusters = pd.DataFrame(
@@ -66,10 +76,18 @@ def test_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
     )
     clusters.to_csv(tmp_path / "c.tsv", sep="\t", index=False)
 
-    data = load_modeling_data(_cfg(tmp_path))
+    data = load_modeling_data(tmp_path / "f.tsv", tmp_path / "c.tsv", dr_filter=0.3)
     # DR > 0.3 keeps SPAC1 (0.5) and SPAC3 (0.9), drops SPAC2 (0.1).
     assert set(data["Systematic_ID"]) == {"SPAC1", "SPAC3"}
     assert "DIT_HAP_cluster" in data.columns
+
+
+def test_train_load_modeling_data_reads_pickle(tmp_path):
+    """train_automl.load_modeling_data is now a thin read of the prepared pickle."""
+    df = pd.DataFrame({"Systematic_ID": ["SPAC1"], "DR": [0.5], "GC3": [0.1]})
+    df.to_pickle(tmp_path / "modeling_data.pkl")
+    loaded = load_modeling_data_pickle(_cfg(tmp_path))
+    pd.testing.assert_frame_equal(loaded, df)
 
 
 def test_evaluate_computes_metrics_and_writes_pdf(tmp_path):

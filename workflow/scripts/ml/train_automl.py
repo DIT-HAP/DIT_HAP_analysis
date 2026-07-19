@@ -10,11 +10,11 @@ Trains an mljar-supervised AutoML regressor to predict a growth-fitness target
 Perform). Deterministic port of
 DIT_HAP_pipeline/workflow/notebooks/machine_learning_analysis.ipynb.
 
-Self-contained like the source notebook: reads the raw feature matrix +
-final_clusters directly (it does NOT consume the Task 6 transformed tables — the
-notebook does its own train-only PowerTransform, which is a different, leakage-
-free transform on a different feature list). One invocation = one target x mode;
-the Snakemake rule fans out over the combinations.
+The merge + DR-filter is done once by prepare_ml_data.py (the shared spine) and
+read here from a pickle — the four target x mode jobs share one prepared table
+instead of each re-merging. This script still does its own train-only
+PowerTransform (leakage-free, different from the Task 6 transformed tables). One
+invocation = one target x mode; the Snakemake rule fans out over the combinations.
 
 Determinism: total_time_limit is set generously and random_state is passed
 explicitly so the full algorithm list always completes and results are
@@ -22,8 +22,7 @@ reproducible (mljar's default 3600s budget can silently skip algorithms).
 
 Input
 -----
-- Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
+- modeling_data.pkl: merged, DR-filtered modeling table (from prepare_ml_data.py)
 
 Output
 ------
@@ -36,14 +35,13 @@ Output
 Usage
 -----
     python train_automl.py \\
-        --feature-matrix results/features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
-        --final-clusters resources/curated/final_clusters.tsv \\
+        --modeling-data results/ml/models/{dataset}/{version}/_work/modeling_data.pkl \\
         --target DR --mode Explain \\
-        --output-dir results/ml/models/{dataset}/DR_explain
+        --output-dir results/ml/models/{dataset}/{version}/DR_Explain
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-16
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -75,7 +73,6 @@ import matplotlib.pyplot as plt
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-DR_FILTER = 0.3          # notebook filters genes to DR > 0.3 before modeling
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 # Generous budget so every algorithm in the mode's list finishes (else mljar
@@ -110,22 +107,19 @@ FEATURE_COLUMNS = [
 @dataclass(kw_only=True, frozen=True)
 class AutoMLConfig:
     """Inputs, output dir, target/mode, and training parameters."""
-    feature_matrix: Path
-    final_clusters: Path
+    modeling_data: Path
     target: str
     mode: str
     output_dir: Path
     test_size: float = TEST_SIZE
     random_state: int = RANDOM_STATE
     total_time_limit: int = TOTAL_TIME_LIMIT
-    dr_filter: float = DR_FILTER
     feature_columns: list = field(default_factory=lambda: list(FEATURE_COLUMNS))
 
     def validate(self) -> None:
-        """Raise ValueError on missing inputs or invalid target/mode."""
-        for path in [self.feature_matrix, self.final_clusters]:
-            if not path.exists():
-                raise ValueError(f"Required input not found: {path}")
+        """Raise ValueError on missing input or invalid target/mode."""
+        if not self.modeling_data.exists():
+            raise ValueError(f"Required input not found: {self.modeling_data}")
         if self.target not in {"DR", "DL"}:
             raise ValueError(f"target must be 'DR' or 'DL', got {self.target!r}")
         if self.mode not in {"Explain", "Perform"}:
@@ -143,19 +137,9 @@ def setup_logger(log_level: str = "INFO") -> None:
 
 @logger.catch(reraise=True)
 def load_modeling_data(config: AutoMLConfig) -> pd.DataFrame:
-    """Merge feature matrix + targets, filter to DR > threshold (notebook behavior)."""
-    features = pd.read_csv(config.feature_matrix, sep="\t")
-    targets = pd.read_csv(config.final_clusters, sep="\t").rename(
-        columns={"Systematic ID": "Systematic_ID", "revised_cluster": "DIT_HAP_cluster"}
-    )[["Systematic_ID", "A", "DR", "DL", "DIT_HAP_cluster"]]
-
-    data = (
-        pd.merge(features, targets, left_on="gene_systematic_id", right_on="Systematic_ID", how="left")
-        .drop(columns=["Systematic_ID"])
-        .rename(columns={"gene_systematic_id": "Systematic_ID"})
-        .query(f"DR > {config.dr_filter}")
-    )
-    logger.info(f"Modeling data (DR > {config.dr_filter}): {data.shape}")
+    """Read the shared modeling table (already merged + DR-filtered by prepare_ml_data.py)."""
+    data = pd.read_pickle(config.modeling_data)
+    logger.info(f"Modeling data: {data.shape}")
     return data
 
 
@@ -291,8 +275,7 @@ def run_automl_analysis(config: AutoMLConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Train mljar AutoML regressor for one target x mode")
-    parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
+    parser.add_argument("--modeling-data", type=Path, required=True, help="Shared modeling_data pickle (from prepare_ml_data.py)")
     parser.add_argument("--target", required=True, choices=["DR", "DL"], help="Regression target")
     parser.add_argument("--mode", required=True, choices=["Explain", "Perform"], help="mljar AutoML mode")
     parser.add_argument("--output-dir", type=Path, required=True, help="mljar results_path / output dir")
@@ -310,8 +293,7 @@ def main() -> int:
 
     try:
         config = AutoMLConfig(
-            feature_matrix=args.feature_matrix,
-            final_clusters=args.final_clusters,
+            modeling_data=args.modeling_data,
             target=args.target,
             mode=args.mode,
             output_dir=args.output_dir,

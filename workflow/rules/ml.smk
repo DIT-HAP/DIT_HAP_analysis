@@ -1,19 +1,51 @@
 # =============================================================================
 # ml.smk — mljar AutoML analysis (target x mode fan-out)
 # =============================================================================
-
+#
 # Per-dataset regression of a growth-fitness target (DR/DL) from gene features,
-# in two mljar modes (Explain: fast hold-out; Perform: 5-fold CV, slow). Reads
-# the raw feature matrix + curated final_clusters directly (byte-faithful to the
-# self-contained source notebook — NOT the Task 6 transformed tables).
+# in two mljar modes (Explain: fast hold-out; Perform: 5-fold CV, slow).
+#
+# Split: prepare_ml_data merges the feature matrix + curated final_clusters and
+# applies the DR filter ONCE (shared spine); train_automl then reads that pickle
+# for each target x mode instead of re-merging. Byte-faithful to the self-contained
+# source notebook (its own train-only PowerTransform — NOT the Task 6 tables).
+
+_MLWORK = "results/ml/models/{dataset}/{pombase_version}/_work"
+
 wildcard_constraints:
     target="DR|DL",
     mode="Explain|Perform",
 
-rule train_automl:
+
+# --- Shared modeling-data spine (merge + DR filter, once per dataset) ---
+rule prepare_ml_data:
     input:
         feature_matrix="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
         final_clusters="resources/curated/final_clusters.tsv",
+    output:
+        modeling_data=f"{_MLWORK}/modeling_data.pkl",
+    params:
+        dr_filter=config.get("ml", {}).get("dr_filter", 0.3),
+    log:
+        "logs/ml/prepare_ml_data_{dataset}_{pombase_version}.log",
+    conda:
+        "../envs/machine_learning.yml"
+    message:
+        "*** [ml] Preparing shared modeling data for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/ml/prepare_ml_data.py \
+            --feature-matrix {input.feature_matrix} \
+            --final-clusters {input.final_clusters} \
+            --output {output.modeling_data} \
+            --dr-filter {params.dr_filter} &> {log}
+        """
+
+
+# --- One AutoML model (fanned out by target x mode) ---
+rule train_automl:
+    input:
+        modeling_data=f"{_MLWORK}/modeling_data.pkl",
     output:
         metrics="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/metrics.tsv",
         importance="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/features_importance.csv",
@@ -32,8 +64,7 @@ rule train_automl:
     shell:
         """
         python workflow/scripts/ml/train_automl.py \
-            --feature-matrix {input.feature_matrix} \
-            --final-clusters {input.final_clusters} \
+            --modeling-data {input.modeling_data} \
             --target {wildcards.target} \
             --mode {wildcards.mode} \
             --output-dir {params.output_dir} \
