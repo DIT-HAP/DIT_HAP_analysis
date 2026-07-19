@@ -21,6 +21,32 @@ enrichment:
 enrichment_network:
   revigo_cutoffs: [0.7, 0.5]   # REVIGO semantic-similarity cutoffs, run in order (loose then tight)
 
+# --- PCR / library-prep quality control (pcr_qc.smk) ---
+# Which specific libraries to compare in the 2x2 QC figure. These read upstream
+# pre-release merged reads (results/8_merged/...) via data_config.merged_reads_path(),
+# so every dataset named here must declare `results_dir` in datasets.yaml.
+pcr_qc:
+  # Panel (a): PBL vs PBR primer reads of one library.
+  pbl_pbr:
+    dataset: LD_DIT_HAP_generationRAW
+    sample: LD1328-7
+    timepoint: 0h
+    condition: "YES"      # quoted: bare YES is a YAML 1.1 boolean (true)
+  # Panel (b): technical replicate — same sample processed in two upstream projects (compare Reads).
+  technical_replicate:
+    dataset_1: LD_DIT_HAP_generationRAW
+    dataset_2: Spore2YES6_1328
+    sample: LD1328-7
+    timepoint: 0h
+    condition: "YES"
+  # Panel (c): biological replicate — two samples in one project (compare Reads).
+  biological_replicate:
+    dataset: LD_DIT_HAP_generationRAW
+    sample_1: LD1328-4
+    sample_2: LD1328-8
+    timepoint: 0h
+    condition: "YES"
+
 # --- Machine learning (ml.smk) ---
 ml:
   dr_split_threshold: 0.35   # DR > / <= this defines the DR_gt_p35 / DR_le_p35 splits

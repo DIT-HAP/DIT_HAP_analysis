@@ -47,6 +47,13 @@ import yaml
 # =============================================================================
 DATASETS_YAML = Path("config/datasets.yaml")
 
+# Pre-release intermediate subdir holding merge_strand_insertions output (the
+# strand-resolved PBL/PBR/Reads tables per sample_timepoint_condition). release/
+# NEVER packages these — only PCR QC reads them, via merged_reads_path() below.
+# Sole hard-coded reference to this upstream numbered dir: if the upstream
+# pipeline renames it, change it here only.
+MERGED_READS_SUBDIR = "8_merged"
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
@@ -169,3 +176,29 @@ def load_dataset_config(name: str | None = None) -> DatasetConfig:
         insertion_level=insertion_level,
         gene_level=gene_level,
     )
+
+
+# =============================================================================
+# PRE-RELEASE INTERMEDIATE PATHS (PCR QC only — outside the release/ contract)
+# =============================================================================
+def merged_reads_path(dataset: str, sample: str, timepoint: str, condition: str) -> Path:
+    """Resolve a pre-release merged PBL/PBR reads table (results/8_merged/...).
+
+    This is the ONLY sanctioned way to reach an upstream project's intermediate
+    (non-release) outputs — used exclusively by PCR quality control. Requires the
+    dataset to declare a `results_dir` in datasets.yaml; datasets without one
+    raise KeyError (release-only datasets are deliberately unreachable here).
+    """
+    registry = _load_registry()
+    if dataset not in registry["datasets"]:
+        raise KeyError(f"Unknown dataset {dataset!r}; registered: {sorted(registry['datasets'])}")
+
+    entry = registry["datasets"][dataset]
+    if "results_dir" not in entry:
+        raise KeyError(
+            f"Dataset {dataset!r} has no `results_dir` in datasets.yaml; pre-release "
+            f"merged reads are only available for QC-registered datasets."
+        )
+
+    results_dir = Path(registry["snakemake_repo"]) / entry["results_dir"]
+    return results_dir / MERGED_READS_SUBDIR / f"{sample}_{timepoint}_{condition}.tsv"

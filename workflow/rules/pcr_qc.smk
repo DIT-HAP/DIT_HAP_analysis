@@ -1,0 +1,56 @@
+# =============================================================================
+# pcr_qc.smk — PCR / library-prep quality control figure (2x2 panels)
+# =============================================================================
+#
+# Single deterministic rule, NO dataset wildcard: this QC compares a few
+# specifically-named libraries against each other (LD1328-7 processed twice,
+# LD1328-4 vs LD1328-8), not a per-dataset generalization — same shape as the
+# deferred spikein.smk. Ported from DIT_HAP_pipeline thesis_figures.ipynb
+# ("2. PCR quality control"); see docs/plans/2026-07-19-pcr-qc-design.md.
+#
+# EXCEPTION to the release/ contract: panels (a)-(c) read upstream *pre-release*
+# intermediates (results/8_merged/...), reachable ONLY via merged_reads_path()
+# for datasets that declare `results_dir` in datasets.yaml. Panel (d) reads a
+# placeholder spike-in table until spikein.smk exists (Phase 3+).
+
+import sys
+sys.path.insert(0, workflow.basedir + "/..")  # repo root, so `workflow.src` imports resolve
+from workflow.src.data_config import merged_reads_path
+
+_PCR_QC = config["pcr_qc"]
+_A = _PCR_QC["pbl_pbr"]
+_B = _PCR_QC["technical_replicate"]
+_C = _PCR_QC["biological_replicate"]
+
+
+rule plot_pcr_qc:
+    input:
+        # Panel (a): PBL vs PBR of one library.
+        pbl_pbr=merged_reads_path(_A["dataset"], _A["sample"], _A["timepoint"], _A["condition"]),
+        # Panel (b): technical replicate — same sample in two upstream projects.
+        tech_rep_1=merged_reads_path(_B["dataset_1"], _B["sample"], _B["timepoint"], _B["condition"]),
+        tech_rep_2=merged_reads_path(_B["dataset_2"], _B["sample"], _B["timepoint"], _B["condition"]),
+        # Panel (c): biological replicate — two samples in one project.
+        bio_rep_1=merged_reads_path(_C["dataset"], _C["sample_1"], _C["timepoint"], _C["condition"]),
+        bio_rep_2=merged_reads_path(_C["dataset"], _C["sample_2"], _C["timepoint"], _C["condition"]),
+        # Panel (d): spike-in linearity (placeholder; swap for results/spikein/... when spikein.smk lands).
+        spikein="resources/curated/spike_in_results_PLACEHOLDER.tsv",
+    output:
+        "results/pcr_qc/PCR_quality_control.pdf",
+    log:
+        "logs/pcr_qc/plot_pcr_qc.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [pcr_qc] Building 2x2 library-prep QC figure..."
+    shell:
+        """
+        python workflow/scripts/pcr_qc/plot_pcr_qc.py \
+            --pbl-pbr {input.pbl_pbr} \
+            --tech-rep-1 {input.tech_rep_1} \
+            --tech-rep-2 {input.tech_rep_2} \
+            --bio-rep-1 {input.bio_rep_1} \
+            --bio-rep-2 {input.bio_rep_2} \
+            --spikein {input.spikein} \
+            --output {output} &> {log}
+        """

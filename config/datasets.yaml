@@ -14,6 +14,9 @@ datasets:
   LD_DIT_HAP_generationRAW:
     label: "LD, raw generations"
     release_dir: projects/LD_DIT_HAP_generationRAW/release
+    # pre-release intermediate results/ (NOT the release contract) — only PCR QC
+    # reads these merged PBL/PBR tables; see data_config.merged_reads_path().
+    results_dir: projects/LD_DIT_HAP_generationRAW/results
     has_time_points: true
     has_imputation: true   # release/ populated on disk
   HD_DIT_HAP:
@@ -39,6 +42,9 @@ datasets:
   Spore2YES6_1328:
     label: "Spore-to-YES6 1328"
     release_dir: projects/Spore2YES6_1328/release
+    # pre-release intermediate results/ (NOT the release contract) — only PCR QC
+    # reads these merged PBL/PBR tables; see data_config.merged_reads_path().
+    results_dir: projects/Spore2YES6_1328/results
     has_time_points: true
     has_imputation: false   # release/ populated on disk
 

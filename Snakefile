@@ -32,6 +32,7 @@ include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
+include: "workflow/rules/pcr_qc.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -55,5 +56,7 @@ rule all:
         # ML AutoML (target x mode):
         # f"results/ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
         # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
+        # PCR / library-prep QC figure (no dataset wildcard):
+        # "results/pcr_qc/PCR_quality_control.pdf",
     message:
         "*** DIT-HAP analysis complete"
