@@ -28,20 +28,20 @@ enrichment_network:
 pcr_qc:
   # Panel (a): PBL vs PBR primer reads of one library.
   pbl_pbr:
-    dataset: LD_DIT_HAP_generationRAW
+    dataset: LD_DIT_HAP
     sample: LD1328-7
     timepoint: 0h
     condition: "YES"      # quoted: bare YES is a YAML 1.1 boolean (true)
   # Panel (b): technical replicate — same sample processed in two upstream projects (compare Reads).
   technical_replicate:
-    dataset_1: LD_DIT_HAP_generationRAW
+    dataset_1: LD_DIT_HAP
     dataset_2: Spore2YES6_1328
     sample: LD1328-7
     timepoint: 0h
     condition: "YES"
   # Panel (c): biological replicate — two samples in one project (compare Reads).
   biological_replicate:
-    dataset: LD_DIT_HAP_generationRAW
+    dataset: LD_DIT_HAP
     sample_1: LD1328-4
     sample_2: LD1328-8
     timepoint: 0h

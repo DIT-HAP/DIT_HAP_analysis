@@ -200,5 +200,6 @@ def merged_reads_path(dataset: str, sample: str, timepoint: str, condition: str)
             f"merged reads are only available for QC-registered datasets."
         )
 
+    # results_dir is relative to snakemake_repo (same base as release_dir).
     results_dir = Path(registry["snakemake_repo"]) / entry["results_dir"]
     return results_dir / MERGED_READS_SUBDIR / f"{sample}_{timepoint}_{condition}.tsv"

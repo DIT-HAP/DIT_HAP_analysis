@@ -11,12 +11,13 @@ reference:
   alphafold_dir: /hugedata/YushengYang/AFdb/UP000002485_284812_SCHPO_v6
 
 datasets:
-  LD_DIT_HAP_generationRAW:
-    label: "LD, raw generations"
-    release_dir: projects/LD_DIT_HAP_generationRAW/release
+  LD_DIT_HAP:
+    label: "LD DIT-HAP"
+    release_dir: projects/LD_DIT_HAP/release
     # pre-release intermediate results/ (NOT the release contract) — only PCR QC
     # reads these merged PBL/PBR tables; see data_config.merged_reads_path().
-    results_dir: projects/LD_DIT_HAP_generationRAW/results
+    # Relative to snakemake_repo (consistent with release_dir).
+    results_dir: projects/LD_DIT_HAP/results
     has_time_points: true
     has_imputation: true   # release/ populated on disk
   HD_DIT_HAP:
@@ -44,6 +45,7 @@ datasets:
     release_dir: projects/Spore2YES6_1328/release
     # pre-release intermediate results/ (NOT the release contract) — only PCR QC
     # reads these merged PBL/PBR tables; see data_config.merged_reads_path().
+    # Relative to snakemake_repo (consistent with release_dir).
     results_dir: projects/Spore2YES6_1328/results
     has_time_points: true
     has_imputation: false   # release/ populated on disk

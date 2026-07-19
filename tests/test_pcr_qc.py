@@ -23,12 +23,12 @@ from workflow.scripts.pcr_qc.plot_pcr_qc import PCRQCConfig
 # =============================================================================
 def test_merged_reads_path_resolves_for_registered_results_dir():
     """A dataset with results_dir yields results/8_merged/{sample}_{tp}_{cond}.tsv."""
-    p = merged_reads_path("LD_DIT_HAP_generationRAW", "LD1328-7", "0h", "YES")
+    p = merged_reads_path("LD_DIT_HAP", "LD1328-7", "0h", "YES")
     assert p.name == "LD1328-7_0h_YES.tsv"
     assert p.parent.name == MERGED_READS_SUBDIR
     # ...and the subdir sits under the dataset's results_dir, not release/.
     assert "release" not in str(p)
-    assert str(p).endswith("LD_DIT_HAP_generationRAW/results/8_merged/LD1328-7_0h_YES.tsv")
+    assert str(p).endswith("LD_DIT_HAP/results/8_merged/LD1328-7_0h_YES.tsv")
 
 
 def test_merged_reads_path_raises_without_results_dir():
