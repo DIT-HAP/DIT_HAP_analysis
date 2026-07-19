@@ -114,7 +114,7 @@ def load_ontology_data(
     objanno = GafReader(str(ontology_data.ontology_association_file), godag=dag)
 
     slim_terms = ontology_data.slim_term_dataframe["Term"].to_list()
-    slim_dag = {term: dag[term] for term in slim_terms}
+    slim_dag = {term: dag[term] for term in slim_terms if term in dag}
 
     ns2assoc = objanno.get_ns2assc(**kwargs)
     gene2go = objanno.get_id2gos_nss(**kwargs)

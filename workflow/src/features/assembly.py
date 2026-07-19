@@ -76,7 +76,13 @@ def load_gene_meta(gene_meta_file: Path) -> tuple[pd.DataFrame, dict]:
     """Load gene metadata and build a uniprot_id -> gene_systematic_id map."""
     gene_meta = pd.read_csv(gene_meta_file, sep="\t")
     gene_meta["gene_name"] = gene_meta["gene_name"].fillna(gene_meta["gene_systematic_id"])
-    uniprot2id = dict(zip(gene_meta["uniprot_id"], gene_meta["gene_systematic_id"]))
+    if "uniprot_id" in gene_meta.columns:
+        uniprot_col = "uniprot_id"
+    elif "external_id" in gene_meta.columns:
+        uniprot_col = "external_id"
+    else:
+        raise KeyError("Neither 'uniprot_id' nor 'external_id' column found in gene metadata")
+    uniprot2id = dict(zip(gene_meta[uniprot_col], gene_meta["gene_systematic_id"]))
     return gene_meta, uniprot2id
 
 
