@@ -106,6 +106,12 @@ _DR_XLIM = (-0.2, 1.5)
 _DL_BINS = np.arange(0, 15, 0.5)
 _DL_XLIM = (0, 15)
 _HIST_ROW_COLORS = ["#6b99df", "#dd8369", "#98a64e"]
+# Essential/non-essential rows use the SAME == 'E' / == 'V' definition as
+# compute_essentiality_coverage (see that function's docstring) — genes with
+# DeletionLibrary_essentiality == 'Not_determined' land in neither row, only
+# in the "All genes" (.notna()) row. Keep these two definitions in sync: a
+# mismatch here previously caused coverage_stats.tsv and coverage_figures.pdf
+# to report different non_essential totals for the same run.
 _HIST_ROW_QUERIES = [
     "DeletionLibrary_essentiality.notna()",
     "DeletionLibrary_essentiality == 'E'",
@@ -158,30 +164,46 @@ def load_gene_level(gene_level_path: Path) -> pd.DataFrame:
     return gene_result
 
 
+def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
+    """Collapse duplicate-indexed annotation rows to one row per index value.
+
+    The insertion-level annotations table can carry duplicate index entries
+    (multiple Features per coordinate, e.g. an overlapping CDS + intron
+    record). Among duplicates sharing an index value, the row that passes
+    IN_GENE_FILTER wins if any duplicate does (matching the notebook's
+    `.isin()` semantics: an insertion counts as in-gene if ANY of its
+    annotation rows qualifies). Uses an explicit `kind="stable"` sort so the
+    tie-break is deterministic rather than relying on pandas' default
+    quicksort (which does not guarantee a stable order for equal keys): when
+    no duplicate passes (or the whole group has no duplicates), the first
+    row in the original file order is kept.
+    """
+    if not annotations.index.duplicated().any():
+        return annotations
+
+    n_dup = annotations.index.duplicated().sum()
+    logger.info(f"Collapsing {n_dup} duplicate-indexed annotation rows (keep in-gene pass if any)")
+    passes = annotations.eval(IN_GENE_FILTER)
+    return (
+        annotations.assign(_passes=passes)
+        .sort_values("_passes", ascending=False, kind="stable")
+        .loc[lambda df: ~df.index.duplicated(keep="first")]
+        .drop(columns="_passes")
+    )
+
+
 def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate, Strand, Target].
 
-    The annotations table can carry duplicate index entries (multiple
-    Features per coordinate, e.g. an overlapping CDS + intron record).
-    Duplicates are collapsed to one row per index value — preferring a row
-    that passes IN_GENE_FILTER when any duplicate does — then reindexed onto
-    fitting_results' index, matching the notebook's `.isin()` semantics
-    without inflating counts from the raw many-to-one annotation rows.
+    Annotation duplicates (see resolve_duplicate_annotations) are collapsed
+    before reindexing onto fitting_results' index, so counts are byte-faithful
+    to the notebook's `fitting_results.index.isin(annotations.query(...).index)`
+    approach without inflating counts from the raw many-to-one annotation rows.
     """
     fitting_results = pd.read_csv(fitting_results_path, sep="\t", index_col=[0, 1, 2, 3])
     annotations = pd.read_csv(annotations_path, sep="\t", index_col=[0, 1, 2, 3])
 
-    if annotations.index.duplicated().any():
-        n_dup = annotations.index.duplicated().sum()
-        logger.info(f"Collapsing {n_dup} duplicate-indexed annotation rows (keep in-gene pass if any)")
-        passes = annotations.eval(IN_GENE_FILTER)
-        annotations = (
-            annotations.assign(_passes=passes)
-            .sort_values("_passes", ascending=False)
-            .loc[lambda df: ~df.index.duplicated(keep="first")]
-            .drop(columns="_passes")
-        )
-
+    annotations = resolve_duplicate_annotations(annotations)
     annotations = annotations.reindex(fitting_results.index)
     return fitting_results, annotations
 
@@ -204,9 +226,18 @@ def compute_gene_coverage(gene_result: pd.DataFrame) -> dict[str, int]:
 
 
 def compute_essentiality_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by DeletionLibrary_essentiality == 'E' vs not."""
+    """Split compute_gene_coverage by DeletionLibrary_essentiality == 'E' vs == 'V'.
+
+    Byte-faithful to the source notebook, which only ever tested
+    `== 'E'` / `== 'V'` (never `!= 'E'`). Some releases carry a third value,
+    `Not_determined` (e.g. 198/4513 genes in HD_DIT_HAP) — those genes are
+    EXCLUDED from both buckets here (previously an earlier draft folded them
+    into "non_essential" via `!= 'E'`, which silently diverged from the
+    `_HIST_ROW_QUERIES` == 'V' filter used by plot_dr_dl_histograms and
+    produced inconsistent totals between coverage_stats.tsv and the PDF).
+    """
     essential = gene_result[gene_result["DeletionLibrary_essentiality"] == "E"]
-    non_essential = gene_result[gene_result["DeletionLibrary_essentiality"] != "E"]
+    non_essential = gene_result[gene_result["DeletionLibrary_essentiality"] == "V"]
     return {
         "essential": compute_gene_coverage(essential),
         "non_essential": compute_gene_coverage(non_essential),
@@ -245,8 +276,12 @@ def build_stats_table(
          "not_covered": essentiality_coverage["non_essential"]["not_covered"]},
     ]
     for _, row in per_chromosome.iterrows():
+        # Some chromosome names already start with "chr_" (e.g.
+        # "chr_II_telomeric_gap") — avoid doubling the prefix into
+        # "chr_chr_II_telomeric_gap".
+        chr_label = row["Chr"] if str(row["Chr"]).startswith("chr_") else f"chr_{row['Chr']}"
         rows.append({
-            "metric": "insertion", "category": f"chr_{row['Chr']}", "total": row["total"],
+            "metric": "insertion", "category": chr_label, "total": row["total"],
             "covered": row["in_gene"], "not_covered": row["intergenic"],
         })
     return pd.DataFrame(rows)
