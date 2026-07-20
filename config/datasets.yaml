@@ -38,6 +38,11 @@ datasets:
   Spikein:
     label: "Spike-in calibration"
     release_dir: projects/Spikein/release
+    # pre-release intermediate results/ (NOT the release contract) — spikein.smk
+    # reads the filtered raw-reads table from here; release/ never packages it
+    # (see DIT_HAP_snakemake's packaging.smk RELEASE_MAP). Relative to
+    # snakemake_repo (consistent with release_dir), same EXCEPTION as pcr_qc.smk.
+    results_dir: projects/Spikein/results
     has_time_points: false
     has_imputation: false   # release/ populated on disk
   Spore2YES6_1328:

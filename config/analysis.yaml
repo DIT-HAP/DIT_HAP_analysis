@@ -47,6 +47,17 @@ pcr_qc:
     timepoint: 0h
     condition: "YES"
 
+# --- Spike-in dilution linearity QC (spikein.smk) ---
+# 5 known spike-in insertion coordinates in the Spikein calibration project;
+# reads at each site are ranked and matched against a known dilution series.
+spikein:
+  coordinates:
+    DY215: {chr: "I",  coord: 3749394, strand: "-"}
+    DY217: {chr: "II", coord: 3344505, strand: "-"}
+    DY218: {chr: "II", coord: 185161,  strand: "-"}
+    DY339: {chr: "II", coord: 1157130, strand: "-"}
+    DY348: {chr: "II", coord: 3065244, strand: "-"}
+
 # --- Machine learning (ml.smk) ---
 ml:
   dr_split_threshold: 0.35   # DR > / <= this defines the DR_gt_p35 / DR_le_p35 splits
