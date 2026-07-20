@@ -34,3 +34,36 @@ if _STYLE_PATH.exists():
 # Derived constants, read once after the style is applied.
 AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+# =============================================================================
+# DELETION-LIBRARY PHENOTYPE COLOR MAPS
+# =============================================================================
+# Byte-faithful to compare_with_deletion_library.ipynb's cell 1 (DIT_HAP_pipeline).
+# Two independent palettes for the same phenotype labels, indexed into the same
+# COLORS cycle: CATEGORY_COLOR_MAP groups labels into "healthy-looking" (index 2)
+# vs "phenotype-affected" (index 0) buckets for boxplot/violin coloring, while
+# DONUT_COLOR_MAP gives each category its own distinct wedge color for the donut
+# charts. Kept here (not in the verification script) so any plotting module can
+# reuse them, matching how COLORS/AX_WIDTH/AX_HEIGHT are already shared.
+CATEGORY_COLOR_MAP = {
+    "WT": COLORS[2],
+    "small colonies": COLORS[2],
+    "very small colonies": COLORS[2],
+    "E": COLORS[0],
+    "E (tiny colonies)": COLORS[0],
+    "microcolonies": COLORS[0],
+    "germinated": COLORS[0],
+    "spores": COLORS[0],
+    "Not verified": COLORS[-1],
+}
+
+DONUT_COLOR_MAP = {
+    "spores": COLORS[7],
+    "germinated": COLORS[0],
+    "microcolonies": COLORS[-1],
+    "E": COLORS[5],
+    "E (tiny colonies)": COLORS[5],
+    "very small colonies": COLORS[2],
+    "small colonies": COLORS[4],
+    "WT": COLORS[-4],
+}
