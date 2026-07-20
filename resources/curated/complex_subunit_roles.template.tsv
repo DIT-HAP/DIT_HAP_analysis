@@ -1,0 +1,53 @@
+complex	gene	gene_name	DR	DL	gmm_subgroup	literature_role	role_source
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC25G10.08	tif302	1.106	0.02	core		
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC4A8.16c	tif303	1.155	-0.0	core		
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC4D7.05	sum1	1.256	-0.0	core		
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC637.07	moe1	0.361	4.29	minor		
+eukaryotic translation initiation factor 3 complex, eIF3e	SPBC17D11.05	tif301	1.224	-0.0	core		
+eukaryotic translation initiation factor 3 complex, eIF3e	SPBC646.09c	int6	0.739	7.25	minor		
+eukaryotic 43S preinitiation complex	SPAC1751.03	tif313	1.037	1.13	core		
+eukaryotic 43S preinitiation complex	SPAC25G10.08	tif302	1.106	0.02	core		
+eukaryotic 43S preinitiation complex	SPAC30C2.04	asc1	0.418	3.76	minor		
+eukaryotic 43S preinitiation complex	SPAC3A12.13c	tif310	0.499	-0.0	minor		
+eukaryotic 43S preinitiation complex	SPAC4A8.16c	tif303	1.155	-0.0	core		
+eukaryotic 43S preinitiation complex	SPAC4D7.05	sum1	1.256	-0.0	core		
+eukaryotic 43S preinitiation complex	SPAC637.07	moe1	0.361	4.29	minor		
+eukaryotic 43S preinitiation complex	SPBC17D11.05	tif301	1.224	-0.0	core		
+eukaryotic 43S preinitiation complex	SPBC23G7.05	sui1	1.062	0.01	core		
+eukaryotic 43S preinitiation complex	SPBC646.09c	int6	0.739	7.25	minor		
+eukaryotic translation initiation factor 3 complex	SPAC1751.03	tif313	1.037	1.13	core		
+eukaryotic translation initiation factor 3 complex	SPAC25G10.08	tif302	1.106	0.02	core		
+eukaryotic translation initiation factor 3 complex	SPAC3A12.13c	tif310	0.499	-0.0	minor		
+eukaryotic translation initiation factor 3 complex	SPAC4D7.05	sum1	1.256	-0.0	core		
+eukaryotic translation initiation factor 3 complex	SPBC17D11.05	tif301	1.224	-0.0	core		
+eukaryotic translation initiation factor 3 complex	SPBC646.09c	int6	0.739	7.25	minor		
+SAGA complex	SPAC15A10.02	taf12	0.857	0.05	minor		
+SAGA complex	SPBC14C8.17c	spt8	0.335	5.58	core		
+SAGA complex	SPBC21H7.02	taf10	1.023	3.74	minor		
+SAGA complex	SPBC25H2.11c	spt7	0.636	6.28	core		
+SAGA complex	SPBC887.18c	hfi1	0.497	4.69	core		
+SAGA complex	SPCC16C4.18c	taf6	1.297	1.4	minor		
+SAGA complex	SPCC5E4.03c	taf5	1.013	2.93	minor		
+SAGA complex	SPCC61.02	spt3	0.471	5.47	core		
+Ino80 complex	SPAC222.04c	ies6	0.4	5.0	core		
+Ino80 complex	SPAC29B12.01	ino80	0.478	0.85	minor		
+Ino80 complex	SPAC664.02c	arp8	0.501	5.69	core		
+Ino80 complex	SPAPB8E5.09	rvb1	1.176	-0.0	minor		
+Ino80 complex	SPBC32H8.12c	act1	1.143	-0.0	minor		
+Ino80 complex	SPBC365.10	arp5	0.553	6.04	core		
+Ino80 complex	SPBC83.08	rvb2	1.081	0.05	minor		
+Ino80 complex	SPBP23A10.08	alp5	0.65	1.4	minor		
+Swr1 complex	SPAC1F5.11c	tra2	0.523	2.76	minor		
+Swr1 complex	SPAC637.12c	mst1	0.638	1.83	minor		
+Swr1 complex	SPAC9G1.13c	swc4	0.72	3.48	minor		
+Swr1 complex	SPAPB8E5.09	rvb1	1.176	-0.0	core		
+Swr1 complex	SPBC32H8.12c	act1	1.143	-0.0	core		
+Swr1 complex	SPBC83.08	rvb2	1.081	0.05	core		
+Swr1 complex	SPBP23A10.08	alp5	0.65	1.4	minor		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC1751.03	tif313	1.037	1.13	core		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC25G10.08	tif302	1.106	0.02	core		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC3A12.13c	tif310	0.499	-0.0	minor		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC4A8.16c	tif303	1.155	-0.0	core		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC4D7.05	sum1	1.256	-0.0	core		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC637.07	moe1	0.361	4.29	minor		
+eukaryotic translation initiation factor 3 complex, eIF3m	SPBC17D11.05	tif301	1.224	-0.0	core		
