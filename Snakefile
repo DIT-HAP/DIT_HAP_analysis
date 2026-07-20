@@ -34,6 +34,7 @@ include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
 include: "workflow/rules/pcr_qc.smk"
 include: "workflow/rules/spikein.smk"
+include: "workflow/rules/coverage.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
