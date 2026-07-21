@@ -242,8 +242,18 @@ def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE
       edge, so its single-gene ``Distance_to_region_start`` = interval
       ``Distance_to_region_end`` (and its ``Distance_to_region_end`` = inf).
 
-    This remap reproduces the notebook's per-branch 5'/3' assignment exactly
-    (verified 100% agreement on the HD_DIT_HAP release set).
+    This remap reproduces the notebook's per-branch 5'/3' assignment exactly,
+    including its three-way ``elif`` chain: ``start < thr and end > thr`` (left),
+    ``start < thr and end < thr`` (closer of the two, tie -> left), ``start > thr
+    and end < thr`` (right). Because each comparison is strict, a row where
+    EXACTLY ONE distance equals ``distance_threshold`` falls through all three
+    branches in the notebook (it is not excluded by the pre-filter's `<thr`
+    disjunction, but no `elif` matches either), leaving the notebook's
+    Parental_gene empty — that row is then silently dropped by the inner-join
+    to gene-level stats. This function reproduces that dead zone explicitly
+    below rather than assigning the row to a gene, so that the total output
+    row count matches the notebook byte-for-byte (verified: 30,537 rows on the
+    HD_DIT_HAP release set, identical to the notebook).
 
     Returns a Series with Parental_gene, Parental_gene_id, UTR_type,
     Insertion_direction, and Distance_to_gene_boundary. The signed
@@ -259,18 +269,28 @@ def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE
 
     start_close = dist_start < distance_threshold
     end_close = dist_end < distance_threshold
+    start_far = dist_start > distance_threshold
+    end_far = dist_end > distance_threshold
 
-    # Pick the flanking gene: left owns region_start, right owns region_end;
-    # when both boundaries are close, assign to the strictly closer gene
-    # (tie -> left), exactly as the notebook does.
-    if start_close and (not end_close or dist_start <= dist_end):
+    # Mirror the notebook's exact elif chain (see docstring for the dead zone
+    # this leaves at dist == distance_threshold exactly).
+    if start_close and end_far:
         gene_name, gene_id, gene_strand, near = left_name, left_id, left_strand, dist_start
         is_left = True
-    elif end_close:
+    elif start_close and end_close:
+        if dist_start <= dist_end:
+            gene_name, gene_id, gene_strand, near = left_name, left_id, left_strand, dist_start
+            is_left = True
+        else:
+            gene_name, gene_id, gene_strand, near = right_name, right_id, right_strand, dist_end
+            is_left = False
+    elif start_far and end_close:
         gene_name, gene_id, gene_strand, near = right_name, right_id, right_strand, dist_end
         is_left = False
     else:
-        # Neither boundary within threshold (excluded by the pre-filter).
+        # Dead zone (exactly one distance == distance_threshold) or neither
+        # boundary within threshold (only reachable if called without the
+        # pre-filter). The notebook assigns nothing in either case.
         return pd.Series({
             "Parental_gene": "",
             "Parental_gene_id": "",
@@ -329,6 +349,12 @@ def classify_utr_insertions(
     logger.info(f"Intergenic insertions within {distance_threshold}bp of a gene: {len(utr):,}")
 
     assigned = utr.apply(lambda row: resolve_parental_gene(row, distance_threshold), axis=1)
+    # annotations.tsv.gz already carries an (all-NaN, for intergenic rows)
+    # Insertion_direction column; drop it so the resolved Forward/Reverse
+    # value below is the only one that survives (a naive concat would create
+    # a duplicate `Insertion_direction`/`Insertion_direction.1` pair, and any
+    # downstream `df["Insertion_direction"]` lookup would silently see NaN).
+    utr = utr.drop(columns=[c for c in assigned.columns if c in utr.columns])
     utr = pd.concat([utr, assigned], axis=1)
 
     # Attach per-insertion fitting stats (A/DR) via the shared MultiIndex.
