@@ -226,24 +226,17 @@ def renumber_by_dr(
 @logger.catch(reraise=True)
 def finalize_direct(
     annotated: pd.DataFrame,
-    scaled: pd.DataFrame,
-    method: str = BEST_METHOD,
+    raw_labels: pd.Series,
     n_clusters: int = FINAL_N_CLUSTERS,
-    random_state: int = 42,
     wt_cluster: int = 9,
 ) -> pd.DataFrame:
-    """`direct` variant: cluster the scaled (DR, DL) matrix straight to n_clusters via
-    `method`, then renumber by DR. Returns the annotated table with a final `cluster`
-    column (NaN for genes not in the scaled/clustered set). See design doc §3.1.
+    """`direct` variant: `raw_labels` are already at n_clusters (from cluster_one_method
+    at k=final_n_clusters); just renumber by DR. Returns the annotated table with a
+    final `cluster` column (NaN for genes not in the clustered set). See design doc §3.1.
     """
-    raw = pd.Series(
-        cluster_one_method(method, scaled, n_clusters, random_state),
-        index=scaled.index,
-        name="_raw",
-    )
     out = annotated.copy()
-    out["cluster"] = renumber_by_dr(annotated, raw, n_clusters, wt_cluster)
-    logger.info(f"finalize_direct({method}): {len(scaled)} genes -> {n_clusters} clusters (WT={wt_cluster})")
+    out["cluster"] = renumber_by_dr(annotated, raw_labels, n_clusters, wt_cluster)
+    logger.info(f"finalize_direct: {len(raw_labels)} genes -> {n_clusters} clusters (WT={wt_cluster})")
     return out
 
 
@@ -255,18 +248,17 @@ def finalize_auto_merge(
     n_clusters: int = FINAL_N_CLUSTERS,
     wt_cluster: int = 9,
 ) -> pd.DataFrame:
-    """`auto_merge` variant: ward-merge the candidate-cluster CENTROIDS down to
-    n_clusters groups, then renumber by DR. `raw_labels` are the per-gene candidate
-    labels (e.g. the k=64 kmeans labels reused from cluster_one_method). Centroids are
-    the unweighted per-cluster means in scaled (DR, DL) space. Returns the annotated
-    table with final `cluster` + a preserved `raw_cluster` (pre-merge labels).
-    See design doc §3.2.
+    """`auto_merge` variant: ward-merge the transitional-cluster CENTROIDS down to
+    n_clusters groups, then renumber by DR. `raw_labels` are the per-gene transitional
+    labels (from cluster_one_method at k=n_intermediate). Centroids are the unweighted
+    per-cluster means in scaled (DR, DL) space. Returns the annotated table with final
+    `cluster` + a preserved `raw_cluster` (the transitional labels). See design doc §3.2.
     """
-    # One centroid per candidate cluster, ordered by candidate label for determinism.
+    # One centroid per transitional cluster, ordered by label for determinism.
     centroids = scaled.loc[raw_labels.index].groupby(raw_labels.to_numpy()).mean().sort_index()
     if len(centroids) < n_clusters:
         raise ValueError(
-            f"auto_merge needs >= {n_clusters} candidate clusters to merge, got {len(centroids)}."
+            f"auto_merge needs >= {n_clusters} transitional clusters to merge, got {len(centroids)}."
         )
     merge_labels = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward", metric="euclidean").fit_predict(
         centroids.to_numpy()
@@ -278,7 +270,7 @@ def finalize_auto_merge(
     out["cluster"] = renumber_by_dr(annotated, merged, n_clusters, wt_cluster)
     out["raw_cluster"] = raw_labels
     logger.info(
-        f"finalize_auto_merge: {len(centroids)} candidate clusters -> {n_clusters} (WT={wt_cluster})"
+        f"finalize_auto_merge: {len(centroids)} transitional clusters -> {n_clusters} (WT={wt_cluster})"
     )
     return out
 

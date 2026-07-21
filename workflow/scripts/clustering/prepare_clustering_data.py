@@ -27,9 +27,9 @@ Usage
     python prepare_clustering_data.py \\
         --fitting-results .../release/gene_level/fitting_results.tsv \\
         --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --output-annotated results/clustering/candidates/{dataset}/_work/annotated_data.pkl \\
-        --output-scaled results/clustering/candidates/{dataset}/_work/scaled_data.pkl \\
-        --output-ksweep results/clustering/candidates/{dataset}/_work/k_sweep_metrics.pkl
+        --output-annotated results/clustering/{dataset}/_work/annotated_data.pkl \\
+        --output-scaled results/clustering/{dataset}/_work/scaled_data.pkl \\
+        --output-ksweep results/clustering/{dataset}/_work/k_sweep_metrics.pkl
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

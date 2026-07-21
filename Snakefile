@@ -39,9 +39,10 @@ include: "workflow/rules/pcr_qc.smk"
 # ---------------------------------------------------------------------------
 # Following the repo convention, per-stage targets are listed but commented —
 # uncomment (or pass on the CLI) to run a specific stage. The core chain is:
-#   clustering candidates -> finalize VARIANT -> enrichment / ml.
-# Finalize has named variants (config.clustering.variants): buildable ones
-# (direct/auto_merge/grid) produce results/clustering/final/{dataset}/{variant}/...;
+#   clustering spine -> finalize VARIANT -> enrichment / ml.
+# Finalize has named variants (config.clustering.variants), each clustering for
+# itself (no fixed candidate stage): buildable ones (direct/auto_merge/grid) produce
+# results/clustering/final/{dataset}/{variant}/final_clusters.tsv (+ metrics.tsv);
 # manual_merge is the curated resources/curated/final_clusters/{dataset}/{variant}.tsv
 # (run notebooks/clustering/finalize_gene_clusters.ipynb). enrichment fans out per
 # variant; ml uses config.clustering.selected_variant.
@@ -52,10 +53,10 @@ _SELECTED_VARIANT = config["clustering"]["selected_variant"]
 rule all:
     input:
         # f"results/features/{_REF}/pombe_coding_gene_protein_features.tsv",
-        # Clustering candidates (per dataset):
-        f"results/clustering/candidates/{_DATASET}/candidate_clusters.tsv",
         # Selected finalize variant's clusters (buildable variants only):
-        f"results/clustering/final/{_DATASET}/{_SELECTED_VARIANT}/final_clusters.tsv",
+        # f"results/clustering/final/{_DATASET}/{_SELECTED_VARIANT}/final_clusters.tsv",
+        # Compare ALL buildable variants (builds every variant + a metrics table):
+        f"results/clustering/final/{_DATASET}/variant_metrics_comparison.tsv",
         # Enrichment (per variant; manual_merge needs its curated tsv first):
         # f"results/enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):

@@ -21,18 +21,20 @@ Output
 ------
 - final_clusters.tsv: full annotated table + final `cluster` (1..9, WT=9);
   index = systematic ID. No raw_cluster (grid has no pre-merge labels).
+- metrics.tsv: one row of silhouette / calinski_harabasz / davies_bouldin + n_clusters.
 
 Usage
 -----
     python finalize_grid_clusters.py \\
-        --annotated-data results/clustering/candidates/{dataset}/_work/annotated_data.pkl \\
-        --scaled-data    results/clustering/candidates/{dataset}/_work/scaled_data.pkl \\
+        --annotated-data results/clustering/{dataset}/_work/annotated_data.pkl \\
+        --scaled-data    results/clustering/{dataset}/_work/scaled_data.pkl \\
         --output         results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/clustering/final/{dataset}/{variant}/metrics.tsv \\
         --dr-cuts 0.3 0.6 0.9 --dl-cuts 0.2 0.5 --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-21
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -52,7 +54,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_grid
+from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_grid, score_labels
 
 
 # =============================================================================
@@ -60,21 +62,23 @@ from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_grid
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class FinalizeGridConfig:
-    """Inputs, output, and grid cut points for the `grid` finalize variant."""
+    """Inputs, outputs, and grid cut points for the `grid` finalize variant."""
     annotated_data: Path
     scaled_data: Path
     output: Path
+    metrics_output: Path
     dr_cuts: list[float] = field(default_factory=list)
     dl_cuts: list[float] = field(default_factory=list)
     n_clusters: int = FINAL_N_CLUSTERS
     wt_cluster: int = 9
 
     def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure output dir exists."""
+        """Raise ValueError if any required input is missing, then ensure output dirs exist."""
         for path in [self.annotated_data, self.scaled_data]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        self.output.parent.mkdir(parents=True, exist_ok=True)
+        for out in [self.output, self.metrics_output]:
+            out.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -91,7 +95,7 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: FinalizeGridConfig) -> None:
-    """Assign genes to grid cells, renumber by DR, write final_clusters.tsv."""
+    """Assign genes to grid cells, renumber by DR, write final_clusters.tsv + metrics.tsv."""
     config.validate()
     annotated = pd.read_pickle(config.annotated_data)
     scaled = pd.read_pickle(config.scaled_data)
@@ -105,6 +109,12 @@ def run(config: FinalizeGridConfig) -> None:
     out.to_csv(config.output, sep="\t", index=True)
     logger.success(f"Wrote {len(out)} genes ({out['cluster'].notna().sum()} clustered) to {config.output}")
 
+    # Per-variant metrics on the final clustering (label permutation-invariant scores).
+    final = out.loc[scaled.index, "cluster"]
+    metrics = pd.DataFrame([{"variant_type": "grid", **score_labels(scaled, final.to_numpy())}])
+    metrics.to_csv(config.metrics_output, sep="\t", index=False)
+    logger.success(f"Wrote metrics to {config.metrics_output}")
+
 
 # =============================================================================
 # MAIN EXECUTION
@@ -115,6 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data pickle (from prepare)")
     parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle (from prepare)")
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
+    parser.add_argument("--metrics-output", type=Path, required=True, help="Output per-variant metrics.tsv")
     parser.add_argument("--dr-cuts", type=float, nargs="*", default=[], help="DR-axis cut points (scaled space)")
     parser.add_argument("--dl-cuts", type=float, nargs="*", default=[], help="DL-axis cut points (scaled space)")
     parser.add_argument("--n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
@@ -132,6 +143,7 @@ def main() -> int:
             annotated_data=args.annotated_data,
             scaled_data=args.scaled_data,
             output=args.output,
+            metrics_output=args.metrics_output,
             dr_cuts=args.dr_cuts,
             dl_cuts=args.dl_cuts,
             n_clusters=args.n_clusters,
