@@ -10,9 +10,26 @@ clustering:
   k_max: 20             # k-sweep upper bound
   dr_cap: 1.3           # DR above this is clamped to this value (byte-faithful quirk)
   dl_divisor: 10        # DL is divided by this before clustering
-  finalize_mode: auto            # auto | manual — which final_clusters.tsv downstream reads
-  finalize_mode_overrides: {}    # per-dataset override, e.g. {HD_DIT_HAP: manual}
-  final_n_clusters: 9            # k for the automatic finalize path
+  final_n_clusters: 9   # k for every finalize variant (final cluster count)
+  # --- Finalize variants (design doc 2026-07-21-clustering-finalize-variants) ---
+  # Each named variant is one finalize strategy; enrichment.smk fans out over ALL
+  # of them (compare), ml.smk uses only `selected_variant`. Every variant emits the
+  # unified `cluster` column (1..final_n_clusters, WT = enrichment.wt_cluster);
+  # auto_merge/manual_merge also keep a `raw_cluster` column. `type` is one of:
+  #   direct       {method}                    -> cluster fresh to k=9, DR-numbered
+  #   auto_merge   {method}                    -> ward-merge k=64 centroids to 9
+  #   grid         {dr_cuts, dl_cuts}          -> axis-cut grid (cells must == k)
+  #   manual_merge {method}                    -> human notebook; NOT Snakemake-buildable
+  # cuts for grid are thresholds in SCALED space (DR capped, DL divided).
+  variants:
+    kmeans_direct9:       {type: direct,       method: kmeans}
+    kmeans_merge9_auto:   {type: auto_merge,   method: kmeans}
+    kmeans_merge9_manual: {type: manual_merge, method: kmeans}
+    # more examples (uncomment / add as needed):
+    # hc_direct9:  {type: direct,     method: hierarchical_agg}
+    # grid9:       {type: grid,       dr_cuts: [0.3, 0.6, 0.9], dl_cuts: [2.0, 5.0]}
+  selected_variant: kmeans_direct9   # variant ml.smk reads (equiv. old finalize_mode: auto)
+  selected_variant_overrides: {}     # per-dataset override, e.g. {HD_DIT_HAP: kmeans_merge9_manual}
 
 # --- Ontology enrichment (enrichment.smk) ---
 enrichment:
