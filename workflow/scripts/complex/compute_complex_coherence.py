@@ -171,8 +171,11 @@ def load_final_clusters(final_clusters_path: Path, dr_threshold: float) -> pd.Da
         if required not in clusters.columns:
             raise ValueError(f"final_clusters.tsv missing required column '{required}' (have: {list(clusters.columns)})")
 
-    # Genes must have both fitness coordinates to be placed in the 2D space.
-    clusters = clusters.dropna(subset=["DR", "DL"]).copy()
+    # Genes must have both FINITE fitness coordinates to be placed in the 2D
+    # space. Map +/-inf to NaN first so dropna removes it too: an inf DR/DL
+    # would normalize to inf and poison pdist (observed_mpd=nan, z_score=nan,
+    # and `null_mpds <= nan` -> all-False -> a spurious p_value=0.0 row).
+    clusters = clusters.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
     clusters["norm_DR"] = _min_max_normalize(clusters["DR"].to_numpy(dtype=float), *_DR_NORM_RANGE)
     clusters["norm_DL"] = _min_max_normalize(clusters["DL"].to_numpy(dtype=float), *_DL_NORM_RANGE)
 

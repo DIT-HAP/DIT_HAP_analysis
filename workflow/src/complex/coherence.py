@@ -20,6 +20,10 @@ Usage
     from workflow.src.complex.coherence import (
         geometric_median, coherence_metrics, compute_distance_zscore, EPSILON,
     )
+
+Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
+Date:     2026-07-20
+Version:  1.0.0
 """
 
 # =============================================================================
@@ -219,7 +223,11 @@ def compute_distance_zscore(
     # tight cluster).
     p_value = float(np.mean(null_mpds <= observed_mpd))
 
-    if null_std == 0:
+    # Degenerate null (all permutation MPDs identical): z-score is undefined,
+    # report 0.0. Use a tolerance rather than == 0 because np.std returns a
+    # tiny non-zero value (~1e-16) for an all-identical array due to float
+    # roundoff, which would otherwise produce a spurious huge z-score.
+    if null_std < 1e-12:
         z_score = 0.0
     else:
         z_score = (observed_mpd - null_mean) / null_std

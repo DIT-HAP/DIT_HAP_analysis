@@ -174,7 +174,9 @@ def load_final_clusters(final_clusters_path: Path) -> pd.DataFrame:
     for required in ["Systematic ID", "DR", "DL"]:
         if required not in clusters.columns:
             raise ValueError(f"final_clusters.tsv missing required column '{required}' (have: {list(clusters.columns)})")
-    return clusters.dropna(subset=["DR", "DL"]).copy()
+    # Map +/-inf to NaN before dropna so non-finite DR/DL never reach the
+    # feature-space scatter (dropna alone keeps +/-inf).
+    return clusters.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
 
 
 def load_complex_annotation(annotation_path: Path) -> pd.DataFrame:
