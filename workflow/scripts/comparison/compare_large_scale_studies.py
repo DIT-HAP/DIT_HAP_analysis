@@ -23,9 +23,10 @@ script never KeyErrors on a schema that ships a subset of the study columns.
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID + the DIT-HAP fitness metric; DR is
-  the current name, legacy releases ship it as `um`, normalized on load). This
-  is an UN-BUILDABLE human-curated Batch-B input (design doc §8).
+- final_clusters.tsv (Systematic ID + the DIT-HAP fitness metric; DR is the
+  current name, legacy releases ship it as `um`, normalized on load) from the
+  clustering finalize-variant stage, sourced via final_clusters_path(dataset,
+  selected_variant). Only Systematic ID + DR are read here.
 - gRNA HD-data fitted parameters TSV (Systematic ID + `um` gRNA fitness metric).
 - pombe_coding_gene_protein_features.tsv (gene_systematic_id + the other
   large-scale study columns: Barseq_from_dulab/koch, integration density, ipkm,
@@ -41,7 +42,7 @@ Output
 Usage
 -----
     python compare_large_scale_studies.py \\
-        --final-clusters resources/curated/final_clusters.tsv \\
+        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
         --protein-features results/features/{ver}/pombe_coding_gene_protein_features.tsv \\
         --grna-data resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
         --clip-upper 200 \\

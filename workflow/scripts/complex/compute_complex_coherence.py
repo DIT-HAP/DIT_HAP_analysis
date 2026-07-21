@@ -19,10 +19,10 @@ relative to random draws of the same number of background genes.
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster). This
-  is the Batch-B human-curated cluster table (design doc §8); absent from the
-  repo until the manual finalize step runs. Legacy releases may still ship the
-  pre-rename um/lam headers -> normalized to DR/DL on load.
+- final_clusters.tsv (Systematic ID, A, DR, DL, cluster) from the clustering
+  finalize-variant stage; the rule sources it via final_clusters_path(dataset,
+  selected_variant). Only Systematic ID / A / DR / DL are read here. Legacy
+  releases may still ship the pre-rename um/lam headers -> normalized to DR/DL.
 - PomBase macromolecular_complex_annotation.tsv (one row per complex-member:
   complex_term_id, GO_term_name, systematic_id, symbol, ...). Maps complexes ->
   member genes.
@@ -38,7 +38,7 @@ Output
 Usage
 -----
     python compute_complex_coherence.py \\
-        --final-clusters resources/curated/final_clusters.tsv \\
+        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
         --complex-annotation .../macromolecular_complex_annotation.tsv \\
         --min-size 3 --max-size 300 --dr-threshold 0.3 \\
         --n-permutations 1000 --random-state 42 \\
@@ -62,6 +62,7 @@ from pathlib import Path
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import pdist
 
 # 3. Third-party Imports
 import matplotlib
@@ -73,8 +74,14 @@ from loguru import logger  # noqa: E402
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.complex.coherence import (  # noqa: E402
-    coherence_metrics,
+# The Weiszfeld geometric median + the seeded MPD permutation test are the
+# shared coherence algorithm, sourced from the canonical workflow/src/coherence
+# module (also used by the themes-A/D verification_complex scripts). We call it
+# with median_pairwise_distance, matching this analysis's coherence axis; the
+# descriptive pairwise-distance summary below is trivial numpy kept local (the
+# shared coherence_metrics exposes a different, richer key set).
+from workflow.src.coherence.metrics import (  # noqa: E402
+    geometric_median,
     compute_distance_zscore,
 )
 from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
@@ -203,6 +210,42 @@ def load_complex_annotation(annotation_path: Path) -> pd.DataFrame:
 # =============================================================================
 # CORE LOGIC — coherence per complex
 # =============================================================================
+def coherence_metrics(points: np.ndarray) -> dict:
+    """Geometric-median centroid + descriptive stats of all pairwise L2 distances.
+
+    The centroid uses the shared Weiszfeld geometric_median; the distance
+    summary is a trivial numpy reduction over pdist kept local so this script's
+    output-TSV schema (median/mean/std/min/max_distance + mpd) is stable and
+    independent of the shared coherence_metrics' richer key set. `mpd` (median
+    pairwise distance) is the coherence statistic the permutation test scores
+    and equals `median_distance`. Degenerate inputs (0 or 1 point) have no
+    pairwise distances; their stats are reported as 0.0.
+    """
+    points = np.asarray(points, dtype=float)
+    centroid = geometric_median(points)
+
+    pairwise = pdist(points)  # condensed vector of all C(n,2) L2 distances
+    if pairwise.size == 0:
+        median_d = mean_d = std_d = min_d = max_d = 0.0
+    else:
+        median_d = float(np.median(pairwise))
+        mean_d = float(np.mean(pairwise))
+        std_d = float(np.std(pairwise))
+        min_d = float(np.min(pairwise))
+        max_d = float(np.max(pairwise))
+
+    return {
+        "centroid_x": float(centroid[0]),
+        "centroid_y": float(centroid[1]),
+        "median_distance": median_d,
+        "mean_distance": mean_d,
+        "std_distance": std_d,
+        "min_distance": min_d,
+        "max_distance": max_d,
+        "mpd": median_d,  # median pairwise distance == median_distance
+    }
+
+
 def build_complex_groups(
     background: pd.DataFrame, annotation: pd.DataFrame, min_size: int, max_size: int
 ) -> dict[str, pd.DataFrame]:
@@ -254,8 +297,16 @@ def compute_coherence_table(
         member_points = background_points[member_indices]
 
         metrics = coherence_metrics(member_points)
-        zscore = compute_distance_zscore(
-            background_points, member_indices, n_permutations=n_permutations, random_state=random_state
+        # Shared permutation test: X = member points, bg = the FULL background
+        # point cloud (members included, matching the notebook's null draw), and
+        # median_pairwise_distance is this analysis's coherence axis. Returns a
+        # (z_score, p_value) tuple; observed_mpd is the local metrics["mpd"].
+        z_score, p_value = compute_distance_zscore(
+            member_points,
+            background_points,
+            method="median_pairwise_distance",
+            n_permutations=n_permutations,
+            random_state=random_state,
         )
 
         rows.append({
@@ -264,10 +315,10 @@ def compute_coherence_table(
             "term_size": len(group),
             "covered_genes": ", ".join(sorted(group["Name"].dropna().astype(str))) if "Name" in group else "",
             **metrics,
-            "observed_mpd": zscore["observed_mpd"],
-            "z_score": zscore["z_score"],
-            "p_value": zscore["p_value"],
-            "n_permutations": zscore["n_permutations"],
+            "observed_mpd": metrics["mpd"],
+            "z_score": z_score,
+            "p_value": p_value,
+            "n_permutations": n_permutations,
         })
 
     table = pd.DataFrame(rows)

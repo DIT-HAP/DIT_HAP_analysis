@@ -24,8 +24,9 @@ module is driven by the config `complex.modules` map:
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster); the
-  Batch-B human-curated cluster table. Legacy um/lam headers -> DR/DL on load.
+- final_clusters.tsv (Systematic ID, A, DR, DL, cluster) from the clustering
+  finalize-variant stage, sourced via final_clusters_path(dataset,
+  selected_variant). Legacy um/lam headers -> DR/DL on load.
 - PomBase macromolecular_complex_annotation.tsv (complex_term_id, GO_term_name,
   systematic_id, symbol, ...).
 
@@ -37,7 +38,7 @@ Output
 Usage
 -----
     python analyze_complex_modules.py \\
-        --final-clusters resources/curated/final_clusters.tsv \\
+        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
         --complex-annotation .../macromolecular_complex_annotation.tsv \\
         --modules "{'cytoplasmic_translation': [], ...}" \\
         --output-flag results/complex/{dataset}/_work/module_visualization_done.flag \\
