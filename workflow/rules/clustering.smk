@@ -115,3 +115,33 @@ rule select_candidate_clusters:
             --output {output.clusters} \
             --metrics-output {output.metrics} &> {log}
         """
+
+
+# --- Automatic finalize (deterministic alternative to the manual notebook) ---
+# Reuses the prepare spine pickles; clusters to k=9 and DR-numbers (design doc §2-3).
+rule auto_finalize_clusters:
+    input:
+        annotated=f"{_CWORK}/annotated_data.pkl",
+        scaled=f"{_CWORK}/scaled_data.pkl",
+    output:
+        clusters="results/clustering/final/{dataset}/final_clusters.tsv",
+    params:
+        n_clusters=config.get("clustering", {}).get("final_n_clusters", 9),
+        random_state=config.get("clustering", {}).get("random_state", 42),
+        wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
+    log:
+        "logs/clustering/auto_finalize_clusters_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Auto-finalizing clusters for {wildcards.dataset} (k={params.n_clusters})..."
+    shell:
+        """
+        python workflow/scripts/clustering/auto_finalize_clusters.py \
+            --annotated-data {input.annotated} \
+            --scaled-data {input.scaled} \
+            --output {output.clusters} \
+            --n-clusters {params.n_clusters} \
+            --random-state {params.random_state} \
+            --wt-cluster {params.wt_cluster} &> {log}
+        """
