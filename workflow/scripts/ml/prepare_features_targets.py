@@ -18,7 +18,7 @@ No imputation and no train/test split: missing values are dropped
 Input
 -----
 - Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
+- Curated final_clusters.tsv (Systematic ID, A, DR, DL, cluster)
 
 Output
 ------
@@ -185,9 +185,9 @@ def merge_features_targets(feature_matrix: Path, final_clusters: Path) -> pd.Dat
     gene_features = pd.read_csv(feature_matrix, sep="\t")
     metrics = pd.read_csv(final_clusters, sep="\t").rename(columns={"Systematic ID": "Systematic_ID"})
 
-    # DIT_HAP_cluster comes from the curated revised_cluster (NOT the raw cluster).
-    target_values = metrics[["Systematic_ID", "A", "DR", "DL", "revised_cluster"]].rename(
-        columns={"revised_cluster": "DIT_HAP_cluster"}
+    # DIT_HAP_cluster comes from the final `cluster` column (auto or manual finalize).
+    target_values = metrics[["Systematic_ID", "A", "DR", "DL", "cluster"]].rename(
+        columns={"cluster": "DIT_HAP_cluster"}
     )
 
     merged = (

@@ -13,13 +13,18 @@
 # Per-ontology frames are pickles under _work/; only the final TSVs/workbooks
 # are user-facing.
 #
-# final_clusters.tsv is an UN-BUILDABLE human-curated input (design doc §8): if
-# it is missing, Snakemake reports "missing input" — run
-# notebooks/clustering/finalize_gene_clusters.ipynb first.
+# Fans out over clustering finalize VARIANTS: enrichment output nests under a
+# {variant} dir so each variant's clusters get their own enrichment (compare them
+# to pick one). final_clusters.tsv is sourced via final_clusters_path(dataset,
+# variant) (clustering.smk). For buildable variants (direct/auto_merge/grid) it is
+# BUILT by the matching finalize rule; for manual_merge it is the UN-BUILDABLE
+# curated resources/curated/final_clusters/{dataset}/{variant}.tsv — if missing,
+# Snakemake reports "missing input", so run the finalize notebook for that variant
+# first (design doc §8).
 
 _ENRICH_ONTOLOGIES = ["GO", "FYPO", "MONDO"]
-_ERAW = "results/enrichment/raw/{dataset}/{pombase_version}"
-_EWORK = "results/enrichment/raw/{dataset}/{pombase_version}/_work"
+_ERAW = "results/enrichment/raw/{dataset}/{variant}/{pombase_version}"
+_EWORK = "results/enrichment/raw/{dataset}/{variant}/{pombase_version}/_work"
 
 wildcard_constraints:
     ontology="|".join(_ENRICH_ONTOLOGIES),
@@ -28,7 +33,7 @@ wildcard_constraints:
 # --- Preprocessing spine (gene sets + id->name + gene lists) ---
 rule prepare_genesets:
     input:
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
         pombase_dir="resources/external/pombase/{pombase_version}",
         deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
     output:
@@ -40,7 +45,7 @@ rule prepare_genesets:
         work_dir=_EWORK,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
     log:
-        "logs/enrichment/prepare_genesets_{dataset}_{pombase_version}.log",
+        "logs/enrichment/prepare_genesets_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -71,7 +76,7 @@ rule enrich_one_ontology:
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
         fdr_threshold=config.get("enrichment", {}).get("fdr_threshold", 0.05),
     log:
-        "logs/enrichment/enrich_{ontology}_{dataset}_{pombase_version}.log",
+        "logs/enrichment/enrich_{ontology}_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -102,7 +107,7 @@ rule finalize_enrichment:
         output_dir=_ERAW,
         pop_count_max=config.get("enrichment", {}).get("pop_count_max", 400),
     log:
-        "logs/enrichment/finalize_enrichment_{dataset}_{pombase_version}.log",
+        "logs/enrichment/finalize_enrichment_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:

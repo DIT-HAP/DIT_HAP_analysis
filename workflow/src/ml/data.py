@@ -12,7 +12,7 @@ train_automl.py's former load_modeling_data).
 Input
 -----
 - Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
+- Curated final_clusters.tsv (Systematic ID, A, DR, DL, cluster)
 
 Output
 ------
@@ -54,7 +54,7 @@ def load_modeling_data(feature_matrix: Path, final_clusters: Path, dr_filter: fl
     """Merge feature matrix + targets, filter to DR > threshold (notebook behavior)."""
     features = pd.read_csv(feature_matrix, sep="\t")
     targets = pd.read_csv(final_clusters, sep="\t").rename(
-        columns={"Systematic ID": "Systematic_ID", "revised_cluster": "DIT_HAP_cluster"}
+        columns={"Systematic ID": "Systematic_ID", "cluster": "DIT_HAP_cluster"}
     )[["Systematic_ID", "A", "DR", "DL", "DIT_HAP_cluster"]]
 
     data = (

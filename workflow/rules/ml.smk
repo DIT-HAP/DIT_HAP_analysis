@@ -5,10 +5,11 @@
 # Per-dataset regression of a growth-fitness target (DR/DL) from gene features,
 # in two mljar modes (Explain: fast hold-out; Perform: 5-fold CV, slow).
 #
-# Split: prepare_ml_data merges the feature matrix + curated final_clusters and
-# applies the DR filter ONCE (shared spine); train_automl then reads that pickle
-# for each target x mode instead of re-merging. Byte-faithful to the self-contained
-# source notebook (its own train-only PowerTransform — NOT the Task 6 tables).
+# Split: prepare_ml_data merges the feature matrix + the SELECTED finalize
+# variant's final_clusters (config.clustering.selected_variant + per-dataset
+# override) and applies the DR filter ONCE (shared spine); train_automl then reads
+# that pickle for each target x mode instead of re-merging. Byte-faithful to the
+# self-contained source notebook (its own train-only PowerTransform).
 
 _MLWORK = "results/ml/models/{dataset}/{pombase_version}/_work"
 
@@ -21,7 +22,7 @@ wildcard_constraints:
 rule prepare_ml_data:
     input:
         feature_matrix="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
     output:
         modeling_data=f"{_MLWORK}/modeling_data.pkl",
     params:

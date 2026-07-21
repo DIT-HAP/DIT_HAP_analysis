@@ -68,11 +68,11 @@ def test_prepare_config_rejects_missing_input(tmp_path):
 
 
 def test_src_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
-    """src.ml.data.load_modeling_data left-joins targets, filters DR > 0.3, maps revised_cluster."""
+    """src.ml.data.load_modeling_data left-joins targets, filters DR > 0.3, maps cluster."""
     feat = pd.DataFrame({"gene_systematic_id": ["SPAC1", "SPAC2", "SPAC3"], "GC3": [0.1, 0.2, 0.3]})
     feat.to_csv(tmp_path / "f.tsv", sep="\t", index=False)
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2", "SPAC3"], "A": [1.0, 2.0, 3.0], "DR": [0.5, 0.1, 0.9], "DL": [3.0, 4.0, 5.0], "revised_cluster": [1, 9, 2]}
+        {"Systematic ID": ["SPAC1", "SPAC2", "SPAC3"], "A": [1.0, 2.0, 3.0], "DR": [0.5, 0.1, 0.9], "DL": [3.0, 4.0, 5.0], "cluster": [1, 9, 2]}
     )
     clusters.to_csv(tmp_path / "c.tsv", sep="\t", index=False)
 

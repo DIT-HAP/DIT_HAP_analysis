@@ -15,12 +15,19 @@ from workflow.src.clustering.candidates import (
     DL_DIVISOR,
     METHODS,
     cluster_one_method,
+    finalize_auto_merge,
+    finalize_direct,
+    finalize_grid,
+    renumber_by_dr,
     scale_features,
     score_labels,
 )
 from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.scripts.clustering.cluster_one_method import MethodConfig
 from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
+from workflow.scripts.clustering.finalize_direct_clusters import FinalizeDirectConfig, run as run_finalize_direct
+from workflow.scripts.clustering.finalize_auto_merge_clusters import FinalizeAutoMergeConfig, run as run_finalize_auto_merge
+from workflow.scripts.clustering.finalize_grid_clusters import FinalizeGridConfig, run as run_finalize_grid
 
 
 def test_best_method_is_pinned_to_kmeans():
@@ -125,6 +132,17 @@ def test_prepare_config_rejects_missing_input(tmp_path):
         cfg.validate()
 
 
+def test_finalize_direct_config_rejects_missing_input(tmp_path):
+    """FinalizeDirectConfig.validate raises ValueError when a required input file is absent."""
+    cfg = FinalizeDirectConfig(
+        annotated_data=tmp_path / "nope.pkl",
+        scaled_data=tmp_path / "also_nope.pkl",
+        output=tmp_path / "out" / "final_clusters.tsv",
+    )
+    with pytest.raises(ValueError, match="Required input not found"):
+        cfg.validate()
+
+
 def test_method_config_rejects_unknown_method(tmp_path):
     """MethodConfig.validate raises ValueError on an unrecognized method name."""
     scaled = tmp_path / "scaled.pkl"
@@ -151,3 +169,224 @@ def test_select_config_rejects_missing_input(tmp_path):
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
+
+
+def _toy_annotated_scaled(n_per=20, seed=0):
+    """Build a small annotated table + matching scaled matrix with 9 well-separated blobs in (DR, DL)."""
+    rng = np.random.default_rng(seed)
+    centers = [(0.05, 0.1), (0.2, 0.3), (0.35, 0.2), (0.5, 0.5), (0.65, 0.4),
+               (0.8, 0.6), (0.95, 0.3), (1.1, 0.7), (1.25, 0.5)]
+    drs, dls, idx = [], [], []
+    for c, (dr, dl) in enumerate(centers):
+        for i in range(n_per):
+            drs.append(dr + rng.normal(0, 0.005))
+            dls.append(dl + rng.normal(0, 0.005))
+            idx.append(f"g{c}_{i}")
+    annotated = pd.DataFrame({"DR": drs, "DL": dls, "A": 1.0}, index=idx)
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+    return annotated, scaled
+
+
+def test_finalize_direct_produces_k_clusters_labelled_1_to_9():
+    annotated, scaled = _toy_annotated_scaled()
+    out = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    assert "cluster" in out.columns
+    assert "raw_cluster" not in out.columns          # direct has no pre-merge labels
+    assert sorted(out["cluster"].unique()) == list(range(1, 10))
+    assert out.index.name == "Systematic ID"
+    assert {"DR", "DL", "A"}.issubset(out.columns)
+
+
+def test_finalize_direct_assigns_lowest_DR_to_wt_cluster():
+    annotated, scaled = _toy_annotated_scaled()
+    out = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    means = out.groupby("cluster")["DR"].mean()
+    assert means.idxmin() == 9                       # WT = lowest DR
+    non_wt = means.drop(index=9).sort_index()
+    assert non_wt.is_monotonic_increasing            # ids 1..8 ascend in DR
+
+
+def test_finalize_direct_is_deterministic():
+    annotated, scaled = _toy_annotated_scaled()
+    a = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    b = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    pd.testing.assert_series_equal(a["cluster"], b["cluster"])
+
+
+def test_finalize_direct_only_labels_scaled_genes():
+    """Genes dropped by scaling (NaN DR/DL) get no cluster (NaN)."""
+    annotated, scaled = _toy_annotated_scaled(n_per=15)
+    extra = pd.DataFrame({"DR": [np.nan], "DL": [np.nan], "A": [1.0]}, index=["ghost"])
+    extra.index.name = "Systematic ID"
+    annotated2 = pd.concat([annotated, extra])
+    out = finalize_direct(annotated2, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    assert pd.isna(out.loc["ghost", "cluster"])
+    assert out.loc["g0_0", "cluster"] in range(1, 10)
+
+
+def test_finalize_direct_defaults_to_best_method():
+    """Omitting `method` uses BEST_METHOD (kmeans) — byte-identical to the old auto path."""
+    annotated, scaled = _toy_annotated_scaled()
+    a = finalize_direct(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    b = finalize_direct(annotated, scaled, method=BEST_METHOD, n_clusters=9, random_state=42, wt_cluster=9)
+    pd.testing.assert_series_equal(a["cluster"], b["cluster"])
+
+
+def test_renumber_by_dr_tiebreak_on_dl_then_raw_id():
+    """Two groups with EQUAL mean DR are ordered by the mean_dl secondary key,
+    deterministically and reproducibly (design doc §2 tie-break rule)."""
+    # Geometry is hand-built so the tie is exact:
+    #   A: DR=0.0 (clearly lowest -> WT)
+    #   B: DR=1.0, DL=0.2   } identical mean DR, differing mean DL -> only the
+    #   C: DR=1.0, DL=0.8   } mean_dl tiebreak can order these two.
+    rows = []
+    for i in range(10):
+        rows.append((f"A{i}", 0.0, 0.5, "A"))
+    for i in range(10):
+        rows.append((f"B{i}", 1.0, 0.2, "B"))
+    for i in range(10):
+        rows.append((f"C{i}", 1.0, 0.8, "C"))
+    idx = [r[0] for r in rows]
+    annotated = pd.DataFrame(
+        {"DR": [r[1] for r in rows], "DL": [r[2] for r in rows], "A": 1.0}, index=idx
+    )
+    annotated.index.name = "Systematic ID"
+    raw = pd.Series([r[3] for r in rows], index=idx)
+
+    final1 = renumber_by_dr(annotated, raw, n_clusters=3, wt_cluster=3)
+    final2 = renumber_by_dr(annotated, raw, n_clusters=3, wt_cluster=3)
+    pd.testing.assert_series_equal(final1, final2)          # reproducible
+
+    assert final1.loc["A0"] == 3                             # lowest DR -> WT id 3
+    b_id, c_id = final1.loc["B0"], final1.loc["C0"]
+    assert b_id < c_id                                       # lower mean DL -> lower final id
+
+
+def test_renumber_by_dr_raises_on_group_count_mismatch():
+    """Fewer groups than n_clusters raises rather than silently truncating."""
+    annotated = pd.DataFrame(
+        {"DR": [0.0, 0.0, 1.0, 1.0], "DL": [0.1, 0.2, 0.3, 0.4], "A": 1.0},
+        index=["a", "b", "c", "d"],
+    )
+    raw = pd.Series(["x", "x", "y", "y"], index=["a", "b", "c", "d"])
+    with pytest.raises(ValueError, match="Expected 9 groups but got 2"):
+        renumber_by_dr(annotated, raw, n_clusters=9, wt_cluster=9)
+
+
+def test_finalize_auto_merge_recovers_known_groups():
+    """Ward-merging 64 candidate centroids drawn from 9 well-separated blobs recovers
+    the 9 groups, keeps raw_cluster, and DR-numbers with WT=9."""
+    annotated, scaled = _toy_annotated_scaled(n_per=20)
+    raw64 = pd.Series(
+        cluster_one_method("kmeans", scaled, n_clusters=64, random_state=42),
+        index=scaled.index,
+    )
+    out = finalize_auto_merge(annotated, scaled, raw64, n_clusters=9, wt_cluster=9)
+    assert sorted(out["cluster"].dropna().unique()) == list(range(1, 10))
+    assert "raw_cluster" in out.columns
+    assert out["raw_cluster"].nunique() == 64
+    means = out.groupby("cluster")["DR"].mean()
+    assert means.idxmin() == 9
+    assert means.drop(index=9).sort_index().is_monotonic_increasing
+
+
+def test_finalize_auto_merge_raises_when_too_few_candidates():
+    annotated, scaled = _toy_annotated_scaled(n_per=5)
+    raw = pd.Series(
+        cluster_one_method("kmeans", scaled, n_clusters=5, random_state=42),
+        index=scaled.index,
+    )
+    with pytest.raises(ValueError, match="needs >= 9 candidate clusters"):
+        finalize_auto_merge(annotated, scaled, raw, n_clusters=9, wt_cluster=9)
+
+
+def _toy_grid_annotated_scaled(n_per=12, seed=0):
+    """Toy data laid out ON a 3x3 (DR, DL) grid — one blob per cell — so axis cuts
+    at dr=[0.4,0.8], dl=[0.4,0.8] fill all 9 cells (grid partitions rectangles, so
+    the arbitrary 9-blob layout of _toy_annotated_scaled would leave cells empty)."""
+    rng = np.random.default_rng(seed)
+    drs, dls, idx = [], [], []
+    for r, dr in enumerate((0.2, 0.6, 1.0)):
+        for c, dl in enumerate((0.2, 0.6, 1.0)):
+            for i in range(n_per):
+                drs.append(dr + rng.normal(0, 0.01))
+                dls.append(dl + rng.normal(0, 0.01))
+                idx.append(f"r{r}c{c}_{i}")
+    annotated = pd.DataFrame({"DR": drs, "DL": dls, "A": 1.0}, index=idx)
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+    return annotated, scaled
+
+
+def test_finalize_grid_assigns_cells_and_numbers_by_dr():
+    """A 3x3 grid on grid-arranged data yields 9 clusters, DR-numbered, WT=9."""
+    annotated, scaled = _toy_grid_annotated_scaled()
+    out = finalize_grid(
+        annotated, scaled, dr_cuts=[0.4, 0.8], dl_cuts=[0.4, 0.8],
+        n_clusters=9, wt_cluster=9,
+    )
+    assert sorted(out["cluster"].dropna().unique()) == list(range(1, 10))
+    assert out.groupby("cluster")["DR"].mean().idxmin() == 9
+
+
+def test_finalize_grid_raises_on_cell_count_mismatch():
+    annotated, scaled = _toy_annotated_scaled(n_per=10)
+    with pytest.raises(ValueError, match="but final_n_clusters is 9"):
+        finalize_grid(annotated, scaled, dr_cuts=[0.5], dl_cuts=[0.5], n_clusters=9, wt_cluster=9)
+
+
+def test_finalize_direct_driver_writes_final_tsv(tmp_path):
+    annotated, scaled = _toy_annotated_scaled()
+    ap, sp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl"
+    annotated.to_pickle(ap)
+    scaled.to_pickle(sp)
+    out = tmp_path / "final_clusters.tsv"
+    cfg = FinalizeDirectConfig(
+        annotated_data=ap, scaled_data=sp, output=out,
+        method="kmeans", n_clusters=9, random_state=42, wt_cluster=9,
+    )
+    run_finalize_direct(cfg)
+    df = pd.read_csv(out, sep="\t")
+    assert "Systematic ID" in df.columns
+    assert "cluster" in df.columns
+    assert "raw_cluster" not in df.columns
+    assert sorted(df["cluster"].dropna().unique()) == list(range(1, 10))
+
+
+def test_finalize_auto_merge_driver_writes_final_tsv(tmp_path):
+    annotated, scaled = _toy_annotated_scaled()
+    raw64 = pd.Series(
+        cluster_one_method("kmeans", scaled, n_clusters=64, random_state=42),
+        index=scaled.index, name="cluster",
+    )
+    ap, sp, lp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl", tmp_path / "kmeans_labels.pkl"
+    annotated.to_pickle(ap)
+    scaled.to_pickle(sp)
+    raw64.to_pickle(lp)
+    out = tmp_path / "final_clusters.tsv"
+    cfg = FinalizeAutoMergeConfig(
+        annotated_data=ap, scaled_data=sp, candidate_labels=lp, output=out,
+        n_clusters=9, wt_cluster=9,
+    )
+    run_finalize_auto_merge(cfg)
+    df = pd.read_csv(out, sep="\t")
+    assert "cluster" in df.columns
+    assert "raw_cluster" in df.columns
+    assert sorted(df["cluster"].dropna().unique()) == list(range(1, 10))
+
+
+def test_finalize_grid_driver_writes_final_tsv(tmp_path):
+    annotated, scaled = _toy_grid_annotated_scaled()
+    ap, sp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl"
+    annotated.to_pickle(ap)
+    scaled.to_pickle(sp)
+    out = tmp_path / "final_clusters.tsv"
+    cfg = FinalizeGridConfig(
+        annotated_data=ap, scaled_data=sp, output=out,
+        dr_cuts=[0.4, 0.8], dl_cuts=[0.4, 0.8], n_clusters=9, wt_cluster=9,
+    )
+    run_finalize_grid(cfg)
+    df = pd.read_csv(out, sep="\t")
+    assert "cluster" in df.columns
+    assert sorted(df["cluster"].dropna().unique()) == list(range(1, 10))

@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Single-Method Clustering
-==========================
+Per-Variant Clustering (label generation)
+===========================================
 
 Runs ONE clustering method (kmeans / hierarchical_agg / hierarchical_div / gmm)
-over the scaled (DR, DL) matrix from prepare_clustering_data, and emits that
-method's 0-based labels + metric row. Fanned out per method by clustering.smk's
-`method` wildcard (design doc §5) — the analogue of ml.smk's target x mode split.
+over the scaled (DR, DL) matrix from prepare_clustering_data and emits that
+variant's 0-based labels. Clusters to `n_intermediate` when the variant declares
+one (merge variants) else straight to `final_n_clusters` (direct variants). Fanned
+out per variant by clustering.smk (design doc 2026-07-21-clustering-finalize-variants).
 
-All four methods are deterministic given the scaled matrix + seed, so running
-each in its own process reproduces the monolith's results exactly.
+For merge variants the labels are the transitional grouping a later merge rule
+reduces to final_n_clusters; for direct variants they are already at final_n_clusters
+and only need DR-renumbering downstream.
 
 Input
 -----
@@ -19,20 +21,19 @@ Input
 
 Output
 ------
-- {method}_labels.pkl: pd.Series of 0-based cluster labels, indexed by systematic ID
-- {method}_metrics.pkl: one-row DataFrame (method + silhouette/CH/DB + n_clusters, unrounded)
+- labels.pkl: pd.Series of 0-based cluster labels, indexed by systematic ID
 
 Usage
 -----
     python cluster_one_method.py \\
         --method kmeans \\
-        --scaled-data results/clustering/candidates/{dataset}/_work/scaled_data.pkl \\
-        --output-labels results/clustering/candidates/{dataset}/_work/kmeans_labels.pkl \\
-        --output-metrics results/clustering/candidates/{dataset}/_work/kmeans_metrics.pkl
+        --scaled-data results/clustering/{dataset}/_work/scaled_data.pkl \\
+        --output-labels results/clustering/{dataset}/{variant}/_labels.pkl \\
+        --final-n-clusters 9 --n-intermediate 64 --random-state 42
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -52,7 +53,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.clustering.candidates import METHODS, cluster_one_method, score_labels
+from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, METHODS, cluster_one_method
 
 
 # =============================================================================
@@ -60,24 +61,36 @@ from workflow.src.clustering.candidates import METHODS, cluster_one_method, scor
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class MethodConfig:
-    """Inputs, outputs, and parameters for a single clustering method."""
+    """Inputs, output, and parameters for one variant's clustering.
+
+    Clusters to `n_intermediate` when set (merge variants), else `final_n_clusters`
+    (direct variants).
+    """
     method: str
     scaled_data: Path
     output_labels: Path
-    output_metrics: Path
-    n_clusters: int = 64
+    final_n_clusters: int = FINAL_N_CLUSTERS
+    n_intermediate: int | None = None
     random_state: int = 42
 
+    @property
+    def n_clusters(self) -> int:
+        """Effective k: the transitional count if given, else the final count."""
+        return self.n_intermediate if self.n_intermediate is not None else self.final_n_clusters
+
     def validate(self) -> None:
-        """Raise ValueError on an unknown method, missing input, or bad n_clusters; ensure output dirs exist."""
+        """Raise ValueError on an unknown method, missing input, or bad k; ensure output dir exists."""
         if self.method not in METHODS:
             raise ValueError(f"Unknown clustering method: {self.method!r} (expected one of {METHODS})")
         if not self.scaled_data.exists():
             raise ValueError(f"Required input not found: {self.scaled_data}")
         if self.n_clusters <= 1:
             raise ValueError("n_clusters must be greater than 1.")
-        for out in [self.output_labels, self.output_metrics]:
-            out.parent.mkdir(parents=True, exist_ok=True)
+        if self.n_intermediate is not None and self.n_intermediate < self.final_n_clusters:
+            raise ValueError(
+                f"n_intermediate ({self.n_intermediate}) must be >= final_n_clusters ({self.final_n_clusters})"
+            )
+        self.output_labels.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -94,18 +107,15 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: MethodConfig) -> None:
-    """Run one clustering method on the scaled matrix and persist its labels + metric row."""
+    """Cluster the scaled matrix to the effective k and persist the labels."""
     config.validate()
     scaled_data = pd.read_pickle(config.scaled_data)
 
     labels = cluster_one_method(config.method, scaled_data, config.n_clusters, config.random_state)
-    # Index labels by systematic ID so select_candidate_clusters can map them back safely.
+    # Index labels by systematic ID so the finalize/merge rules can map them back safely.
     label_series = pd.Series(labels, index=scaled_data.index, name="cluster")
     label_series.to_pickle(config.output_labels)
-
-    metrics_row = pd.DataFrame([{"method": config.method, **score_labels(scaled_data, labels)}])
-    metrics_row.to_pickle(config.output_metrics)
-    logger.success(f"[{config.method}] {len(label_series)} genes labeled -> {config.output_labels}")
+    logger.success(f"[{config.method}] {len(label_series)} genes labeled at k={config.n_clusters} -> {config.output_labels}")
 
 
 # =============================================================================
@@ -113,19 +123,19 @@ def run(config: MethodConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Run one gene-level clustering method (deterministic)")
+    parser = argparse.ArgumentParser(description="Cluster one variant's method (labels only)")
     parser.add_argument("--method", required=True, choices=METHODS, help="Clustering method to run")
     parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle")
     parser.add_argument("--output-labels", type=Path, required=True, help="Output labels pickle (pd.Series)")
-    parser.add_argument("--output-metrics", type=Path, required=True, help="Output one-row metrics pickle")
-    parser.add_argument("--n-clusters", type=int, default=64, help="Number of candidate clusters (default 64)")
+    parser.add_argument("--final-n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
+    parser.add_argument("--n-intermediate", type=int, default=None, help="Transitional cluster count for merge variants (default: none -> cluster to final)")
     parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: build config, run one method, report results."""
+    """Main orchestrator: build config, run one variant's clustering, report results."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
@@ -133,8 +143,8 @@ def main() -> int:
             method=args.method,
             scaled_data=args.scaled_data,
             output_labels=args.output_labels,
-            output_metrics=args.output_metrics,
-            n_clusters=args.n_clusters,
+            final_n_clusters=args.final_n_clusters,
+            n_intermediate=args.n_intermediate,
             random_state=args.random_state,
         )
         run(config)

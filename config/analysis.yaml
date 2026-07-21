@@ -4,12 +4,33 @@
 
 # --- Gene-level clustering (clustering.smk) ---
 clustering:
-  n_clusters: 64        # candidate cluster count fed to the 4 algorithms
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
-  k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers)
+  k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers, diagnostic)
   k_max: 20             # k-sweep upper bound
   dr_cap: 1.3           # DR above this is clamped to this value (byte-faithful quirk)
   dl_divisor: 10        # DL is divided by this before clustering
+  final_n_clusters: 9   # final cluster count k for EVERY variant (WT = enrichment.wt_cluster)
+  # --- Finalize variants (design doc 2026-07-21-clustering-finalize-variants) ---
+  # Each named variant is one finalize strategy; enrichment.smk fans out over ALL
+  # of them (compare), ml.smk uses only `selected_variant`. Every variant emits the
+  # unified `cluster` column (1..final_n_clusters, WT = enrichment.wt_cluster);
+  # auto_merge/manual_merge also keep a `raw_cluster` column. Fields per `type`:
+  #   direct       {method}                  -> cluster straight to final_n_clusters, DR-numbered
+  #   auto_merge   {method, n_intermediate}  -> cluster to n_intermediate, ward-merge centroids -> final_n_clusters
+  #   grid         {dr_cuts, dl_cuts}        -> axis-cut grid (cell count must == final_n_clusters)
+  #   manual_merge {method, n_intermediate}  -> human notebook; NOT Snakemake-buildable
+  # grid cuts are thresholds in SCALED space (DR capped, DL divided).
+  variants:
+    kmeans_direct9:       {type: direct,       method: kmeans}
+    kmeans_merge9_auto:   {type: auto_merge,   method: kmeans,           n_intermediate: 64}
+    kmeans_merge9_manual: {type: manual_merge, method: kmeans,           n_intermediate: 64}
+    hc_direct9:           {type: direct,       method: hierarchical_agg}
+    hc_merge9_auto:       {type: auto_merge,   method: hierarchical_agg, n_intermediate: 64}
+    gmm_direct9:          {type: direct,       method: gmm}
+    gmm_merge9_auto:      {type: auto_merge,   method: gmm,              n_intermediate: 64}
+    grid9:                {type: grid,         dr_cuts: [0.4, 0.8], dl_cuts: [0.05, 0.3]}
+  selected_variant: kmeans_direct9   # variant ml.smk reads (equiv. old finalize_mode: auto)
+  selected_variant_overrides: {}     # per-dataset override, e.g. {HD_DIT_HAP: kmeans_merge9_manual}
 
 # --- Ontology enrichment (enrichment.smk) ---
 enrichment:

@@ -35,32 +35,52 @@ snakemake --cores 8 --use-conda results/features/2025-10-01/pombe_coding_gene_pr
 
 ## Core analysis chain (clustering → enrichment / ml)
 
-The chain is not a single DAG: it has one deliberate manual step (cluster merge),
-which is a human-judgment decision kept as a notebook (design doc §5).
+The finalize step (→ 9 final clusters) is a set of named **variants**, one per
+strategy, configured under `config/analysis.yaml` → `clustering.variants`. Each
+variant declares a `type`:
+
+| type | how it makes 9 clusters | buildable by Snakemake? |
+|------|-------------------------|-------------------------|
+| `direct` | cluster fresh to k=9 with `method` | yes |
+| `auto_merge` | ward-merge the method's k=64 candidate centroids down to 9 | yes |
+| `grid` | axis cuts (`dr_cuts`/`dl_cuts`) on scaled DR/DL form a 9-cell grid | yes |
+| `manual_merge` | human 64→9 merge in the notebook | no (curated input) |
+
+Every variant emits the same contract: a `cluster` column with the 1..9 labels
+(lowest-mean-DR group = WT = 9). `auto_merge`/`manual_merge` also keep a
+`raw_cluster` column (pre-merge labels). Enrichment fans out over **all** variants
+so you can compare them; ml/thesis use the single `clustering.selected_variant`
+(per-dataset overridable). Numbering is always by mean DR — no variant hand-assigns
+final ids (design doc `2026-07-21-clustering-finalize-variants`).
 
 ```
 1. Feature collection (dataset-independent, by PomBase version)
    snakemake --use-conda results/features/<version>/pombe_coding_gene_protein_features.tsv
 
-2. Candidate clustering (per dataset, deterministic)
+2. Candidate clustering (per dataset, deterministic — 64 candidates, 4 methods)
    snakemake --use-conda results/clustering/candidates/<dataset>/candidate_clusters.tsv
 
-3. MANUAL: finalize clusters (human decision — merges 64 candidates → 9)
-   Run notebooks/clustering/finalize_gene_clusters.ipynb (set DATASET at top),
-   review the feature-space plots, adjust the merge dicts, and write
-   resources/curated/final_clusters.tsv  (version-controlled, un-buildable input).
+3. Finalize clusters (→ 9), per variant
+   buildable variants (direct / auto_merge / grid) — no manual step:
+     snakemake --use-conda results/clustering/final/<dataset>/<variant>/final_clusters.tsv
+   manual_merge variant — human decision via
+     notebooks/clustering/finalize_gene_clusters.ipynb (set DATASET/METHOD/VARIANT
+     at top), review the feature-space plots, adjust the one merge dict, and write
+     resources/curated/final_clusters/<dataset>/<variant>.tsv (version-controlled).
 
-4a. Enrichment (per dataset; needs final_clusters.tsv)
-    snakemake --use-conda results/enrichment/raw/<dataset>/<version>/go_enrichment_full_filtered.tsv
+4a. Enrichment (per dataset x variant; needs that variant's final_clusters.tsv)
+    snakemake --use-conda results/enrichment/raw/<dataset>/<variant>/<version>/go_enrichment_full_filtered.tsv
 
-4b. ML AutoML (per dataset x target x mode; needs final_clusters.tsv)
-    snakemake --use-conda results/ml/models/<dataset>/<version>/um_Explain/metrics.tsv
+4b. ML AutoML (per dataset x target x mode; uses selected_variant's final_clusters.tsv)
+    snakemake --use-conda results/ml/models/<dataset>/<version>/DR_Explain/metrics.tsv
 
 Optional (hits STRING/REVIGO web APIs; cached under resources/external/enrichment_cache/):
-    snakemake --use-conda results/enrichment/network/<dataset>/<version>/go_enrichment_full_revigo.tsv
+    snakemake --use-conda results/enrichment/network/<dataset>/<variant>/<version>/go_enrichment_full_revigo.tsv
 ```
 
-If a rule reports `Missing input files: resources/curated/final_clusters.tsv`,
-run the manual finalize notebook (step 3) first — this is intentional.
+For a `manual_merge` variant only, if a rule reports `Missing input files:
+resources/curated/final_clusters/<dataset>/<variant>.tsv`, run the finalize
+notebook (step 3) first — this is intentional. The buildable variant types have no
+manual step: their final clusters are buildable Snakemake targets.
 
 See `docs/plans/` for design docs and implementation plans.

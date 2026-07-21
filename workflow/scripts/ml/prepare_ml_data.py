@@ -13,7 +13,7 @@ data). Deterministic and target/mode-independent.
 Input
 -----
 - Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
-- Curated final_clusters.tsv (Systematic ID, A, DR, DL, revised_cluster)
+- Curated final_clusters.tsv (Systematic ID, A, DR, DL, cluster)
 
 Output
 ------
