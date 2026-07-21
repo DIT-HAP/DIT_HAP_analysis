@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from workflow.src.enrichment.cluster_enrichment import (
+    CLUSTER_COLUMN,
     ONTOLOGIES,
     _concat_by_cluster,
     filter_go_full,
@@ -137,3 +138,8 @@ def test_finalize_config_rejects_missing_frames(tmp_path):
 def test_ontologies_constant_order():
     """ONTOLOGIES lists GO, FYPO, MONDO in the canonical processing order."""
     assert ONTOLOGIES == ["GO", "FYPO", "MONDO"]
+
+
+def test_cluster_column_default_is_cluster():
+    """Pin the final-contract column name (guards the production default)."""
+    assert CLUSTER_COLUMN == "cluster"
