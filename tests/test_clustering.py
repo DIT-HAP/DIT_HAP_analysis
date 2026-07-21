@@ -127,6 +127,17 @@ def test_prepare_config_rejects_missing_input(tmp_path):
         cfg.validate()
 
 
+def test_auto_finalize_config_rejects_missing_input(tmp_path):
+    """AutoFinalizeConfig.validate raises ValueError when a required input file is absent."""
+    cfg = AutoFinalizeConfig(
+        annotated_data=tmp_path / "nope.pkl",
+        scaled_data=tmp_path / "also_nope.pkl",
+        output=tmp_path / "out" / "final_clusters.tsv",
+    )
+    with pytest.raises(ValueError, match="Required input not found"):
+        cfg.validate()
+
+
 def test_method_config_rejects_unknown_method(tmp_path):
     """MethodConfig.validate raises ValueError on an unrecognized method name."""
     scaled = tmp_path / "scaled.pkl"
