@@ -146,7 +146,7 @@ def resolve_ontology(name: str, ontology_dir: Path, intermediate_dir: Path, fdr_
         )
     if name == "FYPO":
         phaf_gaf = format_phaf_file(
-            od / "fypo-simple-pombase.obo", od / "pombase_phenotype_annotation.phaf.tsv", intermediate_dir / "phaf_go_style.tsv"
+            od / "fypo-simple-pombase.obo", od / "pombase_single_locus_haploid_phenotype_annotation.phaf.tsv", intermediate_dir / "phaf_go_style.tsv"
         )
         data = OntologyDataConfig(
             ontology_obo=od / "fypo-simple-pombase.obo", ontology_association_gaf=phaf_gaf,
