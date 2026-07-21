@@ -21,7 +21,7 @@ from workflow.scripts.enrichment.finalize_enrichment import FinalizeConfig
 
 
 def _write_final_clusters(path, rows):
-    """Helper: write a minimal final_clusters.tsv with Systematic ID + revised_cluster."""
+    """Helper: write a minimal final_clusters.tsv with Systematic ID + cluster."""
     pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
 
 
@@ -29,11 +29,11 @@ def test_load_cluster_genesets_splits_background_and_nonwt(tmp_path):
     """Background = all genes; nonWT = genes in clusters < wt_cluster; per-cluster dict is int-keyed + sorted."""
     fc = tmp_path / "final_clusters.tsv"
     _write_final_clusters(fc, [
-        {"Systematic ID": "SPAC1", "revised_cluster": 1},
-        {"Systematic ID": "SPAC2", "revised_cluster": 9},
-        {"Systematic ID": "SPBC1", "revised_cluster": 2},
+        {"Systematic ID": "SPAC1", "cluster": 1},
+        {"Systematic ID": "SPAC2", "cluster": 9},
+        {"Systematic ID": "SPBC1", "cluster": 2},
     ])
-    gs = load_cluster_genesets(fc, cluster_column="revised_cluster", wt_cluster=9)
+    gs = load_cluster_genesets(fc, cluster_column="cluster", wt_cluster=9)
     assert set(gs.bg_genes) == {"SPAC1", "SPAC2", "SPBC1"}
     assert set(gs.nonwt_bg_genes) == {"SPAC1", "SPBC1"}      # cluster 9 excluded
     assert list(gs.cluster_genes) == [1, 2, 9]               # int-keyed, sorted

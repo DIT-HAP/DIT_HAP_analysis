@@ -15,7 +15,7 @@ missing, Snakemake reports "missing input" — run the finalize notebook first.
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, revised_cluster, ...)
+- Curated final_clusters.tsv (Systematic ID, cluster, ...)
 - PomBase gene metadata + curated deletion-library table (for id->name mapping)
 
 Output
