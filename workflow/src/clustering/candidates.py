@@ -215,11 +215,19 @@ def auto_finalize(
     final_ids = list(range(1, n_clusters + 1))
     remaining = [i for i in final_ids if i != wt_cluster]
     ordered_ids = [wt_cluster] + remaining
+    # Guard against silent mis-numbering: dict(zip(...)) would quietly truncate if
+    # counts diverge. len(stats) < n_clusters means kmeans produced fewer distinct
+    # labels; wt_cluster out of 1..n_clusters leaves ordered_ids one entry too long.
+    if len(stats) != len(ordered_ids):
+        raise ValueError(
+            f"Expected {len(ordered_ids)} clusters but kmeans produced {len(stats)}; "
+            f"cannot renumber deterministically (check n_clusters / input size)."
+        )
     # stats is already sorted ascending-DR and re-indexed, so row order == rank order:
     # rank 0 (lowest DR) -> ordered_ids[0] (wt_cluster), rank 1 -> id 1, ...
     raw_to_final = dict(zip(stats["_raw"], ordered_ids))
 
     out = annotated.copy()
     out["cluster"] = raw.map(raw_to_final)
-    logger.info(f"Auto-finalized {raw.notna().sum()} genes into {n_clusters} clusters (WT={wt_cluster})")
+    logger.info(f"Auto-finalized {len(scaled)} genes into {n_clusters} clusters (WT={wt_cluster})")
     return out

@@ -205,3 +205,38 @@ def test_auto_finalize_only_labels_scaled_genes():
     out = auto_finalize(annotated2, scaled, n_clusters=9, random_state=42, wt_cluster=9)
     assert pd.isna(out.loc["ghost", "cluster"])
     assert out.loc["g0_0", "cluster"] in range(1, 10)
+
+
+def test_auto_finalize_tiebreak_on_dl_then_raw_id():
+    """Two clusters with EQUAL mean DR are ordered by the mean_dl secondary key,
+    deterministically and reproducibly (design doc tie-break rule)."""
+    # Geometry is hand-built so the tie is exact, not a kmeans accident:
+    #   A: DR=0.0 (clearly lowest -> WT)
+    #   B: DR=1.0, DL=0.2   } identical mean DR, differing mean DL -> only the
+    #   C: DR=1.0, DL=0.8   } mean_dl tiebreak can order these two.
+    rows = []
+    for i in range(10):
+        rows.append((f"A{i}", 0.0, 0.5))
+    for i in range(10):
+        rows.append((f"B{i}", 1.0, 0.2))
+    for i in range(10):
+        rows.append((f"C{i}", 1.0, 0.8))
+    idx = [r[0] for r in rows]
+    annotated = pd.DataFrame(
+        {"DR": [r[1] for r in rows], "DL": [r[2] for r in rows], "A": 1.0}, index=idx
+    )
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+
+    out1 = auto_finalize(annotated, scaled, n_clusters=3, random_state=42, wt_cluster=3)
+    out2 = auto_finalize(annotated, scaled, n_clusters=3, random_state=42, wt_cluster=3)
+    # (a) reproducible
+    pd.testing.assert_series_equal(out1["cluster"], out2["cluster"])
+
+    means = out1.groupby("cluster")[["DR", "DL"]].mean()
+    b_id, c_id = out1.loc["B0", "cluster"], out1.loc["C0", "cluster"]
+    # sanity: the two non-WT clusters really are DR-tied
+    assert means.loc[b_id, "DR"] == means.loc[c_id, "DR"]
+    # (b) among the DR-tied pair, lower mean DL -> lower final id
+    assert b_id < c_id
+    assert means.loc[b_id, "DL"] < means.loc[c_id, "DL"]
