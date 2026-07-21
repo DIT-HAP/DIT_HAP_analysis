@@ -2,12 +2,14 @@
 # complex.smk — Macromolecular complex coherence analysis
 # =============================================================================
 #
-# Batch B (requires resources/curated/final_clusters.tsv — the un-buildable,
-# human-curated cluster table from the manual finalize_gene_clusters step).
+# Batch B. Sources the DIT-HAP gene fitness table from the clustering
+# finalize-variant system via final_clusters_path(dataset, selected_variant(dataset))
+# (clustering.smk); only Systematic ID / A / DR / DL are read (never the cluster
+# id), so any variant's table gives identical results.
 # Two-part: module visualization (named complexes in DR/DL fitness space) +
 # coherence permutation test (all complexes 3<=size<=300 whose DR>0.3 members
 # form a tighter-than-random cluster). Weiszfeld geometric median + seeded MPD
-# permutation test live in workflow/src/complex/coherence.py.
+# permutation test live in the shared workflow/src/coherence/metrics.py.
 #
 # DATA-PATH NOTE (deviation from the plan skeleton — established pattern):
 #   * The plan skeleton used `resources/pombase/{pombase_version}/
@@ -17,15 +19,16 @@
 #     noncoding_rna.smk use). The reference version comes from datasets.yaml
 #     (DATASETS["reference"]["pombase_version"] = 2026-06-01), NOT a wildcard —
 #     these are per-dataset rules with no {pombase_version} wildcard.
-#   * final_clusters.tsv is absent until the manual finalize step runs; a
-#     dry-run reports it as a missing input (expected Batch-B state).
+#   * final_clusters is built by the clustering stage for buildable variants; a
+#     dry-run chains it off that rule (or reports the curated manual_merge tsv
+#     missing if the selected variant is manual).
 
 _CPLX_WORK = "results/complex/{dataset}/_work"
 
 
 rule analyze_complex_modules:
     input:
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
         complex_annotation=lambda wc: (
             f"resources/external/pombase/{DATASETS['reference']['pombase_version']}/"
             "ontologies_and_associations/macromolecular_complex_annotation.tsv"
@@ -54,7 +57,7 @@ rule analyze_complex_modules:
 
 rule compute_complex_coherence:
     input:
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
         complex_annotation=lambda wc: (
             f"resources/external/pombase/{DATASETS['reference']['pombase_version']}/"
             "ontologies_and_associations/macromolecular_complex_annotation.tsv"

@@ -2,8 +2,12 @@
 # comparison.smk — Pairwise fitness comparison with other large-scale studies
 # =============================================================================
 #
-# Batch B (requires resources/curated/final_clusters.tsv — the un-buildable,
-# human-curated cluster table from the manual finalize_gene_clusters step).
+# Batch B. Sources the DIT-HAP gene fitness table from the clustering
+# finalize-variant system: final_clusters_path(dataset, selected_variant(dataset))
+# (clustering.smk). Buildable variants (direct/auto_merge/grid) produce it under
+# results/clustering/final/...; the manual_merge variant needs its curated tsv
+# first. Only Systematic ID / A / DR / DL are read here (never the cluster id),
+# so any variant's table gives identical results.
 # Per-dataset: merges DIT-HAP data with gRNA, Barseq, integration density,
 # colony size, growth rate. Pairwise scatter with KDE overlay + Pearson r stats.
 #
@@ -12,7 +16,7 @@
 
 rule compare_large_scale_studies:
     input:
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
         protein_features=lambda wc: (
             f"results/features/{DATASETS['reference']['pombase_version']}/"
             "pombe_coding_gene_protein_features.tsv"
