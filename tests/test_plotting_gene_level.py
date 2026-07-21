@@ -42,8 +42,8 @@ def test_value_column_constants():
 
 def test_visualize_merged_clusters_two_panels():
     """The merged 1..9 case yields a two-panel figure without palette overrun."""
-    df = _synthetic(90, 9, "revised_cluster")
-    fig = visualize_cluster_on_feature_space(df, "revised_cluster", show_box=True, cluster_minus_one=True)
+    df = _synthetic(90, 9, "cluster")
+    fig = visualize_cluster_on_feature_space(df, "cluster", show_box=True, cluster_minus_one=True)
     assert len(fig.axes) == 2
 
 
@@ -63,6 +63,6 @@ def test_palette_sizes():
 
 def test_plot_groups_on_feature_space_grid_shape():
     """A grid of feature-space subplots has one axis per group (plus filled columns)."""
-    df = _synthetic(60, 6, "revised_cluster")
-    fig = plot_groups_on_feature_space(df, "revised_cluster", "Name", col_num=3)
+    df = _synthetic(60, 6, "cluster")
+    fig = plot_groups_on_feature_space(df, "cluster", "Name", col_num=3)
     assert len(fig.axes) >= 6

@@ -68,7 +68,7 @@ from workflow.src.io import read_file
 WT_CLUSTER = 9              # cluster 9 is the WT/background cluster (quirk)
 POP_COUNT_MAX = 400         # gene-count filter for the "filtered" GO output
 FDR_THRESHOLD = 0.05        # alpha for goatools FDR-BH
-CLUSTER_COLUMN = "revised_cluster"
+CLUSTER_COLUMN = "cluster"
 
 GO_LOAD_KWARGS = {"relationships": {"is_a", "part_of"}, "propagate_counts": True, "load_obsolete": False, "prt": None}
 SIMPLE_LOAD_KWARGS = {"propagate_counts": True, "load_obsolete": False, "prt": None}

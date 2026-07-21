@@ -10,6 +10,9 @@ clustering:
   k_max: 20             # k-sweep upper bound
   dr_cap: 1.3           # DR above this is clamped to this value (byte-faithful quirk)
   dl_divisor: 10        # DL is divided by this before clustering
+  finalize_mode: auto            # auto | manual — which final_clusters.tsv downstream reads
+  finalize_mode_overrides: {}    # per-dataset override, e.g. {HD_DIT_HAP: manual}
+  final_n_clusters: 9            # k for the automatic finalize path
 
 # --- Ontology enrichment (enrichment.smk) ---
 enrichment:

@@ -69,14 +69,14 @@ def test_transform_data_skips_absent_features():
     assert "NonexistentFeature" not in out.columns
 
 
-def test_merge_uses_revised_cluster_as_dit_hap_cluster(tmp_path):
-    """merge_features_targets maps revised_cluster -> DIT_HAP_cluster via a left join."""
+def test_merge_uses_cluster_as_dit_hap_cluster(tmp_path):
+    """merge_features_targets maps cluster -> DIT_HAP_cluster via a left join."""
     feat = pd.DataFrame({"gene_systematic_id": ["SPAC1", "SPAC2", "SPAC3"], "GC3": [0.1, 0.2, 0.3]})
     feat_path = tmp_path / "features.tsv"
     feat.to_csv(feat_path, sep="\t", index=False)
 
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2"], "A": [1.0, 2.0], "DR": [0.5, 0.1], "DL": [3.0, 4.0], "revised_cluster": [1, 9]}
+        {"Systematic ID": ["SPAC1", "SPAC2"], "A": [1.0, 2.0], "DR": [0.5, 0.1], "DL": [3.0, 4.0], "cluster": [1, 9]}
     )
     clusters_path = tmp_path / "final_clusters.tsv"
     clusters.to_csv(clusters_path, sep="\t", index=False)

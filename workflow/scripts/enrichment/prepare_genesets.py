@@ -5,17 +5,20 @@
 Enrichment Preprocessing (the spine)
 ======================================
 
-First stage of the split GO/FYPO/MONDO enrichment pipeline: reads the curated
+First stage of the split GO/FYPO/MONDO enrichment pipeline: reads
 final_clusters.tsv into background / nonWT / per-cluster gene sets, builds the
 id->name map, and writes the gene-list txt files. Emits pickles for the three
 per-ontology enrichment jobs (design doc §5).
 
-final_clusters.tsv is an UN-BUILDABLE human-curated input (design doc §8): if
-missing, Snakemake reports "missing input" — run the finalize notebook first.
+final_clusters.tsv is sourced via final_clusters_path() (clustering.smk), which
+honors config.clustering.finalize_mode. Under the default finalize_mode: auto it
+is BUILT by the auto_finalize_clusters rule; under finalize_mode: manual it is the
+UN-BUILDABLE curated resources/curated/final_clusters.tsv (run the finalize
+notebook first if missing) (design doc §8).
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, revised_cluster, ...)
+- Curated final_clusters.tsv (Systematic ID, cluster, ...)
 - PomBase gene metadata + curated deletion-library table (for id->name mapping)
 
 Output

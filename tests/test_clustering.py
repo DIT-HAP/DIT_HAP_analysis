@@ -14,6 +14,7 @@ from workflow.src.clustering.candidates import (
     DR_CAP,
     DL_DIVISOR,
     METHODS,
+    auto_finalize,
     cluster_one_method,
     scale_features,
     score_labels,
@@ -21,6 +22,7 @@ from workflow.src.clustering.candidates import (
 from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.scripts.clustering.cluster_one_method import MethodConfig
 from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
+from workflow.scripts.clustering.auto_finalize_clusters import AutoFinalizeConfig, run as run_auto_finalize
 
 
 def test_best_method_is_pinned_to_kmeans():
@@ -125,6 +127,17 @@ def test_prepare_config_rejects_missing_input(tmp_path):
         cfg.validate()
 
 
+def test_auto_finalize_config_rejects_missing_input(tmp_path):
+    """AutoFinalizeConfig.validate raises ValueError when a required input file is absent."""
+    cfg = AutoFinalizeConfig(
+        annotated_data=tmp_path / "nope.pkl",
+        scaled_data=tmp_path / "also_nope.pkl",
+        output=tmp_path / "out" / "final_clusters.tsv",
+    )
+    with pytest.raises(ValueError, match="Required input not found"):
+        cfg.validate()
+
+
 def test_method_config_rejects_unknown_method(tmp_path):
     """MethodConfig.validate raises ValueError on an unrecognized method name."""
     scaled = tmp_path / "scaled.pkl"
@@ -151,3 +164,112 @@ def test_select_config_rejects_missing_input(tmp_path):
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
+
+
+def _toy_annotated_scaled(n_per=20, seed=0):
+    """Build a small annotated table + matching scaled matrix with 9 well-separated blobs in (DR, DL)."""
+    rng = np.random.default_rng(seed)
+    centers = [(0.05, 0.1), (0.2, 0.3), (0.35, 0.2), (0.5, 0.5), (0.65, 0.4),
+               (0.8, 0.6), (0.95, 0.3), (1.1, 0.7), (1.25, 0.5)]
+    drs, dls, idx = [], [], []
+    for c, (dr, dl) in enumerate(centers):
+        for i in range(n_per):
+            drs.append(dr + rng.normal(0, 0.005))
+            dls.append(dl + rng.normal(0, 0.005))
+            idx.append(f"g{c}_{i}")
+    annotated = pd.DataFrame({"DR": drs, "DL": dls, "A": 1.0}, index=idx)
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+    return annotated, scaled
+
+
+def test_auto_finalize_produces_k_clusters_labelled_1_to_9():
+    annotated, scaled = _toy_annotated_scaled()
+    out = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    assert "cluster" in out.columns
+    assert sorted(out["cluster"].unique()) == list(range(1, 10))
+    assert out.index.name == "Systematic ID"
+    assert {"DR", "DL", "A"}.issubset(out.columns)
+
+
+def test_auto_finalize_assigns_lowest_DR_to_wt_cluster():
+    annotated, scaled = _toy_annotated_scaled()
+    out = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    means = out.groupby("cluster")["DR"].mean()
+    assert means.idxmin() == 9                       # WT = lowest DR
+    non_wt = means.drop(index=9).sort_index()
+    assert non_wt.is_monotonic_increasing            # ids 1..8 ascend in DR
+
+
+def test_auto_finalize_is_deterministic():
+    annotated, scaled = _toy_annotated_scaled()
+    a = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    b = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    pd.testing.assert_series_equal(a["cluster"], b["cluster"])
+
+
+def test_auto_finalize_only_labels_scaled_genes():
+    """Genes dropped by scaling (NaN DR/DL) get no cluster (NaN)."""
+    annotated, scaled = _toy_annotated_scaled(n_per=15)
+    extra = pd.DataFrame({"DR": [np.nan], "DL": [np.nan], "A": [1.0]}, index=["ghost"])
+    extra.index.name = "Systematic ID"
+    annotated2 = pd.concat([annotated, extra])
+    out = auto_finalize(annotated2, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    assert pd.isna(out.loc["ghost", "cluster"])
+    assert out.loc["g0_0", "cluster"] in range(1, 10)
+
+
+def test_auto_finalize_tiebreak_on_dl_then_raw_id():
+    """Two clusters with EQUAL mean DR are ordered by the mean_dl secondary key,
+    deterministically and reproducibly (design doc tie-break rule)."""
+    # Geometry is hand-built so the tie is exact, not a kmeans accident:
+    #   A: DR=0.0 (clearly lowest -> WT)
+    #   B: DR=1.0, DL=0.2   } identical mean DR, differing mean DL -> only the
+    #   C: DR=1.0, DL=0.8   } mean_dl tiebreak can order these two.
+    rows = []
+    for i in range(10):
+        rows.append((f"A{i}", 0.0, 0.5))
+    for i in range(10):
+        rows.append((f"B{i}", 1.0, 0.2))
+    for i in range(10):
+        rows.append((f"C{i}", 1.0, 0.8))
+    idx = [r[0] for r in rows]
+    annotated = pd.DataFrame(
+        {"DR": [r[1] for r in rows], "DL": [r[2] for r in rows], "A": 1.0}, index=idx
+    )
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+
+    out1 = auto_finalize(annotated, scaled, n_clusters=3, random_state=42, wt_cluster=3)
+    out2 = auto_finalize(annotated, scaled, n_clusters=3, random_state=42, wt_cluster=3)
+    # (a) reproducible
+    pd.testing.assert_series_equal(out1["cluster"], out2["cluster"])
+
+    means = out1.groupby("cluster")[["DR", "DL"]].mean()
+    b_id, c_id = out1.loc["B0", "cluster"], out1.loc["C0", "cluster"]
+    # sanity: the two non-WT clusters really are DR-tied
+    assert means.loc[b_id, "DR"] == means.loc[c_id, "DR"]
+    # (b) among the DR-tied pair, lower mean DL -> lower final id
+    assert b_id < c_id
+    assert means.loc[b_id, "DL"] < means.loc[c_id, "DL"]
+
+
+def test_auto_finalize_driver_writes_final_tsv(tmp_path):
+    annotated, scaled = _toy_annotated_scaled()
+    ap = tmp_path / "annotated.pkl"
+    sp = tmp_path / "scaled.pkl"
+    annotated.to_pickle(ap)
+    scaled.to_pickle(sp)
+    out = tmp_path / "final_clusters.tsv"
+
+    cfg = AutoFinalizeConfig(
+        annotated_data=ap, scaled_data=sp, output=out,
+        n_clusters=9, random_state=42, wt_cluster=9,
+    )
+    run_auto_finalize(cfg)
+
+    df = pd.read_csv(out, sep="\t")
+    assert "Systematic ID" in df.columns          # index written with its name
+    assert "cluster" in df.columns
+    assert "raw_cluster" not in df.columns          # auto path has no pre-merge labels
+    assert sorted(df["cluster"].dropna().unique()) == list(range(1, 10))

@@ -3,22 +3,38 @@
 # =============================================================================
 #
 # Per-dataset: clusters genes in the 2-D depletion feature space (DR, DL) from
-# gene-level curve fitting. Produces CANDIDATE labels only — the manual 64->9
-# merge lives in notebooks/clustering/finalize_gene_clusters.ipynb, which writes
-# resources/curated/final_clusters.tsv (design doc §5).
+# gene-level curve fitting. Produces CANDIDATE labels (64), then finalizes to 9.
 #
-# Split by clustering method, mirroring ml.smk's target x mode fan-out:
+# Candidate stage, split by clustering method, mirroring ml.smk's fan-out:
 #   prepare  -> scaled (DR, DL) matrix + k-sweep (the shared "spine")
 #   cluster  -> one job per method (kmeans / hierarchical_agg / hierarchical_div / gmm)
 #   select   -> attach the pinned best-method (kmeans) labels + aggregate metrics
 # Per-method intermediates are pickles under _work/ so label dtype and exact
 # metric precision survive round-trip; only the final two files are TSV.
+#
+# Finalize stage (64 -> 9) has two paths, selected by finalize_mode (design doc §2):
+#   auto (default): the auto_finalize_clusters rule below reuses the prepare spine
+#     to cluster to k=9 deterministically (lowest-DR cluster = WT = 9).
+#   manual: notebooks/clustering/finalize_gene_clusters.ipynb writes the curated
+#     resources/curated/final_clusters.tsv (human-judgment 64->9 merge).
+# Both emit the unified `cluster` column consumed by enrichment.smk + ml.smk.
 
 _CLUSTER_METHODS = ["kmeans", "hierarchical_agg", "hierarchical_div", "gmm"]
 _CWORK = "results/clustering/candidates/{dataset}/_work"
 
 wildcard_constraints:
     method="|".join(_CLUSTER_METHODS),
+
+
+def final_clusters_path(dataset: str) -> str:
+    """Return the final_clusters.tsv path per config.clustering.finalize_mode (+ per-dataset override)."""
+    cl = config.get("clustering", {})
+    mode = cl.get("finalize_mode_overrides", {}).get(dataset, cl.get("finalize_mode", "auto"))
+    if mode == "manual":
+        return "resources/curated/final_clusters.tsv"
+    if mode == "auto":
+        return f"results/clustering/final/{dataset}/final_clusters.tsv"
+    raise ValueError(f"Unknown finalize_mode {mode!r} for dataset {dataset!r} (expected auto|manual)")
 
 
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
@@ -114,4 +130,34 @@ rule select_candidate_clusters:
             --method-metrics {input.method_metrics} \
             --output {output.clusters} \
             --metrics-output {output.metrics} &> {log}
+        """
+
+
+# --- Automatic finalize (deterministic alternative to the manual notebook) ---
+# Reuses the prepare spine pickles; clusters to k=9 and DR-numbers (design doc §2-3).
+rule auto_finalize_clusters:
+    input:
+        annotated=f"{_CWORK}/annotated_data.pkl",
+        scaled=f"{_CWORK}/scaled_data.pkl",
+    output:
+        clusters="results/clustering/final/{dataset}/final_clusters.tsv",
+    params:
+        n_clusters=config.get("clustering", {}).get("final_n_clusters", 9),
+        random_state=config.get("clustering", {}).get("random_state", 42),
+        wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
+    log:
+        "logs/clustering/auto_finalize_clusters_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Auto-finalizing clusters for {wildcards.dataset} (k={params.n_clusters})..."
+    shell:
+        """
+        python workflow/scripts/clustering/auto_finalize_clusters.py \
+            --annotated-data {input.annotated} \
+            --scaled-data {input.scaled} \
+            --output {output.clusters} \
+            --n-clusters {params.n_clusters} \
+            --random-state {params.random_state} \
+            --wt-cluster {params.wt_cluster} &> {log}
         """

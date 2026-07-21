@@ -21,7 +21,7 @@ wildcard_constraints:
 rule prepare_ml_data:
     input:
         feature_matrix="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset),
     output:
         modeling_data=f"{_MLWORK}/modeling_data.pkl",
     params:
