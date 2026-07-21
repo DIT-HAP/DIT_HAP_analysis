@@ -175,59 +175,139 @@ def score_labels(data: pd.DataFrame, labels: np.ndarray) -> dict:
 
 
 # =============================================================================
-# AUTOMATIC FINALIZE (deterministic k=9, no human merge)
+# FINALIZE VARIANTS (deterministic 64/scaled -> 9, no human merge)
 # =============================================================================
-# Number of final clusters for the automatic finalize path (design doc §3).
+# Number of final clusters for the automatic finalize paths (design doc §2).
 FINAL_N_CLUSTERS = 9
 
 
 @logger.catch(reraise=True)
-def auto_finalize(
+def renumber_by_dr(
     annotated: pd.DataFrame,
-    scaled: pd.DataFrame,
+    raw_labels: pd.Series,
     n_clusters: int = FINAL_N_CLUSTERS,
-    random_state: int = 42,
     wt_cluster: int = 9,
-) -> pd.DataFrame:
-    """Cluster the scaled (DR, DL) matrix to n_clusters via kmeans and deterministically
-    renumber to 1..n_clusters: lowest mean DR = WT (assigned wt_cluster), the rest in
-    ascending mean-DR order. Returns the annotated table with a final `cluster` column
-    (NaN for genes not in the scaled/clustered set). See design doc §3-4.
+) -> pd.Series:
+    """Deterministically renumber arbitrary group labels to 1..n_clusters by mean DR.
+
+    Every finalize variant (direct / auto_merge / grid / manual) ends here so the
+    numbering is identical and cross-variant comparable (design doc §2): the group
+    with the lowest mean DR becomes wt_cluster (WT), the rest ascend in mean-DR
+    order (ties broken by mean DL then the group's own label). `raw_labels` is a
+    Series of group labels indexed by gene id; returns the final 1..n_clusters
+    labels on that same index. Raises if the group count != n_clusters.
     """
-    raw = pd.Series(
-        cluster_one_method(BEST_METHOD, scaled, n_clusters, random_state),
-        index=scaled.index,
-        name="_raw",
-    )
-    # Rank raw clusters by mean DR (ascending), tie-broken by mean DL then raw id,
-    # so the numbering is fully reproducible across runs.
     stats = (
-        annotated.loc[scaled.index, ["DR", "DL"]]
-        .assign(_raw=raw)
+        annotated.loc[raw_labels.index, ["DR", "DL"]]
+        .assign(_raw=raw_labels.to_numpy())
         .groupby("_raw")
         .agg(mean_dr=("DR", "mean"), mean_dl=("DL", "mean"))
         .reset_index()
         .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable")
         .reset_index(drop=True)
     )
-    # Ascending DR -> the lowest-DR cluster becomes wt_cluster; the remaining ids
+    # Ascending DR -> the lowest-DR group becomes wt_cluster; the remaining ids
     # 1..n_clusters (excluding wt) fill the other ranks in ascending-DR order.
-    final_ids = list(range(1, n_clusters + 1))
-    remaining = [i for i in final_ids if i != wt_cluster]
+    remaining = [i for i in range(1, n_clusters + 1) if i != wt_cluster]
     ordered_ids = [wt_cluster] + remaining
     # Guard against silent mis-numbering: dict(zip(...)) would quietly truncate if
-    # counts diverge. len(stats) < n_clusters means kmeans produced fewer distinct
-    # labels; wt_cluster out of 1..n_clusters leaves ordered_ids one entry too long.
+    # counts diverge (too few groups, or wt_cluster out of the 1..n_clusters range).
     if len(stats) != len(ordered_ids):
         raise ValueError(
-            f"Expected {len(ordered_ids)} clusters but kmeans produced {len(stats)}; "
-            f"cannot renumber deterministically (check n_clusters / input size)."
+            f"Expected {len(ordered_ids)} groups but got {len(stats)}; "
+            f"cannot renumber deterministically (check n_clusters / merge / grid cuts)."
         )
     # stats is already sorted ascending-DR and re-indexed, so row order == rank order:
     # rank 0 (lowest DR) -> ordered_ids[0] (wt_cluster), rank 1 -> id 1, ...
     raw_to_final = dict(zip(stats["_raw"], ordered_ids))
+    return raw_labels.map(raw_to_final)
+
+
+@logger.catch(reraise=True)
+def finalize_direct(
+    annotated: pd.DataFrame,
+    scaled: pd.DataFrame,
+    method: str = BEST_METHOD,
+    n_clusters: int = FINAL_N_CLUSTERS,
+    random_state: int = 42,
+    wt_cluster: int = 9,
+) -> pd.DataFrame:
+    """`direct` variant: cluster the scaled (DR, DL) matrix straight to n_clusters via
+    `method`, then renumber by DR. Returns the annotated table with a final `cluster`
+    column (NaN for genes not in the scaled/clustered set). See design doc §3.1.
+    """
+    raw = pd.Series(
+        cluster_one_method(method, scaled, n_clusters, random_state),
+        index=scaled.index,
+        name="_raw",
+    )
+    out = annotated.copy()
+    out["cluster"] = renumber_by_dr(annotated, raw, n_clusters, wt_cluster)
+    logger.info(f"finalize_direct({method}): {len(scaled)} genes -> {n_clusters} clusters (WT={wt_cluster})")
+    return out
+
+
+@logger.catch(reraise=True)
+def finalize_auto_merge(
+    annotated: pd.DataFrame,
+    scaled: pd.DataFrame,
+    raw_labels: pd.Series,
+    n_clusters: int = FINAL_N_CLUSTERS,
+    wt_cluster: int = 9,
+) -> pd.DataFrame:
+    """`auto_merge` variant: ward-merge the candidate-cluster CENTROIDS down to
+    n_clusters groups, then renumber by DR. `raw_labels` are the per-gene candidate
+    labels (e.g. the k=64 kmeans labels reused from cluster_one_method). Centroids are
+    the unweighted per-cluster means in scaled (DR, DL) space. Returns the annotated
+    table with final `cluster` + a preserved `raw_cluster` (pre-merge labels).
+    See design doc §3.2.
+    """
+    # One centroid per candidate cluster, ordered by candidate label for determinism.
+    centroids = scaled.loc[raw_labels.index].groupby(raw_labels.to_numpy()).mean().sort_index()
+    if len(centroids) < n_clusters:
+        raise ValueError(
+            f"auto_merge needs >= {n_clusters} candidate clusters to merge, got {len(centroids)}."
+        )
+    merge_labels = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward", metric="euclidean").fit_predict(
+        centroids.to_numpy()
+    )
+    candidate_to_group = dict(zip(centroids.index, merge_labels))
+    merged = raw_labels.map(candidate_to_group)
 
     out = annotated.copy()
-    out["cluster"] = raw.map(raw_to_final)
-    logger.info(f"Auto-finalized {len(scaled)} genes into {n_clusters} clusters (WT={wt_cluster})")
+    out["cluster"] = renumber_by_dr(annotated, merged, n_clusters, wt_cluster)
+    out["raw_cluster"] = raw_labels
+    logger.info(
+        f"finalize_auto_merge: {len(centroids)} candidate clusters -> {n_clusters} (WT={wt_cluster})"
+    )
+    return out
+
+
+@logger.catch(reraise=True)
+def finalize_grid(
+    annotated: pd.DataFrame,
+    scaled: pd.DataFrame,
+    dr_cuts: list[float],
+    dl_cuts: list[float],
+    n_clusters: int = FINAL_N_CLUSTERS,
+    wt_cluster: int = 9,
+) -> pd.DataFrame:
+    """`grid` variant: split the scaled DR/DL axes at dr_cuts / dl_cuts into a
+    (len(dr_cuts)+1) x (len(dl_cuts)+1) rectangular grid, assign each gene to its
+    cell, then renumber by DR. Cell count must equal n_clusters. Cuts are thresholds
+    in SCALED space (DR already capped, DL already divided). See design doc §3.3.
+    """
+    n_cells = (len(dr_cuts) + 1) * (len(dl_cuts) + 1)
+    if n_cells != n_clusters:
+        raise ValueError(
+            f"grid produces {len(dr_cuts) + 1}x{len(dl_cuts) + 1} = {n_cells} cells "
+            f"but final_n_clusters is {n_clusters}; adjust dr_cuts / dl_cuts."
+        )
+    dr_bin = np.digitize(scaled["DR"].to_numpy(), sorted(dr_cuts))
+    dl_bin = np.digitize(scaled["DL"].to_numpy(), sorted(dl_cuts))
+    cell = pd.Series(dr_bin * (len(dl_cuts) + 1) + dl_bin, index=scaled.index, name="_cell")
+
+    out = annotated.copy()
+    out["cluster"] = renumber_by_dr(annotated, cell, n_clusters, wt_cluster)
+    logger.info(f"finalize_grid: {n_cells}-cell grid -> {n_clusters} clusters (WT={wt_cluster})")
     return out

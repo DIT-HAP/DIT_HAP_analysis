@@ -2,14 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Automatic Cluster Finalization (deterministic, no human merge)
-================================================================
+Finalize Clusters — `grid` variant (deterministic axis-cut grid)
+==================================================================
 
-The auto alternative to notebooks/clustering/finalize_gene_clusters.ipynb: reads
-the prepare_clustering_data spine pickles, clusters the scaled (DR, DL) matrix to
-k=9 with kmeans, and deterministically renumbers clusters (lowest mean DR = WT).
-Writes final_clusters.tsv with the unified `cluster` column consumed by
-enrichment.smk + ml.smk (design doc §2-4).
+One of the buildable finalize variants (design doc §3.3): splits the scaled DR/DL
+axes at configured cut points into a rectangular grid, assigns each gene to its
+cell, then deterministically renumbers by DR (lowest mean DR = WT). The cell count
+(len(dr_cuts)+1) x (len(dl_cuts)+1) must equal n_clusters. Cuts are thresholds in
+SCALED space (DR already capped, DL already divided). Writes final_clusters.tsv with
+the unified `cluster` column consumed by enrichment.smk + ml.smk (design doc §4).
 
 Input
 -----
@@ -19,15 +20,15 @@ Input
 Output
 ------
 - final_clusters.tsv: full annotated table + final `cluster` (1..9, WT=9);
-  index = systematic ID. No raw_cluster (auto path has no pre-merge labels).
+  index = systematic ID. No raw_cluster (grid has no pre-merge labels).
 
 Usage
 -----
-    python auto_finalize_clusters.py \\
+    python finalize_grid_clusters.py \\
         --annotated-data results/clustering/candidates/{dataset}/_work/annotated_data.pkl \\
         --scaled-data    results/clustering/candidates/{dataset}/_work/scaled_data.pkl \\
-        --output         results/clustering/final/{dataset}/final_clusters.tsv \\
-        --n-clusters 9 --random-state 42 --wt-cluster 9
+        --output         results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
+        --dr-cuts 0.3 0.6 0.9 --dl-cuts 0.2 0.5 --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-21
@@ -40,7 +41,7 @@ Version:  1.0.0
 # 1. Standard Library Imports
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -51,20 +52,21 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, auto_finalize
+from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_grid
 
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
-class AutoFinalizeConfig:
-    """Inputs, output, and clustering params for the automatic finalize path."""
+class FinalizeGridConfig:
+    """Inputs, output, and grid cut points for the `grid` finalize variant."""
     annotated_data: Path
     scaled_data: Path
     output: Path
+    dr_cuts: list[float] = field(default_factory=list)
+    dl_cuts: list[float] = field(default_factory=list)
     n_clusters: int = FINAL_N_CLUSTERS
-    random_state: int = 42
     wt_cluster: int = 9
 
     def validate(self) -> None:
@@ -88,15 +90,16 @@ def setup_logger(log_level: str = "INFO") -> None:
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def run(config: AutoFinalizeConfig) -> None:
-    """Cluster to k=9, renumber deterministically, write final_clusters.tsv."""
+def run(config: FinalizeGridConfig) -> None:
+    """Assign genes to grid cells, renumber by DR, write final_clusters.tsv."""
     config.validate()
     annotated = pd.read_pickle(config.annotated_data)
     scaled = pd.read_pickle(config.scaled_data)
-    out = auto_finalize(
+    out = finalize_grid(
         annotated, scaled,
+        dr_cuts=config.dr_cuts,
+        dl_cuts=config.dl_cuts,
         n_clusters=config.n_clusters,
-        random_state=config.random_state,
         wt_cluster=config.wt_cluster,
     )
     out.to_csv(config.output, sep="\t", index=True)
@@ -108,28 +111,30 @@ def run(config: AutoFinalizeConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Automatic deterministic cluster finalization (k=9)")
+    parser = argparse.ArgumentParser(description="Finalize clusters — grid variant (axis-cut grid)")
     parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data pickle (from prepare)")
     parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle (from prepare)")
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
+    parser.add_argument("--dr-cuts", type=float, nargs="*", default=[], help="DR-axis cut points (scaled space)")
+    parser.add_argument("--dl-cuts", type=float, nargs="*", default=[], help="DL-axis cut points (scaled space)")
     parser.add_argument("--n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
-    parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")
     parser.add_argument("--wt-cluster", type=int, default=9, help="WT/background cluster id (default 9)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: build config, run auto-finalize, report results."""
+    """Main orchestrator: build config, run finalize-grid, report results."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        config = AutoFinalizeConfig(
+        config = FinalizeGridConfig(
             annotated_data=args.annotated_data,
             scaled_data=args.scaled_data,
             output=args.output,
+            dr_cuts=args.dr_cuts,
+            dl_cuts=args.dl_cuts,
             n_clusters=args.n_clusters,
-            random_state=args.random_state,
             wt_cluster=args.wt_cluster,
         )
         run(config)
