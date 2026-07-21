@@ -40,6 +40,7 @@ include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
 include: "workflow/rules/complex.smk"
 include: "workflow/rules/utr.smk"
+include: "workflow/rules/domain_differences.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
