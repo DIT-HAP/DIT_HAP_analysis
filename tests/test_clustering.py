@@ -22,6 +22,7 @@ from workflow.src.clustering.candidates import (
 from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.scripts.clustering.cluster_one_method import MethodConfig
 from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
+from workflow.scripts.clustering.auto_finalize_clusters import AutoFinalizeConfig, run as run_auto_finalize
 
 
 def test_best_method_is_pinned_to_kmeans():
@@ -240,3 +241,24 @@ def test_auto_finalize_tiebreak_on_dl_then_raw_id():
     # (b) among the DR-tied pair, lower mean DL -> lower final id
     assert b_id < c_id
     assert means.loc[b_id, "DL"] < means.loc[c_id, "DL"]
+
+
+def test_auto_finalize_driver_writes_final_tsv(tmp_path):
+    annotated, scaled = _toy_annotated_scaled()
+    ap = tmp_path / "annotated.pkl"
+    sp = tmp_path / "scaled.pkl"
+    annotated.to_pickle(ap)
+    scaled.to_pickle(sp)
+    out = tmp_path / "final_clusters.tsv"
+
+    cfg = AutoFinalizeConfig(
+        annotated_data=ap, scaled_data=sp, output=out,
+        n_clusters=9, random_state=42, wt_cluster=9,
+    )
+    run_auto_finalize(cfg)
+
+    df = pd.read_csv(out, sep="\t")
+    assert "Systematic ID" in df.columns          # index written with its name
+    assert "cluster" in df.columns
+    assert "raw_cluster" not in df.columns          # auto path has no pre-merge labels
+    assert sorted(df["cluster"].dropna().unique()) == list(range(1, 10))
