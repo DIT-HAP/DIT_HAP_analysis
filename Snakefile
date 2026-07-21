@@ -36,6 +36,7 @@ include: "workflow/rules/pcr_qc.smk"
 include: "workflow/rules/spikein.smk"
 include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
+include: "workflow/rules/noncoding_rna.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
