@@ -105,13 +105,35 @@ _CATEGORY_ORDER = ["spores", "germinated", "microcolonies", "E", "very small col
 # headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
-# Display-only alias for the current deletion_library_categories.xlsx schema,
-# where the notebook's "WT" category was renamed "WT-like" (see
-# deletion-library-categories-schema-update memory note). CATEGORY_COLOR_MAP /
-# DONUT_COLOR_MAP still key on the notebook's original "WT" label, so plotting
-# looks this up first; compute_category_stats / merge_deletion_library are
-# untouched and keep reporting the raw Category string.
-_CATEGORY_DISPLAY_ALIASES = {"WT-like": "WT"}
+# Display-only alias for the current deletion_library_categories.xlsx schema:
+# CATEGORY_COLOR_MAP / DONUT_COLOR_MAP only know the notebook's original,
+# single-phenotype vocabulary, but the current curated file also has (a) the
+# straight rename "WT" -> "WT-like", and (b) compound multi-phenotype labels
+# that didn't exist when the notebook was written (e.g. a gene scored as both
+# "spores" and "germinated" for the same category). Each compound label is
+# folded into the single existing bucket judged most representative of it, so
+# every gene keeps a legible color/x-position instead of falling back to gray
+# or getting dropped — see the per-key comments below for the specific choice.
+# compute_category_stats / merge_deletion_library / apply_category_with_essentiality
+# are untouched by this and keep reporting the raw Category string; only
+# plot_category_donut / plot_dr_scatter_by_category consult this mapping.
+_CATEGORY_DISPLAY_ALIASES = {
+    "WT-like": "WT",
+    # First-listed phenotype is the one that determines the merged bucket for
+    # all four compound "spores, ..." labels below - "spores" is the most
+    # severe/earliest-observed phenotype PomBase records for these genes, so
+    # it's the most informative single label to keep.
+    "spores, germinated": "spores",
+    "spores, germinated, divided or microcolonies": "spores",
+    "spores, miscellaneous": "spores",
+    # "germinated, divided or microcolonies" -> "germinated": same logic,
+    # germination is the earliest-observed phenotype in this compound label.
+    "germinated, divided or microcolonies": "germinated",
+    # "microcolonies, small colonies" -> "small colonies": the second term is
+    # the more specific/severe of the two (a true "small colony" is a finer
+    # distinction than the broader "microcolonies" bucket).
+    "microcolonies, small colonies": "small colonies",
+}
 
 
 def _display_category(category: str) -> str:
@@ -241,6 +263,22 @@ def compute_category_stats(merged: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def compute_category_with_essentiality_stats(merged: pd.DataFrame) -> pd.DataFrame:
+    """Count genes per Category_with_essentiality (see apply_category_with_essentiality).
+
+    Surfaces the "small colonies (E)" split that apply_category_with_essentiality
+    computes but compute_category_stats' plain Category grouping doesn't show
+    on its own — otherwise Category_with_essentiality would be computed and
+    never read anywhere.
+    """
+    return (
+        merged.groupby("Category_with_essentiality", dropna=False)
+        .size()
+        .reset_index(name="count")
+        .rename(columns={"Category_with_essentiality": "category"})
+    )
+
+
 def merge_essentiality_verification(merged: pd.DataFrame, essentiality_verification: pd.DataFrame) -> pd.DataFrame:
     """Left-merge in the curated Verification result / Verified essentiality columns."""
     return merged.merge(essentiality_verification, on="Systematic ID", how="left")
@@ -260,11 +298,19 @@ def compute_verification_match_stats(merged_with_verification: pd.DataFrame) -> 
 # =============================================================================
 # STATS TABLE ASSEMBLY
 # =============================================================================
-def build_stats_table(category_stats: pd.DataFrame, verification_stats: dict[str, int]) -> pd.DataFrame:
+def build_stats_table(
+    category_stats: pd.DataFrame,
+    category_with_essentiality_stats: pd.DataFrame,
+    verification_stats: dict[str, int],
+) -> pd.DataFrame:
     """Flatten category counts + verification match/mismatch counts into one long-form table."""
     rows = [
         {"metric": "category_count", "category": row["category"], "count": row["count"]}
         for _, row in category_stats.iterrows()
+    ]
+    rows += [
+        {"metric": "category_with_essentiality_count", "category": row["category"], "count": row["count"]}
+        for _, row in category_with_essentiality_stats.iterrows()
     ]
     for key, count in verification_stats.items():
         rows.append({"metric": "verification", "category": key, "count": count})
@@ -285,6 +331,17 @@ def plot_category_donut(category_stats: pd.DataFrame) -> plt.Figure:
     values = [int(counts_by_label[label]) for label in labels]
     colors = [DONUT_COLOR_MAP.get(_display_category(label), "gray") for label in labels]
 
+    # Anything still falling back to gray is either a genuine merge-failure
+    # NaN category or a Category string _CATEGORY_DISPLAY_ALIASES doesn't
+    # know about yet (future schema drift) — warn with counts so this isn't
+    # silently indistinguishable from a real "gray" bucket in the figure.
+    unmapped = [(label, int(counts_by_label[label])) for label, color in zip(labels, colors) if color == "gray"]
+    if unmapped:
+        logger.warning(
+            f"{sum(n for _, n in unmapped):,} genes plotted as gray (unmapped category): "
+            + ", ".join(f"{label!r} (n={n})" for label, n in unmapped)
+        )
+
     fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
     donut_chart(
         values=values,
@@ -299,12 +356,28 @@ def plot_category_donut(category_stats: pd.DataFrame) -> plt.Figure:
 
 
 def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
-    """Scatter of DR per gene, grouped by category (x-jittered for visibility)."""
-    categories = [c for c in merged["Category"].dropna().unique() if _display_category(c) in CATEGORY_COLOR_MAP]
+    """Scatter of DR per gene, grouped by category (x-jittered for visibility).
+
+    Per-category n= counts are shown directly on the x-tick labels rather
+    than a legend: with _CATEGORY_ORDER plus every distinct compound-label
+    alias this can be 10+ categories, and a legend key of that size clutters
+    a scatter more than it helps.
+    """
+    all_categories = merged["Category"].dropna().unique()
+    categories = [c for c in all_categories if _display_category(c) in CATEGORY_COLOR_MAP]
     categories.sort(key=lambda c: _CATEGORY_ORDER.index(_display_category(c)))
+
+    excluded = [c for c in all_categories if c not in categories]
+    if excluded:
+        excluded_genes = merged["Category"].isin(excluded).sum()
+        logger.warning(
+            f"{excluded_genes:,} genes excluded from DR scatter (category has no display color mapping): "
+            + ", ".join(str(c) for c in excluded)
+        )
 
     fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
     rng = np.random.default_rng(42)
+    tick_labels = []
     for i, category in enumerate(categories):
         dr_values = merged.query("Category == @category")["DR"].dropna()
         jitter = rng.uniform(-0.15, 0.15, size=len(dr_values))
@@ -312,10 +385,10 @@ def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
             i + jitter, dr_values,
             alpha=0.5, s=10,
             color=CATEGORY_COLOR_MAP[_display_category(category)],
-            label=f"{category} (n={len(dr_values)})",
         )
+        tick_labels.append(f"{category}\n(n={len(dr_values)})")
     ax.set_xticks(range(len(categories)))
-    ax.set_xticklabels(categories, rotation=30, ha="right")
+    ax.set_xticklabels(tick_labels, rotation=30, ha="right")
     ax.set_ylabel("Depletion Rate (DR)")
     ax.set_title("DR by deletion library category")
     fig.tight_layout()
@@ -339,9 +412,10 @@ def run(config: VerificationConfig) -> None:
     merged_with_verification = merge_essentiality_verification(merged, essentiality_verification)
 
     category_stats = compute_category_stats(merged)
+    category_with_essentiality_stats = compute_category_with_essentiality_stats(merged)
     verification_stats = compute_verification_match_stats(merged_with_verification)
 
-    stats_table = build_stats_table(category_stats, verification_stats)
+    stats_table = build_stats_table(category_stats, category_with_essentiality_stats, verification_stats)
     stats_table.to_csv(config.output_stats, sep="\t", index=False)
 
     fig_donut = plot_category_donut(category_stats)
