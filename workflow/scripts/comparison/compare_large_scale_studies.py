@@ -307,8 +307,20 @@ def compute_correlation_stats(fitness_table: pd.DataFrame, columns: list[str]) -
 # PLOTTING
 # =============================================================================
 def _plot_pair(ax: plt.Axes, fitness_table: pd.DataFrame, col_x: str, col_y: str) -> None:
-    """Scatter of col_x vs col_y with a Gaussian-KDE density overlay + r/p/n text."""
+    """Scatter of col_x vs col_y with a Gaussian-KDE density overlay + r/p/n text.
+
+    Guarded by MIN_PAIRS_FOR_CORRELATION on the PAIRWISE overlap (not the
+    per-column count select_fitness_columns uses): two columns can each be dense
+    on their own yet share zero rows (e.g. real Barseq vs Max Growth Rate),
+    which would make compute_pearson_r's scipy.pearsonr raise. Below-threshold
+    panels are blanked instead — this also suppresses the misleading n=2 -> r=1
+    panel. plot_pairwise_comparison already iterates only the surviving stats
+    pairs, so this guard is belt-and-suspenders for direct callers.
+    """
     paired = fitness_table[[col_x, col_y]].dropna()
+    if len(paired) < MIN_PAIRS_FOR_CORRELATION:
+        ax.axis("off")
+        return
     x = paired[col_x].to_numpy()
     y = paired[col_y].to_numpy()
 
@@ -333,13 +345,15 @@ def _plot_pair(ax: plt.Axes, fitness_table: pd.DataFrame, col_x: str, col_y: str
     ax.tick_params(labelsize=6)
 
 
-def plot_pairwise_comparison(fitness_table: pd.DataFrame, columns: list[str]) -> plt.Figure:
-    """Scatter matrix (one panel per unordered pair) with KDE overlay + r/p/n.
+def plot_pairwise_comparison(fitness_table: pd.DataFrame, pairs: list[tuple[str, str]]) -> plt.Figure:
+    """Scatter matrix (one panel per pair) with KDE overlay + r/p/n.
 
-    Grid is packed row-major over the pairs so an odd pair count leaves trailing
-    axes blank (turned off) rather than skewing the layout.
+    ``pairs`` is the list of (col_x, col_y) that SURVIVED the per-pair overlap
+    filter in compute_correlation_stats, so the PDF panel set always matches the
+    stats TSV row set — the two outputs can't silently disagree. Grid is packed
+    row-major so a non-square pair count leaves trailing axes blank (turned off)
+    rather than skewing the layout.
     """
-    pairs = list(combinations(columns, 2))
     n_pairs = max(len(pairs), 1)
     n_cols = min(4, n_pairs)
     n_rows = int(np.ceil(n_pairs / n_cols))
@@ -380,7 +394,10 @@ def run(config: ComparisonConfig) -> None:
     stats = compute_correlation_stats(fitness_table, columns)
     stats.to_csv(config.output_stats, sep="\t", index=False)
 
-    fig = plot_pairwise_comparison(fitness_table, columns)
+    # Drive the plot grid from the surviving stats pairs (post per-pair overlap
+    # filter) so PDF panels and TSV rows always agree on which pairs exist.
+    surviving_pairs = list(zip(stats["col_x"], stats["col_y"]))
+    fig = plot_pairwise_comparison(fitness_table, surviving_pairs)
     with PdfPages(config.output_figures) as pdf:
         pdf.savefig(fig, dpi=300, bbox_inches="tight")
     plt.close(fig)
