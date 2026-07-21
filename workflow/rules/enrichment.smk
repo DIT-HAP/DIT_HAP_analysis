@@ -13,9 +13,12 @@
 # Per-ontology frames are pickles under _work/; only the final TSVs/workbooks
 # are user-facing.
 #
-# final_clusters.tsv is an UN-BUILDABLE human-curated input (design doc §8): if
-# it is missing, Snakemake reports "missing input" — run
-# notebooks/clustering/finalize_gene_clusters.ipynb first.
+# final_clusters.tsv is sourced via final_clusters_path() (clustering.smk), which
+# honors config.clustering.finalize_mode (design doc §8). Under the default
+# finalize_mode: auto it is BUILT by the auto_finalize_clusters rule. Under
+# finalize_mode: manual it is the UN-BUILDABLE human-curated
+# resources/curated/final_clusters.tsv — if missing, Snakemake reports "missing
+# input", so run notebooks/clustering/finalize_gene_clusters.ipynb first.
 
 _ENRICH_ONTOLOGIES = ["GO", "FYPO", "MONDO"]
 _ERAW = "results/enrichment/raw/{dataset}/{pombase_version}"
@@ -28,7 +31,7 @@ wildcard_constraints:
 # --- Preprocessing spine (gene sets + id->name + gene lists) ---
 rule prepare_genesets:
     input:
-        final_clusters="resources/curated/final_clusters.tsv",
+        final_clusters=lambda wc: final_clusters_path(wc.dataset),
         pombase_dir="resources/external/pombase/{pombase_version}",
         deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
     output:

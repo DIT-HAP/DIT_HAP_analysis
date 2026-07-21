@@ -21,6 +21,17 @@ wildcard_constraints:
     method="|".join(_CLUSTER_METHODS),
 
 
+def final_clusters_path(dataset: str) -> str:
+    """Return the final_clusters.tsv path per config.clustering.finalize_mode (+ per-dataset override)."""
+    cl = config.get("clustering", {})
+    mode = cl.get("finalize_mode_overrides", {}).get(dataset, cl.get("finalize_mode", "auto"))
+    if mode == "manual":
+        return "resources/curated/final_clusters.tsv"
+    if mode == "auto":
+        return f"results/clustering/final/{dataset}/final_clusters.tsv"
+    raise ValueError(f"Unknown finalize_mode {mode!r} for dataset {dataset!r} (expected auto|manual)")
+
+
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
 rule prepare_clustering_data:
     input:
