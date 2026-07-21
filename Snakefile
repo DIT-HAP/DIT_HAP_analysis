@@ -38,6 +38,7 @@ include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
+include: "workflow/rules/complex.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
