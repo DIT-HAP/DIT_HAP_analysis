@@ -1,0 +1,53 @@
+complex	gene	gene_name	DR	DL	gmm_subgroup	literature_role	role_source
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC25G10.08	tif302	1.106	0.02	core	eIF3 core subunit (eIF3b/prt1), essential for global translation initiation	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC4A8.16c	tif303	1.155	-0.0	core	eIF3 core subunit (eIF3c/nip1), essential scaffold	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC4D7.05	sum1	1.256	-0.0	core	eIF3 core subunit (eIF3i), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3e	SPAC637.07	moe1	0.361	4.29	minor	eIF3d peripheral subunit, non-essential; required for stable eIF3 assembly / mRNA-specific regulation	Bandyopadhyay2002 PMID11705997; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3e	SPBC17D11.05	tif301	1.224	-0.0	core	eIF3 core subunit (eIF3a/tif32), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3e	SPBC646.09c	int6	0.739	7.25	minor	eIF3e (spInt6) peripheral subunit, non-essential; defines eIF3e-specific complex	Bandyopadhyay2000 PMID11134033; Zhou2005 PMC1173091
+eukaryotic 43S preinitiation complex	SPAC1751.03	tif313	1.037	1.13	core	eIF3 core subunit, essential	Zhou2005 PMC1173091; PomBase
+eukaryotic 43S preinitiation complex	SPAC25G10.08	tif302	1.106	0.02	core	eIF3 core subunit (eIF3b/prt1), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic 43S preinitiation complex	SPAC30C2.04	asc1	0.418	3.76	minor	RACK1 ortholog, 40S ribosomal protein, peripheral to PIC; non-essential	PomBase
+eukaryotic 43S preinitiation complex	SPAC3A12.13c	tif310	0.499	-0.0	minor	eIF3h peripheral subunit, non-essential for global initiation	Ray2008 PMID19061185; PomBase
+eukaryotic 43S preinitiation complex	SPAC4A8.16c	tif303	1.155	-0.0	core	eIF3 core subunit (eIF3c/nip1), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic 43S preinitiation complex	SPAC4D7.05	sum1	1.256	-0.0	core	eIF3 core subunit (eIF3i), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic 43S preinitiation complex	SPAC637.07	moe1	0.361	4.29	minor	eIF3d peripheral subunit, non-essential	Bandyopadhyay2002 PMID11705997; PomBase
+eukaryotic 43S preinitiation complex	SPBC17D11.05	tif301	1.224	-0.0	core	eIF3 core subunit (eIF3a/tif32), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic 43S preinitiation complex	SPBC23G7.05	sui1	1.062	0.01	core	eIF1 (sui1), essential PIC factor	PomBase
+eukaryotic 43S preinitiation complex	SPBC646.09c	int6	0.739	7.25	minor	eIF3e (spInt6) peripheral subunit, non-essential	Bandyopadhyay2000 PMID11134033; PomBase
+eukaryotic translation initiation factor 3 complex	SPAC1751.03	tif313	1.037	1.13	core	eIF3 core subunit, essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex	SPAC25G10.08	tif302	1.106	0.02	core	eIF3 core subunit (eIF3b/prt1), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex	SPAC3A12.13c	tif310	0.499	-0.0	minor	eIF3h peripheral subunit, non-essential for global initiation	Ray2008 PMID19061185; PomBase
+eukaryotic translation initiation factor 3 complex	SPAC4D7.05	sum1	1.256	-0.0	core	eIF3 core subunit (eIF3i), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex	SPBC17D11.05	tif301	1.224	-0.0	core	eIF3 core subunit (eIF3a/tif32), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex	SPBC646.09c	int6	0.739	7.25	minor	eIF3e (spInt6) peripheral subunit, non-essential	Bandyopadhyay2000 PMID11134033; PomBase
+SAGA complex	SPAC15A10.02	taf12	0.857	0.05	minor	TAF module (Taf12), shared with TFIID; histone-fold pairs with Ada1	Wu2004 PMID15260971; Helmlinger review
+SAGA complex	SPBC14C8.17c	spt8	0.335	5.58	core	SPT/TBP-interaction module (Spt8), SAGA-specific; binds TBP	Sterner1999 PMID9858534; Helmlinger2008 PMC2593614
+SAGA complex	SPBC21H7.02	taf10	1.023	3.74	minor	TAF module (Taf10), shared with TFIID	Wu2004 PMID15260971
+SAGA complex	SPBC25H2.11c	spt7	0.636	6.28	core	Core structural scaffold (Spt7), SAGA-specific; integrity subunit	Sterner1999 PMID9858534; Wu2004 PMID15260971
+SAGA complex	SPBC887.18c	hfi1	0.497	4.69	core	Core structural subunit (Ada1/Hfi1), SAGA-specific; histone-fold pairs with Taf12	Sterner1999 PMID9858534; Wu2004 PMID15260971
+SAGA complex	SPCC16C4.18c	taf6	1.297	1.4	minor	TAF module (Taf6), shared with TFIID	Wu2004 PMID15260971
+SAGA complex	SPCC5E4.03c	taf5	1.013	2.93	minor	TAF module (Taf5), shared with TFIID; core-module anchor	Wu2004 PMID15260971
+SAGA complex	SPCC61.02	spt3	0.471	5.47	core	SPT/TBP-interaction module (Spt3), SAGA-specific	Sterner1999 PMID9858534
+Ino80 complex	SPAC222.04c	ies6	0.4	5.0	core	Ies6/Arp5 module, INO80-specific; essential for remodelling activity	Tosi2013 PMID24034245; Watanabe2015 ncomms8108
+Ino80 complex	SPAC29B12.01	ino80	0.478	0.85	minor	Snf2-family ATPase catalytic subunit, INO80-specific	Tosi2013 PMID24034245
+Ino80 complex	SPAC664.02c	arp8	0.501	5.69	core	Arp8/Arp4/Act1 HSA-module, INO80-specific nucleosome binding	Tosi2013 PMID24034245
+Ino80 complex	SPAPB8E5.09	rvb1	1.176	-0.0	minor	Rvb1/Rvb2 heterohexamer, shared with Swr1/NuA4; ATPase-associated	Watanabe2015 ncomms8108; Poli2017 PMC7171469
+Ino80 complex	SPBC32H8.12c	act1	1.143	-0.0	minor	Actin, shared HSA-module component with Swr1/NuA4	Watanabe2015 ncomms8108
+Ino80 complex	SPBC365.10	arp5	0.553	6.04	core	Ies6/Arp5 module, INO80-specific; essential for remodelling	Watanabe2015 ncomms8108
+Ino80 complex	SPBC83.08	rvb2	1.081	0.05	minor	Rvb1/Rvb2 heterohexamer, shared with Swr1/NuA4	Watanabe2015 ncomms8108; Poli2017 PMC7171469
+Ino80 complex	SPBP23A10.08	alp5	0.65	1.4	minor	Arp4 (actin-related), shared HSA-module with Swr1/NuA4	Watanabe2015 ncomms8108
+Swr1 complex	SPAC1F5.11c	tra2	0.523	2.76	minor	Swr1-specific module (Tra2/Arp6-associated)	Poli2017 PMC7171469
+Swr1 complex	SPAC637.12c	mst1	0.638	1.83	minor	MYST HAT (Mst1/Esa1-related), links to NuA4 activity	Poli2017 PMC7171469
+Swr1 complex	SPAC9G1.13c	swc4	0.72	3.48	minor	Swc4/Eaf2, shared Swr1-NuA4 module component	Poli2017 PMC7171469
+Swr1 complex	SPAPB8E5.09	rvb1	1.176	-0.0	core	Rvb1/Rvb2 heterohexamer, shared with Ino80/NuA4	Watanabe2015 ncomms8108; Poli2017 PMC7171469
+Swr1 complex	SPBC32H8.12c	act1	1.143	-0.0	core	Actin, shared HSA-module with Ino80/NuA4	Watanabe2015 ncomms8108
+Swr1 complex	SPBC83.08	rvb2	1.081	0.05	core	Rvb1/Rvb2 heterohexamer, shared with Ino80/NuA4	Watanabe2015 ncomms8108; Poli2017 PMC7171469
+Swr1 complex	SPBP23A10.08	alp5	0.65	1.4	minor	Arp4 (actin-related), shared HSA-module with Ino80/NuA4	Watanabe2015 ncomms8108
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC1751.03	tif313	1.037	1.13	core	eIF3 core subunit, essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC25G10.08	tif302	1.106	0.02	core	eIF3 core subunit (eIF3b/prt1), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC3A12.13c	tif310	0.499	-0.0	minor	eIF3h peripheral subunit, non-essential	Ray2008 PMID19061185; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC4A8.16c	tif303	1.155	-0.0	core	eIF3 core subunit (eIF3c/nip1), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC4D7.05	sum1	1.256	-0.0	core	eIF3 core subunit (eIF3i), essential	Zhou2005 PMC1173091; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPAC637.07	moe1	0.361	4.29	minor	eIF3d peripheral subunit, non-essential	Bandyopadhyay2002 PMID11705997; PomBase
+eukaryotic translation initiation factor 3 complex, eIF3m	SPBC17D11.05	tif301	1.224	-0.0	core	eIF3 core subunit (eIF3a/tif32), essential	Zhou2005 PMC1173091; PomBase
