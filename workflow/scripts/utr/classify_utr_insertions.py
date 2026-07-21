@@ -61,6 +61,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
+import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
@@ -376,8 +377,19 @@ def classify_utr_insertions(
     )
     logger.info(f"UTR insertions with matched gene-level stats: {len(merged):,}")
 
+    # Naive division, byte-faithful to the notebook: when a gene-level metric is
+    # 0 or NaN the ratio becomes inf/NaN. We deliberately KEEP these values (the
+    # downstream human-review notebook filters on um_gene > 0.5, which excludes
+    # them) but surface a count so they are not silently carried forward.
     merged["A_ratio"] = merged["A_insertion"] / merged["A_gene"]
     merged["um_ratio"] = merged["DR_insertion"] / merged["DR_gene"]
+
+    n_bad = int((~np.isfinite(merged["um_ratio"])).sum())
+    if n_bad:
+        logger.warning(
+            f"{n_bad:,} rows have a non-finite um_ratio (gene DR == 0 or NaN); "
+            "kept for notebook fidelity — downstream um_gene>0.5 filter drops them."
+        )
 
     return merged
 

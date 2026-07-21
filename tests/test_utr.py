@@ -12,6 +12,7 @@ from workflow.scripts.utr.classify_utr_insertions import (
     assign_UTR_type,
     UTR_DISTANCE_THRESHOLD,
     filter_intergenic_near_gene,
+    resolve_parental_gene,
 )
 
 
@@ -75,3 +76,66 @@ def test_filter_intergenic_near_gene():
     assert len(result) == 2
     assert 0 in result.index
     assert 3 in result.index
+
+
+# ---------------------------------------------------------------------------
+# resolve_parental_gene: two-flanking-gene interval -> single parental gene
+# ---------------------------------------------------------------------------
+def _interval_row(insertion_strand, dist_start, dist_end,
+                  left_strand="+", right_strand="+"):
+    """Build an intergenic-interval row with a [Chr, Coord, Strand, Target] name."""
+    row = pd.Series({
+        "Name": "leftGene|rightGene",
+        "Systematic ID": "SPLEFT|SPRIGHT",
+        "Strand_Interval": f"{left_strand}|{right_strand}",
+        "Distance_to_region_start": dist_start,
+        "Distance_to_region_end": dist_end,
+    })
+    row.name = ("I", 1000, insertion_strand, "TargetA")
+    return row
+
+
+def test_resolve_parental_gene_left_only_close():
+    """Only region_start within threshold -> left gene, forward-strand left => 3UTR."""
+    res = resolve_parental_gene(_interval_row("+", dist_start=100, dist_end=600))
+    assert res["Parental_gene"] == "leftGene"
+    assert res["Parental_gene_id"] == "SPLEFT"
+    # Insertion sits past the left gene's high-coord (3') edge; + strand => 3UTR.
+    assert res["UTR_type"] == "3UTR"
+    assert res["Distance_to_gene_boundary"] == 100  # 3UTR is positive
+    assert res["Insertion_direction"] == "Forward"  # insertion + == left +
+
+
+def test_resolve_parental_gene_right_only_close():
+    """Only region_end within threshold -> right gene, forward-strand right => 5UTR."""
+    res = resolve_parental_gene(_interval_row("-", dist_start=600, dist_end=80))
+    assert res["Parental_gene"] == "rightGene"
+    assert res["Parental_gene_id"] == "SPRIGHT"
+    # Insertion sits before the right gene's low-coord (5') edge; + strand => 5UTR.
+    assert res["UTR_type"] == "5UTR"
+    assert res["Distance_to_gene_boundary"] == -80  # 5UTR is negative
+    assert res["Insertion_direction"] == "Reverse"  # insertion - != right +
+
+
+def test_resolve_parental_gene_both_close_tie_goes_left():
+    """Both boundaries within threshold and equidistant -> left gene (tie -> left)."""
+    res = resolve_parental_gene(_interval_row("+", dist_start=150, dist_end=150))
+    assert res["Parental_gene"] == "leftGene"
+
+
+def test_resolve_parental_gene_both_close_right_strictly_closer():
+    """Both within threshold, right strictly closer -> right gene."""
+    res = resolve_parental_gene(_interval_row("+", dist_start=200, dist_end=90))
+    assert res["Parental_gene"] == "rightGene"
+
+
+def test_resolve_parental_gene_dead_zone_at_exact_threshold():
+    """Exactly one distance == threshold (strict-inequality dead zone) -> unassigned.
+
+    Mirrors the notebook's if/elif/elif fall-through: a row where one side is
+    exactly distance_threshold matches none of the three branches, so it stays
+    unassigned and is later dropped by the inner-join to gene-level stats.
+    """
+    res = resolve_parental_gene(_interval_row("+", dist_start=400, dist_end=600))
+    assert res["Parental_gene"] == ""
+    assert res["UTR_type"] == "neither"
