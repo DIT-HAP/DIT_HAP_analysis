@@ -172,3 +172,54 @@ def score_labels(data: pd.DataFrame, labels: np.ndarray) -> dict:
         "davies_bouldin_score": davies_bouldin_score(data, labels),
         "n_clusters": len(np.unique(labels)),
     }
+
+
+# =============================================================================
+# AUTOMATIC FINALIZE (deterministic k=9, no human merge)
+# =============================================================================
+# Number of final clusters for the automatic finalize path (design doc §3).
+FINAL_N_CLUSTERS = 9
+
+
+@logger.catch(reraise=True)
+def auto_finalize(
+    annotated: pd.DataFrame,
+    scaled: pd.DataFrame,
+    n_clusters: int = FINAL_N_CLUSTERS,
+    random_state: int = 42,
+    wt_cluster: int = 9,
+) -> pd.DataFrame:
+    """Cluster the scaled (DR, DL) matrix to n_clusters via kmeans and deterministically
+    renumber to 1..n_clusters: lowest mean DR = WT (assigned wt_cluster), the rest in
+    ascending mean-DR order. Returns the annotated table with a final `cluster` column
+    (NaN for genes not in the scaled/clustered set). See design doc §3-4.
+    """
+    raw = pd.Series(
+        cluster_one_method(BEST_METHOD, scaled, n_clusters, random_state),
+        index=scaled.index,
+        name="_raw",
+    )
+    # Rank raw clusters by mean DR (ascending), tie-broken by mean DL then raw id,
+    # so the numbering is fully reproducible across runs.
+    stats = (
+        annotated.loc[scaled.index, ["DR", "DL"]]
+        .assign(_raw=raw)
+        .groupby("_raw")
+        .agg(mean_dr=("DR", "mean"), mean_dl=("DL", "mean"))
+        .reset_index()
+        .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable")
+        .reset_index(drop=True)
+    )
+    # Ascending DR -> the lowest-DR cluster becomes wt_cluster; the remaining ids
+    # 1..n_clusters (excluding wt) fill the other ranks in ascending-DR order.
+    final_ids = list(range(1, n_clusters + 1))
+    remaining = [i for i in final_ids if i != wt_cluster]
+    ordered_ids = [wt_cluster] + remaining
+    # stats is already sorted ascending-DR and re-indexed, so row order == rank order:
+    # rank 0 (lowest DR) -> ordered_ids[0] (wt_cluster), rank 1 -> id 1, ...
+    raw_to_final = dict(zip(stats["_raw"], ordered_ids))
+
+    out = annotated.copy()
+    out["cluster"] = raw.map(raw_to_final)
+    logger.info(f"Auto-finalized {raw.notna().sum()} genes into {n_clusters} clusters (WT={wt_cluster})")
+    return out

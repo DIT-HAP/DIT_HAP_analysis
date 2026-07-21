@@ -14,6 +14,7 @@ from workflow.src.clustering.candidates import (
     DR_CAP,
     DL_DIVISOR,
     METHODS,
+    auto_finalize,
     cluster_one_method,
     scale_features,
     score_labels,
@@ -151,3 +152,56 @@ def test_select_config_rejects_missing_input(tmp_path):
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
+
+
+def _toy_annotated_scaled(n_per=20, seed=0):
+    """Build a small annotated table + matching scaled matrix with 9 well-separated blobs in (DR, DL)."""
+    rng = np.random.default_rng(seed)
+    centers = [(0.05, 0.1), (0.2, 0.3), (0.35, 0.2), (0.5, 0.5), (0.65, 0.4),
+               (0.8, 0.6), (0.95, 0.3), (1.1, 0.7), (1.25, 0.5)]
+    drs, dls, idx = [], [], []
+    for c, (dr, dl) in enumerate(centers):
+        for i in range(n_per):
+            drs.append(dr + rng.normal(0, 0.005))
+            dls.append(dl + rng.normal(0, 0.005))
+            idx.append(f"g{c}_{i}")
+    annotated = pd.DataFrame({"DR": drs, "DL": dls, "A": 1.0}, index=idx)
+    annotated.index.name = "Systematic ID"
+    scaled = annotated[["DR", "DL"]].copy()
+    return annotated, scaled
+
+
+def test_auto_finalize_produces_k_clusters_labelled_1_to_9():
+    annotated, scaled = _toy_annotated_scaled()
+    out = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    assert "cluster" in out.columns
+    assert sorted(out["cluster"].unique()) == list(range(1, 10))
+    assert out.index.name == "Systematic ID"
+    assert {"DR", "DL", "A"}.issubset(out.columns)
+
+
+def test_auto_finalize_assigns_lowest_DR_to_wt_cluster():
+    annotated, scaled = _toy_annotated_scaled()
+    out = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    means = out.groupby("cluster")["DR"].mean()
+    assert means.idxmin() == 9                       # WT = lowest DR
+    non_wt = means.drop(index=9).sort_index()
+    assert non_wt.is_monotonic_increasing            # ids 1..8 ascend in DR
+
+
+def test_auto_finalize_is_deterministic():
+    annotated, scaled = _toy_annotated_scaled()
+    a = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    b = auto_finalize(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    pd.testing.assert_series_equal(a["cluster"], b["cluster"])
+
+
+def test_auto_finalize_only_labels_scaled_genes():
+    """Genes dropped by scaling (NaN DR/DL) get no cluster (NaN)."""
+    annotated, scaled = _toy_annotated_scaled(n_per=15)
+    extra = pd.DataFrame({"DR": [np.nan], "DL": [np.nan], "A": [1.0]}, index=["ghost"])
+    extra.index.name = "Systematic ID"
+    annotated2 = pd.concat([annotated, extra])
+    out = auto_finalize(annotated2, scaled, n_clusters=9, random_state=42, wt_cluster=9)
+    assert pd.isna(out.loc["ghost", "cluster"])
+    assert out.loc["g0_0", "cluster"] in range(1, 10)
