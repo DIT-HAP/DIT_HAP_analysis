@@ -3,16 +3,21 @@
 # =============================================================================
 #
 # Per-dataset: clusters genes in the 2-D depletion feature space (DR, DL) from
-# gene-level curve fitting. Produces CANDIDATE labels only — the manual 64->9
-# merge lives in notebooks/clustering/finalize_gene_clusters.ipynb, which writes
-# resources/curated/final_clusters.tsv (design doc §5).
+# gene-level curve fitting. Produces CANDIDATE labels (64), then finalizes to 9.
 #
-# Split by clustering method, mirroring ml.smk's target x mode fan-out:
+# Candidate stage, split by clustering method, mirroring ml.smk's fan-out:
 #   prepare  -> scaled (DR, DL) matrix + k-sweep (the shared "spine")
 #   cluster  -> one job per method (kmeans / hierarchical_agg / hierarchical_div / gmm)
 #   select   -> attach the pinned best-method (kmeans) labels + aggregate metrics
 # Per-method intermediates are pickles under _work/ so label dtype and exact
 # metric precision survive round-trip; only the final two files are TSV.
+#
+# Finalize stage (64 -> 9) has two paths, selected by finalize_mode (design doc §2):
+#   auto (default): the auto_finalize_clusters rule below reuses the prepare spine
+#     to cluster to k=9 deterministically (lowest-DR cluster = WT = 9).
+#   manual: notebooks/clustering/finalize_gene_clusters.ipynb writes the curated
+#     resources/curated/final_clusters.tsv (human-judgment 64->9 merge).
+# Both emit the unified `cluster` column consumed by enrichment.smk + ml.smk.
 
 _CLUSTER_METHODS = ["kmeans", "hierarchical_agg", "hierarchical_div", "gmm"]
 _CWORK = "results/clustering/candidates/{dataset}/_work"
