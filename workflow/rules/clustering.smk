@@ -17,8 +17,10 @@
 #   manual_merge: NO rule; notebooks/clustering/finalize_gene_clusters.ipynb writes
 #                 the curated per-variant tsv (human-judgment merge).
 # Every buildable variant emits final_clusters.tsv (unified `cluster` column,
-# 1..final_n_clusters, WT last) + a per-variant metrics.tsv (silhouette/CH/DB) so
-# variants can be compared. auto_merge/manual_merge also keep raw_cluster.
+# 1..final_n_clusters, WT last) + a per-variant metrics.tsv (silhouette/CH/DB) +
+# a cluster_scatter.pdf (DR/DL scatter, colored by cluster; a 2nd page for the
+# pre-merge raw_cluster when the variant has one) so variants can be compared
+# visually and numerically. auto_merge/manual_merge also keep raw_cluster.
 # enrichment fans out over every variant; ml.smk uses only selected_variant.
 #
 # Per-variant intermediate labels are pickles under the variant dir so label dtype
@@ -76,6 +78,11 @@ def buildable_variants() -> list[str]:
 def all_variant_metrics(dataset: str) -> list[str]:
     """Per-variant metrics.tsv for every buildable variant (inputs to compare_variants)."""
     return [f"results/clustering/final/{dataset}/{v}/metrics.tsv" for v in buildable_variants()]
+
+
+def all_variant_scatters(dataset: str) -> list[str]:
+    """Per-variant cluster_scatter.pdf for every buildable variant (request-all convenience target)."""
+    return [f"results/clustering/final/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
 
 
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
@@ -255,6 +262,30 @@ rule finalize_grid:
         """
 
 
+# --- Plot: DR/DL scatter of one variant's final clusters (+ intermediate, if any) ---
+# Works for every configured variant, buildable or manual_merge (uses the global
+# `variant` wildcard_constraints above, not just buildable_variants()) — manual_merge
+# just needs its curated tsv to exist first (finalize_gene_clusters.ipynb).
+rule plot_variant_clusters:
+    input:
+        final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
+    output:
+        scatter="results/clustering/final/{dataset}/{variant}/cluster_scatter.pdf",
+    log:
+        "logs/clustering/plot_variant_clusters_{dataset}_{variant}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Plotting DR/DL cluster scatter for {wildcards.variant} ({wildcards.dataset})..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_variant_clusters.py \
+            --final-clusters {input.final_clusters} \
+            --output {output.scatter} \
+            --variant-label {wildcards.variant} &> {log}
+        """
+
+
 # --- Compare variants: gather every buildable variant's metrics into one table ---
 # NOT part of `rule all` (ml only needs selected_variant). Request it explicitly to
 # build ALL buildable variants at once and get a side-by-side metrics table for
@@ -282,3 +313,16 @@ rule compare_variants:
             rows.append(df)
         out = pd.concat(rows, ignore_index=True)
         out.to_csv(output.table, sep="\t", index=False)
+
+
+# --- Plot all: build every buildable variant's cluster_scatter.pdf in one go ---
+# Also NOT part of `rule all`. Request it explicitly to render every variant's
+# scatter for a visual side-by-side (pairs with compare_variants' metrics table):
+#   snakemake --use-conda results/clustering/final/{dataset}/all_variants_plotted.done
+rule plot_all_variants:
+    input:
+        scatters=lambda wc: all_variant_scatters(wc.dataset),
+    output:
+        marker=touch("results/clustering/final/{dataset}/all_variants_plotted.done"),
+    message:
+        "*** [clustering] Plotted all {wildcards.dataset} variants: {input.scatters}"

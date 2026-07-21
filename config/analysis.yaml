@@ -28,7 +28,7 @@ clustering:
     hc_merge9_auto:       {type: auto_merge,   method: hierarchical_agg, n_intermediate: 64}
     gmm_direct9:          {type: direct,       method: gmm}
     gmm_merge9_auto:      {type: auto_merge,   method: gmm,              n_intermediate: 64}
-    grid9:                {type: grid,         dr_cuts: [0.4, 0.8, 1.2], dl_cuts: [3.0, 6.0, 10.0]}
+    grid9:                {type: grid,         dr_cuts: [0.4, 0.8], dl_cuts: [0.05, 0.3]}
   selected_variant: kmeans_direct9   # variant ml.smk reads (equiv. old finalize_mode: auto)
   selected_variant_overrides: {}     # per-dataset override, e.g. {HD_DIT_HAP: kmeans_merge9_manual}
 
