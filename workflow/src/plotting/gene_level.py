@@ -225,7 +225,7 @@ def visualize_cluster_on_feature_space(
 ) -> Figure:
     """Two-panel feature-space scatter (KDE-shaded + flat color) with per-cluster labels.
 
-    `cluster_minus_one=True` when cluster ids are 1-based (revised_cluster is 1..9)
+    `cluster_minus_one=True` when cluster ids are 1-based (cluster is 1..9)
     but the color lists are 0-indexed.
     """
     fig, axes = plt.subplots(1, 2, figsize=(18, 7), sharex=True, sharey=True)
