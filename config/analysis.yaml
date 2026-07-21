@@ -66,3 +66,11 @@ ml:
   test_size: 0.2             # AutoML train/test split fraction
   random_state: 42           # AutoML split + mljar seed (reproducibility)
   total_time_limit: 14400    # mljar budget (s); large so full algorithm list always finishes
+
+# --- Large-scale study comparison (comparison.smk) ---
+# Batch B: correlates the curated DIT-HAP fitness metric against the gRNA HD-data
+# fit + the PomBase protein-features study columns (Barseq, integration density,
+# colony size, ...). Both the gRNA file and final_clusters.tsv are curated inputs.
+comparison:
+  gRNA_data_file: "resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv"
+  clip_upper: 200            # cap for integration-density columns (byte-faithful to notebook)

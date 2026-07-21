@@ -37,6 +37,7 @@ include: "workflow/rules/spikein.smk"
 include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
+include: "workflow/rules/comparison.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
