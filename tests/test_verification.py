@@ -8,12 +8,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.scripts.verification.compare_deletion_library import (
+from workflow.src.verification.core import (
     merge_deletion_library,
     compute_category_stats,
     canonicalize_category,
     build_final_merged,
     prepare_verification_data,
+    select_group_outliers,
+)
+from workflow.src.plotting.style import (
     CATEGORY_COLOR_MAP,
     DONUT_COLOR_MAP,
 )
@@ -71,7 +74,7 @@ def test_compute_category_stats_returns_counts():
 
 def test_category_with_essentiality_flag():
     """small colonies + E essentiality → 'small colonies (E)' label."""
-    from workflow.scripts.verification.compare_deletion_library import apply_category_with_essentiality
+    from workflow.src.verification.core import apply_category_with_essentiality
     row_sc_e = pd.Series({"Category": "small colonies", "DeletionLibrary_essentiality": "E"})
     row_sc_v = pd.Series({"Category": "small colonies", "DeletionLibrary_essentiality": "V"})
     assert apply_category_with_essentiality(row_sc_e) == "small colonies (E)"
@@ -142,6 +145,14 @@ def test_prepare_verification_data_empty_group():
     )
     assert dr_dict == {}
     assert len(detail) == 0
+
+
+def test_select_group_outliers_matches_filter_and_sort():
+    """select_group_outliers returns the group's filter hits, DR-sorted, deduped."""
+    merged, _, _ = _make_critical_fixtures()
+    # WT2nonWT = cat_canon=='WT' and DR>0.35, sorted desc: g1(0.9),g2(0.8),g3(0.7),g4(0.5)
+    genes = select_group_outliers(merged, "WT2nonWT")
+    assert genes == ["g1", "g2", "g3", "g4"]
 
 
 def test_build_final_merged_zero_fills_essential_missing_area():
