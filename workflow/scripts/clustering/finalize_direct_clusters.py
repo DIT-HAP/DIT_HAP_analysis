@@ -30,8 +30,8 @@ Usage
         --annotated-data results/clustering/{dataset}/_work/annotated_data.pkl \\
         --scaled-data    results/clustering/{dataset}/_work/scaled_data.pkl \\
         --labels         results/clustering/{dataset}/{variant}/_labels.pkl \\
-        --output         results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
-        --metrics-output results/clustering/final/{dataset}/{variant}/metrics.tsv \\
+        --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
         --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

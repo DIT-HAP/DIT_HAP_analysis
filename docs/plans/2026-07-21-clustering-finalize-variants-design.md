@@ -81,7 +81,7 @@ finalize_grid(annotated, scaled, dr_cuts, dl_cuts, n_clusters=9, wt_cluster) -> 
 
 ## 5. 路径约定
 
-- 可构建变体（`direct` / `auto_merge` / `grid`）：`results/clustering/final/{dataset}/{variant}/final_clusters.tsv`（Snakemake 产出，可删可重跑）。
+- 可构建变体（`direct` / `auto_merge` / `grid`）：`results/clustering/{dataset}/{variant}/final_clusters.tsv`（Snakemake 产出，可删可重跑）。
 - curated 变体（`manual_merge`）：`resources/curated/final_clusters/{dataset}/{variant}.tsv`（人工维护，版本控制，不可重跑）。
 
 ## 6. config 形态（`config/analysis.yaml` 的 `clustering:` 下）

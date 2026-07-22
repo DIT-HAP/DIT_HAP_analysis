@@ -216,6 +216,45 @@ def create_gradient_colormap(color: str, name: str) -> LinearSegmentedColormap:
     return LinearSegmentedColormap.from_list(name, ["white", color], N=256)
 
 
+def plot_cluster_on_axis(
+    ax: Axes,
+    df: pd.DataFrame,
+    cluster_col: str,
+    cluster_minus_one: bool = False,
+    show_box: bool = True,
+    title: str | None = None,
+    point_size: int = 8,
+    label_fontsize: int = 14,
+) -> Axes:
+    """Plot one clustering's assignments on a single axis (flat per-cluster color).
+
+    The single-axis analogue of `visualize_cluster_on_feature_space`'s flat-color
+    panel, so a multi-variant grid reuses the exact same color mapping (CLUSTER_COLORS,
+    modulo-indexed) and DR/DL framing. `cluster_minus_one=True` when cluster ids are
+    1-based (final 1..9) but the color list is 0-indexed.
+    """
+    for cluster, cluster_df in df.groupby(cluster_col, sort=True):
+        cluster = int(cluster)
+        x = cluster_df["DR"]
+        y = cluster_df["DL"]
+        cluster_idx = cluster - 1 if cluster_minus_one else cluster
+        cluster_color = CLUSTER_COLORS[cluster_idx % len(CLUSTER_COLORS)]
+        ax.scatter(x, y, c=cluster_color, s=point_size, label=f"Cluster {cluster} (n={len(x)})")
+        centroid_x, centroid_y = x.mean(), y.mean()
+        if show_box:
+            ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=label_fontsize,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.8))
+        else:
+            ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=label_fontsize)
+
+    ax.set_xlabel("DR")
+    ax.set_ylabel("DL")
+    ax.set_xlim(-0.15, 1.45)
+    if title:
+        ax.set_title(title)
+    return ax
+
+
 def visualize_cluster_on_feature_space(
     df: pd.DataFrame,
     cluster_col: str,

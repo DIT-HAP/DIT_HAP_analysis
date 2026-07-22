@@ -25,8 +25,8 @@ Output
 Usage
 -----
     python plot_variant_clusters.py \\
-        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
-        --output results/clustering/final/{dataset}/{variant}/cluster_scatter.pdf \\
+        --final-clusters results/clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --output results/clustering/{dataset}/{variant}/cluster_scatter.pdf \\
         --variant-label kmeans_merge9_auto
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

@@ -62,7 +62,7 @@ final ids (design doc `2026-07-21-clustering-finalize-variants`).
 
 3. Finalize clusters (→ 9), per variant
    buildable variants (direct / auto_merge / grid) — no manual step:
-     snakemake --use-conda results/clustering/final/<dataset>/<variant>/final_clusters.tsv
+     snakemake --use-conda results/clustering/<dataset>/<variant>/final_clusters.tsv
    manual_merge variant — human decision via
      notebooks/clustering/finalize_gene_clusters.ipynb (set DATASET/METHOD/VARIANT
      at top), review the feature-space plots, adjust the one merge dict, and write
