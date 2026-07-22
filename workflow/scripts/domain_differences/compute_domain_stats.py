@@ -253,8 +253,23 @@ def compute_domain_candidate_stats(
     and sort last. ``high_dr_genes`` must carry ``Systematic ID``, ``Name``, and
     ``DR`` columns; ``in_gene_insertions`` must carry ``Systematic ID`` and
     ``insertion_fraction``.
+
+    ``n_insertions`` uses group ``size``, i.e. the count of in-gene insertions
+    for the gene; a rare insertion with a zero-length CDS span has a NaN
+    insertion_fraction (see compute_insertion_fraction) and is still counted
+    here, while ``mean``/``std`` skip it — so on such genes n_insertions can
+    exceed the number of positioned values. The real HD_DIT_HAP in-gene set has
+    no zero-span rows, so this does not arise in practice.
     """
-    genes = high_dr_genes[["Systematic ID", "Name", "DR"]].rename(columns={"DR": "gene_DR"})
+    # drop_duplicates on the gene key guards both merges below: gene-level
+    # Systematic ID is unique in the real release, but a duplicated key would
+    # otherwise turn each merge into a cross-product and inflate per-gene counts
+    # / emit duplicate output rows.
+    genes = (
+        high_dr_genes[["Systematic ID", "Name", "DR"]]
+        .rename(columns={"DR": "gene_DR"})
+        .drop_duplicates("Systematic ID")
+    )
 
     restricted = in_gene_insertions[["Systematic ID", "insertion_fraction"]].merge(
         genes[["Systematic ID"]], on="Systematic ID", how="inner"

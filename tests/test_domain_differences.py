@@ -20,9 +20,11 @@ import pytest
 from workflow.scripts.domain_differences.compute_domain_stats import (
     DR_THRESHOLD,
     IN_GENE_FILTER,
+    _normalize_legacy_metrics,
     compute_insertion_fraction,
     filter_high_dr_genes,
     compute_domain_candidate_stats,
+    resolve_duplicate_annotations,
 )
 
 
@@ -155,3 +157,68 @@ def test_compute_domain_candidate_stats_sorted_by_std_desc():
     stats = compute_domain_candidate_stats(in_gene, high_dr)
     # gA (0.566) > gB (0.1) > gC (NaN, last)
     assert stats["Systematic ID"].tolist() == ["gA", "gB", "gC"]
+
+
+def test_compute_domain_candidate_stats_dedups_gene_key():
+    """A duplicated gene key must NOT cross-product (one row, un-inflated count).
+
+    Guards the drop_duplicates('Systematic ID') hardening: real gene-level data
+    has unique keys, but a duplicate would otherwise turn both merges into a
+    cross-product (e.g. gA's 2 insertions reported as n_insertions=4, two rows).
+    """
+    in_gene, high_dr = _make_inputs()
+    high_dr_dup = pd.concat([high_dr, high_dr.iloc[[0]]], ignore_index=True)  # duplicate gA
+    stats = compute_domain_candidate_stats(in_gene, high_dr_dup).set_index("Systematic ID")
+    assert (stats.index == ["gA", "gB", "gC"]).all()  # gA appears exactly once
+    assert stats.loc["gA", "n_insertions"] == 2       # not 4
+
+
+# ---------------------------------------------------------------------------
+# resolve_duplicate_annotations
+# ---------------------------------------------------------------------------
+def _dup_indexed_annotations():
+    """Two coordinates, the first duplicated with one in-gene + one intergenic row."""
+    idx = pd.MultiIndex.from_tuples(
+        [("I", 100, "+", "T"), ("I", 100, "+", "T"), ("I", 200, "-", "T")],
+        names=["Chr", "Coordinate", "Strand", "Target"],
+    )
+    return pd.DataFrame({
+        "Type": ["Intergenic region", "CDS", "CDS"],
+        "Distance_to_stop_codon": [0, 50, 80],
+        "Systematic ID": ["gX", "gX", "gY"],
+    }, index=idx)
+
+
+def test_resolve_duplicate_annotations_keeps_in_gene_pass():
+    """Among duplicate-indexed rows, the IN_GENE_FILTER-passing row wins."""
+    out = resolve_duplicate_annotations(_dup_indexed_annotations())
+    assert not out.index.duplicated().any()  # collapsed to unique index
+    # The (I,100,+,T) row kept must be the CDS one (passes filter), not intergenic.
+    kept = out.loc[[("I", 100, "+", "T")]].iloc[0]
+    assert kept["Type"] == "CDS"
+
+
+def test_resolve_duplicate_annotations_noop_without_duplicates():
+    """No duplicate index -> frame returned unchanged."""
+    df = _dup_indexed_annotations().iloc[[1, 2]]  # drop the duplicate -> unique index
+    out = resolve_duplicate_annotations(df)
+    pd.testing.assert_frame_equal(out, df)
+
+
+# ---------------------------------------------------------------------------
+# legacy um/lam -> DR/DL normalization
+# ---------------------------------------------------------------------------
+def test_normalize_legacy_metrics_renames_um_lam():
+    """Legacy um/lam headers are renamed to DR/DL on load."""
+    df = pd.DataFrame({"Systematic ID": ["g1"], "um": [0.5], "lam": [3.0]})
+    out = _normalize_legacy_metrics(df)
+    assert "DR" in out.columns and "DL" in out.columns
+    assert "um" not in out.columns and "lam" not in out.columns
+    assert out["DR"].iloc[0] == 0.5
+
+
+def test_normalize_legacy_metrics_idempotent_when_already_dr_dl():
+    """Files already shipping DR/DL are left unchanged (no clobber)."""
+    df = pd.DataFrame({"Systematic ID": ["g1"], "DR": [0.5], "DL": [3.0]})
+    out = _normalize_legacy_metrics(df)
+    assert out["DR"].iloc[0] == 0.5 and out["DL"].iloc[0] == 3.0
