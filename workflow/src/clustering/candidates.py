@@ -203,13 +203,13 @@ def renumber_by_dr(
         .groupby("_raw")
         .agg(mean_dr=("DR", "mean"), mean_dl=("DL", "mean"))
         .reset_index()
-        .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable")
+        .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable", ascending=[False, True, True])
         .reset_index(drop=True)
     )
     # Ascending DR -> the lowest-DR group becomes wt_cluster; the remaining ids
     # 1..n_clusters (excluding wt) fill the other ranks in ascending-DR order.
     remaining = [i for i in range(1, n_clusters + 1) if i != wt_cluster]
-    ordered_ids = [wt_cluster] + remaining
+    ordered_ids = remaining + [wt_cluster]
     # Guard against silent mis-numbering: dict(zip(...)) would quietly truncate if
     # counts diverge (too few groups, or wt_cluster out of the 1..n_clusters range).
     if len(stats) != len(ordered_ids):
