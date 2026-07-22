@@ -28,8 +28,8 @@ Usage
     python finalize_grid_clusters.py \\
         --annotated-data results/clustering/{dataset}/_work/annotated_data.pkl \\
         --scaled-data    results/clustering/{dataset}/_work/scaled_data.pkl \\
-        --output         results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
-        --metrics-output results/clustering/final/{dataset}/{variant}/metrics.tsv \\
+        --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
         --dr-cuts 0.3 0.6 0.9 --dl-cuts 0.2 0.5 --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

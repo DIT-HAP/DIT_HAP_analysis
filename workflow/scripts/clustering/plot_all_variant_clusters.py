@@ -26,7 +26,7 @@ Usage
     python plot_all_variant_clusters.py \\
         --final-clusters path/to/v1/final_clusters.tsv path/to/v2/final_clusters.tsv \\
         --variant-labels kmeans_direct9 kmeans_merge9_auto \\
-        --output results/clustering/final/{dataset}/all_variants_cluster_scatter.pdf \\
+        --output results/clustering/{dataset}/all_variants_cluster_scatter.pdf \\
         --dataset HD_DIT_HAP
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

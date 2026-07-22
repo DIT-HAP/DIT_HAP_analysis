@@ -66,7 +66,7 @@ def final_clusters_path(dataset: str, variant: str) -> str:
     if vtype == "manual_merge":
         return f"resources/curated/final_clusters/{dataset}/{variant}.tsv"
     if vtype in ("direct", "auto_merge", "grid"):
-        return f"results/clustering/final/{dataset}/{variant}/final_clusters.tsv"
+        return f"results/clustering/{dataset}/{variant}/final_clusters.tsv"
     raise ValueError(f"Unknown finalize type {vtype!r} for variant {variant!r} (expected direct|auto_merge|grid|manual_merge)")
 
 
@@ -77,17 +77,17 @@ def buildable_variants() -> list[str]:
 
 def all_variant_metrics(dataset: str) -> list[str]:
     """Per-variant metrics.tsv for every buildable variant (inputs to compare_variants)."""
-    return [f"results/clustering/final/{dataset}/{v}/metrics.tsv" for v in buildable_variants()]
+    return [f"results/clustering/{dataset}/{v}/metrics.tsv" for v in buildable_variants()]
 
 
 def all_variant_scatters(dataset: str) -> list[str]:
     """Per-variant cluster_scatter.pdf for every buildable variant (request-all convenience target)."""
-    return [f"results/clustering/final/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
+    return [f"results/clustering/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
 
 
 def all_variant_final_clusters(dataset: str) -> list[str]:
     """Every buildable variant's final_clusters.tsv (inputs to the summary grid scatter)."""
-    return [f"results/clustering/final/{dataset}/{v}/final_clusters.tsv" for v in buildable_variants()]
+    return [f"results/clustering/{dataset}/{v}/final_clusters.tsv" for v in buildable_variants()]
 
 
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
@@ -136,7 +136,7 @@ rule cluster_variant_labels:
     input:
         scaled=f"{_CWORK}/scaled_data.pkl",
     output:
-        labels="results/clustering/final/{dataset}/{variant}/_labels.pkl",
+        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
     params:
         method=lambda wc: _VARIANTS[wc.variant].get("method", "kmeans"),
         final_n_clusters=_FINAL_N,
@@ -171,10 +171,10 @@ rule finalize_direct:
     input:
         annotated=f"{_CWORK}/annotated_data.pkl",
         scaled=f"{_CWORK}/scaled_data.pkl",
-        labels="results/clustering/final/{dataset}/{variant}/_labels.pkl",
+        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
     output:
-        clusters="results/clustering/final/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/final/{dataset}/{variant}/metrics.tsv",
+        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
     params:
         n_clusters=_FINAL_N,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
@@ -204,10 +204,10 @@ rule finalize_auto_merge:
     input:
         annotated=f"{_CWORK}/annotated_data.pkl",
         scaled=f"{_CWORK}/scaled_data.pkl",
-        labels="results/clustering/final/{dataset}/{variant}/_labels.pkl",
+        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
     output:
-        clusters="results/clustering/final/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/final/{dataset}/{variant}/metrics.tsv",
+        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
     params:
         n_clusters=_FINAL_N,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
@@ -238,8 +238,8 @@ rule finalize_grid:
         annotated=f"{_CWORK}/annotated_data.pkl",
         scaled=f"{_CWORK}/scaled_data.pkl",
     output:
-        clusters="results/clustering/final/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/final/{dataset}/{variant}/metrics.tsv",
+        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
     params:
         dr_cuts=lambda wc: " ".join(str(c) for c in _VARIANTS[wc.variant].get("dr_cuts", [])),
         dl_cuts=lambda wc: " ".join(str(c) for c in _VARIANTS[wc.variant].get("dl_cuts", [])),
@@ -275,7 +275,7 @@ rule plot_variant_clusters:
     input:
         final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
     output:
-        scatter="results/clustering/final/{dataset}/{variant}/cluster_scatter.pdf",
+        scatter="results/clustering/{dataset}/{variant}/cluster_scatter.pdf",
     log:
         "logs/clustering/plot_variant_clusters_{dataset}_{variant}.log",
     conda:
@@ -295,12 +295,12 @@ rule plot_variant_clusters:
 # NOT part of `rule all` (ml only needs selected_variant). Request it explicitly to
 # build ALL buildable variants at once and get a side-by-side metrics table for
 # choosing which variant to select:
-#   snakemake --use-conda results/clustering/final/{dataset}/variant_metrics_comparison.tsv
+#   snakemake --use-conda results/clustering/{dataset}/variant_metrics_comparison.tsv
 rule compare_variants:
     input:
         metrics=lambda wc: all_variant_metrics(wc.dataset),
     output:
-        table="results/clustering/final/{dataset}/variant_metrics_comparison.tsv",
+        table="results/clustering/{dataset}/variant_metrics_comparison.tsv",
     params:
         variants=lambda wc: buildable_variants(),
     log:
@@ -323,12 +323,12 @@ rule compare_variants:
 # --- Plot all: build every buildable variant's cluster_scatter.pdf in one go ---
 # Also NOT part of `rule all`. Request it explicitly to render every variant's
 # scatter for a visual side-by-side (pairs with compare_variants' metrics table):
-#   snakemake --use-conda results/clustering/final/{dataset}/all_variants_plotted.done
+#   snakemake --use-conda results/clustering/{dataset}/all_variants_plotted.done
 rule plot_all_variants:
     input:
         scatters=lambda wc: all_variant_scatters(wc.dataset),
     output:
-        marker=touch("results/clustering/final/{dataset}/all_variants_plotted.done"),
+        marker=touch("results/clustering/{dataset}/all_variants_plotted.done"),
     message:
         "*** [clustering] Plotted all {wildcards.dataset} variants: {input.scatters}"
 
@@ -338,12 +338,12 @@ rule plot_all_variants:
 # grid (one subplot per variant, final `cluster` column, shared DR/DL axes) for a
 # quick visual comparison of how the finalize strategies differ. NOT part of
 # `rule all`; request explicitly:
-#   snakemake --use-conda results/clustering/final/{dataset}/all_variants_cluster_scatter.pdf
+#   snakemake --use-conda results/clustering/{dataset}/all_variants_cluster_scatter.pdf
 rule plot_all_variants_grid:
     input:
         final_clusters=lambda wc: all_variant_final_clusters(wc.dataset),
     output:
-        scatter="results/clustering/final/{dataset}/all_variants_cluster_scatter.pdf",
+        scatter="results/clustering/{dataset}/all_variants_cluster_scatter.pdf",
     params:
         variant_labels=lambda wc: buildable_variants(),
     log:
