@@ -58,6 +58,7 @@ from workflow.src.clustering.candidates import (
     load_and_annotate,
     scale_features,
 )
+from workflow.src.io import write_parquet
 
 
 # =============================================================================

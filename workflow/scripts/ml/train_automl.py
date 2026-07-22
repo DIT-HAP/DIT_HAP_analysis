@@ -67,6 +67,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import PowerTransformer
 
+# 4. Local Imports
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
