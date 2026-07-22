@@ -85,6 +85,11 @@ def all_variant_scatters(dataset: str) -> list[str]:
     return [f"results/clustering/final/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
 
 
+def all_variant_final_clusters(dataset: str) -> list[str]:
+    """Every buildable variant's final_clusters.tsv (inputs to the summary grid scatter)."""
+    return [f"results/clustering/final/{dataset}/{v}/final_clusters.tsv" for v in buildable_variants()]
+
+
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
 rule prepare_clustering_data:
     input:
@@ -326,3 +331,32 @@ rule plot_all_variants:
         marker=touch("results/clustering/final/{dataset}/all_variants_plotted.done"),
     message:
         "*** [clustering] Plotted all {wildcards.dataset} variants: {input.scatters}"
+
+
+# --- Summary grid: every buildable variant's final clusters on one page ---
+# Complements the per-variant cluster_scatter.pdf files with a single side-by-side
+# grid (one subplot per variant, final `cluster` column, shared DR/DL axes) for a
+# quick visual comparison of how the finalize strategies differ. NOT part of
+# `rule all`; request explicitly:
+#   snakemake --use-conda results/clustering/final/{dataset}/all_variants_cluster_scatter.pdf
+rule plot_all_variants_grid:
+    input:
+        final_clusters=lambda wc: all_variant_final_clusters(wc.dataset),
+    output:
+        scatter="results/clustering/final/{dataset}/all_variants_cluster_scatter.pdf",
+    params:
+        variant_labels=lambda wc: buildable_variants(),
+    log:
+        "logs/clustering/plot_all_variants_grid_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Plotting summary grid of all {wildcards.dataset} variants' final clusters..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_all_variant_clusters.py \
+            --final-clusters {input.final_clusters} \
+            --variant-labels {params.variant_labels} \
+            --dataset {wildcards.dataset} \
+            --output {output.scatter} &> {log}
+        """
