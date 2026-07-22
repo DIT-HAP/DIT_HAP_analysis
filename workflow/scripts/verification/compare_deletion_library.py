@@ -17,9 +17,13 @@ source notebook was written — `Updated_Systematic_ID` no longer exists,
 changed (e.g. `WT` -> `WT-like`). merge_deletion_library() accepts either
 column name so it works against both the old-schema test fixture and the
 current real file (see deletion-library-categories-schema-update memory note).
-This is a simplified port: the notebook's altair area-fraction-vs-DR charts,
-boxplot/violin comparisons, and per-gene depletion-curve PDFs are out of scope
-here — only the category breakdown (donut) + DR scatter the task calls for.
+The notebook's matplotlib §4-5 plotting is migrated here: boxplot+violin DR
+comparisons, four critical-gene outlier groups (each with a boxplot, a
+verification-composition donut, and a review TSV), and DIT-HAP-vs-gRNA
+depletion curves. Only the altair interactive charts (area-fraction-vs-DR)
+remain notebook-only — they produce HTML and are exploratory. The extra
+outputs are optional: omitting the --output-boxplots/... flags falls back to
+the original donut + DR-scatter two-output invocation.
 
 Input
 -----
@@ -35,6 +39,11 @@ Output
 - verification_stats.tsv: category counts + verification match/mismatch counts.
 - deletion_library_comparison.pdf: donut chart of phenotype categories + DR
   scatter by category.
+- verification_boxplots.pdf (optional): basic + critical-group boxplot/violin
+  and per-group verification donuts.
+- verification_depletion_curves.pdf (optional): per critical group, DIT-HAP
+  (+gRNA) depletion curves for that group's outlier genes.
+- critical_genes_{group}.tsv (optional): per-group gene detail for review.
 
 Usage
 -----
@@ -73,7 +82,12 @@ from loguru import logger  # noqa: E402
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.plotting.generic import donut_chart  # noqa: E402
+from workflow.src.plotting.generic import boxplot_with_violinplot, donut_chart  # noqa: E402
+from workflow.src.plotting.gene_level import (  # noqa: E402
+    DIT_HAP_GENERATIONS,
+    GRNA_GENERATIONS,
+    plot_gene_depletion_curve,
+)
 from workflow.src.plotting.style import (  # noqa: E402
     AX_HEIGHT,
     AX_WIDTH,
@@ -141,6 +155,51 @@ def _display_category(category: str) -> str:
     return _CATEGORY_DISPLAY_ALIASES.get(category, category)
 
 
+# Basic-boxplot category selection, byte-faithful to the notebook's
+# selected_categories (cell 6). Grouping is by Category_with_essentiality after
+# restricting to these canonical categories.
+_BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT"]
+
+# The four "critical gene" outlier groups (notebook §4.2-4.4). Each filter runs
+# against the canonicalized `cat_canon` column (so the notebook's raw labels
+# like 'WT' / 'small colonies' still match the current WT-like / compound
+# schema). `sort` orders the outlier gene list by DR: WT->nonWT / small->E look
+# at the highest-DR outliers first (desc), E->V at the lowest (asc).
+_CRITICAL_GROUPS = {
+    "WT2nonWT": {
+        "filter": "cat_canon == 'WT' and DR > 0.35",
+        "sort": "desc",
+    },
+    "scE2E": {
+        "filter": "cat_canon == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality == 'E'",
+        "sort": "desc",
+    },
+    "sc2E": {
+        "filter": "cat_canon == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality != 'E'",
+        "sort": "desc",
+    },
+    "E2V": {
+        "filter": "cat_canon in ['spores', 'germinated', 'microcolonies'] and DR < 0.35",
+        "sort": "asc",
+    },
+}
+
+# Verification-result bucket order for the critical-group boxplots/donuts,
+# byte-faithful to the notebook's prepare_verification_data loop + label_orders.
+_VERIFICATION_BUCKET_ORDER = [
+    "spores", "germinated", "microcolonies", "E", "E (tiny colonies)",
+    "very small colonies", "small colonies", "WT",
+]
+
+# gpd1: the source notebook manually appends this gene to the simplified
+# verification table (cell 3) as an E/E verified call — it wasn't in the curated
+# verification file then and still isn't now, but it IS a real release gene, so
+# the append stays meaningful. Kept byte-faithful.
+_MANUAL_VERIFICATION_ROWS = pd.DataFrame(
+    {"Systematic ID": ["SPBC215.05"], "Verification result": ["E"], "Verified essentiality": ["E"]}
+)
+
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
@@ -152,14 +211,27 @@ class VerificationConfig:
     essentiality_verification: Path
     output_stats: Path
     output_figures: Path
+    # New (notebook §4-5) outputs. gene_timepoints / grna_timepoints feed the
+    # depletion curves; grna_timepoints is optional (HD-only, see verification.smk).
+    gene_timepoints: Path | None = None
+    grna_timepoints: Path | None = None
+    output_boxplots: Path | None = None
+    output_depletion_curves: Path | None = None
+    output_critical_genes_dir: Path | None = None
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
         for path in [self.fitting_results, self.deletion_library, self.essentiality_verification]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        for out in [self.output_stats, self.output_figures]:
-            out.parent.mkdir(parents=True, exist_ok=True)
+        if self.gene_timepoints is not None and not self.gene_timepoints.exists():
+            raise ValueError(f"Required input not found: {self.gene_timepoints}")
+        outputs = [self.output_stats, self.output_figures, self.output_boxplots, self.output_depletion_curves]
+        for out in outputs:
+            if out is not None:
+                out.parent.mkdir(parents=True, exist_ok=True)
+        if self.output_critical_genes_dir is not None:
+            self.output_critical_genes_dir.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -215,7 +287,21 @@ def load_essentiality_verification(essentiality_verification_path: Path) -> pd.D
     verification["Verification result"] = verification["Verification result"].replace(
         _VERIFICATION_PHENOTYPE_SIMPLIFY
     )
-    return verification.dropna(subset=["Verification result", "Verified essentiality"])
+    verification = verification.dropna(subset=["Verification result", "Verified essentiality"])
+    # Append the notebook's manual gpd1 (SPBC215.05) E/E call (see
+    # _MANUAL_VERIFICATION_ROWS). ignore_index keeps a clean RangeIndex.
+    return pd.concat([verification, _MANUAL_VERIFICATION_ROWS], ignore_index=True)
+
+
+def load_essentiality_verification_full(essentiality_verification_path: Path) -> pd.DataFrame:
+    """Load the curated verification table keeping ALL columns (area day3-6, comments, ...).
+
+    Feeds build_final_merged / the per-critical-group review TSVs, which need the
+    colony-area measurements that load_essentiality_verification drops. The
+    `verification_phenotype` values are NOT simplified here (the raw label is
+    what a human reviewer wants to see).
+    """
+    return pd.read_csv(essentiality_verification_path)
 
 
 # =============================================================================
@@ -293,6 +379,101 @@ def compute_verification_match_stats(merged_with_verification: pd.DataFrame) -> 
         "match": match,
         "mismatch": len(known) - match,
     }
+
+
+# =============================================================================
+# CORE LOGIC — critical-gene analysis (unit-tested)
+# =============================================================================
+def canonicalize_category(merged: pd.DataFrame) -> pd.DataFrame:
+    """Add a `cat_canon` column folding schema-drifted Category labels to notebook vocabulary.
+
+    The notebook's outlier filters use the original single-phenotype labels
+    ('WT', 'small colonies', 'spores', ...), but the current curated file ships
+    'WT-like' and compound labels. `cat_canon` = `_display_category(Category)`
+    lets those filters keep matching (see _CRITICAL_GROUPS).
+    """
+    out = merged.copy()
+    out["cat_canon"] = out["Category"].map(lambda c: _display_category(c) if isinstance(c, str) else c)
+    return out
+
+
+def build_final_merged(
+    merged: pd.DataFrame,
+    verification_full: pd.DataFrame,
+) -> pd.DataFrame:
+    """Right-join gene-level+category data with the FULL verification table (area columns kept).
+
+    Reconstructs the notebook's `final_merged`: one row per curated-verification
+    gene, carrying DR/DL/FYPOviability/DeletionLibrary_essentiality/Category plus
+    the raw verification phenotype/essentiality and colony-area day3-6 columns.
+    Feeds the per-critical-group review TSVs. Genes verified as essential ('E')
+    but missing a day-3 area are zero-filled for the area columns, byte-faithful
+    to the notebook (they were confirmed dead, i.e. zero colony area).
+    """
+    area_cols = [c for c in verification_full.columns if "area" in c]
+    final = merged.merge(
+        verification_full.rename(columns={"systematic_id": "Systematic ID"}),
+        on="Systematic ID",
+        how="right",
+    )
+    e_missing_day3 = final.query(
+        "verification_essentiality == 'E' and median_area_day3.isna()",
+        engine="python",
+    ).index
+    final.loc[e_missing_day3, area_cols] = 0
+    return final
+
+
+def prepare_verification_data(
+    merged: pd.DataFrame,
+    final_merged: pd.DataFrame,
+    simplified_verification: pd.DataFrame,
+    outlier_filter: str,
+    sort: str = "desc",
+) -> tuple[dict[str, list[float]], pd.DataFrame]:
+    """Bucket a group's outliers by verification result; return {bucket: [DR...]} + gene detail.
+
+    Ported from the notebook's prepare_verification_data. Selects outliers via
+    `outlier_filter` (run against `merged`, which must already have `cat_canon`),
+    crosses them with the simplified verification table, and buckets into
+    {"Not verified": [...], <verified category>: [...]} preserving
+    _VERIFICATION_BUCKET_ORDER. Each bucket's value is the list of member DR
+    values (for the boxplot); bucket size drives the donut. The second return is
+    the per-gene detail frame (from final_merged) tagged with its bucket, for
+    the review TSV.
+    """
+    ascending = sort == "asc"
+    outliers = (
+        merged.query(outlier_filter, engine="python")
+        .sort_values("DR", ascending=ascending)["Systematic ID"]
+        .unique()
+        .tolist()
+    )
+    verified = simplified_verification[simplified_verification["Systematic ID"].isin(outliers)]
+    verified_genes = set(verified["Systematic ID"])
+    missing = [g for g in outliers if g not in verified_genes]
+
+    buckets: dict[str, list[str]] = {}
+    if missing:
+        buckets["Not verified"] = missing
+    for category in _VERIFICATION_BUCKET_ORDER:
+        genes = verified.loc[verified["Verification result"] == category, "Systematic ID"].unique().tolist()
+        if genes:
+            buckets[category] = genes
+
+    dr_dict = {
+        bucket: merged.loc[merged["Systematic ID"].isin(genes), "DR"].dropna().tolist()
+        for bucket, genes in buckets.items()
+    }
+
+    detail_frames = []
+    for bucket, genes in buckets.items():
+        sub = final_merged[final_merged["Systematic ID"].isin(genes)].copy()
+        sub["Verification result bucket"] = bucket
+        detail_frames.append(sub)
+    detail = pd.concat(detail_frames, ignore_index=True) if detail_frames else final_merged.iloc[0:0].copy()
+
+    return dr_dict, detail
 
 
 # =============================================================================
@@ -395,6 +576,144 @@ def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
     return fig
 
 
+def _boxplot_figure(dr_dict: dict[str, list[float]], title: str) -> plt.Figure:
+    """Two-panel figure: boxplot+violin on the left, per-bucket Q1/median/Q3/mean text on the right.
+
+    Byte-faithful to the notebook's boxplot_with_violinplot_and_statistics.
+    Empty buckets are dropped so the violin/box call never sees a zero-length
+    sample (which matplotlib rejects).
+    """
+    dr_dict = {k: v for k, v in dr_dict.items() if len(v) > 0}
+    fig, axes = plt.subplots(
+        1, 2, figsize=(2 * AX_WIDTH, AX_HEIGHT), sharey=True, gridspec_kw={"width_ratios": [3, 1]}
+    )
+    colors = [CATEGORY_COLOR_MAP.get(bucket, "gray") for bucket in dr_dict]
+    boxplot_with_violinplot(list(dr_dict.keys()), list(dr_dict.values()), axes[0], colors)
+    axes[0].set_title(f"{title}\nDepletion Rate (DR)")
+    axes[0].set_xlim(-0.3, 1.5)
+
+    for row, (bucket, drs) in enumerate(dr_dict.items()):
+        q1, median, q3 = np.percentile(drs, [25, 50, 75])
+        info = f"Q1={q1:.2f}, Median={median:.2f}, Q3={q3:.2f}, Mean={np.mean(drs):.2f}"
+        axes[1].text(0.0, row, info, va="center", ha="left", fontweight="bold")
+    axes[1].axis("off")
+    fig.tight_layout()
+    return fig
+
+
+def _verification_donut_figure(dr_dict: dict[str, list[float]], title: str) -> plt.Figure:
+    """Donut of verification-bucket composition (bucket size = wedge), ordered by _VERIFICATION_BUCKET_ORDER."""
+    ordered = {k: dr_dict[k] for k in _VERIFICATION_BUCKET_ORDER if k in dr_dict and len(dr_dict[k]) > 0}
+    labels = list(ordered.keys())
+    values = [len(v) for v in ordered.values()]
+    colors = [DONUT_COLOR_MAP.get(label, "gray") for label in labels]
+
+    fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
+    if values:
+        donut_chart(values=values, labels=labels, colors=colors, center_text="have been\nverified", ax=ax)
+    ax.set_title(f"{title}\nverification results")
+    fig.tight_layout()
+    return fig
+
+
+def build_boxplot_pdf(
+    merged: pd.DataFrame,
+    final_merged: pd.DataFrame,
+    simplified_verification: pd.DataFrame,
+    output_boxplots: Path,
+    output_critical_genes_dir: Path,
+) -> dict[str, list[str]]:
+    """Write the boxplot/violin + donut PDF and per-critical-group review TSVs.
+
+    Returns {group: [outlier Systematic IDs]} so the depletion-curve builder
+    plots exactly the same genes each group's boxplot/TSV covers.
+    """
+    figures: list[plt.Figure] = []
+
+    # Basic per-category boxplot (notebook §4.1): DR grouped by
+    # Category_with_essentiality, restricted to the canonical categories.
+    basic = merged[merged["cat_canon"].isin(_BASIC_BOXPLOT_CATEGORIES)]
+    basic_dict = basic.groupby("Category_with_essentiality")["DR"].apply(list).to_dict()
+    figures.append(_boxplot_figure(basic_dict, "Deletion library categories"))
+
+    # Critical-gene groups (notebook §4.2-4.4): boxplot + donut + review TSV each.
+    group_genes: dict[str, list[str]] = {}
+    for group, spec in _CRITICAL_GROUPS.items():
+        dr_dict, detail = prepare_verification_data(
+            merged, final_merged, simplified_verification,
+            outlier_filter=spec["filter"], sort=spec["sort"],
+        )
+        group_genes[group] = (
+            merged.query(spec["filter"], engine="python")
+            .sort_values("DR", ascending=spec["sort"] == "asc")["Systematic ID"]
+            .unique()
+            .tolist()
+        )
+        figures.append(_boxplot_figure(dr_dict, group))
+        figures.append(_verification_donut_figure(dr_dict, group))
+        detail.to_csv(output_critical_genes_dir / f"critical_genes_{group}.tsv", sep="\t", index=False)
+
+    with PdfPages(output_boxplots) as pdf:
+        for fig in figures:
+            pdf.savefig(fig, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+    return group_genes
+
+
+def load_grna_timepoints(grna_path: Path | None) -> pd.DataFrame | None:
+    """Load the gRNA per-timepoint LFC table, indexed by Systematic ID (extracted from gRNA_ID).
+
+    gRNA rows are keyed by gene Name in the source file, which is NOT unique;
+    the systematic ID embedded in gRNA_ID ("SPAC1002.02_42" -> "SPAC1002.02")
+    is unique, so we index on it to align with the DIT-HAP table. Returns None
+    when no gRNA file is provided (non-HD datasets render DIT-HAP-only curves).
+    """
+    if grna_path is None:
+        return None
+    grna = pd.read_csv(grna_path, index_col=0)
+    grna["Systematic ID"] = grna["gRNA_ID"].str.rsplit("_", n=1).str[0]
+    return grna.drop_duplicates("Systematic ID").set_index("Systematic ID")
+
+
+def build_depletion_curve_pdf(
+    group_genes: dict[str, list[str]],
+    gene_timepoints: pd.DataFrame,
+    grna_timepoints: pd.DataFrame | None,
+    output_depletion_curves: Path,
+) -> None:
+    """One 4-column grid per critical group; each panel is a gene's DIT-HAP (+gRNA) depletion curve.
+
+    gene_timepoints must be indexed by Systematic ID and carry A/DR/DL + YES0-4.
+    Panels are titled by gene Name (readable), aligned on Systematic ID.
+    """
+    n_cols = 4
+    with PdfPages(output_depletion_curves) as pdf:
+        for group, genes in group_genes.items():
+            present = [g for g in genes if g in gene_timepoints.index]
+            if not present:
+                continue
+            n_rows = int(np.ceil(len(present) / n_cols))
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * AX_WIDTH, n_rows * AX_HEIGHT))
+            axes = np.atleast_1d(axes).flatten()
+            for ax, gene in zip(axes, present):
+                dit_row = gene_timepoints.loc[gene]
+                grna_row = (
+                    grna_timepoints.loc[gene]
+                    if grna_timepoints is not None and gene in grna_timepoints.index
+                    else None
+                )
+                title = f"{dit_row['Name']} ({gene})" if "Name" in dit_row else gene
+                plot_gene_depletion_curve(
+                    ax, dit_row, grna_row, title,
+                    dit_generations=DIT_HAP_GENERATIONS, grna_generations=GRNA_GENERATIONS,
+                )
+            for extra_ax in axes[len(present):]:
+                fig.delaxes(extra_ax)
+            fig.suptitle(f"{group} depletion curves (n={len(present)})")
+            pdf.savefig(fig, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+
 # =============================================================================
 # CORE LOGIC — orchestration
 # =============================================================================
@@ -409,6 +728,7 @@ def run(config: VerificationConfig) -> None:
 
     merged = merge_deletion_library(gene_result, deletion_library)
     merged["Category_with_essentiality"] = merged.apply(apply_category_with_essentiality, axis=1)
+    merged = canonicalize_category(merged)
     merged_with_verification = merge_essentiality_verification(merged, essentiality_verification)
 
     category_stats = compute_category_stats(merged)
@@ -427,6 +747,20 @@ def run(config: VerificationConfig) -> None:
     plt.close(fig_donut)
     plt.close(fig_scatter)
 
+    # Notebook §4-5 additions: boxplot/violin + critical-gene donuts + review
+    # TSVs, and (when the timepoint inputs are wired) the depletion curves.
+    if config.output_boxplots is not None and config.output_critical_genes_dir is not None:
+        verification_full = load_essentiality_verification_full(config.essentiality_verification)
+        final_merged = build_final_merged(merged, verification_full)
+        group_genes = build_boxplot_pdf(
+            merged, final_merged, essentiality_verification,
+            config.output_boxplots, config.output_critical_genes_dir,
+        )
+        if config.output_depletion_curves is not None and config.gene_timepoints is not None:
+            gene_tp = load_gene_level(config.gene_timepoints).set_index("Systematic ID")
+            grna_tp = load_grna_timepoints(config.grna_timepoints)
+            build_depletion_curve_pdf(group_genes, gene_tp, grna_tp, config.output_depletion_curves)
+
     logger.success(
         f"Verification: {len(merged):,} genes across {len(category_stats):,} categories, "
         f"{verification_stats['match']:,}/{verification_stats['verified_total']:,} curated verifications match"
@@ -444,6 +778,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--essentiality-verification", type=Path, required=True, help="Curated essentiality_verification.csv")
     parser.add_argument("--output-stats", type=Path, required=True, help="Output verification stats TSV")
     parser.add_argument("--output-figures", type=Path, required=True, help="Output verification figures PDF")
+    # Notebook §4-5 additions (optional so the simplified two-output invocation still works).
+    parser.add_argument("--gene-timepoints", type=Path, default=None, help="Gene-level fitting statistics with YES0-4 (for depletion curves)")
+    parser.add_argument("--grna-timepoints", type=Path, default=None, help="gRNA per-timepoint LFC CSV (optional; HD-only overlay)")
+    parser.add_argument("--output-boxplots", type=Path, default=None, help="Output boxplot/violin + donut PDF")
+    parser.add_argument("--output-depletion-curves", type=Path, default=None, help="Output depletion-curve PDF")
+    parser.add_argument("--output-critical-genes-dir", type=Path, default=None, help="Output dir for per-group critical-gene TSVs")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -459,6 +799,11 @@ def main() -> int:
             essentiality_verification=args.essentiality_verification,
             output_stats=args.output_stats,
             output_figures=args.output_figures,
+            gene_timepoints=args.gene_timepoints,
+            grna_timepoints=args.grna_timepoints,
+            output_boxplots=args.output_boxplots,
+            output_depletion_curves=args.output_depletion_curves,
+            output_critical_genes_dir=args.output_critical_genes_dir,
         )
         run(config)
     except ValueError as e:

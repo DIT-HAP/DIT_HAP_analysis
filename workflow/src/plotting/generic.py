@@ -12,7 +12,7 @@ every caller gets the shared publication look without re-applying it.
 
 Usage
 -----
-    from workflow.src.plotting.generic import create_scatter_correlation_plot, donut_chart
+    from workflow.src.plotting.generic import create_scatter_correlation_plot, donut_chart, boxplot_with_violinplot
 """
 
 # =============================================================================
@@ -142,3 +142,43 @@ def donut_chart(
     ax.axis("equal")
 
     return ax if return_ax else fig
+
+
+# =============================================================================
+# BOXPLOT + VIOLIN
+# =============================================================================
+def boxplot_with_violinplot(
+    labels: list[str],
+    values: list[list[float]],
+    ax: Axes,
+    colors: list[str],
+) -> Axes:
+    """Horizontal violin+box composite, one row per label, with per-row n= tick labels.
+
+    Ported from compare_with_deletion_library.ipynb's boxplot_with_violinplot:
+    a translucent violin behind a narrow filled box (black median line), plotted
+    horizontally so the y-tick labels read left-to-right. `values[i]` is the raw
+    sample for `labels[i]`; `colors[i]` fills both that row's violin and box.
+    """
+    positions = range(len(labels))
+
+    parts = ax.violinplot(
+        values, positions=positions,
+        showmeans=False, showmedians=False, showextrema=False, vert=False,
+    )
+    for i, pc in enumerate(parts["bodies"]):
+        pc.set_facecolor(colors[i])
+        pc.set_alpha(0.6)
+
+    box_parts = ax.boxplot(
+        values, positions=positions, widths=0.2, patch_artist=True,
+        medianprops=dict(color="black", linewidth=2), vert=False,
+    )
+    for i, bp in enumerate(box_parts["boxes"]):
+        bp.set_facecolor(colors[i])
+        bp.set_alpha(0.8)
+
+    ax.set_yticks(list(positions))
+    ax.set_yticklabels([f"{label} (n={len(values[i])})" for i, label in enumerate(labels)], fontweight="bold")
+    ax.tick_params(axis="y", which="minor", length=0)
+    return ax
