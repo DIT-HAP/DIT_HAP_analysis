@@ -32,7 +32,6 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 from pathlib import Path
-from typing import Any
 
 # 2. Data Processing Imports
 import pandas as pd
@@ -59,11 +58,21 @@ def read_file(file: Path, **kwargs) -> pd.DataFrame:
         raise ValueError(f"Unsupported file type: {file.name}")
 
 
+# Schema-metadata keys used to make the Series <-> DataFrame round-trip transparent.
+# Parquet only stores tables, and pd.Series has no .to_parquet(), so write_parquet
+# frames a Series and stamps these markers; read_parquet reads them to squeeze back.
+_OBJ_TYPE_KEY = b"__pandas_object_type__"
+_SERIES_HAS_NAME_KEY = b"__series_has_name__"
+_SERIES_PLACEHOLDER_COL = "__series_values__"
+
+
 def read_parquet(file_path: Path | str) -> pd.DataFrame | pd.Series:
     """
     Read a parquet file into a pandas DataFrame or Series.
 
-    Uses pyarrow engine with automatic index restoration.
+    Uses pyarrow with automatic index restoration. If the file was written from a
+    pd.Series by write_parquet (marked in the schema metadata), it is squeezed back
+    to a Series with its original name; otherwise a DataFrame is returned.
 
     Parameters
     ----------
@@ -73,18 +82,34 @@ def read_parquet(file_path: Path | str) -> pd.DataFrame | pd.Series:
     Returns
     -------
     pd.DataFrame | pd.Series
-        The loaded data with index preserved
+        The loaded data with index (and, for a Series, name) preserved
 
     Raises
     ------
     FileNotFoundError
         If the file does not exist
     """
+    import pyarrow.parquet as pq
+
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"Parquet file not found: {file_path}")
 
-    return pd.read_parquet(file_path, engine="pyarrow")
+    table = pq.read_table(file_path)
+    metadata = table.schema.metadata or {}
+    obj_type = metadata.get(_OBJ_TYPE_KEY, b"dataframe")
+
+    frame = table.to_pandas()
+    if obj_type != b"series":
+        return frame
+
+    # Squeeze the single stored column back into a Series, restoring its name.
+    series = frame.iloc[:, 0]
+    if metadata.get(_SERIES_HAS_NAME_KEY, b"0") == b"1":
+        series.name = frame.columns[0]
+    else:
+        series.name = None
+    return series
 
 
 # =============================================================================
@@ -94,7 +119,6 @@ def write_parquet(
     data: pd.DataFrame | pd.Series,
     file_path: Path | str,
     compression: str = "snappy",
-    **kwargs: Any,
 ) -> None:
     """
     Write a pandas DataFrame or Series to parquet format.
@@ -102,27 +126,43 @@ def write_parquet(
     Parameters
     ----------
     data : pd.DataFrame | pd.Series
-        Data to write
+        Data to write. A Series is stored as a one-column table and stamped in the
+        schema metadata so read_parquet can squeeze it back to a Series (with its
+        original name). pd.Series has no native .to_parquet(), hence this framing.
     file_path : Path | str
-        Output path (will be created with .parquet extension if missing)
+        Output path
     compression : str, default='snappy'
         Compression algorithm: 'snappy' (fast), 'gzip', 'brotli', 'zstd', or None
-    **kwargs
-        Additional arguments passed to to_parquet()
 
     Notes
     -----
-    - Index is always preserved (index=True by default unless overridden in kwargs)
-    - Uses pyarrow engine for compatibility and performance
+    - The index is always preserved (stored via pyarrow's preserve_index=True)
+    - Uses pyarrow for compatibility and performance
     - Creates parent directories if needed
-    - Snappy compression provides good balance of speed and compression ratio
+    - Snappy compression provides a good balance of speed and compression ratio
     """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ensure index is preserved by default
-    if 'index' not in kwargs:
-        kwargs['index'] = True
+    if isinstance(data, pd.Series):
+        has_name = data.name is not None
+        col_name = data.name if has_name else _SERIES_PLACEHOLDER_COL
+        frame = data.to_frame(name=col_name)
+        extra_metadata = {
+            _OBJ_TYPE_KEY: b"series",
+            _SERIES_HAS_NAME_KEY: b"1" if has_name else b"0",
+        }
+    else:
+        frame = data
+        extra_metadata = {_OBJ_TYPE_KEY: b"dataframe"}
 
-    data.to_parquet(file_path, engine="pyarrow", compression=compression, **kwargs)
+    table = pa.Table.from_pandas(frame, preserve_index=True)
+    # Merge our markers into the existing (pandas) schema metadata rather than replace.
+    merged_metadata = {**(table.schema.metadata or {}), **extra_metadata}
+    table = table.replace_schema_metadata(merged_metadata)
+
+    pq.write_table(table, file_path, compression=compression)
     logger.debug(f"Wrote parquet: {file_path} ({file_path.stat().st_size / 1024:.1f} KB)")
