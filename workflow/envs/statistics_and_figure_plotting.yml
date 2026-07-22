@@ -14,3 +14,4 @@ dependencies:
   - tqdm
   - loguru
   - pyyaml
+  - pyarrow>=21.0.0
