@@ -24,7 +24,7 @@ rule prepare_ml_data:
         feature_matrix="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
         final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
     output:
-        modeling_data=f"{_MLWORK}/modeling_data.pkl",
+        modeling_data=f"{_MLWORK}/modeling_data.parquet",
     params:
         dr_filter=config.get("ml", {}).get("dr_filter", 0.3),
     log:
@@ -46,7 +46,7 @@ rule prepare_ml_data:
 # --- One AutoML model (fanned out by target x mode) ---
 rule train_automl:
     input:
-        modeling_data=f"{_MLWORK}/modeling_data.pkl",
+        modeling_data=f"{_MLWORK}/modeling_data.parquet",
     output:
         metrics="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/metrics.tsv",
         importance="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/features_importance.csv",

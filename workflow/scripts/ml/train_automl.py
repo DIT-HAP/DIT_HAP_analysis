@@ -11,7 +11,7 @@ Perform). Deterministic port of
 DIT_HAP_pipeline/workflow/notebooks/machine_learning_analysis.ipynb.
 
 The merge + DR-filter is done once by prepare_ml_data.py (the shared spine) and
-read here from a pickle — the four target x mode jobs share one prepared table
+read here from a parquet — the four target x mode jobs share one prepared table
 instead of each re-merging. This script still does its own train-only
 PowerTransform (leakage-free, different from the Task 6 transformed tables). One
 invocation = one target x mode; the Snakemake rule fans out over the combinations.
@@ -22,7 +22,7 @@ reproducible (mljar's default 3600s budget can silently skip algorithms).
 
 Input
 -----
-- modeling_data.pkl: merged, DR-filtered modeling table (from prepare_ml_data.py)
+- modeling_data.parquet: merged, DR-filtered modeling table (from prepare_ml_data.py)
 
 Output
 ------
@@ -35,7 +35,7 @@ Output
 Usage
 -----
     python train_automl.py \\
-        --modeling-data results/ml/models/{dataset}/{version}/_work/modeling_data.pkl \\
+        --modeling-data results/ml/models/{dataset}/{version}/_work/modeling_data.parquet \\
         --target DR --mode Explain \\
         --output-dir results/ml/models/{dataset}/{version}/DR_Explain
 
@@ -66,6 +66,12 @@ from scipy.stats import pearsonr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import PowerTransformer
+
+# 4. Local Imports
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -138,7 +144,7 @@ def setup_logger(log_level: str = "INFO") -> None:
 @logger.catch(reraise=True)
 def load_modeling_data(config: AutoMLConfig) -> pd.DataFrame:
     """Read the shared modeling table (already merged + DR-filtered by prepare_ml_data.py)."""
-    data = pd.read_pickle(config.modeling_data)
+    data = read_parquet(config.modeling_data)
     logger.info(f"Modeling data: {data.shape}")
     return data
 
@@ -275,7 +281,7 @@ def run_automl_analysis(config: AutoMLConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Train mljar AutoML regressor for one target x mode")
-    parser.add_argument("--modeling-data", type=Path, required=True, help="Shared modeling_data pickle (from prepare_ml_data.py)")
+    parser.add_argument("--modeling-data", type=Path, required=True, help="Shared modeling_data parquet (from prepare_ml_data.py)")
     parser.add_argument("--target", required=True, choices=["DR", "DL"], help="Regression target")
     parser.add_argument("--mode", required=True, choices=["Explain", "Perform"], help="mljar AutoML mode")
     parser.add_argument("--output-dir", type=Path, required=True, help="mljar results_path / output dir")

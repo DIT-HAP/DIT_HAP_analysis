@@ -6,7 +6,7 @@ ML Modeling-Data Preparation (the spine)
 ==========================================
 
 Merges the per-gene feature matrix with curve-fit targets + cluster labels and
-applies the DR > threshold filter ONCE, emitting a modeling_data pickle shared
+applies the DR > threshold filter ONCE, emitting a modeling_data parquet shared
 by the four target x mode AutoML jobs (which previously each re-merged the same
 data). Deterministic and target/mode-independent.
 
@@ -17,14 +17,14 @@ Input
 
 Output
 ------
-- modeling_data.pkl: merged, DR-filtered modeling table
+- modeling_data.parquet: merged, DR-filtered modeling table
 
 Usage
 -----
     python prepare_ml_data.py \\
         --feature-matrix results/features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
         --final-clusters resources/curated/final_clusters.tsv \\
-        --output results/ml/models/{dataset}/{version}/_work/modeling_data.pkl
+        --output results/ml/models/{dataset}/{version}/_work/modeling_data.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -45,6 +45,7 @@ from loguru import logger
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.ml.data import DR_FILTER, load_modeling_data
 
 
@@ -81,10 +82,10 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Merge + filter the modeling data once and pickle it for the AutoML jobs."""
+    """Merge + filter the modeling data once and parquet it for the AutoML jobs."""
     config.validate()
     data = load_modeling_data(config.feature_matrix, config.final_clusters, config.dr_filter)
-    data.to_pickle(config.output)
+    write_parquet(data, config.output)
     logger.success(f"Wrote modeling data {data.shape} -> {config.output}")
 
 

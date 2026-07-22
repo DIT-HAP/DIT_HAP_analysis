@@ -17,18 +17,18 @@ and only need DR-renumbering downstream.
 
 Input
 -----
-- scaled_data.pkl: the scaled (DR, DL) matrix (from prepare_clustering_data)
+- scaled_data.parquet: the scaled (DR, DL) matrix (from prepare_clustering_data)
 
 Output
 ------
-- labels.pkl: pd.Series of 0-based cluster labels, indexed by systematic ID
+- labels.parquet: pd.Series of 0-based cluster labels, indexed by systematic ID
 
 Usage
 -----
     python cluster_one_method.py \\
         --method kmeans \\
-        --scaled-data results/clustering/{dataset}/_work/scaled_data.pkl \\
-        --output-labels results/clustering/{dataset}/{variant}/_labels.pkl \\
+        --scaled-data results/clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-labels results/clustering/{dataset}/{variant}/_labels.parquet \\
         --final-n-clusters 9 --n-intermediate 64 --random-state 42
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -53,6 +53,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, METHODS, cluster_one_method
 
 
@@ -109,12 +110,12 @@ def setup_logger(log_level: str = "INFO") -> None:
 def run(config: MethodConfig) -> None:
     """Cluster the scaled matrix to the effective k and persist the labels."""
     config.validate()
-    scaled_data = pd.read_pickle(config.scaled_data)
+    scaled_data = read_parquet(config.scaled_data)
 
     labels = cluster_one_method(config.method, scaled_data, config.n_clusters, config.random_state)
     # Index labels by systematic ID so the finalize/merge rules can map them back safely.
     label_series = pd.Series(labels, index=scaled_data.index, name="cluster")
-    label_series.to_pickle(config.output_labels)
+    write_parquet(label_series, config.output_labels)
     logger.success(f"[{config.method}] {len(label_series)} genes labeled at k={config.n_clusters} -> {config.output_labels}")
 
 
@@ -126,7 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Cluster one variant's method (labels only)")
     parser.add_argument("--method", required=True, choices=METHODS, help="Clustering method to run")
     parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle")
-    parser.add_argument("--output-labels", type=Path, required=True, help="Output labels pickle (pd.Series)")
+    parser.add_argument("--output-labels", type=Path, required=True, help="Output labels parquet (pd.Series)")
     parser.add_argument("--final-n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
     parser.add_argument("--n-intermediate", type=int, default=None, help="Transitional cluster count for merge variants (default: none -> cluster to final)")
     parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")

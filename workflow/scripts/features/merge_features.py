@@ -9,7 +9,7 @@ Outer-joins the six per-level feature pickles (DNA / RNA / protein /
 evolutionary / network / phenotype) into the final per-coding-gene feature
 matrix, matching the former monolithic collect_pombe_features.py output
 byte-for-byte (including the intentional duplicate DeletionLibrary_essentiality
-column, preserved via the pickle intermediates).
+column, preserved via the parquet intermediates).
 
 Input
 -----
@@ -24,12 +24,12 @@ Usage
 -----
     python merge_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
-        --dna-features   results/features/2025-10-01/_levels/dna_features.pkl \\
-        --rna-features   results/features/2025-10-01/_levels/rna_features.pkl \\
-        --protein-features results/features/2025-10-01/_levels/protein_features.pkl \\
-        --evolutionary-features results/features/2025-10-01/_levels/evolutionary_features.pkl \\
-        --network-features results/features/2025-10-01/_levels/network_features.pkl \\
-        --phenotype-features results/features/2025-10-01/_levels/phenotype_features.pkl \\
+        --dna-features   results/features/2025-10-01/_levels/dna_features.parquet \\
+        --rna-features   results/features/2025-10-01/_levels/rna_features.parquet \\
+        --protein-features results/features/2025-10-01/_levels/protein_features.parquet \\
+        --evolutionary-features results/features/2025-10-01/_levels/evolutionary_features.parquet \\
+        --network-features results/features/2025-10-01/_levels/network_features.parquet \\
+        --phenotype-features results/features/2025-10-01/_levels/phenotype_features.parquet \\
         --output results/features/2025-10-01/pombe_coding_gene_protein_features.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -54,6 +54,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.features.assembly import load_gene_meta, merge_all_features
 
 
@@ -105,12 +106,12 @@ def run(config: MergeConfig) -> None:
     """Load the six per-level pickles, merge them, and write the final feature matrix."""
     gene_meta, _ = load_gene_meta(config.gene_meta_file)
 
-    dna_df = pd.read_pickle(config.dna_features)
-    rna_df = pd.read_pickle(config.rna_features)
-    protein_df = pd.read_pickle(config.protein_features)
-    evolutionary_df = pd.read_pickle(config.evolutionary_features)
-    network_df = pd.read_pickle(config.network_features)
-    phenotype_df = pd.read_pickle(config.phenotype_features)
+    dna_df = read_parquet(config.dna_features)
+    rna_df = read_parquet(config.rna_features)
+    protein_df = read_parquet(config.protein_features)
+    evolutionary_df = read_parquet(config.evolutionary_features)
+    network_df = read_parquet(config.network_features)
+    phenotype_df = read_parquet(config.phenotype_features)
 
     logger.info("Merging all feature groups")
     pombe_features = merge_all_features(dna_df, rna_df, protein_df, evolutionary_df, network_df, phenotype_df, gene_meta)

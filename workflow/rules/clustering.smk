@@ -99,9 +99,9 @@ rule prepare_clustering_data:
         ),
         essentiality_verification_csv="resources/curated/essentiality_verification.csv",
     output:
-        annotated=f"{_CWORK}/annotated_data.pkl",
-        scaled=f"{_CWORK}/scaled_data.pkl",
-        ksweep=f"{_CWORK}/k_sweep_metrics.pkl",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+        ksweep=f"{_CWORK}/k_sweep_metrics.parquet",
     params:
         random_state=_CLUSTERING.get("random_state", 42),
         k_min=_CLUSTERING.get("k_min", 2),
@@ -134,9 +134,9 @@ rule prepare_clustering_data:
 # Fanned out by the `variant` wildcard; used by direct + auto_merge finalize rules.
 rule cluster_variant_labels:
     input:
-        scaled=f"{_CWORK}/scaled_data.pkl",
+        scaled=f"{_CWORK}/scaled_data.parquet",
     output:
-        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
+        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
     params:
         method=lambda wc: _VARIANTS[wc.variant].get("method", "kmeans"),
         final_n_clusters=_FINAL_N,
@@ -169,9 +169,9 @@ rule cluster_variant_labels:
 # --- Finalize: `direct` variant (labels already at final_n_clusters -> renumber by DR) ---
 rule finalize_direct:
     input:
-        annotated=f"{_CWORK}/annotated_data.pkl",
-        scaled=f"{_CWORK}/scaled_data.pkl",
-        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
     output:
         clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
         metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
@@ -202,9 +202,9 @@ rule finalize_direct:
 # --- Finalize: `auto_merge` variant (ward-merge n_intermediate centroids -> final_n_clusters) ---
 rule finalize_auto_merge:
     input:
-        annotated=f"{_CWORK}/annotated_data.pkl",
-        scaled=f"{_CWORK}/scaled_data.pkl",
-        labels="results/clustering/{dataset}/{variant}/_labels.pkl",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
     output:
         clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
         metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
@@ -235,8 +235,8 @@ rule finalize_auto_merge:
 # --- Finalize: `grid` variant (axis-cut grid on scaled DR/DL, DR-numbered) ---
 rule finalize_grid:
     input:
-        annotated=f"{_CWORK}/annotated_data.pkl",
-        scaled=f"{_CWORK}/scaled_data.pkl",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
     output:
         clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
         metrics="results/clustering/{dataset}/{variant}/metrics.tsv",

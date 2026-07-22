@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from workflow.src.io import write_parquet, read_parquet
+
 from workflow.src.clustering.candidates import (
     BEST_METHOD,
     DR_CAP,
@@ -124,9 +126,9 @@ def test_prepare_config_rejects_missing_input(tmp_path):
     cfg = PrepareConfig(
         fitting_results=tmp_path / "nope.tsv",
         essentiality_verification_csv=tmp_path / "also_nope.csv",
-        output_annotated=tmp_path / "w" / "ann.pkl",
-        output_scaled=tmp_path / "w" / "scaled.pkl",
-        output_ksweep=tmp_path / "w" / "ksweep.pkl",
+        output_annotated=tmp_path / "w" / "ann.parquet",
+        output_scaled=tmp_path / "w" / "scaled.parquet",
+        output_ksweep=tmp_path / "w" / "ksweep.parquet",
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
@@ -135,8 +137,8 @@ def test_prepare_config_rejects_missing_input(tmp_path):
 def test_finalize_direct_config_rejects_missing_input(tmp_path):
     """FinalizeDirectConfig.validate raises ValueError when a required input file is absent."""
     cfg = FinalizeDirectConfig(
-        annotated_data=tmp_path / "nope.pkl",
-        scaled_data=tmp_path / "also_nope.pkl",
+        annotated_data=tmp_path / "nope.parquet",
+        scaled_data=tmp_path / "also_nope.parquet",
         output=tmp_path / "out" / "final_clusters.tsv",
     )
     with pytest.raises(ValueError, match="Required input not found"):
@@ -145,13 +147,13 @@ def test_finalize_direct_config_rejects_missing_input(tmp_path):
 
 def test_method_config_rejects_unknown_method(tmp_path):
     """MethodConfig.validate raises ValueError on an unrecognized method name."""
-    scaled = tmp_path / "scaled.pkl"
+    scaled = tmp_path / "scaled.parquet"
     scaled.write_bytes(b"")
     cfg = MethodConfig(
         method="spectral",
         scaled_data=scaled,
-        output_labels=tmp_path / "w" / "l.pkl",
-        output_metrics=tmp_path / "w" / "m.pkl",
+        output_labels=tmp_path / "w" / "l.parquet",
+        output_metrics=tmp_path / "w" / "m.parquet",
     )
     with pytest.raises(ValueError, match="Unknown clustering method"):
         cfg.validate()
@@ -160,10 +162,10 @@ def test_method_config_rejects_unknown_method(tmp_path):
 def test_select_config_rejects_missing_input(tmp_path):
     """SelectConfig.validate raises ValueError when a required input is absent."""
     cfg = SelectConfig(
-        annotated_data=tmp_path / "ann.pkl",
-        ksweep=tmp_path / "ksweep.pkl",
-        best_labels=tmp_path / "labels.pkl",
-        method_metrics=[tmp_path / "m.pkl"],
+        annotated_data=tmp_path / "ann.parquet",
+        ksweep=tmp_path / "ksweep.parquet",
+        best_labels=tmp_path / "labels.parquet",
+        method_metrics=[tmp_path / "m.parquet"],
         output_clusters=tmp_path / "out" / "candidate_clusters.tsv",
         output_metrics=tmp_path / "out" / "clustering_metrics.tsv",
     )
@@ -338,9 +340,9 @@ def test_finalize_grid_raises_on_cell_count_mismatch():
 
 def test_finalize_direct_driver_writes_final_tsv(tmp_path):
     annotated, scaled = _toy_annotated_scaled()
-    ap, sp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl"
-    annotated.to_pickle(ap)
-    scaled.to_pickle(sp)
+    ap, sp = tmp_path / "annotated.parquet", tmp_path / "scaled.parquet"
+    write_parquet(annotated, ap)
+    write_parquet(scaled, sp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeDirectConfig(
         annotated_data=ap, scaled_data=sp, output=out,
@@ -360,10 +362,10 @@ def test_finalize_auto_merge_driver_writes_final_tsv(tmp_path):
         cluster_one_method("kmeans", scaled, n_clusters=64, random_state=42),
         index=scaled.index, name="cluster",
     )
-    ap, sp, lp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl", tmp_path / "kmeans_labels.pkl"
-    annotated.to_pickle(ap)
-    scaled.to_pickle(sp)
-    raw64.to_pickle(lp)
+    ap, sp, lp = tmp_path / "annotated.parquet", tmp_path / "scaled.parquet", tmp_path / "kmeans_labels.parquet"
+    write_parquet(annotated, ap)
+    write_parquet(scaled, sp)
+    write_parquet(raw64, lp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeAutoMergeConfig(
         annotated_data=ap, scaled_data=sp, candidate_labels=lp, output=out,
@@ -378,9 +380,9 @@ def test_finalize_auto_merge_driver_writes_final_tsv(tmp_path):
 
 def test_finalize_grid_driver_writes_final_tsv(tmp_path):
     annotated, scaled = _toy_grid_annotated_scaled()
-    ap, sp = tmp_path / "annotated.pkl", tmp_path / "scaled.pkl"
-    annotated.to_pickle(ap)
-    scaled.to_pickle(sp)
+    ap, sp = tmp_path / "annotated.parquet", tmp_path / "scaled.parquet"
+    write_parquet(annotated, ap)
+    write_parquet(scaled, sp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeGridConfig(
         annotated_data=ap, scaled_data=sp, output=out,

@@ -14,8 +14,8 @@ the unified `cluster` column consumed by enrichment.smk + ml.smk (design doc §4
 
 Input
 -----
-- annotated_data.pkl (from prepare_clustering_data)
-- scaled_data.pkl (from prepare_clustering_data)
+- annotated_data.parquet (from prepare_clustering_data)
+- scaled_data.parquet (from prepare_clustering_data)
 
 Output
 ------
@@ -26,8 +26,8 @@ Output
 Usage
 -----
     python finalize_grid_clusters.py \\
-        --annotated-data results/clustering/{dataset}/_work/annotated_data.pkl \\
-        --scaled-data    results/clustering/{dataset}/_work/scaled_data.pkl \\
+        --annotated-data results/clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled-data    results/clustering/{dataset}/_work/scaled_data.parquet \\
         --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
         --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
         --dr-cuts 0.3 0.6 0.9 --dl-cuts 0.2 0.5 --n-clusters 9 --wt-cluster 9
@@ -54,6 +54,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_grid, score_labels
 
 
@@ -97,8 +98,8 @@ def setup_logger(log_level: str = "INFO") -> None:
 def run(config: FinalizeGridConfig) -> None:
     """Assign genes to grid cells, renumber by DR, write final_clusters.tsv + metrics.tsv."""
     config.validate()
-    annotated = pd.read_pickle(config.annotated_data)
-    scaled = pd.read_pickle(config.scaled_data)
+    annotated = read_parquet(config.annotated_data)
+    scaled = read_parquet(config.scaled_data)
     out = finalize_grid(
         annotated, scaled,
         dr_cuts=config.dr_cuts,
@@ -122,8 +123,8 @@ def run(config: FinalizeGridConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Finalize clusters — grid variant (axis-cut grid)")
-    parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data pickle (from prepare)")
-    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle (from prepare)")
+    parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data parquet (from prepare)")
+    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix parquet (from prepare)")
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
     parser.add_argument("--metrics-output", type=Path, required=True, help="Output per-variant metrics.tsv")
     parser.add_argument("--dr-cuts", type=float, nargs="*", default=[], help="DR-axis cut points (scaled space)")

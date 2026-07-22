@@ -6,26 +6,26 @@ Network-Level Feature Collection
 ==================================
 
 Assembles GO term richness (from the GO GAF) and BioGrid PPI/GI degree per
-coding gene. Reads the coding-gene set from the DNA-level pickle and loads the
+coding gene. Reads the coding-gene set from the DNA-level parquet and loads the
 GO DAG/GAF to derive gene2go.
 
 Input
 -----
 - A PomBase version directory (go-basic.obo, gene_ontology_annotation.gaf.tsv, slim tables)
 - A BioGrid interaction table
-- DNA-level features pickle (for the coding-gene set)
+- DNA-level features parquet (for the coding-gene set)
 
 Output
 ------
-- network_features.pkl: per-gene network feature table (indexed by gene id)
+- network_features.parquet: per-gene network feature table (indexed by gene id)
 
 Usage
 -----
     python collect_network_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --biogrid-tsv resources/external/biogrid/BIOGRID-....tab3.txt \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.pkl \\
-        --output results/features/2025-10-01/_levels/network_features.pkl
+        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/features/2025-10-01/_levels/network_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -46,6 +46,7 @@ from loguru import logger
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
 from workflow.src.features.assembly import collect_network_level_features, read_coding_genes
 
@@ -104,7 +105,7 @@ def run(config: NetworkConfig) -> None:
 
     logger.info("Collecting network-level features")
     network_df = collect_network_level_features(config.pombase_dir, config.biogrid_tsv, gene2go, coding_genes)
-    network_df.to_pickle(config.output_network)
+    write_parquet(network_df, config.output_network)
     logger.success(f"Wrote {len(network_df)} gene rows to {config.output_network}")
 
 
@@ -116,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect network-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--biogrid-tsv", type=Path, required=True, help="BioGrid interaction table")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle (for coding-gene set)")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_network", help="Output network-level features pickle")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

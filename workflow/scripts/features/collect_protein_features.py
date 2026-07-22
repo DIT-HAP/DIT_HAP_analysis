@@ -16,11 +16,11 @@ Input
   RNA_metadata, Protein_features)
 - An AlphaFold structure directory (.pdb.gz files)
 - Literature tables (Christiano 2014)
-- DNA-level features pickle (for the coding-gene set)
+- DNA-level features parquet (for the coding-gene set)
 
 Output
 ------
-- protein_features.pkl: per-gene protein-level feature table (indexed by gene id)
+- protein_features.parquet: per-gene protein-level feature table (indexed by gene id)
 
 Usage
 -----
@@ -28,8 +28,8 @@ Usage
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --alphafold-dir /path/to/AlphaFold_Dataset \\
         --literature-dir resources/literature \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.pkl \\
-        --output results/features/2025-10-01/_levels/protein_features.pkl
+        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/features/2025-10-01/_levels/protein_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -53,6 +53,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.features.assembly import collect_protein_level_features, load_gene_meta, read_coding_genes
 
 
@@ -105,7 +106,7 @@ def run(config: ProteinConfig) -> None:
         config.pombase_dir, config.alphafold_dir, config.literature_dir,
         config.gene_meta_file, protein_meta, uniprot2id, coding_genes,
     )
-    protein_df.to_pickle(config.output_protein)
+    write_parquet(protein_df, config.output_protein)
     logger.success(f"Wrote {len(protein_df)} gene rows to {config.output_protein}")
 
 
@@ -118,7 +119,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--alphafold-dir", type=Path, required=True, help="AlphaFold structure directory (.pdb.gz files)")
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle (for coding-gene set)")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_protein", help="Output protein-level features pickle")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

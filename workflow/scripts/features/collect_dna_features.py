@@ -8,7 +8,7 @@ DNA-Level Feature Collection (the spine)
 Builds the gffutils DB from a PomBase GFF3, computes per-mRNA DNA-level
 features, and emits the anti-codon usage matrix. This is the first stage of
 the feature pipeline: its Gene_id column enumerates the coding-gene set that
-every other level filters against, so the DNA table is written as a pickle
+every other level filters against, so the DNA table is written as a parquet
 (preserving the bool `Primary_candidate` dtype) for downstream levels to read.
 
 Input
@@ -17,14 +17,14 @@ Input
 
 Output
 ------
-- dna_features.pkl: one row per mRNA (full set, before Primary_candidate filter)
+- dna_features.parquet: one row per mRNA (full set, before Primary_candidate filter)
 - codon_usage_matrix.tsv: gene x anti-codon count matrix
 
 Usage
 -----
     python collect_dna_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
-        --output results/features/2025-10-01/_levels/dna_features.pkl \\
+        --output results/features/2025-10-01/_levels/dna_features.parquet \\
         --codon-usage-output results/features/2025-10-01/codon_usage_matrix.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -49,6 +49,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.features.assembly import collect_dna_level_features
 from workflow.src.features.genome import PombaseGenomeConfig, calculate_anticodon_usage_matrix
+from workflow.src.io import write_parquet
 
 
 # =============================================================================
@@ -93,7 +94,7 @@ def run(config: DnaConfig) -> None:
 
     logger.info("Collecting DNA-level features")
     dna_df, coding_genes = collect_dna_level_features(db, genome_cfg)
-    dna_df.to_pickle(config.output_dna)
+    write_parquet(dna_df, config.output_dna)
     logger.success(f"Wrote {len(dna_df)} mRNA rows ({len(coding_genes)} coding genes) to {config.output_dna}")
 
     logger.info("Writing codon usage matrix")
