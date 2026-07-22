@@ -47,6 +47,17 @@ Add to the verification stage, for `compare_with_deletion_library.ipynb` §4-5:
 
 ## Category schema drift (must handle)
 
+> **SUPERSEDED (2026-07-22):** the `cat_canon` / `_display_category` folding
+> described in this section was later removed by project decision. The
+> verification stage now uses the RAW curated `Category` labels verbatim
+> everywhere — display, ordering, boxplot/critical grouping, and the outlier
+> filters all match the literal labels (`Category == 'WT-like'`,
+> `Category in ['spores','germinated','microcolonies']`). Compound
+> multi-phenotype labels are therefore NOT folded and do not enter the critical
+> groups. Colors are the only place a fallback remains: `_category_color_key()`
+> maps a raw label to its phenotype-family color for lookup only, never
+> changing the shown text. The rest of this section is kept for history.
+
 The current `deletion_library_categories.xlsx` uses a newer vocabulary than
 the notebook: `WT` -> `WT-like`, plus compound labels (`spores, germinated`,
 `microcolonies, small colonies`, ...). The notebook's raw filters

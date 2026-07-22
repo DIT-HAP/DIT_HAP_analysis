@@ -12,17 +12,22 @@ depletion curves), each re-runnable on its own.
 Design doc: docs/plans/2026-07-22-verification-rules-split-design.md.
 
 NOTE: the curated deletion_library_categories.xlsx schema changed after the
-source notebook was written — `Updated_Systematic_ID` no longer exists,
-`Systematic ID` now holds the current ID directly, and `Category` values
-changed (e.g. `WT` -> `WT-like`). merge_deletion_library() accepts either
-column name, and canonicalize_category() folds the drifted labels back to the
-notebook vocabulary so the outlier filters keep matching.
+source notebook was written — `Updated_Systematic_ID` no longer exists and
+`Systematic ID` now holds the current ID directly; merge_deletion_library()
+accepts either column name. The curated `Category` values also drifted (the
+notebook's `WT` is now `WT-like`, and several compound multi-phenotype labels
+were added). Per project decision the verification stage uses those RAW
+Category values verbatim everywhere — display text, boxplot/critical grouping,
+and the outlier filters all match the literal curated labels; there is no
+folding back to the notebook vocabulary. Colors are the one exception: a raw
+label with no direct color entry reuses its phenotype family's representative
+color via _category_color_key() (color lookup only, never display text).
 
 Usage
 -----
     from workflow.src.verification.core import (
         load_gene_level, load_deletion_library, load_essentiality_verification,
-        merge_deletion_library, canonicalize_category, build_final_merged,
+        merge_deletion_library, build_final_merged,
         build_boxplot_pdf, build_depletion_curve_pdf,
     )
 """
@@ -72,9 +77,26 @@ _VERIFICATION_PHENOTYPE_SIMPLIFY = {
     "Leu-condition": "E",
 }
 
-# Category display order for the donut chart, byte-faithful to the notebook's
-# label_orders (categories not present in the data are silently skipped).
-_CATEGORY_ORDER = ["spores", "germinated", "microcolonies", "E", "very small colonies", "small colonies", "WT"]
+# Category display order for the donut / DR-scatter, using the RAW curated
+# labels verbatim (no folding). Ordered by phenotype-severity progression
+# (most-arrested spores -> healthiest WT-like), with each compound label placed
+# next to its leading-phenotype family. Categories absent from the data are
+# silently skipped; any raw label NOT listed here is appended after the ordered
+# ones (nothing is filtered out).
+_CATEGORY_ORDER = [
+    "spores",
+    "spores, germinated",
+    "spores, germinated, divided or microcolonies",
+    "spores, miscellaneous",
+    "germinated",
+    "germinated, divided or microcolonies",
+    "microcolonies",
+    "microcolonies, small colonies",
+    "E",
+    "very small colonies",
+    "small colonies",
+    "WT-like",
+]
 
 # Legacy -> current metric column names, same quirk as coverage.smk's
 # compute_coverage_stats.load_gene_level / clustering's candidates.load_and_annotate:
@@ -82,16 +104,15 @@ _CATEGORY_ORDER = ["spores", "germinated", "microcolonies", "E", "very small col
 # headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
-# Display-only alias for the current deletion_library_categories.xlsx schema:
-# CATEGORY_COLOR_MAP / DONUT_COLOR_MAP only know the notebook's original,
-# single-phenotype vocabulary, but the current curated file also has (a) the
-# straight rename "WT" -> "WT-like", and (b) compound multi-phenotype labels
-# that didn't exist when the notebook was written. Each compound label is
-# folded into the single existing bucket judged most representative of it.
-_CATEGORY_DISPLAY_ALIASES = {
+# COLOR-ONLY fallback (never affects display text). CATEGORY_COLOR_MAP /
+# DONUT_COLOR_MAP only know the notebook's original single-phenotype vocabulary,
+# but the curated file uses the raw labels "WT-like" and several compound
+# multi-phenotype labels that have no direct color entry. For color lookup only,
+# each such label reuses its phenotype family's representative color; the label
+# itself is always shown verbatim.
+_CATEGORY_COLOR_ALIASES = {
     "WT-like": "WT",
-    # First-listed phenotype determines the merged bucket for the compound
-    # "spores, ..." labels — "spores" is the earliest-observed phenotype.
+    # Leading phenotype determines the family color for the compound labels.
     "spores, germinated": "spores",
     "spores, germinated, divided or microcolonies": "spores",
     "spores, miscellaneous": "spores",
@@ -101,24 +122,28 @@ _CATEGORY_DISPLAY_ALIASES = {
 }
 
 
-def _display_category(category: str) -> str:
-    """Map a raw Category value to the color-map key used for plotting (see _CATEGORY_DISPLAY_ALIASES)."""
-    return _CATEGORY_DISPLAY_ALIASES.get(category, category)
+def _category_color_key(category: str) -> str:
+    """Map a raw Category value to a CATEGORY_COLOR_MAP/DONUT_COLOR_MAP key (color lookup only)."""
+    return _CATEGORY_COLOR_ALIASES.get(category, category)
 
 
-# Basic-boxplot category selection, byte-faithful to the notebook's
-# selected_categories (cell 6). Grouping is by Category_with_essentiality after
-# restricting to these canonical categories.
-_BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT"]
+# Basic-boxplot category selection using the RAW curated labels verbatim.
+# Grouping is by Category_with_essentiality after restricting to these
+# categories. Compound multi-phenotype labels are intentionally excluded (they
+# are not one of the notebook's canonical single-phenotype buckets).
+_BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT-like"]
 
 # The four "critical gene" outlier groups (notebook §4.2-4.4). Each filter runs
-# against the canonicalized `cat_canon` column. `sort` orders the outlier gene
-# list by DR: WT->nonWT / small->E look at highest-DR first (desc), E->V lowest (asc).
+# against the RAW `Category` column (literal curated labels — no folding), so
+# only genes with those exact single-phenotype labels are selected; the compound
+# multi-phenotype labels do not enter these analytical groups. `sort` orders the
+# outlier gene list by DR: WT->nonWT / small->E look at highest-DR first (desc),
+# E->V lowest (asc).
 _CRITICAL_GROUPS = {
-    "WT2nonWT": {"filter": "cat_canon == 'WT' and DR > 0.35", "sort": "desc"},
-    "scE2E": {"filter": "cat_canon == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality == 'E'", "sort": "desc"},
-    "sc2E": {"filter": "cat_canon == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality != 'E'", "sort": "desc"},
-    "E2V": {"filter": "cat_canon in ['spores', 'germinated', 'microcolonies'] and DR < 0.35", "sort": "asc"},
+    "WT2nonWT": {"filter": "Category == 'WT-like' and DR > 0.35", "sort": "desc"},
+    "scE2E": {"filter": "Category == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality == 'E'", "sort": "desc"},
+    "sc2E": {"filter": "Category == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality != 'E'", "sort": "desc"},
+    "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR < 0.35", "sort": "asc"},
 }
 
 # Verification-result bucket order for the critical-group boxplots/donuts,
@@ -284,13 +309,6 @@ def build_stats_table(
 # =============================================================================
 # CRITICAL-GENE ANALYSIS (unit-tested)
 # =============================================================================
-def canonicalize_category(merged: pd.DataFrame) -> pd.DataFrame:
-    """Add a `cat_canon` column folding schema-drifted Category labels to notebook vocabulary."""
-    out = merged.copy()
-    out["cat_canon"] = out["Category"].map(lambda c: _display_category(c) if isinstance(c, str) else c)
-    return out
-
-
 def build_final_merged(merged: pd.DataFrame, verification_full: pd.DataFrame) -> pd.DataFrame:
     """Right-join gene-level+category data with the FULL verification table (area columns kept).
 
@@ -323,8 +341,9 @@ def prepare_verification_data(
 ) -> tuple[dict[str, list[float]], pd.DataFrame]:
     """Bucket a group's outliers by verification result; return {bucket: [DR...]} + gene detail.
 
-    Selects outliers via `outlier_filter` (run against `merged`, which must have
-    `cat_canon`), crosses them with the simplified verification table, buckets
+    Selects outliers via `outlier_filter` (run against `merged`, which carries
+    the raw `Category` column), crosses them with the simplified verification
+    table, buckets
     into {"Not verified": [...], <verified category>: [...]} preserving
     _VERIFICATION_BUCKET_ORDER. Each bucket value is member DR values (boxplot);
     bucket size drives the donut. Second return is the per-gene detail frame
@@ -385,13 +404,13 @@ def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
 def plot_category_donut(category_stats: pd.DataFrame) -> plt.Figure:
     """Donut chart of gene counts per deletion-library phenotype category."""
     raw_categories = set(category_stats["category"])
-    ordered = [c for c in raw_categories if _display_category(c) in _CATEGORY_ORDER]
-    ordered.sort(key=lambda c: _CATEGORY_ORDER.index(_display_category(c)))
+    ordered = [c for c in raw_categories if c in _CATEGORY_ORDER]
+    ordered.sort(key=lambda c: _CATEGORY_ORDER.index(c))
     remaining = [c for c in category_stats["category"] if c not in ordered]
     labels = ordered + remaining
     counts_by_label = category_stats.set_index("category")["count"]
     values = [int(counts_by_label[label]) for label in labels]
-    colors = [DONUT_COLOR_MAP.get(_display_category(label), "gray") for label in labels]
+    colors = [DONUT_COLOR_MAP.get(_category_color_key(label), "gray") for label in labels]
 
     unmapped = [(label, int(counts_by_label[label])) for label, color in zip(labels, colors) if color == "gray"]
     if unmapped:
@@ -411,18 +430,17 @@ def plot_category_donut(category_stats: pd.DataFrame) -> plt.Figure:
 
 
 def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
-    """Scatter of DR per gene, grouped by category (x-jittered), n= on the x-tick labels."""
-    all_categories = merged["Category"].dropna().unique()
-    categories = [c for c in all_categories if _display_category(c) in CATEGORY_COLOR_MAP]
-    categories.sort(key=lambda c: _CATEGORY_ORDER.index(_display_category(c)))
+    """Scatter of DR per gene, grouped by RAW category (x-jittered), n= on the x-tick labels.
 
-    excluded = [c for c in all_categories if c not in categories]
-    if excluded:
-        excluded_genes = merged["Category"].isin(excluded).sum()
-        logger.warning(
-            f"{excluded_genes:,} genes excluded from DR scatter (category has no display color mapping): "
-            + ", ".join(str(c) for c in excluded)
-        )
+    Every curated category is plotted verbatim — nothing is filtered out. Order
+    follows _CATEGORY_ORDER, with any label not listed there appended after the
+    ordered ones. Colors use the phenotype-family representative color
+    (_category_color_key); a label with no family mapping falls back to gray.
+    """
+    all_categories = list(merged["Category"].dropna().unique())
+    ordered = [c for c in all_categories if c in _CATEGORY_ORDER]
+    ordered.sort(key=lambda c: _CATEGORY_ORDER.index(c))
+    categories = ordered + [c for c in all_categories if c not in _CATEGORY_ORDER]
 
     fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
     rng = np.random.default_rng(42)
@@ -430,7 +448,10 @@ def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
     for i, category in enumerate(categories):
         dr_values = merged.query("Category == @category")["DR"].dropna()
         jitter = rng.uniform(-0.15, 0.15, size=len(dr_values))
-        ax.scatter(i + jitter, dr_values, alpha=0.5, s=10, color=CATEGORY_COLOR_MAP[_display_category(category)])
+        ax.scatter(
+            i + jitter, dr_values, alpha=0.5, s=10,
+            color=CATEGORY_COLOR_MAP.get(_category_color_key(category), "gray"),
+        )
         tick_labels.append(f"{category}\n(n={len(dr_values)})")
     ax.set_xticks(range(len(categories)))
     ax.set_xticklabels(tick_labels, rotation=30, ha="right")
@@ -505,7 +526,7 @@ def build_boxplot_pdf(
 
     # Basic per-category boxplot (notebook §4.1): DR grouped by
     # Category_with_essentiality, restricted to the canonical categories.
-    basic = merged[merged["cat_canon"].isin(_BASIC_BOXPLOT_CATEGORIES)]
+    basic = merged[merged["Category"].isin(_BASIC_BOXPLOT_CATEGORIES)]
     basic_dict = basic.groupby("Category_with_essentiality")["DR"].apply(list).to_dict()
     figures.append(_boxplot_figure(basic_dict, "Deletion library categories"))
 

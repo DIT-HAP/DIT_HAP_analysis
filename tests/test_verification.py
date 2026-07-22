@@ -11,7 +11,6 @@ import pytest
 from workflow.src.verification.core import (
     merge_deletion_library,
     compute_category_stats,
-    canonicalize_category,
     build_final_merged,
     prepare_verification_data,
     select_group_outliers,
@@ -84,18 +83,29 @@ def test_category_with_essentiality_flag():
 # =============================================================================
 # CRITICAL-GENE ANALYSIS
 # =============================================================================
-def test_canonicalize_category_folds_schema_drift():
-    """WT-like → WT and compound labels fold to their canonical bucket."""
+def test_critical_filters_match_raw_labels():
+    """Critical-group filters select on the RAW Category label verbatim (no folding).
+
+    'WT-like' rows are the WT2nonWT group; compound labels like 'spores,
+    germinated' are NOT folded into 'spores', so they never enter the E2V group.
+    """
+    from workflow.src.verification.core import _CRITICAL_GROUPS
     merged = pd.DataFrame({
         "Systematic ID": ["g1", "g2", "g3", "g4"],
-        "Category": ["WT-like", "spores, germinated", "microcolonies, small colonies", "spores"],
+        "DR": [0.9, 0.1, 0.1, 0.1],
+        "DeletionLibrary_essentiality": ["V", "V", "V", "V"],
+        "Category": ["WT-like", "spores", "spores, germinated", "germinated"],
     })
-    out = canonicalize_category(merged)
-    assert out["cat_canon"].tolist() == ["WT", "spores", "small colonies", "spores"]
+    wt = merged.query(_CRITICAL_GROUPS["WT2nonWT"]["filter"], engine="python")
+    assert wt["Systematic ID"].tolist() == ["g1"]
+    # E2V matches literal 'spores'/'germinated'/'microcolonies' only — the
+    # compound 'spores, germinated' (g3) is excluded.
+    e2v = merged.query(_CRITICAL_GROUPS["E2V"]["filter"], engine="python")
+    assert set(e2v["Systematic ID"]) == {"g2", "g4"}
 
 
 def _make_critical_fixtures():
-    """merged (with cat_canon), full verification, and simplified verification for bucket tests."""
+    """merged (raw Category), full verification, and simplified verification for bucket tests."""
     merged = pd.DataFrame({
         "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
         "Name": ["a", "b", "c", "d", "e"],
@@ -104,7 +114,6 @@ def _make_critical_fixtures():
         "DeletionLibrary_essentiality": ["V", "V", "V", "V", "V"],
         "Category": ["WT-like", "WT-like", "WT-like", "WT-like", "small colonies"],
     })
-    merged = canonicalize_category(merged)
     simplified = pd.DataFrame({
         "Systematic ID": ["g1", "g2"],
         "Verification result": ["E", "small colonies"],
@@ -125,9 +134,9 @@ def test_prepare_verification_data_buckets():
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
         merged, final_merged, simplified,
-        outlier_filter="cat_canon == 'WT' and DR > 0.35",
+        outlier_filter="Category == 'WT-like' and DR > 0.35",
     )
-    # g1..g4 are WT outliers (DR>0.35); g1 verified E, g2 verified small colonies,
+    # g1..g4 are WT-like outliers (DR>0.35); g1 verified E, g2 verified small colonies,
     # g3+g4 unverified. Not-verified DR list is DR-sorted descending.
     assert dr_dict["E"] == [0.9]
     assert dr_dict["small colonies"] == [0.8]
@@ -141,7 +150,7 @@ def test_prepare_verification_data_empty_group():
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
         merged, final_merged, simplified,
-        outlier_filter="cat_canon == 'WT' and DR > 100",
+        outlier_filter="Category == 'WT-like' and DR > 100",
     )
     assert dr_dict == {}
     assert len(detail) == 0
@@ -150,7 +159,7 @@ def test_prepare_verification_data_empty_group():
 def test_select_group_outliers_matches_filter_and_sort():
     """select_group_outliers returns the group's filter hits, DR-sorted, deduped."""
     merged, _, _ = _make_critical_fixtures()
-    # WT2nonWT = cat_canon=='WT' and DR>0.35, sorted desc: g1(0.9),g2(0.8),g3(0.7),g4(0.5)
+    # WT2nonWT = Category=='WT-like' and DR>0.35, sorted desc: g1(0.9),g2(0.8),g3(0.7),g4(0.5)
     genes = select_group_outliers(merged, "WT2nonWT")
     assert genes == ["g1", "g2", "g3", "g4"]
 

@@ -11,8 +11,8 @@ DIT-HAP results, deletion-library categories, and curated essentiality
 verification table, then merge them into three parquet intermediates consumed
 by the category-summary / boxplot / depletion-curve rules:
 
-- merged.parquet: gene-level DR/DL + DeletionLibrary_essentiality + Category +
-  Category_with_essentiality + cat_canon (one row per gene).
+- merged.parquet: gene-level DR/DL + DeletionLibrary_essentiality + Category
+  (raw curated label) + Category_with_essentiality (one row per gene).
 - final_merged.parquet: the curated-verification genes with area day3-6 columns
   (feeds the critical-gene review TSVs).
 - simplified_verification.parquet: Systematic ID / Verification result /
@@ -41,7 +41,6 @@ from workflow.src.io import write_parquet  # noqa: E402
 from workflow.src.verification.core import (  # noqa: E402
     apply_category_with_essentiality,
     build_final_merged,
-    canonicalize_category,
     load_deletion_library,
     load_essentiality_verification,
     load_essentiality_verification_full,
@@ -93,7 +92,6 @@ def run(config: PrepareConfig) -> None:
 
     merged = merge_deletion_library(gene_result, deletion_library)
     merged["Category_with_essentiality"] = merged.apply(apply_category_with_essentiality, axis=1)
-    merged = canonicalize_category(merged)
     final_merged = build_final_merged(merged, verification_full)
 
     write_parquet(merged, config.output_merged)
