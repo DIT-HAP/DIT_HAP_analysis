@@ -13,11 +13,11 @@ Input
 - A PomBase version directory (curated_orthologs, gene metadata)
 - An Ensembl paralog export TSV
 - Literature tables (Rhind 2011, Grech 2019)
-- DNA-level features pickle (for the coding-gene set)
+- DNA-level features parquet (for the coding-gene set)
 
 Output
 ------
-- evolutionary_features.pkl: per-gene evolutionary feature table (indexed by gene id)
+- evolutionary_features.parquet: per-gene evolutionary feature table (indexed by gene id)
 
 Usage
 -----
@@ -25,8 +25,8 @@ Usage
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --literature-dir resources/literature \\
         --ensembl-paralogs-tsv resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.pkl \\
-        --output results/features/2025-10-01/_levels/evolutionary_features.pkl
+        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/features/2025-10-01/_levels/evolutionary_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -102,7 +102,7 @@ def run(config: EvolutionaryConfig) -> None:
         config.pombase_dir, config.ensembl_paralogs_tsv, config.literature_dir,
         config.gene_meta_file, coding_genes, phyloP_and_divergence,
     )
-    evolutionary_df.to_pickle(config.output_evolutionary)
+    write_parquet(evolutionary_df, config.output_evolutionary)
     logger.success(f"Wrote {len(evolutionary_df)} gene rows to {config.output_evolutionary}")
 
 
@@ -115,7 +115,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
     parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle (for coding-gene set)")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_evolutionary", help="Output evolutionary-level features pickle")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

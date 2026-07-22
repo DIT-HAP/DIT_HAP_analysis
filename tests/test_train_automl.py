@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from workflow.src.io import write_parquet, read_parquet
+
 from workflow.src.ml.data import load_modeling_data
 from workflow.scripts.ml.prepare_ml_data import PrepareConfig
 from workflow.scripts.ml.train_automl import (
@@ -22,7 +24,7 @@ from workflow.scripts.ml.train_automl import (
 
 def _cfg(tmp_path, target="DR", mode="Explain", **kw):
     return AutoMLConfig(
-        modeling_data=tmp_path / "modeling_data.pkl",
+        modeling_data=tmp_path / "modeling_data.parquet",
         target=target,
         mode=mode,
         output_dir=tmp_path / "out",
@@ -32,14 +34,14 @@ def _cfg(tmp_path, target="DR", mode="Explain", **kw):
 
 def test_config_validate_rejects_bad_target(tmp_path):
     """validate() rejects a target outside {DR, DL}."""
-    (tmp_path / "modeling_data.pkl").write_bytes(b"")
+    (tmp_path / "modeling_data.parquet").write_bytes(b"")
     with pytest.raises(ValueError, match="target must be"):
         _cfg(tmp_path, target="A").validate()
 
 
 def test_config_validate_rejects_bad_mode(tmp_path):
     """validate() rejects a mode outside {Explain, Perform}."""
-    (tmp_path / "modeling_data.pkl").write_bytes(b"")
+    (tmp_path / "modeling_data.parquet").write_bytes(b"")
     with pytest.raises(ValueError, match="mode must be"):
         _cfg(tmp_path, mode="Compete").validate()
 
@@ -61,7 +63,7 @@ def test_prepare_config_rejects_missing_input(tmp_path):
     cfg = PrepareConfig(
         feature_matrix=tmp_path / "f.tsv",
         final_clusters=tmp_path / "c.tsv",
-        output=tmp_path / "work" / "modeling_data.pkl",
+        output=tmp_path / "work" / "modeling_data.parquet",
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
@@ -85,7 +87,7 @@ def test_src_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
 def test_train_load_modeling_data_reads_pickle(tmp_path):
     """train_automl.load_modeling_data is now a thin read of the prepared pickle."""
     df = pd.DataFrame({"Systematic_ID": ["SPAC1"], "DR": [0.5], "GC3": [0.1]})
-    df.to_pickle(tmp_path / "modeling_data.pkl")
+    write_parquet(df, tmp_path / "modeling_data.parquet")
     loaded = load_modeling_data_pickle(_cfg(tmp_path))
     pd.testing.assert_frame_equal(loaded, df)
 

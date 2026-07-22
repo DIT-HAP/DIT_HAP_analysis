@@ -103,8 +103,8 @@ def test_ontology_config_rejects_unknown_ontology(tmp_path):
     """OntologyConfig.validate raises ValueError on an unrecognized ontology name."""
     cfg = OntologyConfig(
         ontology="KEGG",
-        genesets=tmp_path / "g.pkl",
-        id2name=tmp_path / "n.pkl",
+        genesets=tmp_path / "g.parquet",
+        id2name=tmp_path / "n.parquet",
         pombase_dir=tmp_path / "pombase",
         output_dir=tmp_path / "out",
         work_dir=tmp_path / "work",
@@ -117,8 +117,8 @@ def test_ontology_config_dir_property(tmp_path):
     """ontology_dir resolves under the PomBase version directory."""
     cfg = OntologyConfig(
         ontology="GO",
-        genesets=tmp_path / "g.pkl",
-        id2name=tmp_path / "n.pkl",
+        genesets=tmp_path / "g.parquet",
+        id2name=tmp_path / "n.parquet",
         pombase_dir=tmp_path / "pombase" / "2025-10-01",
         output_dir=tmp_path / "out",
         work_dir=tmp_path / "work",

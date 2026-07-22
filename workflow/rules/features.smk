@@ -22,7 +22,7 @@ rule collect_dna_features:
         pombase_dir="resources/external/pombase/{pombase_version}",
         genome_landmarks="config/genome_landmarks.yaml",
     output:
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
         codon_usage="results/features/{pombase_version}/codon_usage_matrix.tsv",
     log:
         "logs/features/collect_dna_features_{pombase_version}.log",
@@ -45,9 +45,9 @@ rule collect_rna_features:
     input:
         pombase_dir="resources/external/pombase/{pombase_version}",
         literature_dir="resources/literature",
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
     output:
-        rna=f"{_LEVELS}/rna_features.pkl",
+        rna=f"{_LEVELS}/rna_features.parquet",
     log:
         "logs/features/collect_rna_features_{pombase_version}.log",
     conda:
@@ -70,9 +70,9 @@ rule collect_protein_features:
         pombase_dir="resources/external/pombase/{pombase_version}",
         alphafold_dir=DATASETS["reference"]["alphafold_dir"],
         literature_dir="resources/literature",
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
     output:
-        protein=f"{_LEVELS}/protein_features.pkl",
+        protein=f"{_LEVELS}/protein_features.parquet",
     log:
         "logs/features/collect_protein_features_{pombase_version}.log",
     conda:
@@ -96,9 +96,9 @@ rule collect_evolutionary_features:
         pombase_dir="resources/external/pombase/{pombase_version}",
         literature_dir="resources/literature",
         ensembl_paralogs_tsv="resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv",
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
     output:
-        evolutionary=f"{_LEVELS}/evolutionary_features.pkl",
+        evolutionary=f"{_LEVELS}/evolutionary_features.parquet",
     log:
         "logs/features/collect_evolutionary_features_{pombase_version}.log",
     conda:
@@ -121,9 +121,9 @@ rule collect_network_features:
     input:
         pombase_dir="resources/external/pombase/{pombase_version}",
         biogrid_tsv="resources/external/biogrid/BIOGRID-ORGANISM-Schizosaccharomyces_pombe_972h-5.0.251.tab3.txt",
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
     output:
-        network=f"{_LEVELS}/network_features.pkl",
+        network=f"{_LEVELS}/network_features.parquet",
     log:
         "logs/features/collect_network_features_{pombase_version}.log",
     conda:
@@ -147,9 +147,9 @@ rule collect_phenotype_features:
         literature_dir="resources/literature",
         deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
         essentiality_verification_csv="resources/curated/essentiality_verification.csv",
-        dna=f"{_LEVELS}/dna_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
     output:
-        phenotype=f"{_LEVELS}/phenotype_features.pkl",
+        phenotype=f"{_LEVELS}/phenotype_features.parquet",
     log:
         "logs/features/collect_phenotype_features_{pombase_version}.log",
     conda:
@@ -172,12 +172,12 @@ rule collect_phenotype_features:
 rule merge_pombe_features:
     input:
         pombase_dir="resources/external/pombase/{pombase_version}",
-        dna=f"{_LEVELS}/dna_features.pkl",
-        rna=f"{_LEVELS}/rna_features.pkl",
-        protein=f"{_LEVELS}/protein_features.pkl",
-        evolutionary=f"{_LEVELS}/evolutionary_features.pkl",
-        network=f"{_LEVELS}/network_features.pkl",
-        phenotype=f"{_LEVELS}/phenotype_features.pkl",
+        dna=f"{_LEVELS}/dna_features.parquet",
+        rna=f"{_LEVELS}/rna_features.parquet",
+        protein=f"{_LEVELS}/protein_features.parquet",
+        evolutionary=f"{_LEVELS}/evolutionary_features.parquet",
+        network=f"{_LEVELS}/network_features.parquet",
+        phenotype=f"{_LEVELS}/phenotype_features.parquet",
     output:
         features="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
     log:

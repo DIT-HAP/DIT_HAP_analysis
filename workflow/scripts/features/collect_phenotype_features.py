@@ -18,11 +18,11 @@ Input
 - A PomBase version directory (gene_viability.tsv)
 - Curated deletion-library + essentiality-verification tables
 - Literature tables (QianWenFeng/Koch, Guo 2013, Ishikawa 2024, Grech 2019)
-- DNA-level features pickle (for the coding-gene set)
+- DNA-level features parquet (for the coding-gene set)
 
 Output
 ------
-- phenotype_features.pkl: per-gene phenotype feature table (indexed by gene id)
+- phenotype_features.parquet: per-gene phenotype feature table (indexed by gene id)
 
 Usage
 -----
@@ -31,8 +31,8 @@ Usage
         --literature-dir resources/literature \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
         --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.pkl \\
-        --output results/features/2025-10-01/_levels/phenotype_features.pkl
+        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/features/2025-10-01/_levels/phenotype_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -112,7 +112,7 @@ def run(config: PhenotypeConfig) -> None:
         config.pombase_dir, config.deletion_library_xlsx, config.essentiality_verification_csv,
         config.literature_dir, config.gene_meta_file, coding_genes, phyloP_and_divergence,
     )
-    phenotype_df.to_pickle(config.output_phenotype)
+    write_parquet(phenotype_df, config.output_phenotype)
     logger.success(f"Wrote {len(phenotype_df)} gene rows to {config.output_phenotype}")
 
 
@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
     parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion library categories xlsx")
     parser.add_argument("--essentiality-verification-csv", type=Path, required=True, help="Curated essentiality verification csv")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle (for coding-gene set)")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_phenotype", help="Output phenotype-level features pickle")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

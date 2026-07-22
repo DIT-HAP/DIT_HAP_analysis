@@ -14,9 +14,9 @@ comparing variants.
 
 Input
 -----
-- annotated_data.pkl (from prepare_clustering_data)
-- scaled_data.pkl (from prepare_clustering_data) — for scoring only
-- labels.pkl (from cluster_one_method at k=final_n_clusters)
+- annotated_data.parquet (from prepare_clustering_data)
+- scaled_data.parquet (from prepare_clustering_data) — for scoring only
+- labels.parquet (from cluster_one_method at k=final_n_clusters)
 
 Output
 ------
@@ -27,9 +27,9 @@ Output
 Usage
 -----
     python finalize_direct_clusters.py \\
-        --annotated-data results/clustering/{dataset}/_work/annotated_data.pkl \\
-        --scaled-data    results/clustering/{dataset}/_work/scaled_data.pkl \\
-        --labels         results/clustering/{dataset}/{variant}/_labels.pkl \\
+        --annotated-data results/clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled-data    results/clustering/{dataset}/_work/scaled_data.parquet \\
+        --labels         results/clustering/{dataset}/{variant}/_labels.parquet \\
         --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
         --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
         --n-clusters 9 --wt-cluster 9
@@ -56,6 +56,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet, write_parquet
 from workflow.src.clustering.candidates import FINAL_N_CLUSTERS, finalize_direct, score_labels
 
 
@@ -98,9 +99,9 @@ def setup_logger(log_level: str = "INFO") -> None:
 def run(config: FinalizeDirectConfig) -> None:
     """Renumber the direct labels by DR, write final_clusters.tsv + metrics.tsv."""
     config.validate()
-    annotated = pd.read_pickle(config.annotated_data)
-    scaled = pd.read_pickle(config.scaled_data)
-    raw_labels = pd.read_pickle(config.labels)
+    annotated = read_parquet(config.annotated_data)
+    scaled = read_parquet(config.scaled_data)
+    raw_labels = read_parquet(config.labels)
     out = finalize_direct(
         annotated, raw_labels,
         n_clusters=config.n_clusters,
@@ -122,9 +123,9 @@ def run(config: FinalizeDirectConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Finalize clusters — direct variant (renumber labels by DR)")
-    parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data pickle (from prepare)")
-    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle (for scoring)")
-    parser.add_argument("--labels", type=Path, required=True, help="Labels pickle from cluster_one_method (k=final_n_clusters)")
+    parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data parquet (from prepare)")
+    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix parquet (for scoring)")
+    parser.add_argument("--labels", type=Path, required=True, help="Labels parquet from cluster_one_method (k=final_n_clusters)")
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
     parser.add_argument("--metrics-output", type=Path, required=True, help="Output per-variant metrics.tsv")
     parser.add_argument("--n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")

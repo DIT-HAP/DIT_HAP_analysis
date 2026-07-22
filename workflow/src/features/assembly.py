@@ -53,6 +53,7 @@ from workflow.src.features.protein import (
     pLDDT_statistics_report,
 )
 from workflow.src.gene_ids import update_sysIDs
+from workflow.src.io import read_parquet
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -98,9 +99,9 @@ def get_ortholog_counts(ortholog_file: Path) -> pd.Series:
 
 
 @logger.catch
-def read_coding_genes(dna_pickle: Path) -> list[str]:
-    """Recover the coding-gene set (unique Gene_id) from the DNA-level pickle."""
-    return pd.read_pickle(dna_pickle)["Gene_id"].unique().tolist()
+def read_coding_genes(dna_parquet: Path) -> list[str]:
+    """Recover the coding-gene set (unique Gene_id) from the DNA-level parquet."""
+    return read_parquet(dna_parquet)["Gene_id"].unique().tolist()
 
 
 @logger.catch

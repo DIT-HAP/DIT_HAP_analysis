@@ -18,18 +18,18 @@ Input
 
 Output
 ------
-- annotated_data.pkl: full fitting table + RevisedDeletion_essentiality (index = systematic ID)
-- scaled_data.pkl: the scaled (DR, DL) matrix that defines the clustered gene set
-- k_sweep_metrics.pkl: KMeans k-sweep (inertia + silhouette/CH/DB per k)
+- annotated_data.parquet: full fitting table + RevisedDeletion_essentiality (index = systematic ID)
+- scaled_data.parquet: the scaled (DR, DL) matrix that defines the clustered gene set
+- k_sweep_metrics.parquet: KMeans k-sweep (inertia + silhouette/CH/DB per k)
 
 Usage
 -----
     python prepare_clustering_data.py \\
         --fitting-results .../release/gene_level/fitting_results.tsv \\
         --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --output-annotated results/clustering/{dataset}/_work/annotated_data.pkl \\
-        --output-scaled results/clustering/{dataset}/_work/scaled_data.pkl \\
-        --output-ksweep results/clustering/{dataset}/_work/k_sweep_metrics.pkl
+        --output-annotated results/clustering/{dataset}/_work/annotated_data.parquet \\
+        --output-scaled results/clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-ksweep results/clustering/{dataset}/_work/k_sweep_metrics.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -110,9 +110,9 @@ def run(config: PrepareConfig) -> None:
     k_range = range(config.k_min, config.k_max + 1)
     k_sweep = evaluate_cluster_numbers(scaled_data.values, k_range, config.random_state)
 
-    data_df.to_pickle(config.output_annotated)
-    scaled_data.to_pickle(config.output_scaled)
-    k_sweep.to_pickle(config.output_ksweep)
+    write_parquet(data_df, config.output_annotated)
+    write_parquet(scaled_data, config.output_scaled)
+    write_parquet(k_sweep, config.output_ksweep)
     logger.success(
         f"Prepared clustering data: {len(data_df)} genes, {len(scaled_data)} clustered, "
         f"k-sweep {config.k_min}..{config.k_max}"

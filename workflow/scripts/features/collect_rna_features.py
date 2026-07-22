@@ -12,19 +12,19 @@ Input
 -----
 - A PomBase version directory (for gene metadata / id resolution)
 - Literature tables (Marguerat 2012, Harigaya 2016)
-- DNA-level features pickle (for the coding-gene set)
+- DNA-level features parquet (for the coding-gene set)
 
 Output
 ------
-- rna_features.pkl: per-gene RNA-level feature table (indexed by gene id)
+- rna_features.parquet: per-gene RNA-level feature table (indexed by gene id)
 
 Usage
 -----
     python collect_rna_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --literature-dir resources/literature \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.pkl \\
-        --output results/features/2025-10-01/_levels/rna_features.pkl
+        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/features/2025-10-01/_levels/rna_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17
@@ -90,7 +90,7 @@ def run(config: RnaConfig) -> None:
     coding_genes = read_coding_genes(config.dna_features)
     logger.info("Collecting RNA-level features")
     rna_df = collect_rna_level_features(config.literature_dir, config.gene_meta_file, coding_genes)
-    rna_df.to_pickle(config.output_rna)
+    write_parquet(rna_df, config.output_rna)
     logger.success(f"Wrote {len(rna_df)} gene rows to {config.output_rna}")
 
 
@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect RNA-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle (for coding-gene set)")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_rna", help="Output RNA-level features pickle")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
