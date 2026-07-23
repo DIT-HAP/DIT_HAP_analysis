@@ -91,7 +91,7 @@ class OntologyDataConfig:
             read_file(path, header=None, names=["Term", "Description"])
             for path in self.slim_terms_table
         ]
-        slim_df = pd.concat(slim_dfs, ignore_index=True)
+        slim_df = pd.concat(slim_dfs, ignore_index=True) if slim_dfs else pd.DataFrame(columns=["Term", "Description"])
         return OntologyData(
             ontology_obo_path=self.ontology_obo,
             ontology_association_file=self.ontology_association_gaf,
