@@ -33,10 +33,11 @@ from pathlib import Path
 
 # 2. Third-party Imports
 from loguru import logger
+import pandas as pd
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import write_parquet  # noqa: E402
+from workflow.src.io import read_parquet, write_parquet  # noqa: E402
 from workflow.src.coverage.core import load_gene_level, load_insertion_level  # noqa: E402
 
 
@@ -49,12 +50,14 @@ class PrepareConfig:
     fitting_results: Path
     annotations: Path
     gene_level: Path
+    gene_metadata: Path
+    deletion_library_xlsx: Path
     output_annotations: Path
     output_gene_result: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.fitting_results, self.annotations, self.gene_level]:
+        for path in [self.fitting_results, self.annotations, self.gene_level, self.gene_metadata, self.deletion_library_xlsx]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for out in [self.output_annotations, self.output_gene_result]:
@@ -72,17 +75,63 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Load -> reindex/dedup -> write the two parquet intermediates."""
+    """Load -> build full gene universe from metadata -> left join fitting results -> write parquet intermediates."""
     config.validate()
 
     gene_result = load_gene_level(config.gene_level)
     _fitting_results, annotations = load_insertion_level(config.fitting_results, config.annotations)
 
+    # Load full protein-coding gene universe from gene metadata
+    gene_metadata = read_parquet(config.gene_metadata)
+    protein_genes = gene_metadata[gene_metadata["feature_type"] == "protein"].copy()
+
+    # Start with full protein-coding gene list, then left join fitting results
+    # This ensures uncovered genes (no DR/DL) are present as DR=NaN rows
+    full_gene_cols = ["systematic_id", "name", "characterisation_status", "deletion_viability"]
+    available_cols = [c for c in full_gene_cols if c in protein_genes.columns]
+    gene_universe = protein_genes[available_cols].copy()
+    gene_universe = gene_universe.rename(columns={"systematic_id": "Systematic ID", "name": "Name"})
+
+    # Left join: all genes from universe, fitting results where available
+    gene_result_full = gene_universe.merge(
+        gene_result,
+        on="Systematic ID",
+        how="left",
+        suffixes=("_meta", "_fitting")
+    )
+
+    # Prefer Name from fitting results if present (it may have been curated), else use metadata
+    if "Name_fitting" in gene_result_full.columns:
+        gene_result_full["Name"] = gene_result_full["Name_fitting"].fillna(gene_result_full["Name_meta"])
+        gene_result_full = gene_result_full.drop(columns=["Name_meta", "Name_fitting"])
+
+    # Backfill DeletionLibrary_essentiality for uncovered genes from deletion_library_categories.xlsx
+    deletion_library = pd.read_excel(config.deletion_library_xlsx)
+    dl_essentiality = deletion_library.set_index("Systematic ID")["Gene dispensability. This study"]
+
+    if "DeletionLibrary_essentiality" in gene_result_full.columns:
+        # Fill missing essentiality values from deletion library
+        missing_ess = gene_result_full["DeletionLibrary_essentiality"].isna()
+        gene_result_full.loc[missing_ess, "DeletionLibrary_essentiality"] = (
+            gene_result_full.loc[missing_ess, "Systematic ID"].map(dl_essentiality)
+        )
+        backfilled = missing_ess.sum() - gene_result_full["DeletionLibrary_essentiality"].isna().sum()
+        logger.info(f"Backfilled DeletionLibrary_essentiality for {backfilled} uncovered genes from deletion library")
+
+    logger.info(
+        f"Built full gene universe: {len(gene_universe):,} protein-coding genes, "
+        f"{gene_result_full['DR'].notna().sum():,} covered (DR not NaN), "
+        f"{gene_result_full['DR'].isna().sum():,} not covered"
+    )
+
+    if "characterisation_status" in gene_result_full.columns:
+        logger.info(f"characterisation_status annotated: {gene_result_full['characterisation_status'].notna().sum():,} genes")
+
     write_parquet(annotations, config.output_annotations)
-    write_parquet(gene_result, config.output_gene_result)
+    write_parquet(gene_result_full, config.output_gene_result)
 
     logger.success(
-        f"Prepared coverage data: {len(annotations):,} insertions, {len(gene_result):,} genes"
+        f"Prepared coverage data: {len(annotations):,} insertions, {len(gene_result_full):,} genes"
     )
 
 
@@ -95,6 +144,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv")
     parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)")
     parser.add_argument("--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv")
+    parser.add_argument("--gene-metadata", type=Path, required=True, help="Gene metadata parquet with characterisation_status")
+    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Deletion library categories Excel file")
     parser.add_argument("--output-annotations", type=Path, required=True, help="Output annotations.parquet")
     parser.add_argument("--output-gene-result", type=Path, required=True, help="Output gene_result.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -110,6 +161,8 @@ def main() -> int:
             fitting_results=args.fitting_results,
             annotations=args.annotations,
             gene_level=args.gene_level,
+            gene_metadata=args.gene_metadata,
+            deletion_library_xlsx=args.deletion_library_xlsx,
             output_annotations=args.output_annotations,
             output_gene_result=args.output_gene_result,
         )
