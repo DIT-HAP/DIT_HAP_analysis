@@ -257,7 +257,12 @@ def plot_group_scatter_figure(
         if metrics_row is not None:
             z_score = metrics_row["z_score"]
             p_value = metrics_row["p_value"]
-            metrics_str = f"z={z_score:.2f}, p={p_value:.3g}"
+            # Prefer the FDR-corrected q where available (metrics tables written
+            # after the p_fdr addition); fall back to raw p for older tables.
+            if "p_fdr" in metrics_row and pd.notna(metrics_row["p_fdr"]):
+                metrics_str = f"z={z_score:.2f}, q={metrics_row['p_fdr']:.3g}"
+            else:
+                metrics_str = f"z={z_score:.2f}, p={p_value:.3g}"
         else:
             metrics_str = "z=NA, p=NA"
 

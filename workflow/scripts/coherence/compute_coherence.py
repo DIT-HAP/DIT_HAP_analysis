@@ -36,7 +36,10 @@ Output
   source, group_id, group_name, term_size, n_group_genes, covered_genes, then
   the geometric-median centroid + pairwise-distance stats (centroid_x,
   centroid_y, median/mean/std/min/max_distance, mpd), observed_mpd, z_score,
-  p_value, n_permutations.
+  p_value, n_permutations, p_fdr. p_value is the one-sided add-one permutation
+  p (coherent = tighter than random); p_fdr is its Benjamini-Hochberg FDR
+  correction across all groups of this source (the source = one hypothesis
+  family).
 - coherence_analysis.pdf: a multi-panel overview — group-size + z-score
   histograms, a centroid-position map (coloured by z-score), and coherence-vs-
   biology panels (A: shared-subunit fraction, always; B: abundance uniformity
@@ -71,6 +74,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
+from scipy.stats import false_discovery_control
 
 # 3. Third-party Imports
 import matplotlib
@@ -379,6 +383,13 @@ def compute_coherence_table(
 
     table = pd.DataFrame(rows)
     if not table.empty:
+        # Multiple-testing correction: every group in this source was tested
+        # against the same genome-wide null, so the source is one hypothesis
+        # family. Control the FDR across it with Benjamini-Hochberg (the same
+        # method + `p_fdr` column name the enrichment pipeline uses). The
+        # add-one permutation p (see compute_distance_zscore) is strictly
+        # positive, so no group's p_fdr collapses to a spurious 0.
+        table["p_fdr"] = false_discovery_control(table["p_value"].to_numpy(), method="bh")
         table = table.sort_values("z_score").reset_index(drop=True)
     return table
 

@@ -81,14 +81,33 @@ def test_compute_distance_zscore_tight_cluster_has_negative_z():
 
 
 def test_compute_distance_zscore_single_member_is_degenerate():
-    """A 1-member set has no meaningful dispersion -> (0.0, 1) per main's contract."""
+    """A 1-member set has no meaningful dispersion -> (0.0, 1.0) per main's contract."""
     rng = np.random.default_rng(0)
     bg = rng.standard_normal((50, 2))
     z, p = compute_distance_zscore(
         bg[:1], bg, method="median_pairwise_distance", n_permutations=100, random_state=42
     )
     assert z == 0.0
-    assert p == 1
+    assert p == 1.0
+
+
+def test_compute_distance_zscore_p_value_never_zero():
+    """The add-one estimator keeps p strictly positive at its 1/(n+1) floor.
+
+    A maximally-tight cluster beats every one of the null draws, so #{null<=obs}
+    is 0; the add-one term then yields exactly 1/(n_permutations+1), never 0.0
+    (a spurious exact zero would poison downstream FDR correction).
+    """
+    rng = np.random.default_rng(42)
+    bg = rng.standard_normal((300, 2)) * 5
+    bg[:6] = rng.standard_normal((6, 2)) * 1e-4  # essentially coincident members
+    members = bg[:6]
+    n_perm = 200
+    _, p = compute_distance_zscore(
+        members, bg, method="median_pairwise_distance", n_permutations=n_perm, random_state=1
+    )
+    assert p > 0.0
+    assert p == pytest.approx(1.0 / (n_perm + 1))
 
 
 def test_observed_mpd_equals_median_pairwise_distance():

@@ -84,7 +84,9 @@ rule all:
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        expand(f"results/coherence/{_DATASET}/{{source}}/coherence_metrics.tsv", source=config["coherence"]["sources"]),
+        # Combined cross-source table (pulls in every per-source
+        # coherence_metrics.tsv + coherence_analysis.pdf as dependencies):
+        f"results/coherence/{_DATASET}/coherence_metrics_combined.tsv",
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",

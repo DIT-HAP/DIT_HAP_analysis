@@ -9,9 +9,12 @@
 # distance z-score). Weiszfeld geometric median + seeded MPD permutation test
 # live in workflow/src/coherence/metrics.py.
 #
-# Three-rule chain fanning out by {source}:
+# Rules fanning out by {source}, then re-aggregated:
 #   prepare_coherence_annotation -> long-form group annotation (per source)
 #   compute_coherence             -> coherence_metrics.tsv + coherence_analysis.pdf
+#                                    (p_value = one-sided add-one permutation p;
+#                                    p_fdr = per-source Benjamini-Hochberg FDR)
+#   combine_coherence_metrics     -> coherence_metrics_combined.tsv (all sources)
 #   plot_coherence_group_scatter  -> group_scatter.pdf (named groups from config)
 #
 # Sources are registered in config.coherence.sources (currently: go_macrocomplex,
@@ -24,6 +27,8 @@
 # resources/external/pombase/{DATASETS['reference']['pombase_version']}. Features
 # (protein/RNA/structural) optionally drive additional diagnostic panels in the
 # coherence figure when config.coherence.features_panels is true.
+
+import json
 
 _COH = "results/coherence/{dataset}/{source}"
 _COH_CFG = config.get("coherence", {})
@@ -99,6 +104,30 @@ rule compute_coherence:
         """
 
 
+rule combine_coherence_metrics:
+    input:
+        # One per-source metrics table per registered source (aggregates the
+        # {source} fan-out back into a single cross-source target).
+        metrics=lambda wc: expand(
+            f"results/coherence/{wc.dataset}/{{source}}/coherence_metrics.tsv",
+            source=_COH_SOURCES,
+        ),
+    output:
+        combined="results/coherence/{dataset}/coherence_metrics_combined.tsv",
+    log:
+        "logs/coherence/combine_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [coherence] Combining per-source metrics for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/combine_metrics.py \
+            --metrics {input.metrics} \
+            --output {output.combined} &> {log}
+        """
+
+
 rule plot_coherence_group_scatter:
     input:
         fitting_results=lambda wc: (
@@ -110,7 +139,11 @@ rule plot_coherence_group_scatter:
     output:
         figure=f"{_COH}/group_scatter.pdf",
     params:
-        groups=lambda wc: _COH_CFG.get("scatter_groups", {}).get(wc.source, []),
+        # JSON-encode the namelist so it survives shell interpolation as a single
+        # parseable literal (Snakemake would otherwise space-join a raw list, and
+        # names contain spaces). JSON is double-quoted, so the '...' shell wrapper
+        # below stays intact; plot_group_scatter.py parses it with ast.literal_eval.
+        groups=lambda wc: json.dumps(_COH_CFG.get("scatter_groups", {}).get(wc.source, [])),
     log:
         "logs/coherence/scatter_{dataset}_{source}.log",
     conda:
