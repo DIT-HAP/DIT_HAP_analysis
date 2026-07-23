@@ -8,7 +8,7 @@ import yaml
 
 min_version("9.0")
 
-workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis/.claude/worktrees/migrate-remaining-notebooks"
+workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis"
 
 # This project's analysis parameters (clustering k, enrichment thresholds, ml
 # splits, ...). Unlike datasets.yaml (a data registry read directly below), these
@@ -38,7 +38,7 @@ include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
-include: "workflow/rules/complex.smk"
+include: "workflow/rules/coherence.smk"
 include: "workflow/rules/utr.smk"
 include: "workflow/rules/domain_differences.smk"
 
@@ -84,7 +84,7 @@ rule all:
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        # f"results/complex/{_DATASET}/complex_coherence_metrics.tsv",
+        # expand(f"results/coherence/{_DATASET}/{{source}}/coherence_metrics.tsv", source=config["coherence"]["sources"]),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",
