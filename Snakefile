@@ -64,8 +64,8 @@ rule all:
         # Selected finalize variant's clusters (buildable variants only):
         # f"results/clustering/{_DATASET}/{_SELECTED_VARIANT}/final_clusters.tsv",
         # Compare ALL buildable variants (builds every variant + a metrics table):
-        f"results/clustering/{_DATASET}/variant_metrics_comparison.tsv",
-        f"results/clustering/{_DATASET}/all_variants_cluster_scatter.pdf"
+        # f"results/clustering/{_DATASET}/variant_metrics_comparison.tsv",
+        # f"results/clustering/{_DATASET}/all_variants_cluster_scatter.pdf"
         # Enrichment (per variant):
         # f"results/enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
@@ -78,13 +78,13 @@ rule all:
         # Batch A (no final_clusters.tsv dependency):
         # "results/spikein/spike_in_stats.tsv",
         # f"results/coverage/{_DATASET}/coverage_stats.tsv",
-        f"results/verification/{_DATASET}/verification_stats.tsv",
-        f"results/verification/{_DATASET}/verification_boxplots.pdf",
-        f"results/verification/{_DATASET}/verification_depletion_curves.pdf"
+        # f"results/verification/{_DATASET}/verification_stats.tsv",
+        # f"results/verification/{_DATASET}/verification_boxplots.pdf",
+        # f"results/verification/{_DATASET}/verification_depletion_curves.pdf"
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        # expand(f"results/coherence/{_DATASET}/{{source}}/coherence_metrics.tsv", source=config["coherence"]["sources"]),
+        expand(f"results/coherence/{_DATASET}/{{source}}/coherence_metrics.tsv", source=config["coherence"]["sources"]),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",
