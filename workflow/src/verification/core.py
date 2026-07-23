@@ -92,11 +92,14 @@ _CATEGORY_ORDER = [
     "germinated, divided or microcolonies",
     "microcolonies",
     "microcolonies, small colonies",
+    "small colonies (E)",
     "E",
     "very small colonies",
     "small colonies",
     "WT-like",
 ]
+
+
 
 # Legacy -> current metric column names, same quirk as coverage.smk's
 # compute_coverage_stats.load_gene_level / clustering's candidates.load_and_annotate:
@@ -482,6 +485,11 @@ def _boxplot_figure(dr_dict: dict[str, list[float]], title: str) -> plt.Figure:
     sample (which matplotlib rejects).
     """
     dr_dict = {k: v for k, v in dr_dict.items() if len(v) > 0}
+    # Sort by reverse _CATEGORY_ORDER (healthiest -> most arrested)
+    _cat_order_index = {cat: i for i, cat in enumerate(_CATEGORY_ORDER)}
+    dr_dict = dict(
+        sorted(dr_dict.items(), key=lambda item: _cat_order_index.get(item[0], len(_CATEGORY_ORDER)), reverse=True)
+    )
     fig, axes = plt.subplots(
         1, 2, figsize=(2 * AX_WIDTH, AX_HEIGHT), sharey=True, gridspec_kw={"width_ratios": [3, 1]}
     )
