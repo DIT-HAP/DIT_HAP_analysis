@@ -15,6 +15,9 @@
 #                                    (p_value = one-sided add-one permutation p;
 #                                    p_fdr = per-source Benjamini-Hochberg FDR)
 #   combine_coherence_metrics     -> coherence_metrics_combined.tsv (all sources)
+#   deduplicate_coherence_terms   -> coherence_terms_deduplicated.tsv (+ _representatives.tsv):
+#                                    collapse redundant terms by member overlap + GO DAG
+#                                    (display layer; full-set p_fdr untouched, all terms kept)
 #   plot_coherence_group_scatter  -> group_scatter.pdf (named groups from config)
 #
 # Sources are registered in config.coherence.sources (currently: go_macrocomplex,
@@ -125,6 +128,42 @@ rule combine_coherence_metrics:
         python workflow/scripts/coherence/combine_metrics.py \
             --metrics {input.metrics} \
             --output {output.combined} &> {log}
+        """
+
+
+rule deduplicate_coherence_terms:
+    input:
+        combined="results/coherence/{dataset}/coherence_metrics_combined.tsv",
+        obo=lambda wc: (
+            f"resources/external/pombase/{DATASETS['reference']['pombase_version']}"
+            f"/ontologies_and_associations/go-basic.obo"
+        ),
+    output:
+        all_terms="results/coherence/{dataset}/coherence_terms_deduplicated.tsv",
+        representatives="results/coherence/{dataset}/coherence_terms_representatives.tsv",
+    params:
+        overlap_threshold=_COH_CFG.get("dedup_overlap_threshold", 0.5),
+        lineage_flag="--merge-dag-lineage" if _COH_CFG.get("dedup_merge_dag_lineage", True) else "",
+        scope=_COH_CFG.get("dedup_scope", "pooled"),
+        force=lambda wc: " ".join(_COH_CFG.get("dedup_force_representatives", []) or []),
+    log:
+        "logs/coherence/dedup_{dataset}.log",
+    conda:
+        # biopython.yml carries goatools (GO DAG depth + is_a/part_of lineage) + pandas.
+        "../envs/biopython.yml"
+    message:
+        "*** [coherence] De-duplicating coherence terms for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/deduplicate_terms.py \
+            --combined {input.combined} \
+            --obo {input.obo} \
+            --overlap-threshold {params.overlap_threshold} \
+            {params.lineage_flag} \
+            --scope {params.scope} \
+            --force-representatives {params.force} \
+            --output-all {output.all_terms} \
+            --output-representatives {output.representatives} &> {log}
         """
 
 

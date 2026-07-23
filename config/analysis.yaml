@@ -117,3 +117,10 @@ coherence:
     go_macrocomplex: [kinetochore, "mitochondrial large ribosomal subunit"]
     go_cc: []
     go_bp: []
+  # Redundancy reduction (display layer; full-set p_fdr is untouched). Terms are
+  # clustered by member-gene overlap (+ optional GO DAG lineage), one
+  # representative kept per cluster; the full cluster is retained + flagged.
+  dedup_overlap_threshold: 0.5      # overlap-coefficient cutoff to call two terms redundant
+  dedup_merge_dag_lineage: true     # also merge member-sharing ancestor/descendant pairs
+  dedup_scope: pooled               # "pooled" (collapse across sources) | "per_source"
+  dedup_force_representatives: []    # group_ids you hand-pick as their cluster's representative
