@@ -81,6 +81,19 @@ def run(config: PrepareConfig) -> None:
     gene_result = load_gene_level(config.gene_level)
     _fitting_results, annotations = load_insertion_level(config.fitting_results, config.annotations)
 
+    # gene_level's fitting_results.tsv carries FYPOviability + DeletionLibrary_essentiality,
+    # but both are PomBase-era snapshots limited to the genes DIT-HAP happened to cover.
+    # Drop them here — deletion_viability (from gene_metadata, below) and essentiality
+    # (from deletion_library_categories.xlsx, below) are the same two facts sourced
+    # directly and applied to the FULL protein-coding gene universe, uncovered genes
+    # included. Verified byte-for-byte equal to these two on the covered subset (see
+    # 2026-07-23 coverage-fields verification): FYPOviability == deletion_viability after
+    # normalizing the "condition-dependent"/"depends_on_conditions" label spelling; native
+    # DeletionLibrary_essentiality == deletion_library_categories.xlsx's "Gene
+    # dispensability. This study", with every native "Not_determined" exactly matching a
+    # gene absent from that xlsx.
+    gene_result = gene_result.drop(columns=["FYPOviability", "DeletionLibrary_essentiality"], errors="ignore")
+
     # Load full protein-coding gene universe from gene metadata
     gene_metadata = read_parquet(config.gene_metadata)
     protein_genes = gene_metadata[gene_metadata["feature_type"] == "protein"].copy()
@@ -105,18 +118,20 @@ def run(config: PrepareConfig) -> None:
         gene_result_full["Name"] = gene_result_full["Name_fitting"].fillna(gene_result_full["Name_meta"])
         gene_result_full = gene_result_full.drop(columns=["Name_meta", "Name_fitting"])
 
-    # Backfill DeletionLibrary_essentiality for uncovered genes from deletion_library_categories.xlsx
+    # essentiality: sourced straight from deletion_library_categories.xlsx (the curated
+    # Hayles-derived dispensability study) for every gene in the universe, not just the
+    # ones DIT-HAP's curve fitting covered. Genes absent from the xlsx (no deletion-library
+    # call was ever made for them) are labeled "Not_determined" rather than left null.
     deletion_library = pd.read_excel(config.deletion_library_xlsx)
     dl_essentiality = deletion_library.set_index("Systematic ID")["Gene dispensability. This study"]
-
-    if "DeletionLibrary_essentiality" in gene_result_full.columns:
-        # Fill missing essentiality values from deletion library
-        missing_ess = gene_result_full["DeletionLibrary_essentiality"].isna()
-        gene_result_full.loc[missing_ess, "DeletionLibrary_essentiality"] = (
-            gene_result_full.loc[missing_ess, "Systematic ID"].map(dl_essentiality)
-        )
-        backfilled = missing_ess.sum() - gene_result_full["DeletionLibrary_essentiality"].isna().sum()
-        logger.info(f"Backfilled DeletionLibrary_essentiality for {backfilled} uncovered genes from deletion library")
+    gene_result_full["essentiality"] = (
+        gene_result_full["Systematic ID"].map(dl_essentiality).fillna("Not_determined")
+    )
+    n_not_determined = (gene_result_full["essentiality"] == "Not_determined").sum()
+    logger.info(
+        f"Assigned essentiality from deletion_library_categories.xlsx: "
+        f"{len(gene_result_full) - n_not_determined:,} E/V, {n_not_determined:,} Not_determined"
+    )
 
     logger.info(
         f"Built full gene universe: {len(gene_universe):,} protein-coding genes, "
@@ -126,6 +141,9 @@ def run(config: PrepareConfig) -> None:
 
     if "characterisation_status" in gene_result_full.columns:
         logger.info(f"characterisation_status annotated: {gene_result_full['characterisation_status'].notna().sum():,} genes")
+    if "deletion_viability" in gene_result_full.columns:
+        n_missing_viability = gene_result_full["deletion_viability"].isna().sum()
+        logger.info(f"deletion_viability null count: {n_missing_viability:,} (PomBase's own 'unknown' category covers the rest)")
 
     write_parquet(annotations, config.output_annotations)
     write_parquet(gene_result_full, config.output_gene_result)

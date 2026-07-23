@@ -99,6 +99,8 @@ def run(config: PlotFiguresConfig) -> None:
         essentiality_coverage,
         per_chromosome,
         characterisation_status_coverage,
+        _deletion_viability_coverage,
+        _essentiality_category_coverage,
     ) = coverage_dicts_from_stats_table(stats)
 
     fig_donuts = plot_coverage_donuts(insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome)

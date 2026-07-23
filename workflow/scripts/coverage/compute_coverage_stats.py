@@ -35,6 +35,8 @@ from workflow.src.coverage.core import (  # noqa: E402
     build_detailed_gene_table,
     build_stats_table,
     compute_characterisation_status_coverage,
+    compute_deletion_viability_coverage,
+    compute_essentiality_category_coverage,
     compute_essentiality_coverage,
     compute_gene_coverage,
     compute_insertion_coverage,
@@ -87,6 +89,8 @@ def run(config: ComputeStatsConfig) -> None:
     essentiality_coverage = compute_essentiality_coverage(gene_result)
     per_chromosome = compute_per_chromosome_insertion_coverage(annotations)
     characterisation_status_coverage = compute_characterisation_status_coverage(gene_result)
+    deletion_viability_coverage = compute_deletion_viability_coverage(gene_result)
+    essentiality_category_coverage = compute_essentiality_category_coverage(gene_result)
 
     stats_table = build_stats_table(
         insertion_coverage,
@@ -94,6 +98,8 @@ def run(config: ComputeStatsConfig) -> None:
         essentiality_coverage,
         per_chromosome,
         characterisation_status_coverage,
+        deletion_viability_coverage,
+        essentiality_category_coverage,
     )
     stats_table.to_csv(config.output_stats, sep="\t", index=False)
 

@@ -21,11 +21,15 @@ Input
   wins) before joining against fitting_results, so counts are byte-faithful
   to the notebook's `fitting_results.index.isin(annotations.query(...).index)`
   approach without inflating per-chromosome or per-gene counts.
-- Gene-level fitting_results.tsv (Systematic ID, DR, DeletionLibrary_essentiality
-  already native columns — no extra essentiality merge needed here, unlike
-  clustering.smk's RevisedDeletion_essentiality injection). Legacy releases
+- Gene-level fitting_results.tsv (Systematic ID, DR, ... ). Legacy releases
   still ship the pre-rename um/lam headers instead of DR/DL; normalized on
-  load (same quirk as workflow/src/clustering/candidates.py).
+  load (same quirk as workflow/src/clustering/candidates.py). Its native
+  FYPOviability/DeletionLibrary_essentiality columns are dropped by
+  prepare_coverage_data.py in favor of deletion_viability (gene_metadata) and
+  essentiality (deletion_library_categories.xlsx) — same underlying facts,
+  sourced for the FULL protein-coding gene universe instead of just the
+  DIT-HAP-covered subset (see prepare_coverage_data.py's run() for the
+  byte-for-byte equivalence check).
 
 Usage
 -----
@@ -34,6 +38,7 @@ Usage
         compute_insertion_coverage, compute_gene_coverage,
         compute_essentiality_coverage, compute_per_chromosome_insertion_coverage,
         compute_characterisation_status_coverage,
+        compute_deletion_viability_coverage, compute_essentiality_category_coverage,
         build_stats_table, coverage_dicts_from_stats_table,
         plot_coverage_donuts, plot_dr_dl_histograms,
         plot_characterisation_status_donuts, plot_characterisation_status_histograms,
@@ -95,14 +100,14 @@ _DL_XLIM = (0, 15)
 _HIST_ROW_COLORS = ["#6b99df", "#dd8369", "#98a64e"]
 # Essential/non-essential rows use the SAME == 'E' / == 'V' definition as
 # compute_essentiality_coverage (see that function's docstring) — genes with
-# DeletionLibrary_essentiality == 'Not_determined' land in neither row, only
-# in the "All genes" (.notna()) row. Keep these two definitions in sync: a
-# mismatch here previously caused coverage_stats.tsv and coverage_figures.pdf
-# to report different non_essential totals for the same run.
+# essentiality == 'Not_determined' land in neither row, only in the
+# "All genes" (.notna()) row. Keep these two definitions in sync: a mismatch
+# here previously caused coverage_stats.tsv and coverage_figures.pdf to report
+# different non_essential totals for the same run.
 _HIST_ROW_QUERIES = [
-    "DeletionLibrary_essentiality.notna()",
-    "DeletionLibrary_essentiality == 'E'",
-    "DeletionLibrary_essentiality == 'V'",
+    "essentiality.notna()",
+    "essentiality == 'E'",
+    "essentiality == 'V'",
 ]
 _HIST_ROW_LABELS = ["All genes", "Essential", "Non-essential"]
 
@@ -171,23 +176,37 @@ def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> 
 # =============================================================================
 # STATS-TABLE READBACK (so figures read the SAME numbers the stats rule wrote)
 # =============================================================================
-# Prefix build_stats_table uses for per-characterisation_status rows; readers strip
-# it to recover the raw characterisation_status label. Keep in sync with build_stats_table.
+# Prefixes build_stats_table uses for per-category rows; readers strip them to
+# recover the raw category label. Keep in sync with build_stats_table.
 _CHARACTERISATION_PREFIX = "characterisation_"
+_DELETION_VIABILITY_PREFIX = "deletion_viability_"
+_ESSENTIALITY_CATEGORY_PREFIX = "essentiality_"
 
 
 def coverage_dicts_from_stats_table(
     stats: pd.DataFrame,
-) -> tuple[dict[str, int], dict[str, int], dict[str, dict[str, int]], pd.DataFrame, dict[str, dict[str, int]]]:
+) -> tuple[
+    dict[str, int],
+    dict[str, int],
+    dict[str, dict[str, int]],
+    pd.DataFrame,
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+]:
     """Reconstruct the coverage dicts + per-chromosome table from a coverage_stats.tsv frame.
 
     Inverse of build_stats_table: lets plot_coverage_figures render donuts from the
     exact numbers compute_coverage_stats wrote, instead of recomputing them from the
     gene_result parquet (which risks figure/table drift if the two paths ever diverge).
     Returns (insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome,
-    characterisation_status_coverage) — the first four match plot_coverage_donuts' args
-    (insertion dict re-exposes covered/not_covered as in_gene/intergenic), the last feeds
-    plot_characterisation_status_donuts.
+    characterisation_status_coverage, deletion_viability_coverage,
+    essentiality_category_coverage) — the first four match plot_coverage_donuts' args
+    (insertion dict re-exposes covered/not_covered as in_gene/intergenic), the
+    characterisation_status dict feeds plot_characterisation_status_donuts, and the last
+    two are the full per-category breakdowns (4 deletion_viability values, 3 essentiality
+    values including Not_determined) that essentiality_coverage's essential/non_essential
+    split omits.
     """
     def _row(metric: str, category: str) -> pd.Series:
         hit = stats[(stats["metric"] == metric) & (stats["category"] == category)]
@@ -216,18 +235,27 @@ def coverage_dicts_from_stats_table(
         "intergenic": per_chr_rows["not_covered"].astype(int),
     }).reset_index(drop=True)
 
-    # Characterisation-status rows: gene rows whose category carries the prefix.
-    characterisation_status_coverage: dict[str, dict[str, int]] = {}
-    char_rows = stats[
-        (stats["metric"] == "gene") & (stats["category"].str.startswith(_CHARACTERISATION_PREFIX))
-    ]
-    for _, r in char_rows.iterrows():
-        status = r["category"][len(_CHARACTERISATION_PREFIX):]
-        characterisation_status_coverage[status] = {
-            "total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])
-        }
+    def _prefixed_category_coverage(prefix: str) -> dict[str, dict[str, int]]:
+        result: dict[str, dict[str, int]] = {}
+        rows = stats[(stats["metric"] == "gene") & (stats["category"].str.startswith(prefix))]
+        for _, r in rows.iterrows():
+            key = r["category"][len(prefix):]
+            result[key] = {"total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])}
+        return result
 
-    return insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome, characterisation_status_coverage
+    characterisation_status_coverage = _prefixed_category_coverage(_CHARACTERISATION_PREFIX)
+    deletion_viability_coverage = _prefixed_category_coverage(_DELETION_VIABILITY_PREFIX)
+    essentiality_category_coverage = _prefixed_category_coverage(_ESSENTIALITY_CATEGORY_PREFIX)
+
+    return (
+        insertion_coverage,
+        gene_coverage,
+        essentiality_coverage,
+        per_chromosome,
+        characterisation_status_coverage,
+        deletion_viability_coverage,
+        essentiality_category_coverage,
+    )
 
 
 # =============================================================================
@@ -248,18 +276,18 @@ def compute_gene_coverage(gene_result: pd.DataFrame) -> dict[str, int]:
 
 
 def compute_essentiality_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by DeletionLibrary_essentiality == 'E' vs == 'V'.
+    """Split compute_gene_coverage by essentiality == 'E' vs == 'V'.
 
     Byte-faithful to the source notebook, which only ever tested
-    `== 'E'` / `== 'V'` (never `!= 'E'`). Some releases carry a third value,
-    `Not_determined` (e.g. 198/4513 genes in HD_DIT_HAP) — those genes are
-    EXCLUDED from both buckets here (previously an earlier draft folded them
-    into "non_essential" via `!= 'E'`, which silently diverged from the
+    `== 'E'` / `== 'V'` (never `!= 'E'`). Genes with essentiality ==
+    `Not_determined` (no deletion_library_categories.xlsx call for that gene)
+    are EXCLUDED from both buckets here (previously an earlier draft folded
+    them into "non_essential" via `!= 'E'`, which silently diverged from the
     `_HIST_ROW_QUERIES` == 'V' filter used by plot_dr_dl_histograms and
     produced inconsistent totals between coverage_stats.tsv and the PDF).
     """
-    essential = gene_result[gene_result["DeletionLibrary_essentiality"] == "E"]
-    non_essential = gene_result[gene_result["DeletionLibrary_essentiality"] == "V"]
+    essential = gene_result[gene_result["essentiality"] == "E"]
+    non_essential = gene_result[gene_result["essentiality"] == "V"]
     return {
         "essential": compute_gene_coverage(essential),
         "non_essential": compute_gene_coverage(non_essential),
@@ -275,6 +303,31 @@ def compute_per_chromosome_insertion_coverage(annotation: pd.DataFrame) -> pd.Da
     return pd.DataFrame(rows).sort_values("Chr").reset_index(drop=True)
 
 
+def _compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[str, dict[str, int]]:
+    """Split compute_gene_coverage by every non-null value of `column`.
+
+    Returns a dict mapping each value to its coverage stats
+    (total/covered/not_covered). Shared by the per-column category breakdowns
+    (characterisation_status, deletion_viability, essentiality) that all feed
+    build_stats_table's category rows.
+    """
+    if column not in gene_result.columns:
+        logger.warning(f"{column} column not found in gene_result")
+        return {}
+
+    result = {}
+    value_counts = gene_result[column].value_counts()
+    logger.info(f"Computing coverage for {len(value_counts)} {column} categories")
+
+    for value in value_counts.index:
+        if pd.isna(value):
+            continue
+        subset = gene_result[gene_result[column] == value]
+        result[value] = compute_gene_coverage(subset)
+
+    return result
+
+
 def compute_characterisation_status_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
     """Split compute_gene_coverage by characterisation_status values.
 
@@ -282,21 +335,28 @@ def compute_characterisation_status_coverage(gene_result: pd.DataFrame) -> dict[
     stats (total/covered/not_covered). Only includes protein-coding genes that
     have a non-null characterisation_status annotation.
     """
-    if "characterisation_status" not in gene_result.columns:
-        logger.warning("characterisation_status column not found in gene_result")
-        return {}
+    return _compute_category_coverage(gene_result, "characterisation_status")
 
-    result = {}
-    status_counts = gene_result["characterisation_status"].value_counts()
-    logger.info(f"Computing coverage for {len(status_counts)} characterisation_status categories")
 
-    for status in status_counts.index:
-        if pd.isna(status):
-            continue
-        subset = gene_result[gene_result["characterisation_status"] == status]
-        result[status] = compute_gene_coverage(subset)
+def compute_deletion_viability_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
+    """Split compute_gene_coverage by deletion_viability values.
 
-    return result
+    deletion_viability has 4 categories (viable/inviable/depends_on_conditions/
+    unknown), all sourced from gene_metadata for the full protein-coding gene
+    universe, so every category is represented here (no nulls to skip).
+    """
+    return _compute_category_coverage(gene_result, "deletion_viability")
+
+
+def compute_essentiality_category_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
+    """Split compute_gene_coverage by essentiality values (E / V / Not_determined).
+
+    Unlike compute_essentiality_coverage (which keeps the E/V two-bucket split
+    used by the donut plots and DR/DL histograms, excluding Not_determined
+    genes entirely), this gives every essentiality value — including
+    Not_determined — its own coverage_stats.tsv row.
+    """
+    return _compute_category_coverage(gene_result, "essentiality")
 
 
 def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataFrame) -> pd.DataFrame:
@@ -305,7 +365,8 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
     Returns a table with columns:
     - Systematic ID, Name, product (from metadata)
     - characterisation_status, deletion_viability (from metadata)
-    - DR, DL, DeletionLibrary_essentiality (from gene_result, NaN if not covered)
+    - DR, DL, essentiality (from gene_result, DR/DL NaN if not covered;
+      essentiality is never null — "Not_determined" when no deletion-library call exists)
     - coverage_status: "covered" if DR is not NaN, "not_covered" otherwise
 
     Sorted by characterisation_status (descending by gene count), then by coverage_status, then by DR (desc).
@@ -320,7 +381,7 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
     base_table = base_table.rename(columns={"systematic_id": "Systematic ID", "name": "Name"})
 
     # Merge with gene_result (left join so uncovered genes remain)
-    dit_hap_cols = ["Systematic ID", "DR", "DL", "DeletionLibrary_essentiality"]
+    dit_hap_cols = ["Systematic ID", "DR", "DL", "essentiality"]
     available_dit_hap_cols = [c for c in dit_hap_cols if c in gene_result.columns]
 
     detailed_table = base_table.merge(
@@ -387,6 +448,8 @@ def build_stats_table(
     essentiality_coverage: dict[str, dict[str, int]],
     per_chromosome: pd.DataFrame,
     characterisation_status_coverage: dict[str, dict[str, int]] | None = None,
+    deletion_viability_coverage: dict[str, dict[str, int]] | None = None,
+    essentiality_category_coverage: dict[str, dict[str, int]] | None = None,
 ) -> pd.DataFrame:
     """Flatten all coverage dicts into one long-form stats table."""
     rows = [
@@ -411,12 +474,23 @@ def build_stats_table(
             "covered": row["in_gene"], "not_covered": row["intergenic"],
         })
 
-    # Add characterisation_status coverage rows
-    if characterisation_status_coverage:
-        for status, counts in characterisation_status_coverage.items():
+    # Per-category coverage rows: characterisation_status (arbitrary # of
+    # categories), deletion_viability (4: viable/inviable/depends_on_conditions/
+    # unknown), essentiality (3: E/V/Not_determined — the full breakdown, unlike
+    # essentiality_coverage's essential/non_essential rows above which exclude
+    # Not_determined). Each dict contributes one row per category, prefixed so
+    # coverage_dicts_from_stats_table can recover which breakdown a row belongs to.
+    for prefix, coverage in (
+        ("characterisation_", characterisation_status_coverage),
+        ("deletion_viability_", deletion_viability_coverage),
+        ("essentiality_", essentiality_category_coverage),
+    ):
+        if not coverage:
+            continue
+        for category, counts in coverage.items():
             rows.append({
                 "metric": "gene",
-                "category": f"characterisation_{status}",
+                "category": f"{prefix}{category}",
                 "total": counts["total"],
                 "covered": counts["covered"],
                 "not_covered": counts["not_covered"],
