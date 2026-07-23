@@ -16,5 +16,6 @@ dependencies:
   - requests
   - pyyaml
   - pip
+  - pyarrow
   - pip:
     - codon-bias>=0.3.5

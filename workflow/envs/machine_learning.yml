@@ -14,4 +14,4 @@ dependencies:
   - pip:
     # Pinned: mljar defaults (algorithm lists, seeds) differ across versions;
     # pinning keeps AutoML runs reproducible.
-    - mljar-supervised==1.1.18
+    - mljar-supervised==1.3.1
