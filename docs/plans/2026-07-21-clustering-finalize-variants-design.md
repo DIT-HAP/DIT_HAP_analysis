@@ -27,7 +27,7 @@
 |---|---|---|---|---|
 | `direct` | 1, 4a | `cluster_one_method(method, scaled, k=9)` → 按 DR 编号 | 否 | 否 |
 | `auto_merge` | 2, 4b | 对 64 候选簇的**簇心**在 scaled (DR,DL) 空间做 ward 层级合并到 9 组 → 按 DR 编号 | 是（复用已有 `{method}_labels.pkl`） | 是 |
-| `manual_merge` | 3, 4c | 人工在笔记本里把 64 原始 id 映射到合并组；最终编号由共享函数自动算，**人不再手工指定最终 id** | 是 | 是 |
+| `manual_merge` | 3, 4c | 笔记本里手调 dict 把 `n_intermediate` 原始 id 映射到合并组；最终编号由共享函数自动算，**人不再手工指定最终 id**。笔记本可由 `finalize_manual_merge` rule 无头执行（详见 2026-07-22-manual-merge-notebook-rule-design） | 是 | 是 |
 | `grid` | 5 | `dr_cuts` / `dl_cuts` 轴切分组合成网格，落到原始 (DR,DL) 上；格子数必须 == `final_n_clusters` → 按 DR 编号 | 否 | 否 |
 
 **统一编号规则（关键）：** 每种 type 最后都调用同一个共享函数 `renumber_by_dr(annotated, raw_labels, wt_cluster)`——按每组 `annotated["DR"]` 均值升序编号，最低 DR 组赋 `wt_cluster`（=9），其余按 DR 升序填 1..8，tiebreak 用 (mean DR, mean DL, 组原始 id)。**没有任何 type 手工指定最终 id**，包括 grid 和 manual_merge。这样格子/合并只负责"分组"，编号完全一致，跨变体可比。
@@ -67,13 +67,14 @@ finalize_grid(annotated, scaled, dr_cuts, dl_cuts, n_clusters=9, wt_cluster) -> 
 3. 每个 scaled 基因按 (DR,DL) 落格（`np.digitize`），得格子 id → 交给 `renumber_by_dr` 编号。
 4. 落格用**原始 scaled 值**（即已 cap/除过的 DR/DL，与聚类同一空间），cuts 语义即 scaled 空间阈值——在设计文档和 config 注释里写清。
 
-### 3.4 `manual_merge`（笔记本，人工判断）
-不写 Snakemake 规则（人工步骤）。笔记本泛化：
-- 参数 `METHOD`（选哪个方法的 64 候选）+ `VARIANT`（决定输出路径）。
-- 直接读 `_work/{method}_labels.pkl` 拿 64 原始标签 + `annotated_data.pkl` 拿注释表（不再依赖 candidate_clusters.tsv 的 `cluster` 列，那列只在 kmeans 下才等于 64 候选）。
-- 人工只维护**一个** dict：`raw64 -> merge_group`（合并组任意整数标签）。
-- 最终编号调 `renumber_by_dr`（去掉今天那第二个手工 reorder dict——人不再手工排号）。
-- 写到 §4 的 per-variant curated 路径，输出含 `cluster` + `raw_cluster`。
+### 3.4 `manual_merge`（笔记本，人工判断 — 现已可无头构建）
+逻辑在笔记本 `notebooks/clustering/finalize_gene_clusters.ipynb`，其中的 `merge_groups` dict 是唯一的人工判断，其余确定性。笔记本双模运行（详见 **2026-07-22-manual-merge-notebook-rule-design**）：
+- **交互**：在 Jupyter 里打开，看 review 图、调 `merge_groups`。
+- **无头**：`finalize_manual_merge` rule 用 Snakemake 原生 `notebook:` 指令执行它（无 papermill 时回退 `jupyter-nbconvert --execute`），注入的 `snakemake` 对象供给 dataset/variant/params/输入输出路径，执行后的笔记本存到 `logs/clustering/` 供 review。
+- 读 `_work/{annotated,scaled}.parquet`，用 `cluster_one_method(method, scaled, n_intermediate, random_state)` 自算原始标签（无共享候选阶段）。
+- 人工只维护**一个** dict：`raw -> merge_group`（合并组任意整数标签）。
+- 最终编号调 `renumber_by_dr`（人不再手工排号）。
+- 写到 §4 的 per-variant 路径（与其它 buildable 变体同在 `results/` 下），输出含 `cluster` + `raw_cluster`，并另写 `metrics.tsv`（进 `compare_variants`）。
 
 ## 4. 列契约（不变）
 
@@ -81,8 +82,8 @@ finalize_grid(annotated, scaled, dr_cuts, dl_cuts, n_clusters=9, wt_cluster) -> 
 
 ## 5. 路径约定
 
-- 可构建变体（`direct` / `auto_merge` / `grid`）：`results/clustering/{dataset}/{variant}/final_clusters.tsv`（Snakemake 产出，可删可重跑）。
-- curated 变体（`manual_merge`）：`resources/curated/final_clusters/{dataset}/{variant}.tsv`（人工维护，版本控制，不可重跑）。
+- **所有变体**（`direct` / `auto_merge` / `grid` / `manual_merge`）：`results/clustering/{dataset}/{variant}/final_clusters.tsv`（Snakemake 产出，可删可重跑）。`manual_merge` 由 `finalize_manual_merge` rule 无头执行笔记本产出，重跑确定性复现（人工判断固化在笔记本的 `merge_groups` dict）——见 2026-07-22-manual-merge-notebook-rule-design。
+  - *历史注*：原设计把 `manual_merge` 输出定为 `resources/curated/final_clusters/{dataset}/{variant}.tsv`（人工维护、不可重跑）。2026-07-22 起改为可构建，输出统一到 `results/` 下。
 
 ## 6. config 形态（`config/analysis.yaml` 的 `clustering:` 下）
 
@@ -113,7 +114,8 @@ finalize_grid(annotated, scaled, dr_cuts, dl_cuts, n_clusters=9, wt_cluster) -> 
 `clustering.smk`：
 - 保留 prepare spine + cluster_one_method(×4, k=64) + select（一行不动，`auto_merge`/`manual_merge` 复用其 `{method}_labels.pkl`）。
 - 新 helper：`final_clusters_path(dataset, variant)`、`selected_variant(dataset)`、按 type 分组的变体名列表（供 wildcard 约束）。
-- 新规则 `finalize_direct` / `finalize_auto_merge` / `finalize_grid`，各带 `variant` 通配符，约束到 config 里对应 type 的变体子集（仿现有 `method` 通配符约束写法）。`manual_merge` 无规则，沿用"缺输入即报错、去跑笔记本"的语义，只是按 variant 分文件。
+- 新规则 `finalize_direct` / `finalize_auto_merge` / `finalize_grid`，各带 `variant` 通配符，约束到 config 里对应 type 的变体子集（仿现有 `method` 通配符约束写法）。
+- `finalize_manual_merge`（2026-07-22 追加）：同样带 `variant` 通配符约束到 `manual_merge` 子集，但用 Snakemake 原生 `notebook:` 指令执行 `finalize_gene_clusters.ipynb`（非 `shell:` 调脚本），笔记本读注入的 `snakemake` 对象、自写 `final_clusters.tsv` + `metrics.tsv`。
 
 `enrichment.smk`：`prepare_genesets` 及下游 ontology/finalize 规则新增 `variant` 通配符维度，输出目录多一层 `.../{variant}/...`，`final_clusters` 输入用 `final_clusters_path(wc.dataset, wc.variant)`。这样每个变体各自跑一套富集，可对比。
 

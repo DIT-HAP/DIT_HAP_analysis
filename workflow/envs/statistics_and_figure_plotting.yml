@@ -15,3 +15,7 @@ dependencies:
   - loguru
   - pyyaml
   - pyarrow>=21.0.0
+  # Headless notebook execution for the finalize_manual_merge rule (Snakemake's
+  # native notebook: directive falls back to `jupyter-nbconvert --execute`).
+  - nbconvert
+  - ipykernel

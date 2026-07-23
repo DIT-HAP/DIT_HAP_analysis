@@ -18,7 +18,7 @@ clustering:
   #   direct       {method}                  -> cluster straight to final_n_clusters, DR-numbered
   #   auto_merge   {method, n_intermediate}  -> cluster to n_intermediate, ward-merge centroids -> final_n_clusters
   #   grid         {dr_cuts, dl_cuts}        -> axis-cut grid (cell count must == final_n_clusters)
-  #   manual_merge {method, n_intermediate}  -> human notebook; NOT Snakemake-buildable
+  #   manual_merge {method, n_intermediate}  -> cluster to n_intermediate, hand-tuned merge (finalize_gene_clusters.ipynb, run headlessly by finalize_manual_merge)
   # grid cuts are thresholds in SCALED space (DR capped, DL divided).
   variants:
     kmeans_direct9:       {type: direct,       method: kmeans}

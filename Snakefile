@@ -41,11 +41,11 @@ include: "workflow/rules/pcr_qc.smk"
 # uncomment (or pass on the CLI) to run a specific stage. The core chain is:
 #   clustering spine -> finalize VARIANT -> enrichment / ml.
 # Finalize has named variants (config.clustering.variants), each clustering for
-# itself (no fixed candidate stage): buildable ones (direct/auto_merge/grid) produce
-# results/clustering/{dataset}/{variant}/final_clusters.tsv (+ metrics.tsv);
-# manual_merge is the curated resources/curated/final_clusters/{dataset}/{variant}.tsv
-# (run notebooks/clustering/finalize_gene_clusters.ipynb). enrichment fans out per
-# variant; ml uses config.clustering.selected_variant.
+# itself (no fixed candidate stage). Every variant produces
+# results/clustering/{dataset}/{variant}/final_clusters.tsv (+ metrics.tsv):
+# direct/auto_merge/grid via deterministic scripts, manual_merge via
+# finalize_manual_merge (executes notebooks/clustering/finalize_gene_clusters.ipynb
+# headlessly). enrichment fans out per variant; ml uses config.clustering.selected_variant.
 _REF = DATASETS["reference"]["pombase_version"]
 _DATASET = DATASETS["default_dataset"]
 _SELECTED_VARIANT = config["clustering"]["selected_variant"]
@@ -57,7 +57,8 @@ rule all:
         # f"results/clustering/{_DATASET}/{_SELECTED_VARIANT}/final_clusters.tsv",
         # Compare ALL buildable variants (builds every variant + a metrics table):
         f"results/clustering/{_DATASET}/variant_metrics_comparison.tsv",
-        # Enrichment (per variant; manual_merge needs its curated tsv first):
+        f"results/clustering/{_DATASET}/all_variants_cluster_scatter.pdf"
+        # Enrichment (per variant):
         # f"results/enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
         # f"results/enrichment/network/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_revigo.tsv",

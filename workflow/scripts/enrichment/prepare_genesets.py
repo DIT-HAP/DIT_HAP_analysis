@@ -10,15 +10,15 @@ final_clusters.tsv into background / nonWT / per-cluster gene sets, builds the
 id->name map, and writes the gene-list txt files. Emits pickles for the three
 per-ontology enrichment jobs (design doc §5).
 
-final_clusters.tsv is sourced via final_clusters_path() (clustering.smk), which
-honors config.clustering.finalize_mode. Under the default finalize_mode: auto it
-is BUILT by the auto_finalize_clusters rule; under finalize_mode: manual it is the
-UN-BUILDABLE curated resources/curated/final_clusters.tsv (run the finalize
-notebook first if missing) (design doc §8).
+final_clusters.tsv is sourced via final_clusters_path(dataset, variant)
+(clustering.smk). Every finalize variant BUILDS it under
+results/clustering/{dataset}/{variant}/final_clusters.tsv: direct/auto_merge/grid via
+deterministic finalize scripts, manual_merge via the finalize_manual_merge rule
+(executes finalize_gene_clusters.ipynb headlessly) (design doc §8).
 
 Input
 -----
-- Curated final_clusters.tsv (Systematic ID, cluster, ...)
+- final_clusters.tsv (Systematic ID, cluster, ...) from the selected finalize variant
 - PomBase gene metadata + curated deletion-library table (for id->name mapping)
 
 Output
@@ -29,7 +29,7 @@ Output
 Usage
 -----
     python prepare_genesets.py \\
-        --final-clusters resources/curated/final_clusters.tsv \\
+        --final-clusters results/clustering/{dataset}/{variant}/final_clusters.tsv \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
         --output-dir results/enrichment/raw/{dataset}/{version} \\

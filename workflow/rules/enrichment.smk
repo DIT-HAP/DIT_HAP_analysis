@@ -16,11 +16,9 @@
 # Fans out over clustering finalize VARIANTS: enrichment output nests under a
 # {variant} dir so each variant's clusters get their own enrichment (compare them
 # to pick one). final_clusters.tsv is sourced via final_clusters_path(dataset,
-# variant) (clustering.smk). For buildable variants (direct/auto_merge/grid) it is
-# BUILT by the matching finalize rule; for manual_merge it is the UN-BUILDABLE
-# curated resources/curated/final_clusters/{dataset}/{variant}.tsv — if missing,
-# Snakemake reports "missing input", so run the finalize notebook for that variant
-# first (design doc §8).
+# variant) (clustering.smk) and BUILT by the matching finalize rule for every
+# variant type: direct/auto_merge/grid via deterministic scripts, manual_merge via
+# finalize_manual_merge (executes finalize_gene_clusters.ipynb headlessly).
 
 _ENRICH_ONTOLOGIES = ["GO", "FYPO", "MONDO"]
 _ERAW = "results/enrichment/raw/{dataset}/{variant}/{pombase_version}"

@@ -14,8 +14,10 @@
 #   direct      : cluster_labels (k=final_n_clusters) -> finalize_direct (renumber by DR)
 #   auto_merge  : cluster_labels (k=n_intermediate)   -> finalize_auto_merge (ward-merge centroids -> final_n_clusters)
 #   grid        : finalize_grid (axis-cut grid on scaled DR/DL, no clustering step)
-#   manual_merge: NO rule; notebooks/clustering/finalize_gene_clusters.ipynb writes
-#                 the curated per-variant tsv (human-judgment merge).
+#   manual_merge: finalize_manual_merge runs notebooks/clustering/finalize_gene_clusters.ipynb
+#                 headlessly (Snakemake native notebook: directive). The notebook holds a
+#                 hand-tuned merge_groups dict (the human judgment), but is deterministic,
+#                 so it builds like any other variant -> the same results/ final_clusters.tsv.
 # Every buildable variant emits final_clusters.tsv (unified `cluster` column,
 # 1..final_n_clusters, WT last) + a per-variant metrics.tsv (silhouette/CH/DB) +
 # a cluster_scatter.pdf (DR/DL scatter, colored by cluster; a 2nd page for the
@@ -57,22 +59,30 @@ def selected_variant(dataset: str) -> str:
     )
 
 
+_FINALIZE_TYPES = ("direct", "auto_merge", "grid", "manual_merge")
+
+
 def final_clusters_path(dataset: str, variant: str) -> str:
-    """Return the final_clusters.tsv path for one variant (buildable results/ vs curated manual)."""
+    """Return the final_clusters.tsv path for one variant (all variant types build under results/)."""
     spec = _VARIANTS.get(variant)
     if spec is None:
         raise ValueError(f"Unknown clustering variant {variant!r} (configure it under clustering.variants)")
     vtype = spec.get("type")
-    if vtype == "manual_merge":
-        return f"resources/curated/final_clusters/{dataset}/{variant}.tsv"
-    if vtype in ("direct", "auto_merge", "grid"):
+    if vtype in _FINALIZE_TYPES:
         return f"results/clustering/{dataset}/{variant}/final_clusters.tsv"
-    raise ValueError(f"Unknown finalize type {vtype!r} for variant {variant!r} (expected direct|auto_merge|grid|manual_merge)")
+    raise ValueError(f"Unknown finalize type {vtype!r} for variant {variant!r} (expected {'|'.join(_FINALIZE_TYPES)})")
 
 
 def buildable_variants() -> list[str]:
-    """Variant names Snakemake can build end-to-end (every type except manual_merge)."""
-    return [n for n, s in _VARIANTS.items() if s.get("type") in ("direct", "auto_merge", "grid")]
+    """Variant names Snakemake can build end-to-end.
+
+    Every configured type is buildable: direct/auto_merge/grid via deterministic
+    finalize scripts, manual_merge by executing finalize_gene_clusters.ipynb through
+    the finalize_manual_merge rule (Snakemake's native notebook: directive). The
+    notebook still carries the human-tuned merge_groups dict — that judgment is frozen
+    into the DAG, but re-running reproduces it deterministically (random_state pinned).
+    """
+    return [n for n, s in _VARIANTS.items() if s.get("type") in _FINALIZE_TYPES]
 
 
 def all_variant_metrics(dataset: str) -> list[str]:
@@ -267,10 +277,42 @@ rule finalize_grid:
         """
 
 
+# --- Finalize: `manual_merge` variant (execute the human-judgment notebook headlessly) ---
+# Unlike the other finalize rules (shell -> workflow/scripts/*.py), this one uses
+# Snakemake's native notebook: directive to run finalize_gene_clusters.ipynb, which
+# reads the injected `snakemake` object (dataset/variant/params/inputs/outputs) and
+# writes both final_clusters.tsv and metrics.tsv itself. The notebook's merge_groups
+# dict is the frozen human judgment; everything else is deterministic. The executed
+# notebook is captured via log: notebook=... for review.
+rule finalize_manual_merge:
+    input:
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+    output:
+        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
+    params:
+        method=lambda wc: _VARIANTS[wc.variant].get("method", "kmeans"),
+        n_intermediate=lambda wc: _VARIANTS[wc.variant].get("n_intermediate", 64),
+        final_n_clusters=_FINAL_N,
+        random_state=_CLUSTERING.get("random_state", 42),
+        wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
+    wildcard_constraints:
+        variant=_alt(_variants_of_type("manual_merge")),
+    log:
+        notebook="logs/clustering/finalize_manual_merge_{dataset}_{variant}.ipynb",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] finalize_manual_merge {wildcards.variant} for {wildcards.dataset} (executing notebook)..."
+    notebook:
+        "../../notebooks/clustering/finalize_gene_clusters.ipynb"
+
+
 # --- Plot: DR/DL scatter of one variant's final clusters (+ intermediate, if any) ---
-# Works for every configured variant, buildable or manual_merge (uses the global
-# `variant` wildcard_constraints above, not just buildable_variants()) — manual_merge
-# just needs its curated tsv to exist first (finalize_gene_clusters.ipynb).
+# Works for every configured variant (uses the global `variant` wildcard_constraints
+# above). Every variant, manual_merge included, now builds its final_clusters.tsv
+# under results/ via its finalize rule, so this just needs that tsv as input.
 rule plot_variant_clusters:
     input:
         final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
