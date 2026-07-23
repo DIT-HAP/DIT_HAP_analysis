@@ -100,6 +100,13 @@ def read_parquet(file_path: Path | str) -> pd.DataFrame | pd.Series:
     obj_type = metadata.get(_OBJ_TYPE_KEY, b"dataframe")
 
     frame = table.to_pandas()
+
+    # Restore duplicate column names if they were renamed during write
+    if b"__original_columns__" in metadata:
+        import ast
+        original_columns = ast.literal_eval(metadata[b"__original_columns__"].decode("utf-8"))
+        frame.columns = original_columns
+
     if obj_type != b"series":
         return frame
 
@@ -140,6 +147,8 @@ def write_parquet(
     - Uses pyarrow for compatibility and performance
     - Creates parent directories if needed
     - Snappy compression provides a good balance of speed and compression ratio
+    - Handles duplicate column names by suffixing them for storage, then restoring
+      on read (intentional byte-faithful quirk for phenotype features)
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -157,6 +166,28 @@ def write_parquet(
         }
     else:
         frame = data
+        extra_metadata = {_OBJ_TYPE_KEY: b"dataframe"}
+
+    # Handle duplicate column names: pyarrow rejects them, but our phenotype-level
+    # features intentionally carry a duplicate "DeletionLibrary_essentiality" column
+    # to match the reference output byte-for-byte. Rename duplicates for storage,
+    # stamp the original names in metadata, and restore them on read.
+    if isinstance(frame, pd.DataFrame) and not frame.columns.is_unique:
+        original_columns = frame.columns.tolist()
+        # Suffix duplicates: DeletionLibrary_essentiality → DeletionLibrary_essentiality__dup1, etc.
+        new_columns = []
+        seen = {}
+        for col in original_columns:
+            if col in seen:
+                seen[col] += 1
+                new_columns.append(f"{col}__dup{seen[col]}")
+            else:
+                seen[col] = 0
+                new_columns.append(col)
+        frame = frame.copy()
+        frame.columns = new_columns
+        extra_metadata[b"__original_columns__"] = str(original_columns).encode("utf-8")
+    else:
         extra_metadata = {_OBJ_TYPE_KEY: b"dataframe"}
 
     table = pa.Table.from_pandas(frame, preserve_index=True)
