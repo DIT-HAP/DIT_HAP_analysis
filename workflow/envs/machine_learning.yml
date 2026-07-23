@@ -11,6 +11,7 @@ dependencies:
   - joblib
   - loguru
   - pip
+  - pyarrow
   - pip:
     # Pinned: mljar defaults (algorithm lists, seeds) differ across versions;
     # pinning keeps AutoML runs reproducible.
