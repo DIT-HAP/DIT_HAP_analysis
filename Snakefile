@@ -8,7 +8,7 @@ import yaml
 
 min_version("9.0")
 
-workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis"
+workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis/.worktrees/optimize-complex-smk"
 
 # This project's analysis parameters (clustering k, enrichment thresholds, ml
 # splits, ...). Unlike datasets.yaml (a data registry read directly below), these
