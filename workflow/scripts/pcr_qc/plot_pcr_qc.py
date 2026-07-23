@@ -12,7 +12,7 @@ control"). Four panels, all deterministic:
   (a) PBL vs PBR primer reads of one library.
   (b) Technical replicate: one sample processed in two upstream projects.
   (c) Biological replicate: two samples within one project.
-  (d) Spike-in dilution linearity (currently a placeholder table; see below).
+  (d) Spike-in dilution linearity (spikein.smk's spike_in_stats.tsv).
 
 Panels (a)-(c) use the domain-agnostic create_scatter_correlation_plot; panel
 (d) uses core.plot_spikein_panel (specific to this figure).
