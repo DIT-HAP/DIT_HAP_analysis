@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-Macromolecular Complex Coherence Analysis
-=========================================
+Gene-Group Coherence Analysis (source-agnostic)
+===============================================
 
-Per-dataset: for every macromolecular complex whose DR>0.3 members number
-between --min-size and --max-size, measures how tightly its member genes
-cluster in the 2D DIT-HAP fitness space and tests that tightness against a
-genome-wide null via a seeded permutation test. Ported from
-DIT_HAP_pipeline/workflow/notebooks/complex_analysis.ipynb (section 5).
+Per-dataset x source: for every group (complex / GO term / ...) whose
+DR>threshold members number between --min-size and --max-size AND whose total
+annotated membership is <= --max-term-genes, measures how tightly its member
+genes cluster in the 2D DIT-HAP fitness space and tests that tightness against
+a genome-wide null via a seeded permutation test. Ported from
+DIT_HAP_pipeline/workflow/notebooks/complex_analysis.ipynb (section 5); now
+generalized to any grouping source via a prepared long-table.
 
 Fitness "points" are the min-max normalized (DR, DL/10) coordinates of each
 gene (the notebook's `normalized_um_DITHAP`, `normalized_lam_DITHAP`: DR is
@@ -19,35 +21,39 @@ relative to random draws of the same number of background genes.
 
 Input
 -----
-- final_clusters.tsv (Systematic ID, A, DR, DL, cluster) from the clustering
-  finalize-variant stage; the rule sources it via final_clusters_path(dataset,
-  selected_variant). Only Systematic ID / A / DR / DL are read here. Legacy
-  releases may still ship the pre-rename um/lam headers -> normalized to DR/DL.
-- PomBase macromolecular_complex_annotation.tsv (one row per complex-member:
-  complex_term_id, GO_term_name, systematic_id, symbol, ...). Maps complexes ->
-  member genes.
+- fitting_results.tsv: the upstream per-gene fitting statistics, systematic id
+  as the index (column 0), with DR/DL fitness columns. Legacy releases may still
+  ship the pre-rename um/lam headers -> normalized to DR/DL. Only the systematic
+  id + DR/DL are read here.
+- group_annotation_long.tsv: the prepared unified long-table from
+  prepare_annotation.py (one row per group-member), with the contract columns
+  (source, group_id, group_name, Systematic ID, Name, n_group_genes). Maps
+  groups -> member genes. n_group_genes = total annotated members (pre-DR-filter).
 
 Output
 ------
-- complex_coherence_metrics.tsv: one row per surviving complex (complex name,
-  term_size, geometric-median centroid, pairwise-distance stats, observed_mpd,
-  z_score, p_value, n_permutations).
-- coherence_analysis.pdf: complex-size histogram + a coherence volcano
-  (z-score vs -log10 permutation p-value, sized by complex size).
+- coherence_metrics.tsv: one row per surviving group, in emission order:
+  source, group_id, group_name, term_size, n_group_genes, covered_genes, then
+  the geometric-median centroid + pairwise-distance stats (centroid_x,
+  centroid_y, median/mean/std/min/max_distance, mpd), observed_mpd, z_score,
+  p_value, n_permutations.
+- coherence_analysis.pdf: group-size histogram + a coherence volcano
+  (z-score vs -log10 permutation p-value, sized by group size).
 
 Usage
 -----
-    python compute_complex_coherence.py \\
-        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
-        --complex-annotation .../macromolecular_complex_annotation.tsv \\
-        --min-size 3 --max-size 300 --dr-threshold 0.3 \\
+    python compute_coherence.py \\
+        --fitting-results .../fitting_results.tsv \\
+        --annotation results/coherence/{dataset}/{source}/group_annotation_long.tsv \\
+        --source go_macrocomplex \\
+        --min-size 3 --max-size 300 --max-term-genes 500 --dr-threshold 0.3 \\
         --n-permutations 1000 --random-state 42 \\
-        --output-metrics results/complex/{dataset}/complex_coherence_metrics.tsv \\
-        --output-figure results/complex/{dataset}/coherence_analysis.pdf
+        --output-metrics results/coherence/{dataset}/{source}/coherence_metrics.tsv \\
+        --output-figure results/coherence/{dataset}/{source}/coherence_analysis.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-20
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -91,8 +97,8 @@ from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
 # GLOBAL CONSTANTS
 # =============================================================================
 # Legacy -> current metric column names (same quirk as
-# workflow/src/clustering/candidates.py's _LEGACY_METRIC_RENAME): some curated
-# final_clusters.tsv releases still ship the pre-rename um/lam headers.
+# workflow/src/clustering/candidates.py's _LEGACY_METRIC_RENAME): some upstream
+# fitting_results.tsv exports still ship the pre-rename um/lam headers.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
 # Min-max normalization ranges for the DIT-HAP fitness "points", byte-faithful
@@ -102,8 +108,10 @@ _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 _DR_NORM_RANGE = (0.0, 1.0)
 _DL_NORM_RANGE = (0.0, 10.0)
 
-# PomBase annotation column -> canonical name used throughout this script.
-_ANNOTATION_RENAME = {"systematic_id": "Systematic ID", "symbol": "Name"}
+# The prepared long-table contract (from prepare_annotation.py / sources.py).
+_LONG_TABLE_COLUMNS = [
+    "source", "group_id", "group_name", "Systematic ID", "Name", "n_group_genes",
+]
 
 
 # =============================================================================
@@ -111,26 +119,34 @@ _ANNOTATION_RENAME = {"systematic_id": "Systematic ID", "symbol": "Name"}
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class CoherenceConfig:
-    """Inputs, outputs, and parameters for the complex coherence analysis."""
-    final_clusters: Path
-    complex_annotation: Path
+    """Inputs, outputs, and parameters for the gene-group coherence analysis."""
+    fitting_results: Path
+    annotation: Path
+    source: str
     output_metrics: Path
     output_figure: Path
     min_size: int = 3
     max_size: int = 300
+    max_term_genes: int = 500
     dr_threshold: float = 0.3
     n_permutations: int = 1000
     random_state: int = 42
+    features: Path | None = None  # WIRED but unused here; Task 5's figure consumes it.
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing or params invalid, then make output dirs."""
-        for path in [self.final_clusters, self.complex_annotation]:
+        required = [self.fitting_results, self.annotation]
+        if self.features is not None:
+            required.append(self.features)
+        for path in required:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         if self.min_size < 2:
             raise ValueError(f"min_size must be >= 2 (pairwise distances need 2 points): {self.min_size}")
         if self.max_size < self.min_size:
             raise ValueError(f"max_size ({self.max_size}) must be >= min_size ({self.min_size})")
+        if self.max_term_genes < self.min_size:
+            raise ValueError(f"max_term_genes ({self.max_term_genes}) must be >= min_size ({self.min_size})")
         if self.n_permutations < 1:
             raise ValueError(f"n_permutations must be >= 1: {self.n_permutations}")
         for out in [self.output_metrics, self.output_figure]:
@@ -158,57 +174,67 @@ def _min_max_normalize(values: np.ndarray, min_value: float, max_value: float) -
     return (values - min_value) / (max_value - min_value)
 
 
-def load_final_clusters(final_clusters_path: Path, dr_threshold: float) -> pd.DataFrame:
-    """Load curated final_clusters.tsv, normalize legacy um/lam -> DR/DL, add fitness points.
+def load_fitting_results(fitting_results_path: Path, dr_threshold: float) -> pd.DataFrame:
+    """Load upstream fitting_results.tsv, normalize legacy um/lam -> DR/DL, add fitness points.
 
-    Adds `norm_DR`/`norm_DL` (the 2D coherence coordinates) and keeps only the
+    The systematic id is the INDEX (column 0), matching how
+    workflow/src/clustering/candidates.py reads it; we reset it to a
+    `Systematic ID` column (robust to whatever the index was named). Adds
+    `norm_DR`/`norm_DL` (the 2D coherence coordinates) and keeps only the
     DR>dr_threshold, fully-fitted genes that make up the genome-wide background.
     """
-    clusters = pd.read_csv(final_clusters_path, sep="\t")
+    fitting = pd.read_csv(fitting_results_path, sep="\t", index_col=0)
+    fitting = fitting.reset_index()
+    # After reset_index the id column keeps the index's name (e.g. "Systematic ID",
+    # "gene_systematic_id", or "index" if the index was unnamed). Normalize it.
+    if "Systematic ID" not in fitting.columns:
+        first_col = fitting.columns[0]
+        logger.info(f"Renaming fitting_results index column '{first_col}' -> 'Systematic ID'")
+        fitting = fitting.rename(columns={first_col: "Systematic ID"})
+
     rename = {
         old: new
         for old, new in _LEGACY_METRIC_RENAME.items()
-        if old in clusters.columns and new not in clusters.columns
+        if old in fitting.columns and new not in fitting.columns
     }
     if rename:
         logger.info(f"Normalizing legacy metric columns: {rename}")
-        clusters = clusters.rename(columns=rename)
+        fitting = fitting.rename(columns=rename)
 
     for required in ["Systematic ID", "DR", "DL"]:
-        if required not in clusters.columns:
-            raise ValueError(f"final_clusters.tsv missing required column '{required}' (have: {list(clusters.columns)})")
+        if required not in fitting.columns:
+            raise ValueError(f"fitting_results.tsv missing required column '{required}' (have: {list(fitting.columns)})")
 
     # Genes must have both FINITE fitness coordinates to be placed in the 2D
     # space. Map +/-inf to NaN first so dropna removes it too: an inf DR/DL
     # would normalize to inf and poison pdist (observed_mpd=nan, z_score=nan,
     # and `null_mpds <= nan` -> all-False -> a spurious p_value=0.0 row).
-    clusters = clusters.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
-    clusters["norm_DR"] = _min_max_normalize(clusters["DR"].to_numpy(dtype=float), *_DR_NORM_RANGE)
-    clusters["norm_DL"] = _min_max_normalize(clusters["DL"].to_numpy(dtype=float), *_DL_NORM_RANGE)
+    fitting = fitting.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
+    fitting["norm_DR"] = _min_max_normalize(fitting["DR"].to_numpy(dtype=float), *_DR_NORM_RANGE)
+    fitting["norm_DL"] = _min_max_normalize(fitting["DL"].to_numpy(dtype=float), *_DL_NORM_RANGE)
 
     # Section 5.2: filter to the non-WT / depleting genes (DR > threshold).
-    background = clusters[clusters["DR"] > dr_threshold].copy()
+    background = fitting[fitting["DR"] > dr_threshold].copy()
     logger.info(
-        f"final_clusters.tsv: {len(clusters):,} fitted genes -> "
+        f"fitting_results.tsv: {len(fitting):,} fitted genes -> "
         f"{len(background):,} background genes with DR > {dr_threshold}"
     )
     return background
 
 
-def load_complex_annotation(annotation_path: Path) -> pd.DataFrame:
-    """Load PomBase macromolecular_complex_annotation.tsv (complex -> member genes)."""
-    annotation = pd.read_csv(annotation_path, sep="\t").rename(columns=_ANNOTATION_RENAME)
-    for required in ["complex_term_id", "GO_term_name", "Systematic ID"]:
-        if required not in annotation.columns:
+def load_long_table(annotation_path: Path) -> pd.DataFrame:
+    """Load the prepared unified long-table (group -> member genes) + validate its contract."""
+    long_table = pd.read_csv(annotation_path, sep="\t")
+    for required in _LONG_TABLE_COLUMNS:
+        if required not in long_table.columns:
             raise ValueError(
-                f"complex annotation missing required column '{required}' (have: {list(annotation.columns)})"
+                f"annotation long-table missing required column '{required}' (have: {list(long_table.columns)})"
             )
-    keep = [c for c in ["complex_term_id", "GO_term_name", "Systematic ID", "Name"] if c in annotation.columns]
-    return annotation[keep].drop_duplicates()
+    return long_table
 
 
 # =============================================================================
-# CORE LOGIC — coherence per complex
+# CORE LOGIC — coherence per group
 # =============================================================================
 def coherence_metrics(points: np.ndarray) -> dict:
     """Geometric-median centroid + descriptive stats of all pairwise L2 distances.
@@ -246,32 +272,45 @@ def coherence_metrics(points: np.ndarray) -> dict:
     }
 
 
-def build_complex_groups(
-    background: pd.DataFrame, annotation: pd.DataFrame, min_size: int, max_size: int
+def build_groups(
+    background: pd.DataFrame,
+    long_table: pd.DataFrame,
+    min_group_size: int,
+    max_group_size: int,
+    max_term_genes: int,
 ) -> dict[str, pd.DataFrame]:
-    """Map surviving complexes -> their DR>threshold member rows.
+    """Map surviving groups (keyed on group_id) -> their DR>threshold member rows.
 
-    Merges the DR>threshold background genes onto the complex annotation
-    (inner join, so only members present in the background survive), groups by
-    complex name, and keeps groups whose member count is within
-    [min_size, max_size]. Byte-faithful to the notebook's section 5.2/5.3:
-    the size filter counts DR>threshold members, and the notebook itself keys
-    coherence groups on `GO_term_name` (the human-readable complex name).
+    Merges the DR>threshold background genes onto the long-table (inner join, so
+    only members present in the background survive), groups by `group_id`, and
+    keeps groups that pass BOTH filters:
+      - total annotated membership (`n_group_genes`, pre-DR-filter) <= max_term_genes,
+        so overly-broad terms are dropped before scoring; and
+      - DR>threshold member count within [min_group_size, max_group_size].
+    Byte-faithful to the notebook's section 5.2/5.3 (the size filter counts
+    DR>threshold members); keying on the stable `group_id` (not the human name)
+    matches how the long-table dedups/counts in sources.py.
     """
-    # Merge complex membership onto the already DR-filtered background so both
-    # the observed complex points AND the eligible member set are DR>threshold.
-    merged = annotation.merge(
+    # Merge group membership onto the already DR-filtered background so both the
+    # observed group points AND the eligible member set are DR>threshold.
+    merged = long_table.merge(
         background[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID", how="inner"
     )
     groups = {}
-    for name, group in merged.groupby("GO_term_name"):
-        # A gene may be annotated to a complex more than once; dedupe by gene.
-        group = group.drop_duplicates(subset="Systematic ID")
-        if min_size <= len(group) <= max_size:
-            groups[name] = group
+    for group_id, grp in merged.groupby("group_id"):
+        # A gene may be annotated to a group more than once; dedupe by gene.
+        grp = grp.drop_duplicates(subset="Systematic ID")
+        # n_group_genes is per-group-constant (sources.py sets it via
+        # groupby(group_id).transform("size")), so .iloc[0] safely reads it.
+        n_total = int(grp["n_group_genes"].iloc[0])
+        if n_total > max_term_genes:
+            continue
+        if min_group_size <= len(grp) <= max_group_size:
+            groups[group_id] = grp
     logger.info(
-        f"{merged['GO_term_name'].nunique():,} complexes with >=1 background member -> "
-        f"{len(groups):,} with {min_size} <= size <= {max_size}"
+        f"{merged['group_id'].nunique():,} groups with >=1 background member -> "
+        f"{len(groups):,} with {min_group_size} <= size <= {max_group_size} "
+        f"and n_group_genes <= {max_term_genes}"
     )
     return groups
 
@@ -283,16 +322,16 @@ def compute_coherence_table(
     n_permutations: int,
     random_state: int,
 ) -> pd.DataFrame:
-    """One coherence row per complex: metrics + permutation z-score of the MPD.
+    """One coherence row per group: identity + metrics + permutation z-score of the MPD.
 
     `background_points` is the (n_background, 2) genome-wide point cloud;
-    `background_index` maps Systematic ID -> row index into it, so a complex's
+    `background_index` maps Systematic ID -> row index into it, so a group's
     members are addressed as row indices for the permutation null (the null
     draws random background rows of the same count).
     """
     rows = []
-    for name, group in groups.items():
-        member_ids = group["Systematic ID"].tolist()
+    for group_id, grp in groups.items():
+        member_ids = grp["Systematic ID"].tolist()
         member_indices = [background_index[gid] for gid in member_ids]
         member_points = background_points[member_indices]
 
@@ -310,10 +349,12 @@ def compute_coherence_table(
         )
 
         rows.append({
-            "complex": name,
-            "complex_term_id": group["complex_term_id"].iloc[0],
-            "term_size": len(group),
-            "covered_genes": ", ".join(sorted(group["Name"].dropna().astype(str))) if "Name" in group else "",
+            "source": grp["source"].iloc[0],
+            "group_id": group_id,
+            "group_name": grp["group_name"].iloc[0],
+            "term_size": len(grp),
+            "n_group_genes": int(grp["n_group_genes"].iloc[0]),
+            "covered_genes": ", ".join(sorted(grp["Name"].dropna().astype(str))) if "Name" in grp else "",
             **metrics,
             "observed_mpd": metrics["mpd"],
             "z_score": z_score,
@@ -371,18 +412,20 @@ def plot_coherence(table: pd.DataFrame) -> plt.Figure:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: CoherenceConfig) -> None:
-    """Load -> filter -> per-complex coherence + permutation test -> TSV + figure."""
+    """Load -> filter -> per-group coherence + permutation test -> TSV + figure."""
     config.validate()
 
-    background = load_final_clusters(config.final_clusters, config.dr_threshold)
-    annotation = load_complex_annotation(config.complex_annotation)
+    background = load_fitting_results(config.fitting_results, config.dr_threshold)
+    long_table = load_long_table(config.annotation)
 
     # Genome-wide background point cloud + Systematic ID -> row index map.
     background = background.reset_index(drop=True)
     background_points = background[["norm_DR", "norm_DL"]].to_numpy(dtype=float)
     background_index = {gid: i for i, gid in enumerate(background["Systematic ID"])}
 
-    groups = build_complex_groups(background, annotation, config.min_size, config.max_size)
+    groups = build_groups(
+        background, long_table, config.min_size, config.max_size, config.max_term_genes
+    )
     table = compute_coherence_table(
         groups, background_points, background_index, config.n_permutations, config.random_state
     )
@@ -395,7 +438,7 @@ def run(config: CoherenceConfig) -> None:
 
     n_coherent = int((table["z_score"] < 0).sum()) if not table.empty else 0
     logger.success(
-        f"Coherence: {len(table):,} complexes scored, {n_coherent:,} coherent (z<0); "
+        f"[{config.source}] Coherence: {len(table):,} groups scored, {n_coherent:,} coherent (z<0); "
         f"wrote {config.output_metrics}"
     )
 
@@ -405,11 +448,14 @@ def run(config: CoherenceConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Compute macromolecular complex coherence metrics")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
-    parser.add_argument("--complex-annotation", type=Path, required=True, help="PomBase macromolecular_complex_annotation.tsv")
-    parser.add_argument("--min-size", type=int, default=3, help="Minimum DR>threshold members per complex")
-    parser.add_argument("--max-size", type=int, default=300, help="Maximum DR>threshold members per complex")
+    parser = argparse.ArgumentParser(description="Compute gene-group coherence metrics")
+    parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv (systematic id as index col 0)")
+    parser.add_argument("--annotation", type=Path, required=True, help="Prepared group_annotation_long.tsv (long-table from prepare_annotation.py)")
+    parser.add_argument("--source", type=str, required=True, help="Grouping-database source name (fan-out dimension)")
+    parser.add_argument("--features", type=Path, default=None, help="Optional gene features TSV (wired for Task 5's figure; unused here)")
+    parser.add_argument("--min-size", type=int, default=3, help="Minimum DR>threshold members per group")
+    parser.add_argument("--max-size", type=int, default=300, help="Maximum DR>threshold members per group")
+    parser.add_argument("--max-term-genes", type=int, default=500, help="Drop groups whose total annotated membership (n_group_genes) exceeds this")
     parser.add_argument("--dr-threshold", type=float, default=0.3, help="Keep genes with DR > this")
     parser.add_argument("--n-permutations", type=int, default=1000, help="Permutation null draws")
     parser.add_argument("--random-state", type=int, default=42, help="Permutation RNG seed")
@@ -425,15 +471,18 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = CoherenceConfig(
-            final_clusters=args.final_clusters,
-            complex_annotation=args.complex_annotation,
+            fitting_results=args.fitting_results,
+            annotation=args.annotation,
+            source=args.source,
             output_metrics=args.output_metrics,
             output_figure=args.output_figure,
             min_size=args.min_size,
             max_size=args.max_size,
+            max_term_genes=args.max_term_genes,
             dr_threshold=args.dr_threshold,
             n_permutations=args.n_permutations,
             random_state=args.random_state,
+            features=args.features,
         )
         run(config)
     except ValueError as e:
