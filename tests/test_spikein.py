@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
 
-from workflow.scripts.spikein.run_spikein_analysis import (
+from workflow.src.spikein.core import (
     assign_ratio_by_order,
     build_spike_sites_df,
     compute_linear_regression_stats,

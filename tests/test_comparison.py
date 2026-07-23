@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.scripts.comparison.compare_large_scale_studies import (
+from workflow.src.comparison.core import (
     clip_density_columns,
     compute_pearson_r,
     CLIP_UPPER,

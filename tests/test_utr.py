@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.scripts.utr.classify_utr_insertions import (
+from workflow.src.utr.core import (
     assign_UTR_type,
     UTR_DISTANCE_THRESHOLD,
     filter_intergenic_near_gene,

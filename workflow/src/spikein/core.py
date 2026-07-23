@@ -1,51 +1,27 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Spike-In Dilution Linearity QC
-================================
+Spike-In Dilution Linearity QC — Core Logic
+============================================
 
-Standalone (no {dataset} wildcard) analysis of the Spikein calibration
-project: extracts read counts at 5 known spike-in insertion sites from the
-filtered insertion table, assigns each sample its known dilution ratio by
-read-count rank, and fits a log-log linear regression of read ratio vs
-dilution ratio to check assay linearity. Ported from
-DIT_HAP_pipeline/workflow/notebooks/spike_in.ipynb.
-
-Input
------
-- Filtered raw-reads insertion table (Spikein's pre-release results/13_filtered/
-  raw_reads.filtered.tsv — release/ never packages this file, see spikein.smk),
-  indexed by [Chr, Coordinate, Strand] (a 4th Target level, if present, is
-  dropped), columned by [Sample, Timepoint] (one Timepoint per dilution point).
-
-Output
-------
-- spike_in_stats.tsv: long-form per-site/per-sample table (Reads, Ratio,
-  Relative_Read_Ratio, Relative_Dilution_Ratio).
-- spike_in_correlation.pdf: scatter of the 5 sites + combined linear fit.
+Shared constants, ratio-assignment, stats, and figure builders for the
+spike-in linearity QC. Ported from
+DIT_HAP_pipeline/workflow/notebooks/spike_in.ipynb and factored out of the
+original single-script port so the stage can be split into independent
+Snakemake rules (prepare -> compute stats / plot correlation), each
+re-runnable on its own.
 
 Usage
 -----
-    python run_spikein_analysis.py \\
-        --raw-reads .../Spikein/results/13_filtered/raw_reads.filtered.tsv \\
-        --output-stats results/spikein/spike_in_stats.tsv \\
-        --output-figure results/spikein/spike_in_correlation.pdf \\
-        --spike-in-sites-json '{"DY215": {"chr": "I", "coord": 3749394, "strand": "-"}, ...}'
-
-Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
-Date:     2026-07-19
-Version:  1.0.0
+    from workflow.src.spikein.core import (
+        SPIKE_IN_RATIO, DEFAULT_SPIKE_IN_SITES,
+        build_spike_in_stats, compute_linear_regression_stats,
+        plot_spike_in_correlation,
+    )
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import argparse
-import json
-import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -55,13 +31,12 @@ import pandas as pd
 # 3. Third-party Imports
 import matplotlib
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
+matplotlib.use("Agg")  # headless: builders only write PDFs, never display
 import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 from scipy.stats import linregress  # noqa: E402
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.plotting.style import COLORS  # noqa: E402
 
 
@@ -82,34 +57,6 @@ DEFAULT_SPIKE_IN_SITES = {
     "DY339": {"chr": "II", "coord": 1157130, "strand": "-"},
     "DY348": {"chr": "II", "coord": 3065244, "strand": "-"},
 }
-
-
-# =============================================================================
-# CONFIGURATION & DATACLASSES
-# =============================================================================
-@dataclass(kw_only=True, frozen=True)
-class SpikeinConfig:
-    """Inputs, outputs, and spike-in site coordinates for the linearity QC."""
-    raw_reads: Path
-    output_stats: Path
-    output_figure: Path
-    spike_in_sites: dict[str, dict]
-
-    def validate(self) -> None:
-        """Raise ValueError if the input is missing, then ensure output dirs exist."""
-        if not self.raw_reads.exists():
-            raise ValueError(f"Required input not found: {self.raw_reads}")
-        for out in [self.output_stats, self.output_figure]:
-            out.parent.mkdir(parents=True, exist_ok=True)
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
 
 
 # =============================================================================
@@ -238,71 +185,3 @@ def plot_spike_in_correlation(spike_in_stats: pd.DataFrame, stats: dict[str, flo
     fig.tight_layout()
     fig.savefig(output, dpi=300, bbox_inches="tight")
     plt.close(fig)
-
-
-@logger.catch(reraise=True)
-def run(config: SpikeinConfig) -> None:
-    """Load raw reads -> extract spike-in sites -> assign ratios -> fit -> save TSV + PDF."""
-    config.validate()
-
-    raw_reads = pd.read_csv(config.raw_reads, sep="\t", header=[0, 1], index_col=[0, 1, 2, 3])
-    spike_in_stats = build_spike_in_stats(raw_reads, config.spike_in_sites)
-    spike_in_stats.to_csv(config.output_stats, sep="\t")
-
-    # The lowest-read sample per site floors at Reads=0 -> Relative_Read_Ratio
-    # = log2(0) = -inf (kept in the TSV as the true computed value). Excluded
-    # here so the fit/plot aren't skewed or broken by a non-finite point.
-    finite = spike_in_stats[np.isfinite(spike_in_stats["Relative_Read_Ratio"])]
-
-    stats = compute_linear_regression_stats(
-        finite["Relative_Dilution_Ratio"], finite["Relative_Read_Ratio"]
-    )
-    plot_spike_in_correlation(finite, stats, config.output_figure)
-
-    logger.success(
-        f"Spike-in linearity: slope={stats['slope']:.3f}, R2={stats['r2']:.3f}, "
-        f"p={stats['p_value']:.2e} ({len(spike_in_stats)} site x sample rows)"
-    )
-
-
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Spike-in dilution linearity QC")
-    parser.add_argument("--raw-reads", type=Path, required=True, help="Filtered raw-reads insertion table (tsv)")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output long-form spike-in stats TSV")
-    parser.add_argument("--output-figure", type=Path, required=True, help="Output correlation figure PDF")
-    parser.add_argument(
-        "--spike-in-sites-json", type=str, default=None,
-        help="JSON dict of {strain: {chr, coord, strand}} (default: the 5 hardcoded DY sites)",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
-    return parser.parse_args()
-
-
-def main() -> int:
-    """Main orchestrator: build config, run the analysis, report results."""
-    args = parse_args()
-    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
-    try:
-        spike_in_sites = (
-            json.loads(args.spike_in_sites_json) if args.spike_in_sites_json else DEFAULT_SPIKE_IN_SITES
-        )
-        config = SpikeinConfig(
-            raw_reads=args.raw_reads,
-            output_stats=args.output_stats,
-            output_figure=args.output_figure,
-            spike_in_sites=spike_in_sites,
-        )
-        run(config)
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    setup_logger()
-    sys.exit(main())

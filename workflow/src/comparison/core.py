@@ -1,66 +1,34 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Pairwise Fitness Comparison with Other Large-Scale Studies
-============================================================
+Pairwise Fitness Comparison — Core Logic
+=========================================
 
-Per-dataset: merges the curated DIT-HAP gene clusters with the gRNA (HD data)
-fitted parameters and the PomBase-derived protein-features table, then
-correlates the DIT-HAP fitness metric against every other large-scale
-fitness/depletion readout available (gRNA um, Barseq, transposon integration
-density, colony size, growth rate, ...). Produces a Pearson r + p-value table
-and a pairwise scatter matrix with a Gaussian-KDE density overlay per panel.
-Ported from
-DIT_HAP_pipeline/workflow/notebooks/compare_with_other_large_scale_studies.ipynb.
+Shared constants, loaders, merge/stats functions, and figure builders for the
+large-scale-study comparison stage. Ported from
+DIT_HAP_pipeline/workflow/notebooks/compare_with_other_large_scale_studies.ipynb
+and factored out of the original single-script port so the stage can be split
+into independent Snakemake rules (prepare fitness table -> compute stats ->
+plot figures), each re-runnable on its own.
 
 This is a simplified port: the notebook's altair repeat-grid, the KEGG BRITE
 pathway jitter charts, and the per-GO-term feature-space PDFs are out of scope
 here — only the clip-and-correlate fitness comparison + KDE scatter the task
 calls for. The pairwise column selection is defensive: only fitness columns
 actually present (with enough non-NaN data) are correlated/plotted, so the
-script never KeyErrors on a schema that ships a subset of the study columns.
-
-Input
------
-- final_clusters.tsv (Systematic ID + the DIT-HAP fitness metric; DR is the
-  current name, legacy releases ship it as `um`, normalized on load) from the
-  clustering finalize-variant stage, sourced via final_clusters_path(dataset,
-  selected_variant). Only Systematic ID + DR are read here.
-- gRNA HD-data fitted parameters TSV (Systematic ID + `um` gRNA fitness metric).
-- pombe_coding_gene_protein_features.tsv (gene_systematic_id + the other
-  large-scale study columns: Barseq_from_dulab/koch, integration density, ipkm,
-  uipkm, colony_size_Malecki2016, Max Growth Rate, Colony Formation).
-
-Output
-------
-- fitness_correlation_stats.tsv: long-form (col_x, col_y, pair, r, p_value, n),
-  one row per unordered pair of available fitness columns.
-- pairwise_fitness_comparison.pdf: scatter matrix (one panel per pair) with a
-  Gaussian-KDE density overlay and Pearson r/p/n annotation.
+downstream scripts never KeyError on a schema that ships a subset of the
+study columns.
 
 Usage
 -----
-    python compare_large_scale_studies.py \\
-        --final-clusters results/clustering/final/{dataset}/{variant}/final_clusters.tsv \\
-        --protein-features results/features/{ver}/pombe_coding_gene_protein_features.tsv \\
-        --grna-data resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
-        --clip-upper 200 \\
-        --output-stats results/comparison/{dataset}/fitness_correlation_stats.tsv \\
-        --output-figures results/comparison/{dataset}/pairwise_fitness_comparison.pdf
-
-Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
-Date:     2026-07-21
-Version:  1.0.0
+    from workflow.src.comparison.core import (
+        load_final_clusters, build_fitness_table, select_fitness_columns,
+        compute_correlation_stats, plot_pairwise_comparison,
+    )
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import argparse
-import sys
-from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
@@ -72,13 +40,11 @@ from scipy.stats import gaussian_kde, pearsonr
 # 3. Third-party Imports
 import matplotlib
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
+matplotlib.use("Agg")  # headless: builders only write PDFs, never display
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
 
 # =============================================================================
@@ -126,36 +92,8 @@ MIN_PAIRS_FOR_CORRELATION = 3
 
 
 # =============================================================================
-# CONFIGURATION & DATACLASSES
+# LOADERS
 # =============================================================================
-@dataclass(kw_only=True, frozen=True)
-class ComparisonConfig:
-    """Inputs, parameters, and outputs for the pairwise fitness comparison."""
-    final_clusters: Path
-    protein_features: Path
-    grna_data: Path
-    clip_upper: float
-    output_stats: Path
-    output_figures: Path
-
-    def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.final_clusters, self.protein_features, self.grna_data]:
-            if not path.exists():
-                raise ValueError(f"Required input not found: {path}")
-        for out in [self.output_stats, self.output_figures]:
-            out.parent.mkdir(parents=True, exist_ok=True)
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
-
-
 def load_final_clusters(final_clusters_path: Path) -> pd.DataFrame:
     """Load the curated cluster table, normalizing legacy um/lam -> DR/DL columns."""
     clusters = pd.read_csv(final_clusters_path, sep="\t")
@@ -373,79 +311,3 @@ def plot_pairwise_comparison(fitness_table: pd.DataFrame, pairs: list[tuple[str,
     fig.suptitle("Pairwise fitness comparison across large-scale studies", y=1.01)
     fig.tight_layout()
     return fig
-
-
-# =============================================================================
-# CORE LOGIC — orchestration
-# =============================================================================
-@logger.catch(reraise=True)
-def run(config: ComparisonConfig) -> None:
-    """Load -> merge -> clip -> correlate -> save TSV + scatter-matrix PDF."""
-    config.validate()
-
-    final_clusters = load_final_clusters(config.final_clusters)
-    protein_features = pd.read_csv(config.protein_features, sep="\t")
-    grna_data = pd.read_csv(config.grna_data, sep="\t")
-
-    fitness_table = build_fitness_table(
-        final_clusters, protein_features, grna_data, clip_upper=config.clip_upper
-    )
-    columns = select_fitness_columns(fitness_table)
-
-    stats = compute_correlation_stats(fitness_table, columns)
-    stats.to_csv(config.output_stats, sep="\t", index=False)
-
-    # Drive the plot grid from the surviving stats pairs (post per-pair overlap
-    # filter) so PDF panels and TSV rows always agree on which pairs exist.
-    surviving_pairs = list(zip(stats["col_x"], stats["col_y"]))
-    fig = plot_pairwise_comparison(fitness_table, surviving_pairs)
-    with PdfPages(config.output_figures) as pdf:
-        pdf.savefig(fig, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    logger.success(
-        f"Comparison: {len(stats):,} fitness-column pairs correlated across "
-        f"{len(columns):,} columns ({len(fitness_table):,} genes)"
-    )
-
-
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Pairwise fitness comparison with other large-scale studies")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
-    parser.add_argument("--protein-features", type=Path, required=True, help="pombe_coding_gene_protein_features.tsv")
-    parser.add_argument("--grna-data", type=Path, required=True, help="gRNA HD-data fitted parameters TSV")
-    parser.add_argument("--clip-upper", type=float, default=CLIP_UPPER, help="Upper cap for integration-density columns")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output correlation stats TSV")
-    parser.add_argument("--output-figures", type=Path, required=True, help="Output pairwise comparison PDF")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
-    return parser.parse_args()
-
-
-def main() -> int:
-    """Main orchestrator: build config, run the analysis, report results."""
-    args = parse_args()
-    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
-    try:
-        config = ComparisonConfig(
-            final_clusters=args.final_clusters,
-            protein_features=args.protein_features,
-            grna_data=args.grna_data,
-            clip_upper=args.clip_upper,
-            output_stats=args.output_stats,
-            output_figures=args.output_figures,
-        )
-        run(config)
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    setup_logger()
-    sys.exit(main())
-

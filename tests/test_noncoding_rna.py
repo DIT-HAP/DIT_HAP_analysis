@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from workflow.scripts.noncoding_rna.analyze_noncoding_rna import (
+from workflow.src.noncoding_rna.core import (
     normalize_chromosome_names,
     merge_gtrnadb_by_position,
     extract_tRNA_amino_acid_and_anticodon,

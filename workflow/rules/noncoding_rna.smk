@@ -2,11 +2,15 @@
 # noncoding_rna.smk — Non-coding RNA depletion analysis
 # =============================================================================
 #
-# Per-dataset: merges non-coding-gene depletion stats with GtRNAdb tRNA
-# annotations (matched by chr+start+end, NOT by name) and Marguerat 2012 mRNA
-# abundance, then characterizes nuclear tRNA depletion (copy number,
-# amino-acid/anticodon, DR). Single rule (no prepare/compute split — data is
-# tiny and self-contained, same shape as coverage.smk / verification.smk).
+# Split into 3 rules so the process and results are separated for
+# readability/maintainability, same shape as verification.smk:
+#   prepare_ncrna_table  -> combined / nuclear_trnas parquet intermediates
+#                           (the single fan-out point)
+#   compute_ncrna_stats  -> per-nuclear-tRNA stats TSV
+#   plot_ncrna_figures   -> Feature-type donut + tRNA copy-number PDF
+# The two downstream rules depend only on prepare_ncrna_table's output, so
+# editing e.g. the figures never forces the stats TSV to rebuild. Ported from
+# non_coding_RNA_analysis.ipynb.
 #
 # DATA-SOURCE NOTE (deviation from the plan skeleton — see Task 4 report):
 # non-coding-gene curve fitting is NOT part of the DIT_HAP_snakemake release
@@ -26,8 +30,11 @@ _NONCODING_FITTING = {
     ),
 }
 
+# Parquet intermediates shared by the two downstream rules.
+_NCWORK = "results/noncoding_rna/{dataset}/_work"
 
-rule analyze_noncoding_rna:
+
+rule prepare_ncrna_table:
     input:
         ncrna_fitting=lambda wc: _NONCODING_FITTING[wc.dataset],
         ncrna_bed=lambda wc: (
@@ -37,21 +44,61 @@ rule analyze_noncoding_rna:
         gtrnadb_bed="resources/external/pombase/schiPomb_972H-tRNAs.bed",
         marguerat_excel="resources/literature/margueratQuantitativeAnalysisFission2012.xlsx",
     output:
-        stats="results/noncoding_rna/{dataset}/ncrna_stats.tsv",
-        figures="results/noncoding_rna/{dataset}/ncrna_analysis.pdf",
+        combined=f"{_NCWORK}/combined.parquet",
+        nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
     log:
-        "logs/noncoding_rna/analyze_noncoding_rna_{dataset}.log",
+        "logs/noncoding_rna/prepare_ncrna_table_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
-        "*** [noncoding_rna] Analyzing ncRNA depletion for {wildcards.dataset}..."
+        "*** [noncoding_rna] Preparing ncRNA tables for {wildcards.dataset}..."
     shell:
         """
-        python workflow/scripts/noncoding_rna/analyze_noncoding_rna.py \
+        python workflow/scripts/noncoding_rna/prepare_ncrna_table.py \
             --ncrna-fitting {input.ncrna_fitting} \
             --ncrna-bed {input.ncrna_bed} \
             --gtrnadb-bed {input.gtrnadb_bed} \
             --marguerat-excel {input.marguerat_excel} \
-            --output-stats {output.stats} \
+            --output-combined {output.combined} \
+            --output-nuclear-trnas {output.nuclear_trnas} &> {log}
+        """
+
+
+rule compute_ncrna_stats:
+    input:
+        nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
+    output:
+        stats="results/noncoding_rna/{dataset}/ncrna_stats.tsv",
+    log:
+        "logs/noncoding_rna/compute_ncrna_stats_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [noncoding_rna] Computing ncRNA stats for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/noncoding_rna/compute_ncrna_stats.py \
+            --nuclear-trnas {input.nuclear_trnas} \
+            --output-stats {output.stats} &> {log}
+        """
+
+
+rule plot_ncrna_figures:
+    input:
+        combined=f"{_NCWORK}/combined.parquet",
+        nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
+    output:
+        figures="results/noncoding_rna/{dataset}/ncrna_analysis.pdf",
+    log:
+        "logs/noncoding_rna/plot_ncrna_figures_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [noncoding_rna] Plotting ncRNA figures for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/noncoding_rna/plot_ncrna_figures.py \
+            --combined {input.combined} \
+            --nuclear-trnas {input.nuclear_trnas} \
             --output-figures {output.figures} &> {log}
         """

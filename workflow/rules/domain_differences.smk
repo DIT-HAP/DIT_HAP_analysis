@@ -13,11 +13,24 @@
 # Deterministic distillation of the visualization notebook
 # DIT_HAP_pipeline/workflow/notebooks/genes_with_domain_differences.ipynb (the
 # notebook itself only scatter-plots insertions + relies on human-curated
-# spreadsheets; see the script docstring for the notebook-vs-script deviation).
+# spreadsheets; see workflow/src/domain_differences/core.py for the
+# notebook-vs-script deviation).
 #
-# Single rule (no prepare/compute split — same shape as utr.smk/coverage.smk).
+# Split into 2 rules so the loading/reindexing step and the core statistics
+# step are independently re-runnable:
+#   prepare_domain_data  -> gene_result / annotations parquet intermediates
+#                           (legacy metric normalization + duplicate-collapsed,
+#                           fitting_results-reindexed annotations)
+#   compute_domain_stats  -> domain_candidate_stats.tsv (in-gene filter +
+#                            insertion_fraction + per-gene aggregation)
+# This module only produces a stats TSV (no figure), so the split follows the
+# "load+normalize inputs" vs "core statistics logic" shape rather than a
+# stats/figure split.
 
-rule compute_domain_stats:
+_DWORK = "results/domain_differences/{dataset}/_work"
+
+
+rule prepare_domain_data:
     input:
         fitting_results=lambda wc: (
             f"{DATASETS['snakemake_repo']}/"
@@ -32,6 +45,30 @@ rule compute_domain_stats:
             f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
         ),
     output:
+        gene_result=f"{_DWORK}/gene_result.parquet",
+        annotations=f"{_DWORK}/annotations.parquet",
+    log:
+        "logs/domain_differences/prepare_domain_data_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [domain_differences] Preparing gene/annotation tables for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/domain_differences/prepare_domain_data.py \
+            --fitting-results {input.fitting_results} \
+            --annotations {input.annotations} \
+            --gene-level {input.gene_level} \
+            --output-gene-result {output.gene_result} \
+            --output-annotations {output.annotations} &> {log}
+        """
+
+
+rule compute_domain_stats:
+    input:
+        gene_result=f"{_DWORK}/gene_result.parquet",
+        annotations=f"{_DWORK}/annotations.parquet",
+    output:
         stats="results/domain_differences/{dataset}/domain_candidate_stats.tsv",
     params:
         dr_threshold=0.15,
@@ -44,9 +81,8 @@ rule compute_domain_stats:
     shell:
         """
         python workflow/scripts/domain_differences/compute_domain_stats.py \
-            --fitting-results {input.fitting_results} \
+            --gene-result {input.gene_result} \
             --annotations {input.annotations} \
-            --gene-level {input.gene_level} \
             --dr-threshold {params.dr_threshold} \
             --output-stats {output.stats} &> {log}
         """

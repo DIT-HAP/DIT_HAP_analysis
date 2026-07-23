@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.scripts.domain_differences.compute_domain_stats import (
+from workflow.src.domain_differences.core import (
     DR_THRESHOLD,
     IN_GENE_FILTER,
     _normalize_legacy_metrics,

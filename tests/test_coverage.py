@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
-from workflow.scripts.coverage.compute_coverage_stats import (
+from workflow.src.coverage.core import (
     IN_GENE_FILTER,
     compute_insertion_coverage,
     compute_gene_coverage,

@@ -1,67 +1,33 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Non-coding RNA Depletion Analysis
-===================================
+Non-coding RNA (tRNA) Depletion Analysis — Core Logic
+======================================================
 
-Per-dataset: merges non-coding-gene DIT-HAP fitting results with the ncRNA
-genome-region bed, GtRNAdb tRNA annotations (matched by chr+start+end, NOT by
-name), and Marguerat 2012 mRNA abundance, then characterizes nuclear tRNA
-depletion (tRNA copy number, amino-acid/anticodon breakdown, DR distribution).
-Ported from
-DIT_HAP_pipeline/workflow/notebooks/non_coding_RNA_analysis.ipynb.
+Shared constants, loaders, merge/parse functions, tRNA characterization, and
+figure builders for the non-coding RNA depletion stage. Ported from
+DIT_HAP_pipeline/workflow/notebooks/non_coding_RNA_analysis.ipynb and factored
+out of the original single-script port so the stage can be split into
+independent Snakemake rules (prepare -> compute stats / plot figures), each
+re-runnable on its own.
 
 This is a simplified port: the notebook's telomere/centromere Location
 categorization and the per-tRNA flanking-sequence nucleotide heatmap (which
 needs the genome FASTA + BioPython) are out of scope here — only the
 tRNA-annotation merge, copy-number, and depletion summary the task calls for.
 
-Input
------
-- Non-coding-gene fitting_results.tsv (Systematic ID + per-gene depletion
-  stats). Legacy releases ship the pre-rename um/lam headers instead of DR/DL;
-  normalized on load (same quirk as coverage.smk / verification's load_gene_level).
-- ncRNA genome-region bed (`#Chr Start End ... Feature Systematic ID Type Name
-  ...`) — provides the genomic coordinates + Feature type per ncRNA gene.
-- GtRNAdb tRNA bed (schiPomb_972H-tRNAs.bed, headerless 12-col BED) — carries
-  the GtRNAdb_Name (e.g. "tRNA-Ala-AGC-1-1") the anticodon is parsed from. Its
-  chromosome names are "chrI/chrII/chrIII" and are normalized to "I/II/III"
-  before the positional merge (source-notebook quirk).
-- Marguerat 2012 xlsx (Table_S2, comment="#"): MM1/MM2/MN1/MN2.tot.cpc_ex
-  columns indexed on Systematic.name; mean per condition
-  (EMM_Proliferating = mean(MM1,MM2), EMM_Nitrogen_Starved = mean(MN1,MN2)).
-
-Output
-------
-- ncrna_stats.tsv: per-nuclear-tRNA table (Systematic ID, GtRNAdb_Name,
-  Amino_Acid, Anticodon, tRNA_copy_number, DR/DL, mRNA abundance means).
-- ncrna_analysis.pdf: ncRNA Feature-type donut + tRNA copy-number distribution
-  + DR-by-copy-number scatter.
-
 Usage
 -----
-    python analyze_noncoding_rna.py \\
-        --ncrna-fitting .../Non_coding_genes_Gene_level_statistics_fitted.tsv \\
-        --ncrna-bed resources/external/pombase/{ver}/genome_region/non_coding_rna.bed \\
-        --gtrnadb-bed resources/external/pombase/schiPomb_972H-tRNAs.bed \\
-        --marguerat-excel resources/literature/margueratQuantitativeAnalysisFission2012.xlsx \\
-        --output-stats results/noncoding_rna/{dataset}/ncrna_stats.tsv \\
-        --output-figures results/noncoding_rna/{dataset}/ncrna_analysis.pdf
-
-Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
-Date:     2026-07-21
-Version:  1.0.0
+    from workflow.src.noncoding_rna.core import (
+        load_ncrna_fitting, load_gtrnadb, load_marguerat_abundance,
+        build_ncrna_table, select_nuclear_tRNAs,
+        plot_feature_type_donut, plot_trna_summary,
+    )
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import argparse
 import re
-import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -71,16 +37,13 @@ import pandas as pd
 # 3. Third-party Imports
 import matplotlib
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
+matplotlib.use("Agg")  # headless: builders only write PDFs, never display
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.plotting.generic import donut_chart  # noqa: E402
 from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
-
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -111,36 +74,8 @@ _MARGUERAT_CONDITIONS = {
 
 
 # =============================================================================
-# CONFIGURATION & DATACLASSES
+# LOADERS
 # =============================================================================
-@dataclass(kw_only=True, frozen=True)
-class NoncodingRNAConfig:
-    """Inputs and outputs for the non-coding RNA depletion analysis."""
-    ncrna_fitting: Path
-    ncrna_bed: Path
-    gtrnadb_bed: Path
-    marguerat_excel: Path
-    output_stats: Path
-    output_figures: Path
-
-    def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.ncrna_fitting, self.ncrna_bed, self.gtrnadb_bed, self.marguerat_excel]:
-            if not path.exists():
-                raise ValueError(f"Required input not found: {path}")
-        for out in [self.output_stats, self.output_figures]:
-            out.parent.mkdir(parents=True, exist_ok=True)
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
-
-
 def load_ncrna_fitting(ncrna_fitting_path: Path) -> pd.DataFrame:
     """Load non-coding-gene fitting statistics, normalizing legacy um/lam -> DR/DL columns."""
     fitting = pd.read_csv(ncrna_fitting_path, sep="\t")
@@ -323,77 +258,3 @@ def plot_trna_summary(nuclear_trnas: pd.DataFrame) -> plt.Figure:
 
     fig.tight_layout()
     return fig
-
-
-# =============================================================================
-# CORE LOGIC — orchestration
-# =============================================================================
-@logger.catch(reraise=True)
-def run(config: NoncodingRNAConfig) -> None:
-    """Load -> merge -> characterize nuclear tRNAs -> save TSV + figures."""
-    config.validate()
-
-    ncrna_fitting = load_ncrna_fitting(config.ncrna_fitting)
-    ncrna_bed = pd.read_csv(config.ncrna_bed, sep="\t")
-    gtrnadb = load_gtrnadb(config.gtrnadb_bed)
-    marguerat_means = load_marguerat_abundance(config.marguerat_excel)
-
-    combined = build_ncrna_table(ncrna_fitting, ncrna_bed, gtrnadb, marguerat_means)
-    nuclear_trnas = select_nuclear_tRNAs(combined)
-
-    nuclear_trnas.to_csv(config.output_stats, sep="\t", index=False)
-
-    fig_donut = plot_feature_type_donut(combined)
-    fig_trna = plot_trna_summary(nuclear_trnas)
-    with PdfPages(config.output_figures) as pdf:
-        pdf.savefig(fig_donut, dpi=300, bbox_inches="tight")
-        pdf.savefig(fig_trna, dpi=300, bbox_inches="tight")
-    plt.close(fig_donut)
-    plt.close(fig_trna)
-
-    fitted = int(nuclear_trnas["DR"].notna().sum()) if "DR" in nuclear_trnas.columns else 0
-    logger.success(
-        f"Non-coding RNA: {len(nuclear_trnas):,} nuclear tRNAs "
-        f"({fitted:,} with DR), {nuclear_trnas['Anticodon'].nunique():,} distinct anticodons"
-    )
-
-
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Analyze non-coding RNA (tRNA) depletion patterns")
-    parser.add_argument("--ncrna-fitting", type=Path, required=True, help="Non-coding-gene fitting_results.tsv")
-    parser.add_argument("--ncrna-bed", type=Path, required=True, help="ncRNA genome-region bed")
-    parser.add_argument("--gtrnadb-bed", type=Path, required=True, help="GtRNAdb tRNA bed (schiPomb_972H-tRNAs.bed)")
-    parser.add_argument("--marguerat-excel", type=Path, required=True, help="Marguerat 2012 abundance xlsx")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output ncRNA stats TSV")
-    parser.add_argument("--output-figures", type=Path, required=True, help="Output ncRNA figures PDF")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
-    return parser.parse_args()
-
-
-def main() -> int:
-    """Main orchestrator: build config, run the analysis, report results."""
-    args = parse_args()
-    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
-    try:
-        config = NoncodingRNAConfig(
-            ncrna_fitting=args.ncrna_fitting,
-            ncrna_bed=args.ncrna_bed,
-            gtrnadb_bed=args.gtrnadb_bed,
-            marguerat_excel=args.marguerat_excel,
-            output_stats=args.output_stats,
-            output_figures=args.output_figures,
-        )
-        run(config)
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    setup_logger()
-    sys.exit(main())
