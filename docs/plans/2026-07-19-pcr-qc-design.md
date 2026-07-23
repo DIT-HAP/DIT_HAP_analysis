@@ -105,7 +105,18 @@ pcr_qc:
 
 ## 4. spike-in 占位
 
-把 pipeline 已跑出的 `spike_in_results.tsv`（31 行小文件）复制到 `resources/curated/spike_in_results_PLACEHOLDER.tsv`。脚本 config 与 docstring 的 Input 段同时写明：
+> **2026-07-23 更新（已实现，占位退役）**：`spikein.smk` 已落地，面板 (d) 现直接读
+> 其产物 `results/spikein/spike_in_stats.tsv`，`spikein → pcr_qc` 成为真实 DAG 边。
+> 已验证：live
+> 产物与旧占位表 schema 一致（同 10 列），唯一差异是 `Spikein0` 行——新的
+> `assign_ratio_by_order` 把最小 read 样本统一减到 0（`Reads=0 → Relative_Read_Ratio
+> = log2(0) = -inf`），而旧 notebook 占位表保留其有限值。但面板 (d) 本就 `query(
+> "Sample != 'Spikein0'")` 丢弃 `Spikein0`，且 5 个 `-inf` 全部落在 `Spikein0` 上，故
+> 面板拟合逐位一致（slope=0.997814 / intercept=-0.020772 / PCC=0.998023，两者相同）。
+> 占位表 `resources/curated/spike_in_results_PLACEHOLDER.tsv` 已无任何代码引用，可删除
+> （保留亦无害，作历史留档）。
+
+原始占位方案（历史记录）：把 pipeline 已跑出的 `spike_in_results.tsv`（31 行小文件）复制到 `resources/curated/spike_in_results_PLACEHOLDER.tsv`。脚本 config 与 docstring 的 Input 段同时写明：
 
 ```
 面板 (d) spike-in 表：
@@ -139,7 +150,7 @@ pcr_qc:
 
 ## 8. 不做的事
 
-- 不实现 `spikein.smk`（面板 d 用占位表，Phase 3+ 再补真实来源）。
+- ~~不实现 `spikein.smk`（面板 d 用占位表，Phase 3+ 再补真实来源）。~~ **（2026-07-23 已实现，见 §4 更新，面板 d 改读 spikein.smk 产物。）**
 - 不迁移 `thesis_figures.ipynb` 的其它节（代时计算、insertion distribution、normalization 等）——本次只做 PCR quality control 一节。
 - 不改 `DatasetConfig`/`InsertionLevelConfig`/`GeneLevelConfig`（它们描述 release 契约；`results_dir` 走独立的 `merged_reads_path()`）。
 - 不复刻源 notebook 的 rcParams 覆盖。

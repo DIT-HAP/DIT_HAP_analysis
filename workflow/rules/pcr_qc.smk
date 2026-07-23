@@ -16,8 +16,11 @@
 #
 # EXCEPTION to the release/ contract: panels (a)-(c) read upstream *pre-release*
 # intermediates (results/8_merged/...), reachable ONLY via merged_reads_path()
-# for datasets that declare `results_dir` in datasets.yaml. Panel (d) reads a
-# placeholder spike-in table until spikein.smk exists (Phase 3+).
+# for datasets that declare `results_dir` in datasets.yaml. Panel (d) now reads
+# the live spike-in stats table produced by spikein.smk (compute_spikein_stats):
+# results/spikein/spike_in_stats.tsv — the earlier placeholder is retired. This
+# makes spikein an upstream dependency of pcr_qc (a real DAG edge), fulfilling
+# the "Phase 3+" interface promised in docs/plans/2026-07-19-pcr-qc-design.md §4.
 
 import sys
 sys.path.insert(0, workflow.basedir + "/..")  # repo root, so `workflow.src` imports resolve
@@ -42,8 +45,8 @@ rule prepare_pcr_qc_data:
         # Panel (c): biological replicate — two samples in one project.
         bio_rep_1=merged_reads_path(_C["dataset"], _C["sample_1"], _C["timepoint"], _C["condition"]),
         bio_rep_2=merged_reads_path(_C["dataset"], _C["sample_2"], _C["timepoint"], _C["condition"]),
-        # Panel (d): spike-in linearity (placeholder; swap for results/spikein/... when spikein.smk lands).
-        spikein="resources/curated/spike_in_results_PLACEHOLDER.tsv",
+        # Panel (d): spike-in linearity — live output of spikein.smk (compute_spikein_stats).
+        spikein="results/spikein/spike_in_stats.tsv",
     output:
         pbl_pbr=f"{_PCRWORK}/pbl_pbr.parquet",
         tech=f"{_PCRWORK}/tech.parquet",
