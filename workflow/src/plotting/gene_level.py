@@ -124,6 +124,77 @@ def plot_depletion_curves_for_groups(
 
 
 # =============================================================================
+# SINGLE-GENE DEPLETION CURVE (DIT-HAP vs gRNA)
+# =============================================================================
+# Time points (generations) for the two assays, hardcoded in the source notebook
+# compare_with_deletion_library.ipynb cell 34. DIT-HAP samples 5 points, gRNA 6.
+DIT_HAP_GENERATIONS = [0.0, 2.352, 5.588, 9.104, 12.48]
+GRNA_GENERATIONS = [0.0, 4.8, 7.9, 11.4, 14.7, 17.8]
+# Raw gRNA per-timepoint LFC columns in HD_gRNA_data.csv (t0..t5).
+GRNA_VALUE_COLS = ["t0", "t1", "t2", "t3", "t4", "t5"]
+
+
+def sigmoid_gompertz(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarray:
+    """Gompertz depletion curve A*exp(-exp(alpha*(DL-x)+1)) with a stable exponent.
+
+    Ported from compare_with_deletion_library.ipynb's sigmoid_function, renamed
+    to the release column vocabulary (DR/DL; the notebook used um/lam). A==0
+    yields a flat zero curve; the exponent is clipped to [-700, 700] to avoid
+    overflow in np.exp.
+    """
+    if A == 0:
+        return np.zeros_like(x)
+    alpha = (DR * np.e) / A
+    u = alpha * (DL - x) + 1
+    exponent = np.clip(u, -700, 700)
+    return A * np.exp(-np.exp(exponent))
+
+
+def plot_gene_depletion_curve(
+    ax: Axes,
+    dit_row: pd.Series,
+    grna_row: pd.Series | None,
+    title: str,
+    dit_generations: list[float] = DIT_HAP_GENERATIONS,
+    grna_generations: list[float] = GRNA_GENERATIONS,
+) -> Axes:
+    """Plot one gene's DIT-HAP depletion curve (points + Gompertz fit + inflection slope), optionally overlaying gRNA.
+
+    dit_row must carry A/DR/DL plus the RAW_VALUE_COLS (YES0..YES4). grna_row,
+    when given, must carry the GRNA_VALUE_COLS (t0..t5); pass None to render the
+    DIT-HAP curve alone. title is shown verbatim (the caller passes gene_name).
+    """
+    A, DR, DL = float(dit_row["A"]), float(dit_row["DR"]), float(dit_row["DL"])
+    x = np.linspace(0, 13, 100)
+    y_fit = sigmoid_gompertz(x, A, DR, DL)
+
+    # Inflection slope segment: the linear part tangent at the inflection point,
+    # spanning the generations where the fitted curve rises (byte-faithful to
+    # the notebook's x_slope/y_slope construction).
+    xstart = max(DL, 0)
+    xend = max(DL + A / DR, 1) if DR != 0 else 1
+    x_slope = np.linspace(xstart, xend, 100)
+    y_slope = (x_slope - DL) * DR
+
+    y_dit = dit_row[RAW_VALUE_COLS].to_numpy(dtype=float)
+
+    ax.plot(x, y_fit, label="Fitted Curve", linestyle="--", alpha=0.5)
+    ax.plot(x_slope, y_slope, label="Inflection Point", linestyle=":", alpha=0.5)
+    ax.plot(dit_generations, y_dit, marker="o", label=f"DIT_HAP\n(DR={DR:.3g})")
+
+    if grna_row is not None:
+        y_grna = grna_row[GRNA_VALUE_COLS].to_numpy(dtype=float)
+        ax.plot(grna_generations, y_grna, marker="o", label="gRNA")
+
+    ax.set_ylim(-2, 9)
+    ax.set_title(title)
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("LFC")
+    ax.legend()
+    return ax
+
+
+# =============================================================================
 # FEATURE SPACE
 # =============================================================================
 def plot_given_genes_on_feature_space(

@@ -15,7 +15,7 @@ import pytest
 
 from workflow.src.data_config import MERGED_READS_SUBDIR, merged_reads_path
 from workflow.src.plotting.generic import create_scatter_correlation_plot
-from workflow.scripts.pcr_qc.plot_pcr_qc import PCRQCConfig
+from workflow.scripts.pcr_qc.prepare_pcr_qc_data import PCRQCConfig
 
 
 # =============================================================================

@@ -17,7 +17,7 @@ from workflow.src.enrichment.pipeline import (
     stringdb_enrichment,
     revigo_analysis,
 )
-from workflow.scripts.enrichment.run_network_enrichment import NetworkConfig, annotate_go_with_revigo
+from workflow.src.enrichment.network import NetworkConfig, annotate_go_with_revigo
 
 
 def test_cache_key_is_deterministic_and_order_independent_per_arg():

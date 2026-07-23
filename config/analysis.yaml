@@ -68,6 +68,17 @@ pcr_qc:
     timepoint: 0h
     condition: "YES"
 
+# --- Spike-in dilution linearity QC (spikein.smk) ---
+# 5 known spike-in insertion coordinates in the Spikein calibration project;
+# reads at each site are ranked and matched against a known dilution series.
+spikein:
+  coordinates:
+    DY215: {chr: "I",  coord: 3749394, strand: "-"}
+    DY217: {chr: "II", coord: 3344505, strand: "-"}
+    DY218: {chr: "II", coord: 185161,  strand: "-"}
+    DY339: {chr: "II", coord: 1157130, strand: "-"}
+    DY348: {chr: "II", coord: 3065244, strand: "-"}
+
 # --- Machine learning (ml.smk) ---
 ml:
   dr_split_threshold: 0.35   # DR > / <= this defines the DR_gt_p35 / DR_le_p35 splits
@@ -76,3 +87,31 @@ ml:
   test_size: 0.2             # AutoML train/test split fraction
   random_state: 42           # AutoML split + mljar seed (reproducibility)
   total_time_limit: 14400    # mljar budget (s); large so full algorithm list always finishes
+
+# --- Large-scale study comparison (comparison.smk) ---
+# Batch B: correlates the curated DIT-HAP fitness metric against the gRNA HD-data
+# fit + the PomBase protein-features study columns (Barseq, integration density,
+# colony size, ...). Both the gRNA file and final_clusters.tsv are curated inputs.
+comparison:
+  gRNA_data_file: "resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv"
+  clip_upper: 200            # cap for integration-density columns (byte-faithful to notebook)
+
+# --- Macromolecular complex coherence (complex.smk) ---
+# Batch B: for every PomBase complex whose DR>dr_threshold members number
+# min..max, measure how tightly they cluster in the normalized (DR, DL/10)
+# fitness space vs a seeded permutation null (median pairwise distance z-score).
+# `modules` drives the named-module visualization: a non-empty list is explicit
+# gene SYMBOLS; an empty list auto-resolves members from the complex annotation
+# by name keyword at runtime (see analyze_complex_modules.py _MODULE_KEYWORDS).
+complex:
+  min_complex_size: 3
+  max_complex_size: 300
+  dr_threshold: 0.3
+  n_permutations: 1000
+  random_state: 42
+  modules:
+    cytoplasmic_translation: []  # auto-resolved from PomBase macromolecular complex annotation
+    kinetochore: []
+    mitochondria: []
+    vesicle: []
+    vacuolar_ATPase: []

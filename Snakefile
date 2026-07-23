@@ -8,7 +8,7 @@ import yaml
 
 min_version("9.0")
 
-workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis"
+workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis/.claude/worktrees/migrate-remaining-notebooks"
 
 # This project's analysis parameters (clustering k, enrichment thresholds, ml
 # splits, ...). Unlike datasets.yaml (a data registry read directly below), these
@@ -33,6 +33,14 @@ include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
 include: "workflow/rules/pcr_qc.smk"
+# include: "workflow/rules/spikein.smk"
+include: "workflow/rules/coverage.smk"
+include: "workflow/rules/verification.smk"
+include: "workflow/rules/noncoding_rna.smk"
+include: "workflow/rules/comparison.smk"
+include: "workflow/rules/complex.smk"
+include: "workflow/rules/utr.smk"
+include: "workflow/rules/domain_differences.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -67,5 +75,18 @@ rule all:
         # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
         # PCR / library-prep QC figure (no dataset wildcard):
         # "results/pcr_qc/PCR_quality_control.pdf",
+        # Batch A (no final_clusters.tsv dependency):
+        # "results/spikein/spike_in_stats.tsv",
+        # f"results/coverage/{_DATASET}/coverage_stats.tsv",
+        f"results/verification/{_DATASET}/verification_stats.tsv",
+        f"results/verification/{_DATASET}/verification_boxplots.pdf",
+        f"results/verification/{_DATASET}/verification_depletion_curves.pdf"
+        # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
+        # Batch B (requires resources/curated/final_clusters.tsv):
+        # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
+        # f"results/complex/{_DATASET}/complex_coherence_metrics.tsv",
+        # Batch C (requires insertion-level results):
+        # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
+        # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",
     message:
         "*** DIT-HAP analysis complete"

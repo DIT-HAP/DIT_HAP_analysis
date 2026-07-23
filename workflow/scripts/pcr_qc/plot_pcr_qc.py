@@ -5,7 +5,8 @@
 PCR / Library-Prep Quality Control Figure
 ==========================================
 
-Builds the 2x2 library-prep QC figure ported from
+Stage 2 of the PCR QC split: read the 4 parquet intermediates produced by
+prepare_pcr_qc_data.py and assemble the 2x2 library-prep QC figure ported from
 DIT_HAP_pipeline/workflow/notebooks/thesis_figures.ipynb ("2. PCR quality
 control"). Four panels, all deterministic:
   (a) PBL vs PBR primer reads of one library.
@@ -14,15 +15,14 @@ control"). Four panels, all deterministic:
   (d) Spike-in dilution linearity (currently a placeholder table; see below).
 
 Panels (a)-(c) use the domain-agnostic create_scatter_correlation_plot; panel
-(d) does its own spike-in linregress scatter (specific to this figure).
+(d) uses core.plot_spikein_panel (specific to this figure).
 
 Input
 -----
-- Panel (a): one merged reads TSV (results/8_merged/...), columns PBL, PBR, Reads.
-- Panels (b)/(c): two merged reads TSVs each, joined on (Chr, Coordinate, Strand).
-- Panel (d) spike-in table:
-    current: resources/curated/spike_in_results_PLACEHOLDER.tsv  (placeholder copy)
-    future : results/spikein/spike_in_results.tsv  (produced by spikein.smk, Phase 3+)
+- pbl_pbr.parquet: panel (a), columns PBL, PBR, Reads.
+- tech.parquet: panel (b), pre-merged technical replicate pair (Reads_1/Reads_2).
+- bio.parquet: panel (c), pre-merged biological replicate pair (Reads_1/Reads_2).
+- spikein.parquet: panel (d) spike-in dilution table.
 
 Output
 ------
@@ -31,17 +31,15 @@ Output
 Usage
 -----
     python plot_pcr_qc.py \\
-        --pbl-pbr .../8_merged/LD1328-7_0h_YES.tsv \\
-        --tech-rep-1 .../LD_DIT_HAP_generationRAW/.../LD1328-7_0h_YES.tsv \\
-        --tech-rep-2 .../Spore2YES6_1328/.../LD1328-7_0h_YES.tsv \\
-        --bio-rep-1 .../8_merged/LD1328-4_0h_YES.tsv \\
-        --bio-rep-2 .../8_merged/LD1328-8_0h_YES.tsv \\
-        --spikein resources/curated/spike_in_results_PLACEHOLDER.tsv \\
+        --pbl-pbr results/pcr_qc/_work/pbl_pbr.parquet \\
+        --tech results/pcr_qc/_work/tech.parquet \\
+        --bio results/pcr_qc/_work/bio.parquet \\
+        --spikein results/pcr_qc/_work/spikein.parquet \\
         --output results/pcr_qc/PCR_quality_control.pdf
 
-Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
-Date:     2026-07-19
-Version:  1.0.0
+Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
+Date:     2026-07-22
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -53,118 +51,59 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# 2. Data Processing Imports
-import numpy as np
-import pandas as pd
-
-# 3. Third-party Imports
+# 2. Third-party Imports
 import matplotlib
 
 matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
 import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
-from scipy.stats import linregress  # noqa: E402
 
-# 4. Local Imports
+# 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from workflow.src.io import read_parquet  # noqa: E402
+from workflow.src.pcr_qc.core import plot_spikein_panel  # noqa: E402
 from workflow.src.plotting.generic import create_scatter_correlation_plot  # noqa: E402
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
+from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
 
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
-class PCRQCConfig:
-    """Resolved input/output paths for the 2x2 PCR QC figure."""
+class PlotPCRQCConfig:
+    """Resolved parquet input / PDF output paths for the 2x2 PCR QC figure."""
     pbl_pbr: Path
-    tech_rep_1: Path
-    tech_rep_2: Path
-    bio_rep_1: Path
-    bio_rep_2: Path
+    tech: Path
+    bio: Path
     spikein: Path
     output: Path
 
     def validate(self) -> None:
         """Raise ValueError if any input is missing, then ensure the output dir exists."""
-        for path in [self.pbl_pbr, self.tech_rep_1, self.tech_rep_2,
-                     self.bio_rep_1, self.bio_rep_2, self.spikein]:
+        for path in [self.pbl_pbr, self.tech, self.bio, self.spikein]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
 
 
-# =============================================================================
-# HELPERS
-# =============================================================================
 def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
 
 
-def _read_merged(path: Path) -> pd.DataFrame:
-    """Read a merged reads TSV indexed by (Chr, Coordinate, Strand) with PBL/PBR/Reads."""
-    return pd.read_csv(path, sep="\t", index_col=[0, 1, 2])
-
-
-def _plot_spikein(ax: plt.Axes, spikein: pd.DataFrame) -> None:
-    """Panel (d): spike-in dilution vs read ratio scatter + linear fit (figure-specific)."""
-    # Spikein0 is the zero-dilution reference and is excluded from the linearity fit,
-    # matching the source notebook.
-    spikein = spikein.query("Sample != 'Spikein0'")
-
-    for idx, (name, sub) in enumerate(spikein.groupby("Name")):
-        ax.scatter(
-            sub["Relative_Dilution_Ratio"], sub["Relative_Read_Ratio"],
-            label=name, facecolor="none", edgecolor=COLORS[idx % len(COLORS)],
-            s=150, lw=1.5, alpha=0.9,
-        )
-
-    slope, intercept, r_value, _p, _se = linregress(
-        spikein["Relative_Dilution_Ratio"], spikein["Relative_Read_Ratio"]
-    )
-    line_x = np.array([-8, 0])
-    ax.plot(line_x, slope * line_x + intercept, color="black", ls="--", alpha=0.7, lw=2.5)
-
-    ticks = [-8, -6, -4, -2, 0]
-    ax.set_xticks(ticks)
-    ax.set_yticks(ticks)
-    ax.set_xlabel("log$_{2}$(relative dilution ratio)")
-    ax.set_ylabel("log$_{2}$(relative read ratio)")
-    ax.text(
-        0.05, 0.95,
-        f"PCC={r_value:.2f}\nR²={r_value**2:.2f}\nSlope={slope:.2f}\nIntercept={intercept:.2f}",
-        transform=ax.transAxes, ha="left", va="top",
-    )
-    ax.legend(loc="lower right", fontsize=16, frameon=False)
-
-
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def run(config: PCRQCConfig) -> None:
+def run(config: PlotPCRQCConfig) -> None:
     """Assemble the 2x2 QC figure and save it as a PDF."""
     config.validate()
 
-    # Panel (a): PBL vs PBR of a single library.
-    pbl_pbr = _read_merged(config.pbl_pbr)
-
-    # Panel (b): technical replicate — same sample, two upstream projects.
-    tech = pd.merge(
-        _read_merged(config.tech_rep_1), _read_merged(config.tech_rep_2),
-        left_index=True, right_index=True, suffixes=("_1", "_2"),
-    )
-
-    # Panel (c): biological replicate — two samples, one project.
-    bio = pd.merge(
-        _read_merged(config.bio_rep_1), _read_merged(config.bio_rep_2),
-        left_index=True, right_index=True, suffixes=("_1", "_2"),
-    )
-
-    # Panel (d): spike-in linearity.
-    spikein = pd.read_csv(config.spikein, sep="\t")
+    pbl_pbr = read_parquet(config.pbl_pbr)
+    tech = read_parquet(config.tech)
+    bio = read_parquet(config.bio)
+    spikein = read_parquet(config.spikein)
 
     fig, axes = plt.subplot_mosaic(
         [["(a)", "(b)"], ["(c)", "(d)"]], figsize=(AX_WIDTH * 2, AX_HEIGHT * 2)
@@ -182,7 +121,7 @@ def run(config: PCRQCConfig) -> None:
     axes["(c)"].set_xlabel("Reads of Biological Replicate 1")
     axes["(c)"].set_ylabel("Reads of Biological Replicate 2")
 
-    _plot_spikein(axes["(d)"], spikein)
+    plot_spikein_panel(axes["(d)"], spikein)
 
     fig.tight_layout(h_pad=2, w_pad=2)
     fig.savefig(config.output, dpi=300, bbox_inches="tight")
@@ -196,12 +135,10 @@ def run(config: PCRQCConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Build the 2x2 PCR / library-prep QC figure")
-    parser.add_argument("--pbl-pbr", type=Path, required=True, help="Panel (a): merged reads TSV (PBL vs PBR)")
-    parser.add_argument("--tech-rep-1", type=Path, required=True, help="Panel (b): technical replicate 1 merged reads TSV")
-    parser.add_argument("--tech-rep-2", type=Path, required=True, help="Panel (b): technical replicate 2 merged reads TSV")
-    parser.add_argument("--bio-rep-1", type=Path, required=True, help="Panel (c): biological replicate 1 merged reads TSV")
-    parser.add_argument("--bio-rep-2", type=Path, required=True, help="Panel (c): biological replicate 2 merged reads TSV")
-    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spike-in results TSV")
+    parser.add_argument("--pbl-pbr", type=Path, required=True, help="Panel (a): pbl_pbr.parquet")
+    parser.add_argument("--tech", type=Path, required=True, help="Panel (b): tech.parquet (merged technical replicate pair)")
+    parser.add_argument("--bio", type=Path, required=True, help="Panel (c): bio.parquet (merged biological replicate pair)")
+    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spikein.parquet")
     parser.add_argument("--output", type=Path, required=True, help="Output figure PDF")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -212,12 +149,10 @@ def main() -> int:
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        config = PCRQCConfig(
+        config = PlotPCRQCConfig(
             pbl_pbr=args.pbl_pbr,
-            tech_rep_1=args.tech_rep_1,
-            tech_rep_2=args.tech_rep_2,
-            bio_rep_1=args.bio_rep_1,
-            bio_rep_2=args.bio_rep_2,
+            tech=args.tech,
+            bio=args.bio,
             spikein=args.spikein,
             output=args.output,
         )
