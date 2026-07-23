@@ -187,8 +187,6 @@ def write_parquet(
         frame = frame.copy()
         frame.columns = new_columns
         extra_metadata[b"__original_columns__"] = str(original_columns).encode("utf-8")
-    else:
-        extra_metadata = {_OBJ_TYPE_KEY: b"dataframe"}
 
     table = pa.Table.from_pandas(frame, preserve_index=True)
     # Merge our markers into the existing (pandas) schema metadata rather than replace.
