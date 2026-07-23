@@ -37,8 +37,10 @@ Output
   the geometric-median centroid + pairwise-distance stats (centroid_x,
   centroid_y, median/mean/std/min/max_distance, mpd), observed_mpd, z_score,
   p_value, n_permutations.
-- coherence_analysis.pdf: group-size histogram + a coherence volcano
-  (z-score vs -log10 permutation p-value, sized by group size).
+- coherence_analysis.pdf: a multi-panel overview — group-size + z-score
+  histograms, a centroid-position map (coloured by z-score), and coherence-vs-
+  biology panels (A: shared-subunit fraction, always; B: abundance uniformity
+  and D: conservation uniformity, only when --features is provided).
 
 Usage
 -----
@@ -113,6 +115,19 @@ _LONG_TABLE_COLUMNS = [
     "source", "group_id", "group_name", "Systematic ID", "Name", "n_group_genes",
 ]
 
+# Feature columns for the "coherence vs biology" panels (B: abundance, D:
+# conservation). The features table's gene-id column is `gene_systematic_id`
+# (NOT `Systematic ID`); member_feature_cv normalizes that. Column presence is
+# NOT guaranteed across PomBase versions, so each panel uses a candidate list
+# and picks the FIRST present column; if none are present the panel is skipped.
+# Abundance prefers absolute protein copies, then falls back to RNA abundance.
+_ABUNDANCE_FEATURE_CANDIDATES = [
+    "copies_per_cell_EMM_Proliferating_Cell",
+    "copies_per_cell_EMMN_Quiescent_Cell",
+    "mean_EMM_Proliferating_Cell_RNA_Abundance",
+]
+_CONSERVATION_FEATURE_CANDIDATES = ["evolutionary_rate"]
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -131,7 +146,7 @@ class CoherenceConfig:
     dr_threshold: float = 0.3
     n_permutations: int = 1000
     random_state: int = 42
-    features: Path | None = None  # WIRED but unused here; Task 5's figure consumes it.
+    features: Path | None = None  # drives the coherence-vs-biology panels B (abundance) + D (conservation).
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing or params invalid, then make output dirs."""
@@ -369,39 +384,193 @@ def compute_coherence_table(
 
 
 # =============================================================================
+# CORE LOGIC — biology helpers for the coherence-vs-biology panels
+# =============================================================================
+def shared_subunit_fraction(long_table: pd.DataFrame) -> dict[str, float]:
+    """Per group, the fraction of its members that also belong to >=1 OTHER group of the SAME source.
+
+    Pure (long-table only, zero external data), so always computable. Within
+    each `source`, a gene ("Systematic ID") is "shared" if it appears in more
+    than one group of that source; for each group the fraction is
+    (#shared members) / (#members). Membership is deduped per
+    (group_id, Systematic ID) defensively. "Same source" is enforced by counting
+    group appearances within each source (a gene in two DIFFERENT sources is not
+    shared). Returns {group_id: fraction}.
+    """
+    members = long_table.drop_duplicates(subset=["group_id", "Systematic ID"])
+    # Per source, how many distinct groups each gene appears in.
+    appearances = members.groupby(["source", "Systematic ID"])["group_id"].transform("size")
+    is_shared = appearances > 1
+    fractions: dict[str, float] = {}
+    for group_id, shared_flags in is_shared.groupby(members["group_id"]):
+        fractions[group_id] = float(shared_flags.mean())
+    return fractions
+
+
+def member_feature_cv(long_table: pd.DataFrame, features: pd.DataFrame, column: str) -> dict[str, float]:
+    """Coefficient of variation (std/mean) of `column` across each group's members.
+
+    `features` carries a gene-id column named either `Systematic ID` or
+    `gene_systematic_id` (normalized internally to `Systematic ID`). If `column`
+    is absent from `features`, returns {} (caller skips the panel). Otherwise
+    merges features[id, column] onto the long-table by Systematic ID, groups by
+    `group_id`, and returns {group_id: std/mean} using pandas' sample std
+    (ddof=1). Groups with fewer than 2 members (CV undefined) or a mean of 0
+    (division undefined) are omitted.
+    """
+    if column not in features.columns:
+        return {}
+
+    feats = features
+    if "Systematic ID" not in feats.columns and "gene_systematic_id" in feats.columns:
+        feats = feats.rename(columns={"gene_systematic_id": "Systematic ID"})
+    if "Systematic ID" not in feats.columns:
+        return {}
+
+    members = long_table.drop_duplicates(subset=["group_id", "Systematic ID"])
+    merged = members[["group_id", "Systematic ID"]].merge(
+        feats[["Systematic ID", column]], on="Systematic ID", how="inner"
+    )
+    merged = merged.dropna(subset=[column])
+
+    cvs: dict[str, float] = {}
+    for group_id, grp in merged.groupby("group_id"):
+        vals = grp[column].to_numpy(dtype=float)
+        if vals.size < 2:
+            continue
+        mean = float(np.mean(vals))
+        if mean == 0.0:
+            continue
+        std = float(np.std(vals, ddof=1))  # pandas default (sample std)
+        cvs[group_id] = std / mean
+    return cvs
+
+
+# =============================================================================
 # PLOTTING
 # =============================================================================
-def plot_coherence(table: pd.DataFrame) -> plt.Figure:
-    """Complex-size histogram + coherence volcano (z-score vs -log10 p-value)."""
-    fig, axes = plt.subplots(1, 2, figsize=(AX_WIDTH * 2, AX_HEIGHT))
+def _first_present_column(features: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Return the first candidate column that exists in `features`, else None."""
+    for candidate in candidates:
+        if candidate in features.columns:
+            return candidate
+    return None
 
-    ax_size, ax_volcano = axes
+
+def _scatter_vs_zscore(ax, x_map: dict[str, float], table: pd.DataFrame, xlabel: str, title: str) -> None:
+    """Scatter a per-group x-metric (keyed by group_id) against z-score on `ax`.
+
+    Aligns the {group_id: value} mapping to the metrics table's row order,
+    drops groups the mapping omits (NaN x), colors points by z-score (coolwarm_r).
+    """
+    x = table["group_id"].map(x_map)
+    mask = x.notna()
+    ax.scatter(
+        x[mask], table.loc[mask, "z_score"], c=table.loc[mask, "z_score"],
+        cmap="coolwarm_r", alpha=0.8, edgecolors="none",
+    )
+    ax.axhline(0.0, color="gray", linestyle="--", linewidth=0.8)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("MPD z-score")
+    ax.set_title(title)
+
+
+def plot_coherence(table: pd.DataFrame, long_table: pd.DataFrame, features: pd.DataFrame | None = None) -> plt.Figure:
+    """Multi-panel coherence overview: size/z histograms, centroid map, coherence-vs-biology panels.
+
+    Panels: (1) term-size histogram + z-score histogram; (2) centroid-position
+    scatter (x=centroid_x/"typical DR", y=centroid_y/"typical DL", color=z-score,
+    size proportional to term_size); (3) Panel A, coherence vs shared-subunit
+    fraction (always drawn); and — only when `features` is provided — (4) Panel B,
+    coherence vs protein/RNA-abundance uniformity, and Panel D, coherence vs
+    conservation uniformity, both via member_feature_cv. Panels B/D self-skip
+    (with a warning) when no candidate feature column is present. Empty table
+    keeps the graceful placeholder. Laid out in a wrapped 3-column grid; unused
+    axes are deleted.
+    """
+    # Assemble the panels we will draw as (kind, payload) records, then lay them out.
     if table.empty:
-        for ax in axes:
-            ax.text(0.5, 0.5, "No complexes passed the size filter", ha="center", va="center")
+        fig, ax = plt.subplots(1, 1, figsize=(AX_WIDTH, AX_HEIGHT))
+        ax.text(0.5, 0.5, "No groups passed the size filter", ha="center", va="center")
+        ax.set_axis_off()
         fig.tight_layout()
         return fig
 
-    ax_size.hist(table["term_size"], bins=20, rwidth=0.9, color="#6b99df")
-    ax_size.set_xlabel("Complex size (DR>threshold members)")
-    ax_size.set_ylabel("Number of complexes")
-    ax_size.set_title("Complex size distribution")
+    # Panel A: always computable from the long-table alone.
+    shared_frac = shared_subunit_fraction(long_table)
 
-    # Volcano: negative z-score (tight/coherent) to the left, significance up.
-    # Guard p==0 (observed below every permutation) so -log10 stays finite by
-    # flooring at the smallest resolvable p-value, 1 / n_permutations.
-    n_perm = int(table["n_permutations"].iloc[0])
-    p_floor = 1.0 / n_perm
-    neglog_p = -np.log10(table["p_value"].clip(lower=p_floor))
-    sizes = np.sqrt(table["term_size"].to_numpy(dtype=float)) * 8
-    scatter = ax_volcano.scatter(
-        table["z_score"], neglog_p, s=sizes, c=table["z_score"], cmap="coolwarm_r", alpha=0.8, edgecolors="none"
+    # Panels B (abundance) and D (conservation): only when features are supplied
+    # AND a candidate column is present. Each resolves to a {group_id: CV} map.
+    biology_panels: list[tuple[str, dict[str, float], str, str]] = [
+        ("A", shared_frac, "Shared-subunit fraction", "Coherence vs shared subunits"),
+    ]
+    if features is None:
+        logger.warning("No features table provided; skipping biology panels B (abundance) and D (conservation)")
+    if features is not None:
+        abundance_col = _first_present_column(features, _ABUNDANCE_FEATURE_CANDIDATES)
+        if abundance_col is None:
+            logger.warning(
+                f"No abundance feature column found (tried {_ABUNDANCE_FEATURE_CANDIDATES}); skipping panel B"
+            )
+        else:
+            biology_panels.append(
+                ("B", member_feature_cv(long_table, features, abundance_col),
+                 f"Abundance CV ({abundance_col})", "Coherence vs abundance uniformity")
+            )
+        conservation_col = _first_present_column(features, _CONSERVATION_FEATURE_CANDIDATES)
+        if conservation_col is None:
+            logger.warning(
+                f"No conservation feature column found (tried {_CONSERVATION_FEATURE_CANDIDATES}); skipping panel D"
+            )
+        else:
+            biology_panels.append(
+                ("D", member_feature_cv(long_table, features, conservation_col),
+                 f"Conservation CV ({conservation_col})", "Coherence vs conservation uniformity")
+            )
+
+    # Total axes: size hist + z hist + centroid map + one per biology panel.
+    n_panels = 3 + len(biology_panels)
+    ncols = 3
+    nrows = int(np.ceil(n_panels / ncols))
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(AX_WIDTH * ncols, AX_HEIGHT * nrows), squeeze=False
     )
-    ax_volcano.axvline(0.0, color="gray", linestyle="--", linewidth=0.8)
-    ax_volcano.set_xlabel("MPD z-score (negative = coherent)")
-    ax_volcano.set_ylabel("-log10(permutation p-value)")
-    ax_volcano.set_title("Complex coherence")
-    fig.colorbar(scatter, ax=ax_volcano, label="z-score")
+    flat = axes.ravel()
+
+    # Panel 1a: term-size histogram.
+    ax_size = flat[0]
+    ax_size.hist(table["term_size"], bins=20, rwidth=0.9, color="#6b99df")
+    ax_size.set_xlabel("Group size (DR>threshold members)")
+    ax_size.set_ylabel("Number of groups")
+    ax_size.set_title("Group size distribution")
+
+    # Panel 1b: z-score histogram.
+    ax_z = flat[1]
+    ax_z.hist(table["z_score"], bins=20, rwidth=0.9, color="#6b99df")
+    ax_z.axvline(0.0, color="gray", linestyle="--", linewidth=0.8)
+    ax_z.set_xlabel("MPD z-score (negative = coherent)")
+    ax_z.set_ylabel("Number of groups")
+    ax_z.set_title("Coherence z-score distribution")
+
+    # Panel 2: centroid-position map in normalized fitness space.
+    ax_centroid = flat[2]
+    sizes = np.sqrt(table["term_size"].to_numpy(dtype=float)) * 8
+    scatter = ax_centroid.scatter(
+        table["centroid_x"], table["centroid_y"], c=table["z_score"], s=sizes,
+        cmap="coolwarm_r", alpha=0.8, edgecolors="none",
+    )
+    ax_centroid.set_xlabel("typical DR")
+    ax_centroid.set_ylabel("typical DL/10")  # centroid_y is the geometric median of norm_DL = DL/10
+    ax_centroid.set_title("Group centroid positions")
+    fig.colorbar(scatter, ax=ax_centroid, label="z-score")
+
+    # Panels A/B/D: coherence vs a per-group biology metric.
+    for offset, (_label, x_map, xlabel, title) in enumerate(biology_panels):
+        _scatter_vs_zscore(flat[3 + offset], x_map, table, xlabel, title)
+
+    # Delete any unused trailing axes in the grid.
+    for ax in flat[n_panels:]:
+        fig.delaxes(ax)
 
     fig.tight_layout()
     return fig
@@ -431,7 +600,14 @@ def run(config: CoherenceConfig) -> None:
     )
     table.to_csv(config.output_metrics, sep="\t", index=False)
 
-    fig = plot_coherence(table)
+    # Optional gene features drive the coherence-vs-biology panels (B abundance,
+    # D conservation). When absent, plot_coherence draws panels 1/2/A only.
+    features = None
+    if config.features is not None:
+        features = pd.read_csv(config.features, sep="\t")
+        logger.info(f"Loaded features table for biology panels: {config.features} ({features.shape[1]} columns)")
+
+    fig = plot_coherence(table, long_table, features)
     with PdfPages(config.output_figure) as pdf:
         pdf.savefig(fig, dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -452,7 +628,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv (systematic id as index col 0)")
     parser.add_argument("--annotation", type=Path, required=True, help="Prepared group_annotation_long.tsv (long-table from prepare_annotation.py)")
     parser.add_argument("--source", type=str, required=True, help="Grouping-database source name (fan-out dimension)")
-    parser.add_argument("--features", type=Path, default=None, help="Optional gene features TSV (wired for Task 5's figure; unused here)")
+    parser.add_argument("--features", type=Path, default=None, help="Optional gene features TSV driving the coherence-vs-abundance (B) and coherence-vs-conservation (D) figure panels")
     parser.add_argument("--min-size", type=int, default=3, help="Minimum DR>threshold members per group")
     parser.add_argument("--max-size", type=int, default=300, help="Maximum DR>threshold members per group")
     parser.add_argument("--max-term-genes", type=int, default=500, help="Drop groups whose total annotated membership (n_group_genes) exceeds this")
