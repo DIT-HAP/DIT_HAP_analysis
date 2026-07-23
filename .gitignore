@@ -1,3 +1,6 @@
+# Git worktrees
+.worktrees/
+
 # Snakemake
 .snakemake/
 
@@ -28,3 +31,6 @@ tmp/
 
 # conda/mamba
 mamba
+
+# worktree
+.worktree
