@@ -12,7 +12,7 @@ write 4 parquet intermediates consumed by the figure-rendering rule:
 - pbl_pbr.parquet: panel (a) PBL vs PBR reads of one library.
 - tech.parquet: panel (b) technical replicate, merged on (Chr, Coordinate, Strand).
 - bio.parquet: panel (c) biological replicate, merged on (Chr, Coordinate, Strand).
-- spikein.parquet: panel (d) spike-in dilution table (currently a placeholder).
+- spikein.parquet: panel (d) spike-in dilution table (spikein.smk's spike_in_stats.tsv).
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22

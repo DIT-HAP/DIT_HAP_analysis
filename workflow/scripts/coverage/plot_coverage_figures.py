@@ -5,16 +5,25 @@
 Plot Coverage Figures
 =======================
 
-Stage 2b of the coverage split: read the prepared annotations / gene_result
-parquet intermediates, recompute the small coverage dicts (same core
-functions as compute_coverage_stats.py, for symmetry), and emit the
-coverage_figures.pdf (donut charts + per-chromosome bars + DR/DL histograms).
-Depends only on prepare_coverage_data's output, so it re-runs independently
-of the stats-table rule.
+Stage 2b of the coverage split: emit coverage_figures.pdf. Donut charts +
+per-chromosome bars read straight from coverage_stats.tsv (the numbers
+compute_coverage_stats wrote), so the figures can never disagree with the
+table. The DR/DL histograms still read the gene_result parquet, because they
+need the per-gene DR/DL values that the aggregated stats table doesn't carry.
+
+Pages:
+  1. Overall coverage donuts (insertion/gene/essential/non-essential) + per-chromosome bars
+  2. Overall DR/DL histograms (all/essential/non-essential rows)
+  3. Per-characterisation_status coverage donuts (one per category)
+  4. Per-characterisation_status DR/DL histograms (one row per category)
+
+Depending on both the stats TSV and the gene_result parquet means editing the
+stats rule now does force the figures to rebuild — the deliberate trade for
+guaranteed figure/table agreement.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -36,12 +45,12 @@ from loguru import logger  # noqa: E402
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+import pandas as pd  # noqa: E402
 from workflow.src.io import read_parquet  # noqa: E402
 from workflow.src.coverage.core import (  # noqa: E402
-    compute_essentiality_coverage,
-    compute_gene_coverage,
-    compute_insertion_coverage,
-    compute_per_chromosome_insertion_coverage,
+    coverage_dicts_from_stats_table,
+    plot_characterisation_status_donuts,
+    plot_characterisation_status_histograms,
     plot_coverage_donuts,
     plot_dr_dl_histograms,
 )
@@ -52,14 +61,14 @@ from workflow.src.coverage.core import (  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class PlotFiguresConfig:
-    """Parquet inputs + PDF output for the coverage figures."""
-    annotations: Path
+    """Inputs (stats TSV + gene_result parquet) + PDF output for the coverage figures."""
+    stats: Path
     gene_result: Path
     output_figures: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.annotations, self.gene_result]:
+        for path in [self.stats, self.gene_result]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         self.output_figures.parent.mkdir(parents=True, exist_ok=True)
@@ -76,27 +85,42 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PlotFiguresConfig) -> None:
-    """Read parquet -> recompute coverage dicts -> write figures PDF."""
+    """Read stats TSV (donuts) + gene_result parquet (histograms) -> write figures PDF."""
     config.validate()
 
-    annotations = read_parquet(config.annotations)
+    stats = pd.read_csv(config.stats, sep="\t")
     gene_result = read_parquet(config.gene_result)
 
-    insertion_coverage = compute_insertion_coverage(annotations)
-    gene_coverage = compute_gene_coverage(gene_result)
-    essentiality_coverage = compute_essentiality_coverage(gene_result)
-    per_chromosome = compute_per_chromosome_insertion_coverage(annotations)
+    # Donuts + per-chromosome bars come straight from the stats table, so the
+    # figures report exactly what compute_coverage_stats wrote (no re-derivation).
+    (
+        insertion_coverage,
+        gene_coverage,
+        essentiality_coverage,
+        per_chromosome,
+        characterisation_status_coverage,
+        _deletion_viability_coverage,
+        _essentiality_category_coverage,
+    ) = coverage_dicts_from_stats_table(stats)
 
     fig_donuts = plot_coverage_donuts(insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome)
     fig_hist = plot_dr_dl_histograms(gene_result)
 
-    with PdfPages(config.output_figures) as pdf:
-        pdf.savefig(fig_donuts, dpi=300, bbox_inches="tight")
-        pdf.savefig(fig_hist, dpi=300, bbox_inches="tight")
-    plt.close(fig_donuts)
-    plt.close(fig_hist)
+    figures = [fig_donuts, fig_hist]
 
-    logger.success(f"Wrote coverage figures: {config.output_figures}")
+    # Per-characterisation_status pages: donuts (from stats) + DR/DL histograms (from parquet).
+    if characterisation_status_coverage:
+        figures.append(plot_characterisation_status_donuts(characterisation_status_coverage))
+        figures.append(plot_characterisation_status_histograms(gene_result))
+        logger.info(f"Added per-category figures for {len(characterisation_status_coverage)} characterisation_status categories")
+
+    with PdfPages(config.output_figures) as pdf:
+        for fig in figures:
+            pdf.savefig(fig, dpi=300, bbox_inches="tight")
+    for fig in figures:
+        plt.close(fig)
+
+    logger.success(f"Wrote coverage figures ({len(figures)} pages): {config.output_figures}")
 
 
 # =============================================================================
@@ -105,8 +129,8 @@ def run(config: PlotFiguresConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Plot gene insertion coverage figures")
-    parser.add_argument("--annotations", type=Path, required=True, help="Input annotations.parquet")
-    parser.add_argument("--gene-result", type=Path, required=True, help="Input gene_result.parquet")
+    parser.add_argument("--stats", type=Path, required=True, help="Input coverage_stats.tsv (donuts read from here)")
+    parser.add_argument("--gene-result", type=Path, required=True, help="Input gene_result.parquet (histograms read from here)")
     parser.add_argument("--output-figures", type=Path, required=True, help="Output coverage figures PDF")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -118,7 +142,7 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = PlotFiguresConfig(
-            annotations=args.annotations,
+            stats=args.stats,
             gene_result=args.gene_result,
             output_figures=args.output_figures,
         )

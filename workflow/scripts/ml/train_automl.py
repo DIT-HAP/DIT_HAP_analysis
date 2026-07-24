@@ -76,6 +76,20 @@ from workflow.src.io import read_parquet
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# mljar-supervised's automl_plots.py (as of 1.3.1) still calls the removed
+# plt.cm.get_cmap(); restore it so mljar's heatmap/correlation report plots
+# don't silently fail on matplotlib>=3.9.
+if not hasattr(matplotlib.cm, "get_cmap"):
+    matplotlib.cm.get_cmap = matplotlib.colormaps.get_cmap
+import matplotlib.cm as mpl_cm
+
+# mljar-supervised 1.3.1's plot helpers (automl_plots.py) still call plt.cm.get_cmap(),
+# which matplotlib removed in 3.9 (superseded by matplotlib.colormaps.get_cmap). mljar's
+# own dependency spec has no upper bound on matplotlib, so newer matplotlib breaks their
+# diagnostic heatmaps (feature importance / model correlation) unless we restore the alias.
+if not hasattr(mpl_cm, "get_cmap"):
+    mpl_cm.get_cmap = matplotlib.colormaps.get_cmap
+
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
