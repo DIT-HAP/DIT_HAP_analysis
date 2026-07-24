@@ -548,12 +548,17 @@ def plot_coherence(table: pd.DataFrame, long_table: pd.DataFrame, features: pd.D
     )
     flat = axes.ravel()
 
-    # Panel 1a: term-size histogram.
+    # Panel 1a: term-size histogram with log-spaced bins.
     ax_size = flat[0]
-    ax_size.hist(table["term_size"], bins=20, rwidth=0.9, color="#6b99df")
+    # Compute 20 bins evenly spaced in log10 space, then back-transform.
+    log_min = np.log10(table["term_size"].min())
+    log_max = np.log10(table["term_size"].max())
+    log_bins = np.logspace(log_min, log_max, 21)
+    ax_size.hist(table["term_size"], bins=log_bins, rwidth=0.9, color="#6b99df")
     ax_size.set_xlabel("Group size (DR>threshold members)")
     ax_size.set_ylabel("Number of groups")
     ax_size.set_title("Group size distribution")
+    ax_size.set_xscale("log")
 
     # Panel 1b: z-score histogram.
     ax_z = flat[1]
@@ -565,7 +570,7 @@ def plot_coherence(table: pd.DataFrame, long_table: pd.DataFrame, features: pd.D
 
     # Panel 2: centroid-position map in normalized fitness space.
     ax_centroid = flat[2]
-    sizes = np.sqrt(table["term_size"].to_numpy(dtype=float)) * 8
+    sizes = np.log1p(table["term_size"].to_numpy(dtype=float)) * 20
     scatter = ax_centroid.scatter(
         table["centroid_x"], table["centroid_y"], c=table["z_score"], s=sizes,
         cmap="coolwarm_r", alpha=0.8, edgecolors="none",
@@ -574,6 +579,16 @@ def plot_coherence(table: pd.DataFrame, long_table: pd.DataFrame, features: pd.D
     ax_centroid.set_ylabel("typical DL/10")  # centroid_y is the geometric median of norm_DL = DL/10
     ax_centroid.set_title("Group centroid positions")
     fig.colorbar(scatter, ax=ax_centroid, label="z-score")
+    # Size legend: show representative group sizes.
+    legend_sizes = [3, 10, 30, 100]
+    legend_handles = [
+        plt.scatter([], [], s=np.log1p(float(s)) * 20, color="gray", alpha=0.6, edgecolors="none")
+        for s in legend_sizes
+    ]
+    ax_centroid.legend(
+        legend_handles, [str(s) for s in legend_sizes],
+        title="Group size", loc="lower right", framealpha=0.9,
+    )
 
     # Panels A/B/D: coherence vs a per-group biology metric.
     for offset, (_label, x_map, xlabel, title) in enumerate(biology_panels):

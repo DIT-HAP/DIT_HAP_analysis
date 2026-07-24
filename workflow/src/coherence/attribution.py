@@ -1,16 +1,30 @@
 """Diagnose WHY a complex is incoherent in DR-DL space (theme D, task D2).
 
-Two independent diagnostic lines:
+An incoherent group's members are more dispersed in normalized (DR, DL/10) space
+than a random gene set of equal size (coherence z-score > 0). This module scores
+the candidate biological causes of that dispersion so each incoherent group can
+be labelled with its most likely explanation. The diagnostic lines:
+
   (a) major/minor subunit split — fit a 2-component GMM to the members' normalized
       DR-DL and test whether they separate into a tight "core" + looser "minority"
-      (silhouette + component-size/spread asymmetry). Cross-checked against a curated
-      literature-role table when available.
-  (b) shared-subunit — members that also belong to OTHER physical complexes drag the
-      centroid apart, inflating apparent incoherence.
+      (silhouette + component-size/spread asymmetry). E.g. eIF3's essential core
+      (tif301/302, DR~1.2, DL~0) vs the dispensable regulatory eIF3e/int6 (DL~7).
+  (b) shared-subunit — members that also belong to OTHER groups get pulled toward
+      those groups' functional centres, inflating apparent incoherence. E.g. Swr1,
+      whose members are almost all shared with NuA4 / Ino80 / HAT complexes.
+  (c) paralog buffering — members with a paralog can have their deletion phenotype
+      masked (lower DR), pulling the group toward the WT corner and splitting it.
 
-Pure functions over arrays / the foundation long table; no IO.
+Not every cause is detectable from these signals: annotation artefacts (transient
+members, over-broad "complex" definitions) and technical issues (sparse insertion
+coverage, curve-fit quality) are NOT auto-labelled — a group with real dispersion
+but none of the above signals is left as `intrinsic_heterogeneity` for manual review.
+
+Pure functions over arrays / the coherence long table; no IO.
 """
 from __future__ import annotations
+
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -59,49 +73,88 @@ def major_minor_split(X: np.ndarray) -> dict:
     }
 
 
-def shared_subunits(long_cc: pd.DataFrame, complex_name: str) -> pd.DataFrame:
-    """For one CC complex, list members that also belong to other CC complexes.
+def shared_subunits(long_table: pd.DataFrame, group_id: str) -> pd.DataFrame:
+    """For one group, list members that also belong to OTHER groups of the same table.
 
-    long_cc: the GO_CC_complex slice of the foundation long table
-             (columns group_name, gene). Returns one row per shared member with the
-             list of OTHER complexes it participates in (empty df if none shared).
+    long_table: a single source's coherence long-table (contract columns
+    group_id, group_name, "Systematic ID"). Returns one row per shared member with
+    the count + names of the OTHER groups it participates in, sorted by that count
+    (empty df if none shared). Keyed on the stable `group_id`, matching the
+    coherence long-table contract.
     """
-    members = set(long_cc.loc[long_cc["group_name"] == complex_name, "gene"])
+    cols = ["Systematic ID", "n_other_groups", "other_groups"]
+    members = set(long_table.loc[long_table["group_id"] == group_id, "Systematic ID"])
     if not members:
-        return pd.DataFrame(columns=["gene", "n_other_complexes", "other_complexes"])
-    sub = long_cc[long_cc["gene"].isin(members)]
+        return pd.DataFrame(columns=cols)
+    sub = long_table[long_table["Systematic ID"].isin(members)].drop_duplicates(
+        ["group_id", "Systematic ID"]
+    )
     rows = []
-    for gene, grp in sub.groupby("gene"):
-        others = sorted(set(grp["group_name"]) - {complex_name})
+    for gene, grp in sub.groupby("Systematic ID"):
+        others = sorted(set(grp["group_name"]) - set(
+            long_table.loc[long_table["group_id"] == group_id, "group_name"]
+        ))
         if others:
-            rows.append({"gene": gene, "n_other_complexes": len(others),
-                         "other_complexes": "; ".join(others)})
-    return pd.DataFrame(rows).sort_values("n_other_complexes", ascending=False) if rows else \
-        pd.DataFrame(columns=["gene", "n_other_complexes", "other_complexes"])
+            rows.append({"Systematic ID": gene, "n_other_groups": len(others),
+                         "other_groups": "; ".join(others)})
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(rows).sort_values("n_other_groups", ascending=False)
 
 
-def shared_fraction(long_cc: pd.DataFrame, complex_name: str) -> float:
-    """Fraction of a complex's members that are shared with >=1 other CC complex."""
-    members = set(long_cc.loc[long_cc["group_name"] == complex_name, "gene"])
+def shared_fraction(long_table: pd.DataFrame, group_id: str) -> float:
+    """Fraction of a group's members that are shared with >=1 other group."""
+    members = set(long_table.loc[long_table["group_id"] == group_id, "Systematic ID"])
     if not members:
         return np.nan
-    shared = set(shared_subunits(long_cc, complex_name)["gene"])
+    shared = set(shared_subunits(long_table, group_id)["Systematic ID"])
     return len(shared) / len(members)
 
 
-def attribute_incoherence(
-    split: dict, shared_frac: float, shared_frac_threshold: float = 0.5
-) -> str:
-    """Combine the two diagnostics into a single attribution label.
+def paralog_fraction(members: Iterable[str], paralog_ids: set[str]) -> float:
+    """Fraction of `members` that have >=1 paralog (present in paralog_ids).
 
-    Priority: a genuine major/minor GMM split explains it structurally; else a high
-    shared-subunit fraction explains it as cross-complex contamination; else the
-    spread is intrinsic (real biological heterogeneity) or data-limited.
+    A high paralog fraction flags a group whose members' deletion phenotypes may be
+    buffered by redundant paralogs (dampened DR), a candidate incoherence cause.
+    Returns NaN for an empty member set.
     """
-    if split.get("is_split"):
+    members = list(members)
+    if not members:
+        return np.nan
+    return sum(1 for m in members if m in paralog_ids) / len(members)
+
+
+def attribute_incoherence(
+    split: dict,
+    shared_frac: float,
+    paralog_frac: float = np.nan,
+    shared_frac_threshold: float = 0.5,
+    paralog_frac_threshold: float = 0.5,
+) -> str:
+    """Combine the diagnostics into a single attribution label (priority ladder).
+
+    Priority, most-specific/structural first:
+      1. major/minor GMM split AND high shared fraction -> `conditional_module`
+         (a distinct sub-module that is also cross-shared, e.g. CLRC's shared CRL4
+         scaffold + the dispensable heterochromatin-silencing module);
+      2. major/minor GMM split alone -> `major_minor_split`;
+      3. high shared fraction alone -> `shared_subunits`;
+      4. high paralog fraction -> `paralog_buffered`;
+      5. too few members to have fit a GMM -> `data_limited`;
+      6. otherwise -> `intrinsic_heterogeneity` (real spread, no detected cause;
+         may also be an annotation/technical artefact — flagged for manual review).
+    """
+    is_split = bool(split.get("is_split"))
+    high_shared = pd.notna(shared_frac) and shared_frac >= shared_frac_threshold
+    high_paralog = pd.notna(paralog_frac) and paralog_frac >= paralog_frac_threshold
+    if is_split and high_shared:
+        return "conditional_module"
+    if is_split:
         return "major_minor_split"
-    if pd.notna(shared_frac) and shared_frac >= shared_frac_threshold:
+    if high_shared:
         return "shared_subunits"
+    if high_paralog:
+        return "paralog_buffered"
     if split.get("reason", "").startswith("n<"):
         return "data_limited"
     return "intrinsic_heterogeneity"

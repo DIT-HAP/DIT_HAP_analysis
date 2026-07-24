@@ -87,6 +87,9 @@ rule all:
         # De-duplicated coherence terms (pulls in the combined table + every
         # per-source coherence_metrics.tsv + coherence_analysis.pdf as deps):
         f"results/coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        # Incoherence attribution (why complexes are dispersed) for physical-complex sources:
+        expand(f"results/coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
+               source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",

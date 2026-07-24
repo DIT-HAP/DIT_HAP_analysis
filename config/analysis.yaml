@@ -124,3 +124,10 @@ coherence:
   dedup_merge_dag_lineage: true     # also merge member-sharing ancestor/descendant pairs
   dedup_scope: pooled               # "pooled" (collapse across sources) | "per_source"
   dedup_force_representatives: []    # group_ids you hand-pick as their cluster's representative
+  # Incoherence attribution: diagnose WHY a complex is dispersed (major/minor split,
+  # shared subunits, paralog buffering, ...). Physical complexes only by default.
+  attribution_sources: [go_macrocomplex]  # sources to attribute (major/minor & shared-subunit are meaningful for physical complexes)
+  attribution_z_threshold: 0.0       # z_score above this = incoherent
+  attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
+  attribution_shared_frac_threshold: 0.5   # shared_fraction >= this -> shared-subunit label
+  attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label

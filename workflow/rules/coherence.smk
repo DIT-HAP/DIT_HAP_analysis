@@ -18,6 +18,9 @@
 #   deduplicate_coherence_terms   -> coherence_terms_deduplicated.tsv (+ _representatives.tsv):
 #                                    collapse redundant terms by member overlap + GO DAG
 #                                    (display layer; full-set p_fdr untouched, all terms kept)
+#   attribute_coherence_incoherence -> incoherence_attribution.tsv (+ .pdf): diagnose WHY a
+#                                    complex is dispersed (major/minor GMM split, shared
+#                                    subunits, paralog buffering). attribution_sources subset.
 #   plot_coherence_group_scatter  -> group_scatter.pdf (named groups from config)
 #
 # Sources are registered in config.coherence.sources (currently: go_macrocomplex,
@@ -36,6 +39,9 @@ import json
 _COH = "results/coherence/{dataset}/{source}"
 _COH_CFG = config.get("coherence", {})
 _COH_SOURCES = _COH_CFG.get("sources", ["go_macrocomplex", "go_cc", "go_bp"])
+# Incoherence attribution runs on a (usually smaller) subset of sources: major/minor
+# split + shared-subunit are only meaningful for physical complexes, not GO_BP processes.
+_COH_ATTR_SOURCES = _COH_CFG.get("attribution_sources", ["go_macrocomplex"])
 
 wildcard_constraints:
     source="|".join(_COH_SOURCES),
@@ -164,6 +170,46 @@ rule deduplicate_coherence_terms:
             --force-representatives {params.force} \
             --output-all {output.all_terms} \
             --output-representatives {output.representatives} &> {log}
+        """
+
+
+rule attribute_coherence_incoherence:
+    input:
+        metrics=f"{_COH}/coherence_metrics.tsv",
+        annotation=f"{_COH}/group_annotation_long.tsv",
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+        paralogs="resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv",
+    output:
+        table=f"{_COH}/incoherence_attribution.tsv",
+        figure=f"{_COH}/incoherence_attribution.pdf",
+    params:
+        z_threshold=_COH_CFG.get("attribution_z_threshold", 0.0),
+        top_n_plot=_COH_CFG.get("attribution_top_n_plot", 16),
+        shared_frac=_COH_CFG.get("attribution_shared_frac_threshold", 0.5),
+        paralog_frac=_COH_CFG.get("attribution_paralog_frac_threshold", 0.5),
+    log:
+        "logs/coherence/attribution_{dataset}_{source}.log",
+    conda:
+        # stats env: attribution needs sklearn (GMM) + matplotlib; goatools NOT needed here.
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [coherence] Attributing incoherence for {wildcards.dataset} × {wildcards.source}..."
+    shell:
+        """
+        python workflow/scripts/coherence/attribute_incoherence.py \
+            --metrics {input.metrics} \
+            --annotation {input.annotation} \
+            --fitting-results {input.fitting_results} \
+            --paralogs {input.paralogs} \
+            --z-threshold {params.z_threshold} \
+            --top-n-plot {params.top_n_plot} \
+            --shared-frac-threshold {params.shared_frac} \
+            --paralog-frac-threshold {params.paralog_frac} \
+            --output-table {output.table} \
+            --output-figure {output.figure} &> {log}
         """
 
 
