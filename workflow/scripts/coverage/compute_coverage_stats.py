@@ -42,6 +42,7 @@ from workflow.src.coverage.core import (  # noqa: E402
     compute_insertion_coverage,
     compute_per_chromosome_insertion_coverage,
     write_detailed_gene_excel,
+    compute_non_name_genes_coverage
 )
 
 
@@ -91,6 +92,7 @@ def run(config: ComputeStatsConfig) -> None:
     characterisation_status_coverage = compute_characterisation_status_coverage(gene_result)
     deletion_viability_coverage = compute_deletion_viability_coverage(gene_result)
     essentiality_category_coverage = compute_essentiality_category_coverage(gene_result)
+    non_name_genes_coverage = compute_non_name_genes_coverage(gene_result)
 
     stats_table = build_stats_table(
         insertion_coverage,
@@ -100,6 +102,7 @@ def run(config: ComputeStatsConfig) -> None:
         characterisation_status_coverage,
         deletion_viability_coverage,
         essentiality_category_coverage,
+        non_name_genes_coverage
     )
     stats_table.to_csv(config.output_stats, sep="\t", index=False)
 
@@ -114,6 +117,8 @@ def run(config: ComputeStatsConfig) -> None:
     )
     if characterisation_status_coverage:
         logger.info(f"Computed coverage for {len(characterisation_status_coverage)} characterisation_status categories")
+    if non_name_genes_coverage:
+        logger.info(f"Computed coverage for {len(non_name_genes_coverage)} non_name_genes categories")
 
 
 # =============================================================================
