@@ -19,6 +19,7 @@ from workflow.src.coverage.core import (
     build_stats_table,
     load_gene_level,
     resolve_duplicate_annotations,
+    write_detailed_gene_excel,
 )
 
 
@@ -434,3 +435,95 @@ def test_build_stats_table_percent_handles_zero_total():
     essential = stats[(stats["metric"] == "gene") & (stats["category"] == "essential")].iloc[0]
     assert np.isnan(essential["covered_pct"])
     assert np.isnan(essential["not_covered_pct"])
+
+
+# =============================================================================
+# DETAILED GENE EXCEL (one sheet per characterisation_status / essentiality / deletion_viability value)
+# =============================================================================
+def _make_detailed_table():
+    return pd.DataFrame({
+        "Systematic ID": ["g1", "g2", "g3", "g4", "g5", "g6"],
+        "Name": ["g1", "g2", "g3", "g4", "g5", "g6"],
+        "characterisation_status": [
+            "biological role published",
+            "biological role published",
+            "biological role inferred",
+            "conserved unknown",
+            "conserved unknown",
+            "dubious",
+        ],
+        "deletion_viability": ["viable", "inviable", "viable", "unknown", "depends_on_conditions", "unknown"],
+        "DR": [0.5, None, 0.8, 0.6, None, 0.9],
+        "DL": [1.0, None, 2.0, 1.5, None, 3.0],
+        "essentiality": ["E", "V", "E", "Not_determined", "V", "Not_determined"],
+        "coverage_status": ["covered", "not_covered", "covered", "covered", "not_covered", "covered"],
+    })
+
+
+def test_write_detailed_gene_excel_sheets_cover_every_category(tmp_path):
+    """Every characterisation_status, essentiality, and deletion_viability value gets its own sheet."""
+    import openpyxl
+
+    detailed_table = _make_detailed_table()
+    out_path = tmp_path / "detailed_genes.xlsx"
+    write_detailed_gene_excel(detailed_table, out_path)
+
+    wb = openpyxl.load_workbook(out_path, read_only=True)
+    assert set(wb.sheetnames) == {
+        "All genes",
+        "biological role published",
+        "biological role inferred",
+        "conserved unknown",
+        "dubious",
+        "essential",
+        "non_essential",
+        "essentiality_not_determined",
+        "viable",
+        "inviable",
+        "unknown",
+        "depends_on_conditions",
+    }
+    assert len(wb.sheetnames) == 12
+
+
+def test_write_detailed_gene_excel_sheet_row_counts_match_value_counts(tmp_path):
+    """Each category sheet contains exactly the genes with that category value."""
+    import openpyxl
+
+    detailed_table = _make_detailed_table()
+    out_path = tmp_path / "detailed_genes.xlsx"
+    write_detailed_gene_excel(detailed_table, out_path)
+
+    wb = openpyxl.load_workbook(out_path, read_only=True)
+
+    def _row_count(sheet_name):
+        return wb[sheet_name].max_row - 1  # exclude header
+
+    assert _row_count("All genes") == 6
+    assert _row_count("biological role published") == 2
+    assert _row_count("essential") == 2
+    assert _row_count("non_essential") == 2
+    assert _row_count("essentiality_not_determined") == 2
+    assert _row_count("viable") == 2
+    assert _row_count("inviable") == 1
+    assert _row_count("unknown") == 2
+    assert _row_count("depends_on_conditions") == 1
+
+
+def test_write_detailed_gene_excel_skips_missing_columns(tmp_path):
+    """When essentiality/deletion_viability columns are absent, only the characterisation_status sheets are written."""
+    import openpyxl
+
+    detailed_table = _make_detailed_table().drop(columns=["essentiality", "deletion_viability"])
+    out_path = tmp_path / "detailed_genes.xlsx"
+    write_detailed_gene_excel(detailed_table, out_path)
+
+    wb = openpyxl.load_workbook(out_path, read_only=True)
+    assert set(wb.sheetnames) == {
+        "All genes",
+        "biological role published",
+        "biological role inferred",
+        "conserved unknown",
+        "dubious",
+    }
+    assert len(wb.sheetnames) == 5

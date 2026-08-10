@@ -424,29 +424,55 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
     return detailed_table.reset_index(drop=True)
 
 
+# essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
+# tabs, so map them to the same essential/non_essential naming already used by
+# essentiality_coverage's bucket names (deletion_viability's values are used as-is).
+_ESSENTIALITY_SHEET_NAMES = {"E": "essential", "V": "non_essential", "Not_determined": "essentiality_not_determined"}
+
+
 def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -> None:
-    """Write detailed gene table to Excel with multiple sheets: one for all genes, then one per characterisation_status.
+    """Write detailed gene table to Excel with multiple sheets.
 
     Sheets:
     - "All genes": complete table (5,126 genes)
-    - "biological role published", "biological role inferred", etc.: one sheet per characterisation_status category
+    - one sheet per characterisation_status category (e.g. "biological role published")
+    - one sheet per essentiality category ("essential" / "non_essential" / "essentiality_not_determined")
+    - one sheet per deletion_viability category ("viable" / "inviable" / "depends_on_conditions" / "unknown")
     """
+    sheet_count = 1
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         # Sheet 1: All genes
         detailed_table.to_excel(writer, sheet_name="All genes", index=False)
 
-        # Sheets 2+: One per characterisation_status category
+        # One sheet per characterisation_status category
         if "characterisation_status" in detailed_table.columns:
-            status_counts = detailed_table["characterisation_status"].value_counts()
-            for status in status_counts.index:
+            for status in detailed_table["characterisation_status"].value_counts().index:
                 if pd.isna(status):
                     continue
                 subset = detailed_table[detailed_table["characterisation_status"] == status]
                 # Excel sheet names are limited to 31 characters
-                sheet_name = str(status)[:31]
-                subset.to_excel(writer, sheet_name=sheet_name, index=False)
+                subset.to_excel(writer, sheet_name=str(status)[:31], index=False)
+                sheet_count += 1
 
-    logger.info(f"Wrote detailed gene Excel: {len(detailed_table):,} genes, {len(status_counts)} characterisation_status sheets")
+        # One sheet per essentiality category
+        if "essentiality" in detailed_table.columns:
+            for value, sheet_name in _ESSENTIALITY_SHEET_NAMES.items():
+                subset = detailed_table[detailed_table["essentiality"] == value]
+                if subset.empty:
+                    continue
+                subset.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                sheet_count += 1
+
+        # One sheet per deletion_viability category
+        if "deletion_viability" in detailed_table.columns:
+            for viability in detailed_table["deletion_viability"].value_counts().index:
+                if pd.isna(viability):
+                    continue
+                subset = detailed_table[detailed_table["deletion_viability"] == viability]
+                subset.to_excel(writer, sheet_name=str(viability)[:31], index=False)
+                sheet_count += 1
+
+    logger.info(f"Wrote detailed gene Excel: {len(detailed_table):,} genes, {sheet_count} sheets")
 
 
 # =============================================================================
