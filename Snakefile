@@ -39,7 +39,7 @@ include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
-include: "workflow/rules/complex.smk"
+include: "workflow/rules/coherence.smk"
 include: "workflow/rules/utr.smk"
 include: "workflow/rules/domain_differences.smk"
 
@@ -87,8 +87,10 @@ rule all:
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        # f"results/complex/{_DATASET}/complex_module_visualization.pdf",
-        # f"results/complex/{_DATASET}/complex_coherence_metrics.tsv",
+        f"results/coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        # Incoherence attribution (why complexes are dispersed) for physical-complex sources:
+        expand(f"results/coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
+               source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",

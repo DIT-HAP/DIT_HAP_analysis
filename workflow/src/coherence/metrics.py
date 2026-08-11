@@ -117,13 +117,20 @@ def compute_distance_zscore(
 ) -> tuple[float, float]:
     """Permutation z-score of a dispersion metric vs random equal-size gene sets.
 
-    Negative z = tighter than random = coherent. p = fraction of permutations
-    with dispersion <= observed. Returns (0.0, 1) for n<=1 or zero-variance null.
+    Negative z = tighter than random = coherent. This is a one-sided test for
+    coherence (dispersion tighter than random). The p-value uses the standard
+    add-one estimator p = (#{null <= observed} + 1) / (n_permutations + 1):
+    the +1 counts the observed statistic itself as one of its own permutations,
+    which (a) keeps p strictly positive — a permutation p can never truly be 0,
+    its resolution floor is 1/(n_permutations + 1) — and (b) makes the estimator
+    unbiased, so it survives downstream multiple-testing (FDR) correction instead
+    of collapsing spuriously exact zeros. Returns (0.0, 1.0) for n<=1 or a
+    zero-variance null.
     """
     rng = np.random.default_rng(random_state)
     n_samples = X.shape[0]
     if n_samples <= 1:
-        return 0.0, 1
+        return 0.0, 1.0
     observed = _observed_distance(X, method)
     permuted = np.empty(n_permutations)
     idx = np.arange(bg.shape[0])
@@ -131,9 +138,9 @@ def compute_distance_zscore(
         pick = rng.choice(idx, size=n_samples, replace=False)
         permuted[i] = _observed_distance(bg[pick], method)
     std = permuted.std()
-    p_value = float(np.mean(permuted <= observed))
+    p_value = float((np.sum(permuted <= observed) + 1) / (n_permutations + 1))
     if std == 0:
-        return 0.0, 1
+        return 0.0, 1.0
     return float((observed - permuted.mean()) / std), p_value
 
 
