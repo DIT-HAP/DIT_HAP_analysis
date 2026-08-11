@@ -28,6 +28,7 @@ wildcard_constraints:
 # Includes
 # ---------------------------------------------------------------------------
 include: "workflow/rules/features.smk"
+include: "workflow/rules/annotate.smk"
 include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
