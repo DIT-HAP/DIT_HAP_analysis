@@ -9,6 +9,7 @@ from workflow.src.annotation.core import (
     assemble_annotation_reference,
     build_complex_block,
     build_go_slim_block,
+    build_grna_block,
     build_hs_ortholog_block,
     build_pfam_block,
     build_pombe_block,
@@ -696,6 +697,64 @@ def test_all_block_columns_are_present_after_assembly():
     )
     result = assemble_annotation_reference(pombe, [block_a, block_b])
     assert list(result.columns) == ["gene_name", "Sc_ortholog_id", "complex"]
+
+
+# =============================================================================
+# gRNA-LEVEL DEPLETION PARAMETERS
+# =============================================================================
+def _grna_frame(rows: list[tuple[str, float, float]]) -> pd.DataFrame:
+    """Build a curated gRNA fitted-parameters frame from (systematic_id, um, lam) rows."""
+    return pd.DataFrame(
+        [
+            {"Systematic ID": gene, "um": um, "lam": lam, "A": 7.0, "R2": 0.99}
+            for gene, um, lam in rows
+        ]
+    )
+
+
+def test_grna_block_renames_legacy_um_and_lam():
+    """The curated table still uses upstream's legacy um/lam names for DR/DL."""
+    grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
+    result = build_grna_block(grna)
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == 1.048
+    assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
+
+
+def test_grna_block_emits_only_the_two_depletion_columns():
+    """Only DR/DL are wanted, so the other fitted parameters are dropped."""
+    grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
+    result = build_grna_block(grna)
+    assert list(result.columns) == ["gRNA_DR", "gRNA_DL"]
+
+
+def test_grna_columns_are_prefixed_to_avoid_colliding_with_gene_level_dr_dl():
+    """Gene-level DR/DL are different measurements (DL correlates only ~0.55), so names must differ."""
+    grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
+    result = build_grna_block(grna)
+    assert "DR" not in result.columns
+    assert "DL" not in result.columns
+
+
+def test_grna_block_accepts_a_table_already_using_dr_dl_names():
+    """If upstream ever ships DR/DL directly, the same loader must keep working."""
+    grna = pd.DataFrame({"Systematic ID": ["SPAC3A12.11c"], "DR": [1.048], "DL": [1.103]})
+    result = build_grna_block(grna)
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == 1.048
+    assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
+
+
+def test_duplicate_gene_in_grna_table_raises():
+    """The curated table is one row per gene; a duplicate would silently fan out the reference."""
+    grna = _grna_frame([("SPAC3A12.11c", 1.0, 1.0), ("SPAC3A12.11c", 2.0, 2.0)])
+    with pytest.raises(ValueError, match="duplicate"):
+        build_grna_block(grna)
+
+
+def test_missing_depletion_columns_raise():
+    """A table with neither um/lam nor DR/DL is the wrong file and must fail loudly."""
+    grna = pd.DataFrame({"Systematic ID": ["SPAC3A12.11c"], "something_else": [1.0]})
+    with pytest.raises(KeyError, match="um/lam"):
+        build_grna_block(grna)
 
 
 def test_count_columns_stay_integer_after_joining_partial_blocks():

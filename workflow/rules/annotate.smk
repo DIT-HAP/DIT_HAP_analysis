@@ -29,6 +29,7 @@ rule build_annotation_reference:
         pombase_dir="resources/external/pombase/{pombase_version}",
         sgd_dir="resources/external/sgd/{sgd_version}",
         deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
+        grna_parameters_tsv="resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv",
     output:
         reference="results/annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.parquet",
     log:
@@ -43,5 +44,6 @@ rule build_annotation_reference:
             --pombase-dir {input.pombase_dir} \
             --sgd-dir {input.sgd_dir} \
             --deletion-library-xlsx {input.deletion_library_xlsx} \
+            --grna-parameters-tsv {input.grna_parameters_tsv} \
             --output {output.reference} &> {log}
         """

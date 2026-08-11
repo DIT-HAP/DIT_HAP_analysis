@@ -9,8 +9,8 @@ Parses PomBase and SGD sources once into a single per-gene annotation table, so
 that annotating a user table is later just a join. Combines three blocks: the
 ortholog block (S. cerevisiae id / common name / ORF qualifier / null-mutant
 essentiality, plus human ortholog symbols), the pombe-side block (identity plus
-both FYPO and deletion-library essentiality), and the functional block (GO-slim
-terms, complex membership, PFAM domains).
+both FYPO and deletion-library essentiality), the functional block (GO-slim
+terms, complex membership, PFAM domains), and gRNA-level depletion DR/DL.
 
 Building this separately is what keeps the annotation CLI fast: loading the GO
 OBO/GAF and the 200k-row SGD phenotype table costs far more than the join does.
@@ -20,6 +20,7 @@ Input
 - A PomBase version directory (curated_orthologs, Gene_metadata, ontologies_and_associations, Protein_features)
 - An SGD version directory (SGD_features.tab, phenotype_data.tab) from fetch_sgd_data.sh
 - resources/curated/deletion_library_categories.xlsx
+- resources/curated/*_gRNA_HDdata_fitted_parameters.tsv (gRNA-level DR/DL)
 
 Output
 ------
@@ -31,6 +32,7 @@ Usage
         --pombase-dir resources/external/pombase/2026-06-01 \\
         --sgd-dir resources/external/sgd/2026-08-11 \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
+        --grna-parameters-tsv resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
         --output results/annotation/2026-06-01/2026-08-11/gene_annotation_reference.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
@@ -59,6 +61,7 @@ from workflow.src.annotation.core import (
     assemble_annotation_reference,
     build_complex_block,
     build_go_slim_block,
+    build_grna_block,
     build_hs_ortholog_block,
     build_pfam_block,
     build_pombe_block,
@@ -85,6 +88,7 @@ class AnnotationReferenceConfig:
     pombase_dir: Path
     sgd_dir: Path
     deletion_library_xlsx: Path
+    grna_parameters_tsv: Path
     output: Path
 
     def validate(self) -> None:
@@ -93,6 +97,7 @@ class AnnotationReferenceConfig:
             self.pombase_dir,
             self.sgd_dir,
             self.deletion_library_xlsx,
+            self.grna_parameters_tsv,
             self.sgd_features,
             self.sgd_phenotypes,
             self.gene_meta_file,
@@ -225,7 +230,11 @@ def run(config: AnnotationReferenceConfig) -> None:
     )
     logger.info(f"  {len(pombe_block):,} pombe genes define the reference row set")
 
-    blocks = build_ortholog_blocks(config) + build_functional_blocks(config)
+    logger.info("Building gRNA-level depletion block")
+    grna_block = build_grna_block(read_file(config.grna_parameters_tsv))
+    logger.info(f"  {len(grna_block):,} genes with gRNA-level DR/DL")
+
+    blocks = build_ortholog_blocks(config) + build_functional_blocks(config) + [grna_block]
     reference = assemble_annotation_reference(pombe_block, blocks)
 
     write_parquet(reference, config.output)
@@ -247,6 +256,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--deletion-library-xlsx", type=Path, required=True, help="Curated deletion-library categories xlsx"
     )
+    parser.add_argument(
+        "--grna-parameters-tsv",
+        type=Path,
+        required=True,
+        help="Curated gRNA fitted-parameters TSV (supplies gRNA-level DR/DL)",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output annotation reference parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -261,6 +276,7 @@ def main() -> int:
             pombase_dir=args.pombase_dir,
             sgd_dir=args.sgd_dir,
             deletion_library_xlsx=args.deletion_library_xlsx,
+            grna_parameters_tsv=args.grna_parameters_tsv,
             output=args.output,
         )
         config.validate()

@@ -87,6 +87,18 @@ _GO_SLIM_NAMESPACES = {
 # Columns with this suffix hold counts and are coerced to nullable Int64 after joining.
 _COUNT_COLUMN_SUFFIX = "_count"
 
+# The curated gRNA fitted-parameters table names depletion rate/lag with upstream's
+# legacy um/lam; accept DR/DL too in case upstream renames them. Output is prefixed
+# gRNA_ to keep it distinct from the gene-level DR/DL in clustering tables.
+_GRNA_GENE_COLUMN = "Systematic ID"
+_GRNA_DEPLETION_COLUMNS = {
+    "um": "gRNA_DR",
+    "lam": "gRNA_DL",
+    "DR": "gRNA_DR",
+    "DL": "gRNA_DL",
+}
+_GRNA_TARGET_COLUMNS = ["gRNA_DR", "gRNA_DL"]
+
 # SGD_features.tab covers many feature types (CDS, intron, ARS, ...); only ORF rows
 # carry the systematic name that PomBase orthologs refer to.
 _SGD_ORF_TYPE = "ORF"
@@ -395,6 +407,41 @@ def _collapse_unique(
     )
     collapsed.index.name = "gene_systematic_id"
     return collapsed
+
+
+# =============================================================================
+# gRNA-LEVEL DEPLETION PARAMETERS
+# =============================================================================
+def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
+    """Extract per-gene gRNA-level depletion rate and lag from the curated fitted-parameters table.
+
+    Columns are prefixed `gRNA_` because these are NOT the gene-level DR/DL that
+    clustering tables carry: they come from a single representative gRNA fit rather
+    than a gene-level aggregate fit, and the two disagree substantially (DR
+    correlates ~0.92 but DL only ~0.55 across ~4.5k shared genes).
+    """
+    available = {
+        source: target
+        for source, target in _GRNA_DEPLETION_COLUMNS.items()
+        if source in grna_parameters.columns
+    }
+    if len(available) < len(_GRNA_TARGET_COLUMNS):
+        raise KeyError(
+            "gRNA parameter table has no depletion columns: expected legacy um/lam "
+            f"or DR/DL, found {list(grna_parameters.columns)}"
+        )
+
+    genes = grna_parameters[_GRNA_GENE_COLUMN]
+    if genes.duplicated().any():
+        duplicates = genes[genes.duplicated()].unique().tolist()
+        raise ValueError(
+            f"gRNA parameter table has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+        )
+
+    block = grna_parameters.set_index(_GRNA_GENE_COLUMN)[list(available)].rename(columns=available)
+    block = block[_GRNA_TARGET_COLUMNS]
+    block.index.name = "gene_systematic_id"
+    return block
 
 
 # =============================================================================
