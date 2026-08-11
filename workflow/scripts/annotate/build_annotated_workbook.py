@@ -97,7 +97,10 @@ def annotate_with_suffix_on_collision(
     reference: pd.DataFrame,
     gene_column: str = "Systematic ID",
 ) -> pd.DataFrame:
-    """Annotate a table, adding _annotation suffix to annotation columns that collide with existing ones."""
+    """Annotate a table, adding _annotation suffix to annotation columns that collide with existing ones.
+
+    Places gRNA_DR and gRNA_DL immediately after the input table columns for visibility.
+    """
     annotation = reference.loc[table[gene_column], :]
     annotation = annotation.reset_index(drop=True)
 
@@ -106,6 +109,11 @@ def annotate_with_suffix_on_collision(
     if collisions:
         rename_map = {col: f"{col}_annotation" for col in collisions}
         annotation = annotation.rename(columns=rename_map)
+
+    # Move gRNA columns to front of annotation block for visibility
+    grna_cols = [c for c in annotation.columns if c in ["gRNA_DR", "gRNA_DL"]]
+    other_cols = [c for c in annotation.columns if c not in grna_cols]
+    annotation = annotation[grna_cols + other_cols]
 
     return pd.concat([table.reset_index(drop=True), annotation], axis=1)
 

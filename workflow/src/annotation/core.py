@@ -368,14 +368,6 @@ def build_complex_block(complex_annotation: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def build_pfam_block(domains: pd.DataFrame) -> pd.DataFrame:
-    """Collapse PFAM domain hits into one pipe-joined column per gene, dropping other databases."""
-    pfam = domains[domains["database"] == _PFAM_DATABASE]
-    return _collapse_unique(
-        pfam, key="systematic_id", value="domain_id", column="PFAM_domains"
-    )
-
-
 def build_go_slim_block(
     ns2slim_assoc: dict[str, dict[str, set[str]]],
     slim_term_names: dict[str, str],

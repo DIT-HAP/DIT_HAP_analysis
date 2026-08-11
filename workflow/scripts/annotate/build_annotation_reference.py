@@ -63,7 +63,6 @@ from workflow.src.annotation.core import (
     build_go_slim_block,
     build_grna_block,
     build_hs_ortholog_block,
-    build_pfam_block,
     build_pombe_block,
     build_sc_essentiality,
     build_sc_gene_info,
@@ -187,7 +186,7 @@ def build_ortholog_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFram
 
 @logger.catch(reraise=True)
 def build_functional_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFrame]:
-    """Build the GO-slim, complex-membership and PFAM-domain blocks."""
+    """Build the GO-slim and complex-membership blocks."""
     logger.info("Loading GO ontology for slim mapping (slowest step)")
     ontology = OntologyDataConfig(
         ontology_obo=config.ontologies_dir / "go-basic.obo",
@@ -211,11 +210,7 @@ def build_functional_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFr
     complex_block = build_complex_block(complexes)
     logger.info(f"  {len(complex_block):,} genes in a macromolecular complex")
 
-    logger.info("Building PFAM-domain block")
-    pfam_block = build_pfam_block(read_file(config.domains_file))
-    logger.info(f"  {len(pfam_block):,} genes with a PFAM domain")
-
-    return [go_block, complex_block, pfam_block]
+    return [go_block, complex_block]
 
 
 @logger.catch(reraise=True)
@@ -234,7 +229,7 @@ def run(config: AnnotationReferenceConfig) -> None:
     grna_block = build_grna_block(read_file(config.grna_parameters_tsv))
     logger.info(f"  {len(grna_block):,} genes with gRNA-level DR/DL")
 
-    blocks = build_ortholog_blocks(config) + build_functional_blocks(config) + [grna_block]
+    blocks = [grna_block] + build_ortholog_blocks(config) + build_functional_blocks(config)
     reference = assemble_annotation_reference(pombe_block, blocks)
 
     write_parquet(reference, config.output)

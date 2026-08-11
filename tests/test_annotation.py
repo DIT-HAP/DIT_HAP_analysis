@@ -11,7 +11,6 @@ from workflow.src.annotation.core import (
     build_go_slim_block,
     build_grna_block,
     build_hs_ortholog_block,
-    build_pfam_block,
     build_pombe_block,
     build_sc_essentiality,
     build_sc_ortholog_block,
@@ -525,7 +524,7 @@ def test_gene_absent_from_deletion_library_keeps_other_columns():
 
 
 # =============================================================================
-# FUNCTIONAL ANNOTATION BLOCK (complex membership, PFAM domains)
+# FUNCTIONAL ANNOTATION BLOCK (complex membership)
 # =============================================================================
 def test_complex_membership_is_pipe_joined():
     """A gene in several complexes gets all of them, so partial membership is visible."""
@@ -550,32 +549,6 @@ def test_duplicate_complex_annotations_are_deduplicated():
     )
     result = build_complex_block(complexes)
     assert result.loc["SPBC1815.01", "complex"] == "enolase complex"
-
-
-def test_pfam_domains_are_deduplicated_and_joined():
-    """PFAM rows are per-region, so repeated domain hits collapse to a unique domain list."""
-    domains = pd.DataFrame(
-        {
-            "systematic_id": ["SPAC1002.01", "SPAC1002.01", "SPAC1002.01"],
-            "domain_id": ["PF10306", "PF10306", "PF00001"],
-            "database": ["PFAM", "PFAM", "PFAM"],
-        }
-    )
-    result = build_pfam_block(domains)
-    assert result.loc["SPAC1002.01", "PFAM_domains"] == "PF10306|PF00001"
-
-
-def test_non_pfam_databases_are_excluded():
-    """The source table mixes PANTHER/PROSITE rows, which must not leak into the PFAM column."""
-    domains = pd.DataFrame(
-        {
-            "systematic_id": ["SPAC1002.01", "SPAC1002.01"],
-            "domain_id": ["PF10306", "PTHR28002"],
-            "database": ["PFAM", "PANTHER"],
-        }
-    )
-    result = build_pfam_block(domains)
-    assert result.loc["SPAC1002.01", "PFAM_domains"] == "PF10306"
 
 
 # =============================================================================
