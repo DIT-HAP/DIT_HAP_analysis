@@ -35,11 +35,15 @@ Output
 - coherence_metrics.tsv: one row per surviving group, in emission order:
   source, group_id, group_name, term_size, n_group_genes, covered_genes, then
   the geometric-median centroid + pairwise-distance stats (centroid_x,
-  centroid_y, median/mean/std/min/max_distance, mpd), observed_mpd, z_score,
-  p_value, n_permutations, p_fdr. p_value is the one-sided add-one permutation
-  p (coherent = tighter than random); p_fdr is its Benjamini-Hochberg FDR
-  correction across all groups of this source (the source = one hypothesis
-  family).
+  centroid_y, median/mean/std/min/max_distance, mpd), z_score, p_value,
+  n_permutations, mean_pairwise_distance_zscore, mean_pairwise_distance_p_value,
+  p_fdr. p_value is the one-sided add-one permutation p on the primary
+  median_pairwise_distance axis (coherent = tighter than random);
+  mean_pairwise_distance_zscore/_p_value are the same permutation test on the
+  mean-distance axis, reported alongside for robustness comparison (not BH-
+  corrected; p_fdr only covers the primary axis). p_fdr is p_value's
+  Benjamini-Hochberg FDR correction across all groups of this source (the
+  source = one hypothesis family).
 - coherence_analysis.pdf: a multi-panel overview — group-size + z-score
   histograms, a centroid-position map (coloured by z-score), and coherence-vs-
   biology panels (A: shared-subunit fraction, always; B: abundance uniformity
@@ -226,8 +230,8 @@ def load_fitting_results(fitting_results_path: Path, dr_threshold: float) -> pd.
 
     # Genes must have both FINITE fitness coordinates to be placed in the 2D
     # space. Map +/-inf to NaN first so dropna removes it too: an inf DR/DL
-    # would normalize to inf and poison pdist (observed_mpd=nan, z_score=nan,
-    # and `null_mpds <= nan` -> all-False -> a spurious p_value=0.0 row).
+    # would normalize to inf and poison pdist (mpd=nan, z_score=nan, and
+    # `null_mpds <= nan` -> all-False -> a spurious p_value=0.0 row).
     fitting = fitting.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
     fitting["norm_DR"] = _min_max_normalize(fitting["DR"].to_numpy(dtype=float), *_DR_NORM_RANGE)
     fitting["norm_DL"] = _min_max_normalize(fitting["DL"].to_numpy(dtype=float), *_DL_NORM_RANGE)
@@ -357,12 +361,24 @@ def compute_coherence_table(
         metrics = coherence_metrics(member_points)
         # Shared permutation test: X = member points, bg = the FULL background
         # point cloud (members included, matching the notebook's null draw), and
-        # median_pairwise_distance is this analysis's coherence axis. Returns a
-        # (z_score, p_value) tuple; observed_mpd is the local metrics["mpd"].
+        # median_pairwise_distance is this analysis's primary coherence axis.
+        # Returns a (z_score, p_value) tuple; the observed value is the local
+        # metrics["mpd"].
         z_score, p_value = compute_distance_zscore(
             member_points,
             background_points,
             method="median_pairwise_distance",
+            n_permutations=n_permutations,
+            random_state=random_state,
+        )
+
+        # Same permutation test on the mean-distance axis, reported alongside
+        # for robustness comparison (mean is more sensitive to outlier members
+        # than the primary median axis above).
+        mean_pairwise_distance_zscore, mean_pairwise_distance_p_value = compute_distance_zscore(
+            member_points,
+            background_points,
+            method="mean_pairwise_distance",
             n_permutations=n_permutations,
             random_state=random_state,
         )
@@ -375,10 +391,11 @@ def compute_coherence_table(
             "n_group_genes": int(grp["n_group_genes"].iloc[0]),
             "covered_genes": ", ".join(sorted(grp["Name"].dropna().astype(str))) if "Name" in grp else "",
             **metrics,
-            "observed_mpd": metrics["mpd"],
             "z_score": z_score,
             "p_value": p_value,
             "n_permutations": n_permutations,
+            "mean_pairwise_distance_zscore": mean_pairwise_distance_zscore,
+            "mean_pairwise_distance_p_value": mean_pairwise_distance_p_value,
         })
 
     table = pd.DataFrame(rows)
