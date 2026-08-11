@@ -500,13 +500,14 @@ def build_stats_table(
         {"metric": "gene", "category": "non_essential", "total": essentiality_coverage["non_essential"]["total"],
          "covered": essentiality_coverage["non_essential"]["covered"],
          "not_covered": essentiality_coverage["non_essential"]["not_covered"]},
-        {"metric": "gene", "category": "has_name", "total": non_name_genes_coverage["has_name"]["total"],
-         "covered": non_name_genes_coverage["has_name"]["covered"],
-         "not_covered": non_name_genes_coverage["has_name"]["not_covered"]},
-        {"metric": "gene", "category": "no_name", "total": non_name_genes_coverage["no_name"]["total"],
-         "covered": non_name_genes_coverage["no_name"]["covered"],
-         "not_covered": non_name_genes_coverage["no_name"]["not_covered"]},
     ]
+    if non_name_genes_coverage:
+        rows.append({"metric": "gene", "category": "has_name", "total": non_name_genes_coverage["has_name"]["total"],
+                     "covered": non_name_genes_coverage["has_name"]["covered"],
+                     "not_covered": non_name_genes_coverage["has_name"]["not_covered"]})
+        rows.append({"metric": "gene", "category": "no_name", "total": non_name_genes_coverage["no_name"]["total"],
+                     "covered": non_name_genes_coverage["no_name"]["covered"],
+                     "not_covered": non_name_genes_coverage["no_name"]["not_covered"]})
     for _, row in per_chromosome.iterrows():
         # Some chromosome names already start with "chr_" (e.g.
         # "chr_II_telomeric_gap") — avoid doubling the prefix into

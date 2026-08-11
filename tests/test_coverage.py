@@ -23,6 +23,21 @@ from workflow.src.coverage.core import (
 )
 
 
+# Real S. pombe systematic IDs (from results/coverage/HD_DIT_HAP/_work/gene_result.parquet),
+# used in place of fabricated placeholder gene IDs across this file's fixtures.
+_REAL_GENE_IDS = [
+    "SPAC1002.01", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.04c", "SPAC1002.05c",
+    "SPAC1002.06c", "SPAC1002.07c", "SPAC1002.08c", "SPAC1002.09c", "SPAC1002.10c",
+    "SPAC1002.11", "SPAC1002.12c", "SPAC1002.13c", "SPAC1002.14", "SPAC1002.15c",
+    "SPAC1002.16c", "SPAC1002.17c", "SPAC1002.18", "SPAC1002.19", "SPAC1002.20",
+    "SPAC1006.01", "SPAC1006.02", "SPAC1006.03c", "SPAC1006.04c", "SPAC1006.05c",
+    "SPAC1006.06", "SPAC1006.07", "SPAC1006.08", "SPAC1006.09", "SPAC1039.01",
+    "SPAC1039.02", "SPAC1039.03", "SPAC1039.04", "SPAC1039.05c", "SPAC1039.06",
+    "SPAC1039.07c", "SPAC1039.08", "SPAC1039.09", "SPAC1039.10", "SPAC1039.11c",
+    "SPAC105.01c",
+]
+
+
 def _make_insertion_annotation(n_in_gene=30, n_intergenic=10):
     """Synthetic insertion annotation table with required columns."""
     rows = []
@@ -33,7 +48,7 @@ def _make_insertion_annotation(n_in_gene=30, n_intergenic=10):
     # Edge: in-gene but too close to stop codon
     rows.append({"Type": "Coding exon", "Distance_to_stop_codon": 3})
     idx = pd.MultiIndex.from_tuples(
-        [(f"I", i * 100, "+", f"g{i}") for i in range(len(rows))],
+        [("I", i * 100, "+", _REAL_GENE_IDS[i]) for i in range(len(rows))],
         names=["Chr", "Coordinate", "Strand", "Gene"],
     )
     return pd.DataFrame(rows, index=idx)
@@ -57,9 +72,9 @@ def test_compute_insertion_coverage_counts():
 def test_compute_gene_coverage_counts():
     """covered = DR not NaN; not_covered = DR is NaN."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4"],
-        "DR": [0.5, None, 0.8, None],
-        "essentiality": ["E", "V", "E", "V"],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1006.02", "SPAC1002.11", "SPAC1002.01"],
+        "DR": [0.733, None, 0.801, None],
+        "essentiality": ["E", "E", "E", "V"],
     })
     result = compute_gene_coverage(gene_result)
     assert result["total"] == 4
@@ -76,8 +91,8 @@ def test_compute_essentiality_coverage_excludes_not_determined():
     so essential.total + non_essential.total < len(gene_result).
     """
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "DR": [0.5, 0.6, 0.7, None, 0.9],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
+        "DR": [0.733, -0.007, 0.001, None, 0.656],
         "essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
     })
     result = compute_essentiality_coverage(gene_result)
@@ -89,17 +104,11 @@ def test_compute_essentiality_coverage_excludes_not_determined():
 
 def test_compute_essentiality_coverage_essential():
     """Essential (E) gene coverage split is correct."""
-    # 3 essential genes (g0-g2) with 2 covered (DR not-NaN), 3 non-essential
-    # genes (g3-g5) with 2 covered. NOTE: fixed from the original migration
-    # plan's fixture, which had DR=[0.5, None, 0.8, None, 0.7, None] — that
-    # data has only 1 non-null DR in the V group (g3-g5), making
-    # non_essential["covered"] == 2 mathematically unsatisfiable regardless
-    # of implementation (3 non-null DR values total across all 6 genes, but
-    # the two assertions below sum to 4). Corrected here to g4's DR staying
-    # non-null and g3 also covered, matching the assertions' intended shape.
+    # 3 essential genes with 2 covered (DR not-NaN), 3 non-essential genes
+    # with 2 covered.
     gene_result = pd.DataFrame({
-        "Systematic ID": [f"g{i}" for i in range(6)],
-        "DR": [0.5, None, 0.8, 0.6, 0.7, None],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1006.02", "SPAC1002.08c", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.01"],
+        "DR": [0.733, None, 0.656, -0.007, 0.024, None],
         "essentiality": ["E", "E", "E", "V", "V", "V"],
     })
     result = compute_essentiality_coverage(gene_result)
@@ -113,7 +122,7 @@ def test_load_gene_level_renames_legacy_um_lam(tmp_path):
     """Legacy um/lam headers are renamed to DR/DL."""
     legacy_tsv = tmp_path / "fitting_results.tsv"
     pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02"],
         "um": [0.5, 0.6],
         "lam": [1.0, 2.0],
         "essentiality": ["E", "V"],
@@ -132,7 +141,7 @@ def test_load_gene_level_is_idempotent_when_dr_dl_already_present(tmp_path):
     """Rename only triggers when DR/DL aren't already present — a no-op on current-schema files."""
     current_tsv = tmp_path / "fitting_results.tsv"
     pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02"],
         "DR": [0.5, 0.6],
         "DL": [1.0, 2.0],
         "essentiality": ["E", "V"],
@@ -203,8 +212,8 @@ def test_resolve_duplicate_annotations_no_duplicates_is_noop():
 def test_compute_characterisation_status_coverage_splits_by_status():
     """Coverage is computed separately for each characterisation_status value."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5", "g6"],
-        "DR": [0.5, None, 0.8, 0.6, None, 0.9],
+        "Systematic ID": ["SPAC1002.04c", "SPAC105.02c", "SPAC1002.11", "SPAC1002.18", "SPBC1348.06c", "SPAC1002.20"],
+        "DR": [0.733, None, 0.801, -0.005, None, 0.0],
         "characterisation_status": [
             "biological role published",
             "biological role published",
@@ -217,20 +226,20 @@ def test_compute_characterisation_status_coverage_splits_by_status():
     })
     result = compute_characterisation_status_coverage(gene_result)
 
-    # 2 genes with "biological role published": 1 covered (g1), 1 not covered (g2)
+    # 2 genes with "biological role published": 1 covered, 1 not covered
     assert result["biological role published"]["total"] == 2
     assert result["biological role published"]["covered"] == 1
     assert result["biological role published"]["not_covered"] == 1
 
-    # 1 gene with "biological role inferred": 1 covered (g3)
+    # 1 gene with "biological role inferred": covered
     assert result["biological role inferred"]["total"] == 1
     assert result["biological role inferred"]["covered"] == 1
 
-    # 2 genes with "conserved unknown": 1 covered (g4), 1 not covered (g5)
+    # 2 genes with "conserved unknown": 1 covered, 1 not covered
     assert result["conserved unknown"]["total"] == 2
     assert result["conserved unknown"]["covered"] == 1
 
-    # 1 gene with "dubious": 1 covered (g6)
+    # 1 gene with "dubious": covered
     assert result["dubious"]["total"] == 1
     assert result["dubious"]["covered"] == 1
 
@@ -238,7 +247,7 @@ def test_compute_characterisation_status_coverage_splits_by_status():
 def test_compute_characterisation_status_coverage_handles_missing_column():
     """Returns empty dict when characterisation_status column is missing."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02"],
         "DR": [0.5, 0.6],
         "essentiality": ["E", "V"],
     })
@@ -249,14 +258,14 @@ def test_compute_characterisation_status_coverage_handles_missing_column():
 def test_compute_characterisation_status_coverage_skips_null_status():
     """Genes with null characterisation_status are excluded from all categories."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3"],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1002.18"],
         "DR": [0.5, 0.6, 0.7],
         "characterisation_status": ["biological role published", None, "conserved unknown"],
         "essentiality": ["E", "V", "E"],
     })
     result = compute_characterisation_status_coverage(gene_result)
 
-    # Only 2 categories (g2 with null status is excluded)
+    # Only 2 categories (the gene with null status is excluded)
     assert len(result) == 2
     assert "biological role published" in result
     assert "conserved unknown" in result
@@ -267,8 +276,8 @@ def test_compute_characterisation_status_coverage_skips_null_status():
 def test_compute_deletion_viability_coverage_splits_by_viability():
     """Coverage is computed separately for each deletion_viability value."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5", "g6"],
-        "DR": [0.5, None, 0.8, 0.6, None, 0.9],
+        "Systematic ID": ["SPAC1002.02", "SPAC1002.01", "SPAC1002.04c", "SPAC1006.08", "SPAC1071.11", "SPAC1071.13"],
+        "DR": [-0.007, None, 0.733, 1.082, None, 0.001],
         "deletion_viability": [
             "viable", "viable", "inviable", "depends_on_conditions", "depends_on_conditions", "unknown",
         ],
@@ -292,8 +301,8 @@ def test_compute_deletion_viability_coverage_splits_by_viability():
 def test_compute_essentiality_category_coverage_includes_not_determined():
     """Unlike compute_essentiality_coverage, every essentiality value gets its own row."""
     gene_result = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "DR": [0.5, 0.6, 0.7, None, 0.9],
+        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
+        "DR": [0.733, -0.007, 0.001, None, 0.656],
         "essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
     })
     result = compute_essentiality_category_coverage(gene_result)
@@ -442,8 +451,8 @@ def test_build_stats_table_percent_handles_zero_total():
 # =============================================================================
 def _make_detailed_table():
     return pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5", "g6"],
-        "Name": ["g1", "g2", "g3", "g4", "g5", "g6"],
+        "Systematic ID": ["SPAC1F3.01", "SPAC1006.02", "SPAC1002.07c", "SPAC12G12.17", "SPAC23H3.15c", "SPAC1142.09"],
+        "Name": ["rrp6", "asa1", "sat1", "nce101", "ddr48", "SPAC1142.09"],
         "characterisation_status": [
             "biological role published",
             "biological role published",
@@ -453,9 +462,9 @@ def _make_detailed_table():
             "dubious",
         ],
         "deletion_viability": ["viable", "inviable", "viable", "unknown", "depends_on_conditions", "unknown"],
-        "DR": [0.5, None, 0.8, 0.6, None, 0.9],
-        "DL": [1.0, None, 2.0, 1.5, None, 3.0],
-        "essentiality": ["E", "V", "E", "Not_determined", "V", "Not_determined"],
+        "DR": [0.653, None, 0.038, 0.007, None, 0.056],
+        "DL": [1.645, None, 0.0, 0.0, None, -0.0],
+        "essentiality": ["E", "E", "V", "Not_determined", "V", "Not_determined"],
         "coverage_status": ["covered", "not_covered", "covered", "covered", "not_covered", "covered"],
     })
 
