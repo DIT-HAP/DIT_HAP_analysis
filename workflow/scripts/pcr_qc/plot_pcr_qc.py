@@ -62,8 +62,8 @@ from loguru import logger  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.io import read_parquet  # noqa: E402
 from workflow.src.pcr_qc.core import plot_spikein_panel  # noqa: E402
-from workflow.src.plotting.generic import create_scatter_correlation_plot  # noqa: E402
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+from workflow.src import figures as fig  # noqa: E402
+import cnsplots as cns  # noqa: E402
 
 
 # =============================================================================
@@ -100,32 +100,52 @@ def run(config: PlotPCRQCConfig) -> None:
     """Assemble the 2x2 QC figure and save it as a PDF."""
     config.validate()
 
+    # Apply house style before creating any figures
+    fig.apply_house_style()
+
     pbl_pbr = read_parquet(config.pbl_pbr)
     tech = read_parquet(config.tech)
     bio = read_parquet(config.bio)
     spikein = read_parquet(config.spikein)
 
-    fig, axes = plt.subplot_mosaic(
-        [["(a)", "(b)"], ["(c)", "(d)"]], figsize=(AX_WIDTH * 2, AX_HEIGHT * 2)
-    )
+    # Create 2x2 grid using figures.py
+    axes = fig.grid_axes(2, 2, labels=["(a)", "(b)", "(c)", "(d)"], shape=fig.PanelShape.SQUARE)
+    ax_a, ax_b, ax_c, ax_d = axes
 
-    create_scatter_correlation_plot(pbl_pbr["PBL"].values, pbl_pbr["PBR"].values, ax=axes["(a)"], xscale="log", yscale="log")
-    axes["(a)"].set_xlabel("PBL Reads")
-    axes["(a)"].set_ylabel("PBR Reads")
+    # Panel (a): PBL vs PBR
+    cns.scatterplot(x=pbl_pbr["PBL"].values, y=pbl_pbr["PBR"].values, ax=ax_a)
+    fig.apply_log_scale(ax_a, x=True, y=True)
+    ax_a.set_xlabel("PBL Reads")
+    ax_a.set_ylabel("PBR Reads")
+    # Add diagonal line and stats
+    ax_a.plot([pbl_pbr["PBL"].min(), pbl_pbr["PBL"].max()],
+              [pbl_pbr["PBL"].min(), pbl_pbr["PBL"].max()],
+              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
 
-    create_scatter_correlation_plot(tech["Reads_1"], tech["Reads_2"], ax=axes["(b)"], xscale="log", yscale="log")
-    axes["(b)"].set_xlabel("Reads of Technical Replicate 1")
-    axes["(b)"].set_ylabel("Reads of Technical Replicate 2")
+    # Panel (b): Technical replicate
+    cns.scatterplot(x=tech["Reads_1"], y=tech["Reads_2"], ax=ax_b)
+    fig.apply_log_scale(ax_b, x=True, y=True)
+    ax_b.set_xlabel("Reads of Technical Replicate 1")
+    ax_b.set_ylabel("Reads of Technical Replicate 2")
+    ax_b.plot([tech["Reads_1"].min(), tech["Reads_1"].max()],
+              [tech["Reads_1"].min(), tech["Reads_1"].max()],
+              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
 
-    create_scatter_correlation_plot(bio["Reads_1"], bio["Reads_2"], ax=axes["(c)"], xscale="log", yscale="log")
-    axes["(c)"].set_xlabel("Reads of Biological Replicate 1")
-    axes["(c)"].set_ylabel("Reads of Biological Replicate 2")
+    # Panel (c): Biological replicate
+    cns.scatterplot(x=bio["Reads_1"], y=bio["Reads_2"], ax=ax_c)
+    fig.apply_log_scale(ax_c, x=True, y=True)
+    ax_c.set_xlabel("Reads of Biological Replicate 1")
+    ax_c.set_ylabel("Reads of Biological Replicate 2")
+    ax_c.plot([bio["Reads_1"].min(), bio["Reads_1"].max()],
+              [bio["Reads_1"].min(), bio["Reads_1"].max()],
+              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
 
-    plot_spikein_panel(axes["(d)"], spikein)
+    # Panel (d): Spike-in dilution
+    plot_spikein_panel(ax_d, spikein)
 
-    fig.tight_layout(h_pad=2, w_pad=2)
-    fig.savefig(config.output, dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    # Layout and save
+    fig.fit_panels()
+    fig.save_dual(config.output.parent / config.output.stem)
     logger.success(f"Wrote PCR QC figure: {config.output}")
 
 

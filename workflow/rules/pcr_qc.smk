@@ -73,27 +73,4 @@ rule prepare_pcr_qc_data:
             --output-spikein {output.spikein} &> {log}
         """
 
-
-rule plot_pcr_qc:
-    input:
-        pbl_pbr=f"{_PCRWORK}/pbl_pbr.parquet",
-        tech=f"{_PCRWORK}/tech.parquet",
-        bio=f"{_PCRWORK}/bio.parquet",
-        spikein=f"{_PCRWORK}/spikein.parquet",
-    output:
-        "results/pcr_qc/PCR_quality_control.pdf",
-    log:
-        "logs/pcr_qc/plot_pcr_qc.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [pcr_qc] Building 2x2 library-prep QC figure..."
-    shell:
-        """
-        python workflow/scripts/pcr_qc/plot_pcr_qc.py \
-            --pbl-pbr {input.pbl_pbr} \
-            --tech {input.tech} \
-            --bio {input.bio} \
-            --spikein {input.spikein} \
-            --output {output} &> {log}
-        """
+# plot_pcr_qc rule has been moved to workflow/rules/figure.smk (ticket 03)
