@@ -74,4 +74,4 @@ def plot_spikein_panel(ax: plt.Axes, spikein: pd.DataFrame) -> None:
         f"PCC={r_value:.2f}\nR²={r_value**2:.2f}\nSlope={slope:.2f}\nIntercept={intercept:.2f}",
         transform=ax.transAxes, ha="left", va="top",
     )
-    ax.legend(loc="lower right", fontsize=16, frameon=False)
+    ax.legend(loc="lower right", frameon=False)

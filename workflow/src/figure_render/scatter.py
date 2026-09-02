@@ -184,11 +184,11 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
         case "identity":
             min_val = min(positive[panel.x].min(), positive[panel.y].min())
             max_val = max(positive[panel.x].max(), positive[panel.y].max())
-            ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--")
+            ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--", linewidth=1)
         case "unit_identity":
-            ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--")
+            ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--", linewidth=1)
         case "zero":
-            ax.axhline(0, color=FURNITURE_COLOR, linestyle="--")
+            ax.axhline(0, color=FURNITURE_COLOR, linestyle="--", linewidth=1)
         case "none":
             pass
 
@@ -243,7 +243,7 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
     labels[-1].set_verticalalignment("top")
 
     # length=0 drops the tick marks but keeps their labels.
-    colorbar.ax.tick_params(length=0, pad=1)
+    colorbar.ax.tick_params(length=0, pad=1, width=0)
 
     # Sits above the bar, sized and right-aligned to match the low/high ticks: the
     # bar is far narrower than the word, so a centred title would spill past the
