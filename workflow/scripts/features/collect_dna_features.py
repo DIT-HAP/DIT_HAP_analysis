@@ -49,7 +49,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.features.assembly import collect_dna_level_features
 from workflow.src.features.genome import PombaseGenomeConfig, calculate_anticodon_usage_matrix
-from workflow.src.io import write_parquet
+from workflow.src.io_table import write_parquet
 
 
 # =============================================================================

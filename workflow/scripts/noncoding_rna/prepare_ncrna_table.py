@@ -38,7 +38,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import write_parquet  # noqa: E402
+from workflow.src.io_table import write_parquet  # noqa: E402
 from workflow.src.noncoding_rna.core import (  # noqa: E402
     build_ncrna_table,
     load_gtrnadb,

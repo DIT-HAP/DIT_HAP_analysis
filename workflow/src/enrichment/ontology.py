@@ -47,7 +47,7 @@ from goatools.anno.gaf_reader import GafReader
 from goatools.obo_parser import GODag
 
 # 4. Local Imports
-from workflow.src.io import read_file
+from workflow.src.io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

@@ -45,7 +45,7 @@ import pandas as pd
 from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet
+from workflow.src.io_table import read_parquet
 
 
 # =============================================================================

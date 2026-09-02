@@ -3,7 +3,7 @@
 import pytest
 import pandas as pd
 from pathlib import Path
-from workflow.src.io import read_file
+from workflow.src.io_table import read_file
 
 
 def test_read_tsv(tmp_path):

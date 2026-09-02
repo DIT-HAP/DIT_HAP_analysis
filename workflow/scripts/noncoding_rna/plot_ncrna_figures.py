@@ -35,7 +35,7 @@ from loguru import logger  # noqa: E402
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet  # noqa: E402
+from workflow.src.io_table import read_parquet  # noqa: E402
 from workflow.src.noncoding_rna.core import plot_feature_type_donut, plot_trna_summary  # noqa: E402
 
 

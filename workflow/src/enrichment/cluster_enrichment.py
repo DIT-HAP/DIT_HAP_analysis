@@ -60,7 +60,7 @@ from workflow.src.enrichment.pipeline import (
     get_slim_ns2assoc,
     ontology_enrichment,
 )
-from workflow.src.io import read_file
+from workflow.src.io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

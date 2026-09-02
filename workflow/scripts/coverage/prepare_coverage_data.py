@@ -37,7 +37,7 @@ import pandas as pd
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet, write_parquet  # noqa: E402
+from workflow.src.io_table import read_parquet, write_parquet  # noqa: E402
 from workflow.src.coverage.core import load_gene_level, load_insertion_level  # noqa: E402
 
 

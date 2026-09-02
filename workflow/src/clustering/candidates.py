@@ -54,7 +54,7 @@ from sklearn.metrics import (
 from sklearn.mixture import GaussianMixture
 
 # 4. Local Imports
-from workflow.src.io import read_file
+from workflow.src.io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

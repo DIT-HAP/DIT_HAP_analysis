@@ -74,7 +74,7 @@ from workflow.src.annotation.core import (
 )
 from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
 from workflow.src.enrichment.pipeline import get_slim_ns2assoc
-from workflow.src.io import read_file, write_parquet
+from workflow.src.io_table import read_file, write_parquet
 
 
 # =============================================================================

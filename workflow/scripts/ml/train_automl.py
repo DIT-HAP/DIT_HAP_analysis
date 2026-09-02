@@ -71,7 +71,7 @@ from sklearn.preprocessing import PowerTransformer
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet
+from workflow.src.io_table import read_parquet
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

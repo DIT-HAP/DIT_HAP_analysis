@@ -32,7 +32,7 @@ from loguru import logger
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet  # noqa: E402
+from workflow.src.io_table import read_parquet  # noqa: E402
 from workflow.src.verification.core import (  # noqa: E402
     build_depletion_curve_pdf,
     load_grna_timepoints,

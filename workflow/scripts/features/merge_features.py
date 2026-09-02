@@ -54,7 +54,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet, write_parquet
+from workflow.src.io_table import read_parquet, write_parquet
 from workflow.src.features.assembly import load_gene_meta, merge_all_features
 
 

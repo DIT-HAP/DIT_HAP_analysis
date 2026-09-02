@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 # 3. Local Imports
-from workflow.src.io import read_file
+from workflow.src.io_table import read_file
 
 # =============================================================================
 # CORE LOGIC

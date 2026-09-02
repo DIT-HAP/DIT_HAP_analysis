@@ -52,7 +52,7 @@ from loguru import logger
 
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import write_parquet  # noqa: E402
+from workflow.src.io_table import write_parquet  # noqa: E402
 from workflow.src.spikein.core import DEFAULT_SPIKE_IN_SITES, build_spike_in_stats  # noqa: E402
 
 

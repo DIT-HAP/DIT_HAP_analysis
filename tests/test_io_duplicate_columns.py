@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.src.io import write_parquet, read_parquet
+from workflow.src.io_table import write_parquet, read_parquet
 
 
 def test_write_and_read_duplicate_columns_preserves_them(tmp_path):

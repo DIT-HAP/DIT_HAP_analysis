@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.src.io import write_parquet, read_parquet
+from workflow.src.io_table import write_parquet, read_parquet
 
 from workflow.src.ml.data import load_modeling_data
 from workflow.scripts.ml.prepare_ml_data import PrepareConfig

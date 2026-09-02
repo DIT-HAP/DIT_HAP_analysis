@@ -63,7 +63,7 @@ from loguru import logger
 # 4. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.annotation.core import annotate_table, summarise_match
-from workflow.src.io import read_file, read_parquet
+from workflow.src.io_table import read_file, read_parquet
 
 # =============================================================================
 # GLOBAL CONSTANTS

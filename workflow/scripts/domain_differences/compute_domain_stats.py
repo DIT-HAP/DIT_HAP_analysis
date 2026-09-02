@@ -52,7 +52,7 @@ from loguru import logger
 
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet  # noqa: E402
+from workflow.src.io_table import read_parquet  # noqa: E402
 from workflow.src.domain_differences.core import (  # noqa: E402
     DR_THRESHOLD,
     IN_GENE_FILTER,

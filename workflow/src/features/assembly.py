@@ -53,7 +53,7 @@ from workflow.src.features.protein import (
     pLDDT_statistics_report,
 )
 from workflow.src.gene_ids import update_sysIDs
-from workflow.src.io import read_parquet
+from workflow.src.io_table import read_parquet
 
 # =============================================================================
 # GLOBAL CONSTANTS

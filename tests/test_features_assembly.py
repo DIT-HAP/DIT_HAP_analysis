@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.src.io import write_parquet, read_parquet
+from workflow.src.io_table import write_parquet, read_parquet
 
 from workflow.src.features.assembly import get_ortholog_counts, merge_all_features, read_coding_genes
 from workflow.scripts.features.collect_dna_features import DnaConfig

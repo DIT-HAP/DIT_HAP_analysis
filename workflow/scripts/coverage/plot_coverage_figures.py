@@ -46,7 +46,7 @@ from loguru import logger  # noqa: E402
 # 3. Local Imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import pandas as pd  # noqa: E402
-from workflow.src.io import read_parquet  # noqa: E402
+from workflow.src.io_table import read_parquet  # noqa: E402
 from workflow.src.coverage.core import (  # noqa: E402
     coverage_dicts_from_stats_table,
     plot_characterisation_status_donuts,
