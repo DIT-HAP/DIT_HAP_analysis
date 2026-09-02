@@ -52,18 +52,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Third-party Imports
-import matplotlib
-
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
 import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 3. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.io import read_parquet  # noqa: E402
-from workflow.src.pcr_qc.core import plot_spikein_panel  # noqa: E402
-from workflow.src import figures as fig  # noqa: E402
-from workflow.src.figure_render.scatter import ScatterPanel, render_scatter_panel  # noqa: E402
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from io_table import read_parquet  # noqa: E402
+# from pcr_qc.core import plot_spikein_panel  # noqa: E402
+from figures import (  # noqa: E402
+    apply_house_style,
+    grid_axes,
+    fit_panels,
+    save_dual,
+    PanelShape,
+)
+from figure_render.scatter import ScatterPanel, render_scatter_panel  # noqa: E402
 
 
 # =============================================================================
@@ -101,7 +105,7 @@ def run(config: PlotPCRQCConfig) -> None:
     config.validate()
 
     # Apply house style before creating any figures
-    fig.apply_house_style()
+    apply_house_style()
 
     pbl_pbr = read_parquet(config.pbl_pbr)
     tech = read_parquet(config.tech)
@@ -109,7 +113,7 @@ def run(config: PlotPCRQCConfig) -> None:
     spikein = read_parquet(config.spikein)
 
     # Create 2x2 grid using figures.py
-    axes = fig.grid_axes(2, 2, labels=["(a)", "(b)", "(c)", "(d)"], shape=fig.PanelShape.SQUARE)
+    axes = grid_axes(2, 2, shape=PanelShape.SQUARE)
     ax_a, ax_b, ax_c, ax_d = axes
 
     # Panel (a): PBL vs PBR with density
@@ -126,6 +130,7 @@ def run(config: PlotPCRQCConfig) -> None:
     )
     render_scatter_panel(ax_a, pbl_pbr, panel_a, show_legend=False)
 
+    apply_house_style()
     # Panel (b): Technical replicate with density
     panel_b = ScatterPanel(
         x="Reads_1",
@@ -140,6 +145,7 @@ def run(config: PlotPCRQCConfig) -> None:
     )
     render_scatter_panel(ax_b, tech, panel_b, show_legend=False)
 
+    apply_house_style()
     # Panel (c): Biological replicate with density
     panel_c = ScatterPanel(
         x="Reads_1",
@@ -154,12 +160,25 @@ def run(config: PlotPCRQCConfig) -> None:
     )
     render_scatter_panel(ax_c, bio, panel_c, show_legend=False)
 
-    # Panel (d): Spike-in dilution
-    plot_spikein_panel(ax_d, spikein)
+    panel_d = ScatterPanel(
+            x="Reads_1",
+            y="Reads_2",
+            xlabel="Reads of Biological Replicate 1",
+            ylabel="Reads of Biological Replicate 2",
+            title="",
+            reference="identity",
+            scale="log",
+            show_stats=True,
+            density=True,
+        )
+    render_scatter_panel(ax_d, bio, panel_d, show_legend=False)
 
+    # Panel (d): Spike-in dilution
+    # plot_spikein_panel(ax_d, spikein)
+    apply_house_style()
     # Layout and save
-    fig.fit_panels()
-    fig.save_dual(config.output.parent / config.output.stem)
+    fit_panels()
+    save_dual(config.output.parent / config.output.stem)
     logger.success(f"Wrote PCR QC figure: {config.output}")
 
 
