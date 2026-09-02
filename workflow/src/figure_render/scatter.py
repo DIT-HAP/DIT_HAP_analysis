@@ -245,6 +245,11 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
     # length=0 drops the tick marks but keeps their labels.
     colorbar.ax.tick_params(length=0, pad=1, width=0)
 
+    # Explicitly hide tick lines (some matplotlib versions need this)
+    for tick in colorbar.ax.yaxis.get_major_ticks():
+        tick.tick1line.set_visible(False)
+        tick.tick2line.set_visible(False)
+
     # Sits above the bar, sized and right-aligned to match the low/high ticks: the
     # bar is far narrower than the word, so a centred title would spill past the
     # panel's right edge, and an axis label would read as a full-size axis title.
