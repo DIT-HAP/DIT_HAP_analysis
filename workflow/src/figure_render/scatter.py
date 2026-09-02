@@ -19,17 +19,10 @@ Version:  2.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
-
-# Add workflow/src to path for imports
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_SRC_DIR = _SCRIPT_DIR.parent
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
@@ -41,7 +34,7 @@ from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
 from scipy.stats import pearsonr
 
-from figures import (  # noqa: E402
+from figures import (
     FURNITURE_COLOR,
     apply_house_style,
     apply_log_scale,
@@ -52,8 +45,8 @@ from figures import (  # noqa: E402
     save_dual,
 )
 
-from ._point_density import point_density  # noqa: E402
-from ._schema import require_columns  # noqa: E402
+from ._point_density import point_density
+from ._schema import require_columns
 
 # =============================================================================
 # CONSTANTS
@@ -184,11 +177,11 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
         case "identity":
             min_val = min(positive[panel.x].min(), positive[panel.y].min())
             max_val = max(positive[panel.x].max(), positive[panel.y].max())
-            ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--", linewidth=1)
+            ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--")
         case "unit_identity":
-            ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--", linewidth=1)
+            ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--")
         case "zero":
-            ax.axhline(0, color=FURNITURE_COLOR, linestyle="--", linewidth=1)
+            ax.axhline(0, color=FURNITURE_COLOR, linestyle="--")
         case "none":
             pass
 
@@ -243,12 +236,7 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
     labels[-1].set_verticalalignment("top")
 
     # length=0 drops the tick marks but keeps their labels.
-    colorbar.ax.tick_params(length=0, pad=1, width=0)
-
-    # Explicitly hide tick lines (some matplotlib versions need this)
-    for tick in colorbar.ax.yaxis.get_major_ticks():
-        tick.tick1line.set_visible(False)
-        tick.tick2line.set_visible(False)
+    colorbar.ax.tick_params(length=0, pad=1)
 
     # Sits above the bar, sized and right-aligned to match the low/high ticks: the
     # bar is far narrower than the word, so a centred title would spill past the
