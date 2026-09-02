@@ -52,14 +52,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Third-party Imports
-import matplotlib.pyplot as plt  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+from loguru import logger
 
-# 3. Local Imports
+# 3. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
 from io_table import read_parquet  # noqa: E402
-# from pcr_qc.core import plot_spikein_panel  # noqa: E402
+from logging_setup import setup_logger  # noqa: E402
 from figures import (  # noqa: E402
     apply_house_style,
     grid_axes,
@@ -88,12 +89,6 @@ class PlotPCRQCConfig:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
-
-
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
 
 
 # =============================================================================
