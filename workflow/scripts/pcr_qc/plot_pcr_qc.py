@@ -63,7 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from workflow.src.io import read_parquet  # noqa: E402
 from workflow.src.pcr_qc.core import plot_spikein_panel  # noqa: E402
 from workflow.src import figures as fig  # noqa: E402
-import cnsplots as cns  # noqa: E402
+from workflow.src.figure_render.scatter import ScatterPanel, render_scatter_panel  # noqa: E402
 
 
 # =============================================================================
@@ -112,33 +112,47 @@ def run(config: PlotPCRQCConfig) -> None:
     axes = fig.grid_axes(2, 2, labels=["(a)", "(b)", "(c)", "(d)"], shape=fig.PanelShape.SQUARE)
     ax_a, ax_b, ax_c, ax_d = axes
 
-    # Panel (a): PBL vs PBR
-    cns.scatterplot(x=pbl_pbr["PBL"].values, y=pbl_pbr["PBR"].values, ax=ax_a)
-    fig.apply_log_scale(ax_a, x=True, y=True)
-    ax_a.set_xlabel("PBL Reads")
-    ax_a.set_ylabel("PBR Reads")
-    # Add diagonal line and stats
-    ax_a.plot([pbl_pbr["PBL"].min(), pbl_pbr["PBL"].max()],
-              [pbl_pbr["PBL"].min(), pbl_pbr["PBL"].max()],
-              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
+    # Panel (a): PBL vs PBR with density
+    panel_a = ScatterPanel(
+        x="PBL",
+        y="PBR",
+        xlabel="PBL Reads",
+        ylabel="PBR Reads",
+        title="",
+        reference="identity",
+        scale="log",
+        show_stats=True,
+        density=True,
+    )
+    render_scatter_panel(ax_a, pbl_pbr, panel_a, show_legend=False)
 
-    # Panel (b): Technical replicate
-    cns.scatterplot(x=tech["Reads_1"], y=tech["Reads_2"], ax=ax_b)
-    fig.apply_log_scale(ax_b, x=True, y=True)
-    ax_b.set_xlabel("Reads of Technical Replicate 1")
-    ax_b.set_ylabel("Reads of Technical Replicate 2")
-    ax_b.plot([tech["Reads_1"].min(), tech["Reads_1"].max()],
-              [tech["Reads_1"].min(), tech["Reads_1"].max()],
-              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
+    # Panel (b): Technical replicate with density
+    panel_b = ScatterPanel(
+        x="Reads_1",
+        y="Reads_2",
+        xlabel="Reads of Technical Replicate 1",
+        ylabel="Reads of Technical Replicate 2",
+        title="",
+        reference="identity",
+        scale="log",
+        show_stats=True,
+        density=True,
+    )
+    render_scatter_panel(ax_b, tech, panel_b, show_legend=False)
 
-    # Panel (c): Biological replicate
-    cns.scatterplot(x=bio["Reads_1"], y=bio["Reads_2"], ax=ax_c)
-    fig.apply_log_scale(ax_c, x=True, y=True)
-    ax_c.set_xlabel("Reads of Biological Replicate 1")
-    ax_c.set_ylabel("Reads of Biological Replicate 2")
-    ax_c.plot([bio["Reads_1"].min(), bio["Reads_1"].max()],
-              [bio["Reads_1"].min(), bio["Reads_1"].max()],
-              color=fig.FURNITURE_COLOR, linestyle="--", linewidth=1, zorder=0)
+    # Panel (c): Biological replicate with density
+    panel_c = ScatterPanel(
+        x="Reads_1",
+        y="Reads_2",
+        xlabel="Reads of Biological Replicate 1",
+        ylabel="Reads of Biological Replicate 2",
+        title="",
+        reference="identity",
+        scale="log",
+        show_stats=True,
+        density=True,
+    )
+    render_scatter_panel(ax_c, bio, panel_c, show_legend=False)
 
     # Panel (d): Spike-in dilution
     plot_spikein_panel(ax_d, spikein)
