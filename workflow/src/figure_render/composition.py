@@ -12,14 +12,21 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import sys
 from pathlib import Path
+
+# Add workflow/src to path for imports
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_SRC_DIR = _SCRIPT_DIR.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from workflow.src.figures import (
+from figures import (  # noqa: E402
     JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
     PANEL_SIZES_PX,
@@ -29,8 +36,8 @@ from workflow.src.figures import (
     save_dual,
 )
 
-from ._schema import require_columns
-from .donut import draw_donut_panel
+from ._schema import require_columns  # noqa: E402
+from .donut import draw_donut_panel  # noqa: E402
 
 # =============================================================================
 # CONSTANTS

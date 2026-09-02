@@ -19,10 +19,17 @@ Version:  2.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+# Add workflow/src to path for imports
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_SRC_DIR = _SCRIPT_DIR.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
@@ -34,7 +41,7 @@ from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
 from scipy.stats import pearsonr
 
-from workflow.src.figures import (
+from figures import (  # noqa: E402
     FURNITURE_COLOR,
     apply_house_style,
     apply_log_scale,
@@ -45,8 +52,8 @@ from workflow.src.figures import (
     save_dual,
 )
 
-from ._point_density import point_density
-from ._schema import require_columns
+from ._point_density import point_density  # noqa: E402
+from ._schema import require_columns  # noqa: E402
 
 # =============================================================================
 # CONSTANTS

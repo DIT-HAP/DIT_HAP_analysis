@@ -16,15 +16,22 @@ Version:  2.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import sys
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
+
+# Add workflow/src to path for imports
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_SRC_DIR = _SCRIPT_DIR.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from workflow.src.figures import (
+from figures import (  # noqa: E402
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
