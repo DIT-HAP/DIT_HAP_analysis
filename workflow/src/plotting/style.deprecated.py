@@ -1,4 +1,14 @@
 """
+DEPRECATED: This module is deprecated. Use workflow/src/figures.py instead.
+
+Reason: Migrated to cnsplots-based plotting architecture (ADR-0001).
+Migration context: Styles are now controlled by workflow/src/figures.py via
+cnsplots.setup_matplotlib(). See ADR-0001 for migration context.
+
+This file will be removed after all references are migrated.
+
+Original documentation:
+=======================
 Plotting Style
 ==============
 

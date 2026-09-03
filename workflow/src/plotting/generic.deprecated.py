@@ -1,4 +1,14 @@
 """
+DEPRECATED: This module is deprecated. Use workflow/src/figures.py instead.
+
+Reason: Migrated to cnsplots-based plotting architecture (ADR-0001).
+Migration context: All scripts now use relative path imports and shared
+utilities (logging_setup, io_table). See .scratch/computation-plotting-decoupling-spec.md.
+
+This file will be removed after all references are migrated.
+
+Original documentation:
+=======================
 Generic Plotting
 ================
 

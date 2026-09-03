@@ -1,3 +1,8 @@
+# DEPRECATED: This file is deprecated.
+# Styles are now controlled by workflow/src/figures.py via cnsplots.setup_matplotlib().
+# See ADR-0001 for migration context.
+# This file is preserved for reference only.
+
 # ***************************************************************************
 # * LINES                                                                   *
 # ***************************************************************************
