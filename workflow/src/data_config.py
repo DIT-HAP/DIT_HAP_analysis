@@ -22,7 +22,7 @@ Output
 
 Usage
 -----
-    from workflow.src.data_config import load_dataset_config
+    from data_config import load_dataset_config
     cfg = load_dataset_config("Spore2YES6_1328")
     lfc = pd.read_csv(cfg.insertion_level.LFCs, sep="\\t")
 

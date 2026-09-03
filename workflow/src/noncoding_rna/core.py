@@ -16,7 +16,7 @@ tRNA-annotation merge, copy-number, and depletion summary the task calls for.
 
 Usage
 -----
-    from workflow.src.noncoding_rna.core import (
+    from noncoding_rna.core import (
         load_ncrna_fitting, load_gtrnadb, load_marguerat_abundance,
         build_ncrna_table, select_nuclear_tRNAs,
         plot_feature_type_donut, plot_trna_summary,
@@ -42,8 +42,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.generic import donut_chart  # noqa: E402
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
+from plotting.generic import donut_chart  # noqa: E402
+from plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
 
 # =============================================================================
 # GLOBAL CONSTANTS

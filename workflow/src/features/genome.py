@@ -20,7 +20,7 @@ Output
 
 Usage
 -----
-    from workflow.src.features.genome import PombaseGenomeConfig, DNA_level_features
+    from features.genome import PombaseGenomeConfig, DNA_level_features
     cfg = PombaseGenomeConfig.from_pombase_dir(pombase_dir, landmarks_file)
     db = gffutils.FeatureDB(cfg.database_file)
     features = [DNA_level_features.from_gffutils_feature(m, db, cfg) for m in db.features_of_type("mRNA")]

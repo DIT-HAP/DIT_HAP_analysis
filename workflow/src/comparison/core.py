@@ -19,7 +19,7 @@ study columns.
 
 Usage
 -----
-    from workflow.src.comparison.core import (
+    from comparison.core import (
         load_final_clusters, build_fitness_table, select_fitness_columns,
         compute_correlation_stats, plot_pairwise_comparison,
     )
@@ -45,7 +45,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
+from plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
 
 # =============================================================================
 # GLOBAL CONSTANTS

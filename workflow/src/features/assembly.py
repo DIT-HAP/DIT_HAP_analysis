@@ -24,7 +24,7 @@ Output
 
 Usage
 -----
-    from workflow.src.features.assembly import collect_rna_level_features
+    from features.assembly import collect_rna_level_features
     rna_df = collect_rna_level_features(literature_dir, gene_meta_file, coding_genes)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -47,13 +47,13 @@ from loguru import logger
 from tqdm import tqdm
 
 # 4. Local Imports
-from workflow.src.features.genome import DNA_level_features, PombaseGenomeConfig
-from workflow.src.features.protein import (
+from features.genome import DNA_level_features, PombaseGenomeConfig
+from features.protein import (
     extract_protein_features_from_peptide_sequence,
     pLDDT_statistics_report,
 )
-from workflow.src.gene_ids import update_sysIDs
-from workflow.src.io_table import read_parquet
+from gene_ids import update_sysIDs
+from io_table import read_parquet
 
 # =============================================================================
 # GLOBAL CONSTANTS

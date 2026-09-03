@@ -11,7 +11,7 @@ may hardcode genomics assumptions such as the YES0..YES4 LFC columns).
 
 Usage
 -----
-    from workflow.src.plotting.gene_level import (
+    from plotting.gene_level import (
         plot_depletion_curves_for_groups,
         plot_groups_on_feature_space,
         visualize_cluster_on_feature_space,
@@ -37,7 +37,7 @@ from scipy import stats
 from scipy.stats import gaussian_kde
 
 # 4. Local Imports
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH
+from plotting.style import AX_HEIGHT, AX_WIDTH
 
 # =============================================================================
 # GLOBAL CONSTANTS

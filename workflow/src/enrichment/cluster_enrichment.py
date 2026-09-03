@@ -25,7 +25,7 @@ Output
 
 Usage
 -----
-    from workflow.src.enrichment.cluster_enrichment import load_cluster_genesets, resolve_ontology, enrich_all_clusters
+    from enrichment.cluster_enrichment import load_cluster_genesets, resolve_ontology, enrich_all_clusters
     genesets = load_cluster_genesets(final_clusters, cluster_column, wt_cluster)
     onto = resolve_ontology("GO", ontology_dir, intermediate_dir)
     full, slim, nonwt_full, nonwt_slim = enrich_all_clusters(onto.data, genesets, ..., wt_cluster)
@@ -49,18 +49,18 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-from workflow.src.enrichment.ontology import (
+from enrichment.ontology import (
     OntologyDataConfig,
     format_mondo_gaf_file,
     format_phaf_file,
     load_ontology_data,
 )
-from workflow.src.enrichment.pipeline import (
+from enrichment.pipeline import (
     format_ontology_enrichment_results,
     get_slim_ns2assoc,
     ontology_enrichment,
 )
-from workflow.src.io_table import read_file
+from io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

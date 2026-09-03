@@ -15,7 +15,7 @@ Phase 2 Task 5).
 
 Usage
 -----
-    from workflow.src.enrichment.pipeline import ontology_enrichment_pipeline
+    from enrichment.pipeline import ontology_enrichment_pipeline
     full_df, slim_df, dag, objanno = ontology_enrichment_pipeline(
         ontology_data, query_genes, bg_genes, load_kwargs, enrichment_kwargs, format_kwargs
     )
@@ -46,7 +46,7 @@ from goatools.rpt.goea_nt_xfrm import get_goea_nts_prt
 from requests.exceptions import RequestException
 
 # 4. Local Imports
-from workflow.src.enrichment.ontology import OntologyData, load_ontology_data
+from enrichment.ontology import OntologyData, load_ontology_data
 
 # =============================================================================
 # NETWORK CONSTANTS (STRING / REVIGO)

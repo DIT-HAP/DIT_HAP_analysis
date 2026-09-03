@@ -23,7 +23,7 @@ Output
 
 Usage
 -----
-    from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
+    from enrichment.ontology import OntologyDataConfig, load_ontology_data
     cfg = OntologyDataConfig(ontology_obo=..., ontology_association_gaf=..., slim_terms_table=[...])
     dag, objanno, ns2assoc, gene2go, go2genes, slim_dag = load_ontology_data(cfg.load_data())
 
@@ -47,7 +47,7 @@ from goatools.anno.gaf_reader import GafReader
 from goatools.obo_parser import GODag
 
 # 4. Local Imports
-from workflow.src.io_table import read_file
+from io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

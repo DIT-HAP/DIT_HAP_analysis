@@ -10,7 +10,7 @@ re-runnable on its own.
 
 Usage
 -----
-    from workflow.src.pcr_qc.core import read_merged_reads, plot_spikein_panel
+    from pcr_qc.core import read_merged_reads, plot_spikein_panel
 """
 
 # =============================================================================
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from scipy.stats import linregress  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.style import COLORS
+from plotting.style import COLORS
 
 
 # =============================================================================

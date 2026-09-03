@@ -24,7 +24,7 @@ Output
 
 Usage
 -----
-    from workflow.src.clustering.candidates import scale_features, cluster_one_method
+    from clustering.candidates import scale_features, cluster_one_method
     labels = cluster_one_method("kmeans", scaled_data, n_clusters=64, random_state=42)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -54,7 +54,7 @@ from sklearn.metrics import (
 from sklearn.mixture import GaussianMixture
 
 # 4. Local Imports
-from workflow.src.io_table import read_file
+from io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS

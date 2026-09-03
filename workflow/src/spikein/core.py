@@ -11,7 +11,7 @@ re-runnable on its own.
 
 Usage
 -----
-    from workflow.src.spikein.core import (
+    from spikein.core import (
         SPIKE_IN_RATIO, DEFAULT_SPIKE_IN_SITES,
         build_spike_in_stats, compute_linear_regression_stats,
         plot_spike_in_correlation,
@@ -37,7 +37,7 @@ from loguru import logger  # noqa: E402
 from scipy.stats import linregress  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.style import COLORS  # noqa: E402
+from plotting.style import COLORS  # noqa: E402
 
 
 # =============================================================================

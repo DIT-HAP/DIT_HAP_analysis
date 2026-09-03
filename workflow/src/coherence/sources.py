@@ -70,7 +70,7 @@ def load_gaf_namespace(pombase_dir: Path, namespace: str) -> pd.DataFrame:
     propagate_counts=True), then keeps only terms in the requested namespace and
     expands the propagated go2genes dict.
     """
-    from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
+    from enrichment.ontology import OntologyDataConfig, load_ontology_data
 
     if namespace not in _NS_LONG:
         raise ValueError(f"namespace must be one of {sorted(_NS_LONG)}, got {namespace!r}")

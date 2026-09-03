@@ -22,7 +22,7 @@ every caller gets the shared publication look without re-applying it.
 
 Usage
 -----
-    from workflow.src.plotting.generic import create_scatter_correlation_plot, donut_chart, boxplot_with_violinplot
+    from plotting.generic import create_scatter_correlation_plot, donut_chart, boxplot_with_violinplot
 """
 
 # =============================================================================
@@ -39,7 +39,7 @@ from matplotlib.figure import Figure
 
 # 3. Local Imports
 # Imported for its side effect: applies config/DIT_HAP.mplstyle once (design doc §7).
-from workflow.src.plotting import style as _style  # noqa: F401
+from plotting import style as _style  # noqa: F401
 
 
 # =============================================================================

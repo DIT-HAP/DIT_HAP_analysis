@@ -25,7 +25,7 @@ color via _category_color_key() (color lookup only, never display text).
 
 Usage
 -----
-    from workflow.src.verification.core import (
+    from verification.core import (
         load_gene_level, load_deletion_library, load_essentiality_verification,
         merge_deletion_library, build_final_merged,
         build_boxplot_pdf, build_depletion_curve_pdf,
@@ -51,13 +51,13 @@ from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.generic import boxplot_with_violinplot, donut_chart  # noqa: E402
-from workflow.src.plotting.gene_level import (  # noqa: E402
+from plotting.generic import boxplot_with_violinplot, donut_chart  # noqa: E402
+from plotting.gene_level import (  # noqa: E402
     DIT_HAP_GENERATIONS,
     GRNA_GENERATIONS,
     plot_gene_depletion_curve,
 )
-from workflow.src.plotting.style import (  # noqa: E402
+from plotting.style import (  # noqa: E402
     AX_HEIGHT,
     AX_WIDTH,
     CATEGORY_COLOR_MAP,

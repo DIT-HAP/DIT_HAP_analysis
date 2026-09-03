@@ -14,7 +14,7 @@ go_enrichment_full.tsv) produced by run_ontology_enrichment.py (Task 4).
 
 Usage
 -----
-    from workflow.src.enrichment.network import (
+    from enrichment.network import (
         NetworkConfig, run_string_enrichment, annotate_go_with_revigo,
     )
 
@@ -37,7 +37,7 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-from workflow.src.enrichment.pipeline import revigo_analysis, stringdb_enrichment
+from enrichment.pipeline import revigo_analysis, stringdb_enrichment
 
 # =============================================================================
 # GLOBAL CONSTANTS

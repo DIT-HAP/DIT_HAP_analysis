@@ -20,7 +20,7 @@ re-applying the style.
 
 Usage
 -----
-    from workflow.src.plotting.style import AX_WIDTH, AX_HEIGHT, COLORS
+    from plotting.style import AX_WIDTH, AX_HEIGHT, COLORS
 """
 
 # =============================================================================

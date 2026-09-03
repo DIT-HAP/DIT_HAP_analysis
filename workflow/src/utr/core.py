@@ -20,7 +20,7 @@ only produces the deterministic per-insertion table.
 
 Usage
 -----
-    from workflow.src.utr.core import (
+    from utr.core import (
         load_gene_level, load_insertion_level,
         filter_intergenic_near_gene, assign_UTR_type, resolve_parental_gene,
         classify_utr_insertions,

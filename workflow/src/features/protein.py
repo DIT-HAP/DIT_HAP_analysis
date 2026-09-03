@@ -20,7 +20,7 @@ Output
 
 Usage
 -----
-    from workflow.src.features.protein import extract_protein_features_from_peptide_sequence, pLDDT_statistics_report
+    from features.protein import extract_protein_features_from_peptide_sequence, pLDDT_statistics_report
     protein_features = extract_protein_features_from_peptide_sequence(peptide_fasta)
     pLDDTs = pLDDT_statistics_report(alphafold_dir, structure_format="pdb.gz")
 

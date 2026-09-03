@@ -17,7 +17,7 @@ Output
 
 Usage
 -----
-    from workflow.src.io import read_file, read_parquet, write_parquet
+    from io import read_file, read_parquet, write_parquet
     df = read_file(Path("resources/curated/essentiality_verification.csv"))
     write_parquet(df, Path("results/intermediate/data.parquet"))
     df2 = read_parquet(Path("results/intermediate/data.parquet"))

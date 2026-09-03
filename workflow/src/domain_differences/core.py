@@ -49,7 +49,7 @@ Input
 
 Usage
 -----
-    from workflow.src.domain_differences.core import (
+    from domain_differences.core import (
         load_gene_level, load_insertion_annotations, filter_high_dr_genes,
         compute_insertion_fraction, compute_domain_candidate_stats,
     )

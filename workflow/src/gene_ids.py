@@ -21,7 +21,7 @@ Output
 
 Usage
 -----
-    from workflow.src.gene_ids import update_sysIDs
+    from gene_ids import update_sysIDs
     resolved = update_sysIDs(["cdc2", "SPBC11B10.09"], gene_meta_file)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 # 3. Local Imports
-from workflow.src.io_table import read_file
+from io_table import read_file
 
 # =============================================================================
 # CORE LOGIC

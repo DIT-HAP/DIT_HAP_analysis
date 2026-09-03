@@ -33,7 +33,7 @@ Input
 
 Usage
 -----
-    from workflow.src.coverage.core import (
+    from coverage.core import (
         load_gene_level, load_insertion_level, resolve_duplicate_annotations,
         compute_insertion_coverage, compute_gene_coverage,
         compute_essentiality_coverage, compute_per_chromosome_insertion_coverage,
@@ -63,8 +63,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from workflow.src.plotting.generic import donut_chart  # noqa: E402
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+from plotting.generic import donut_chart  # noqa: E402
+from plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
 
 
 # =============================================================================

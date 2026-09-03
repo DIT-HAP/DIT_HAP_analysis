@@ -20,7 +20,7 @@ Output
 
 Usage
 -----
-    from workflow.src.ml.data import load_modeling_data
+    from ml.data import load_modeling_data
     data = load_modeling_data(feature_matrix, final_clusters, dr_filter=0.3)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
