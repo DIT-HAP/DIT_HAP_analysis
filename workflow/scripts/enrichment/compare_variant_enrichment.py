@@ -33,7 +33,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-21
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -57,11 +57,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 import seaborn as sns  # noqa: E402
 from loguru import logger  # noqa: E402
 
-# 4. Local Imports
+# 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from plotting import style  # noqa: E402, F401
+
 from logging_setup import setup_logger  # noqa: E402
+from plotting import style  # noqa: E402, F401
 
 
 # =============================================================================

@@ -13,7 +13,7 @@ independently of the stats rule.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -33,12 +33,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from loguru import logger  # noqa: E402
 
-# 3. Local Imports
+# 3. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
 from io_table import read_parquet  # noqa: E402
-from noncoding_rna.core import plot_feature_type_donut, plot_trna_summary  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+from noncoding_rna.core import plot_feature_type_donut, plot_trna_summary  # noqa: E402
 
 
 # =============================================================================

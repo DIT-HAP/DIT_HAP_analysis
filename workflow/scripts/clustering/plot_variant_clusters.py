@@ -31,7 +31,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-21
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -53,11 +53,12 @@ matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
 from loguru import logger  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
-# 4. Local Imports
+# 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from plotting.gene_level import visualize_cluster_on_feature_space  # noqa: E402
+
 from logging_setup import setup_logger  # noqa: E402
+from plotting.gene_level import visualize_cluster_on_feature_space  # noqa: E402
 
 
 # =============================================================================

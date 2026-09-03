@@ -34,3 +34,4 @@ mamba
 
 # worktree
 .worktree
+.scratch/

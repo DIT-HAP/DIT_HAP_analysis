@@ -83,22 +83,9 @@ rule compute_ncrna_stats:
         """
 
 
-rule plot_ncrna_figures:
-    input:
-        combined=f"{_NCWORK}/combined.parquet",
-        nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
-    output:
-        figures="results/noncoding_rna/{dataset}/ncrna_analysis.pdf",
-    log:
-        "logs/noncoding_rna/plot_ncrna_figures_{dataset}.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [noncoding_rna] Plotting ncRNA figures for {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/noncoding_rna/plot_ncrna_figures.py \
-            --combined {input.combined} \
-            --nuclear-trnas {input.nuclear_trnas} \
-            --output-figures {output.figures} &> {log}
-        """
+
+# -----------------------------------------------------------------------------
+# Stage 2b: Plot figures
+# -----------------------------------------------------------------------------
+# Moved to figure.smk: rule plot_ncrna_figures
+# Reads combined.parquet + nuclear_trnas.parquet -> ncrna_analysis.pdf

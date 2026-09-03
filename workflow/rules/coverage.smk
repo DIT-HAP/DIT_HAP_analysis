@@ -94,24 +94,9 @@ rule compute_coverage_stats:
         """
 
 
-rule plot_coverage_figures:
-    input:
-        # Donuts/bars read the stats TSV so figures match the table exactly;
-        # histograms read the gene_result parquet for per-gene DR/DL values.
-        stats="results/coverage/{dataset}/coverage_stats.tsv",
-        gene_result=f"{_COVWORK}/gene_result.parquet",
-    output:
-        figures="results/coverage/{dataset}/coverage_figures.pdf",
-    log:
-        "logs/coverage/plot_coverage_figures_{dataset}.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [coverage] Plotting coverage figures for {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/coverage/plot_coverage_figures.py \
-            --stats {input.stats} \
-            --gene-result {input.gene_result} \
-            --output-figures {output.figures} &> {log}
-        """
+
+# -----------------------------------------------------------------------------
+# Stage 2b: Plot figures
+# -----------------------------------------------------------------------------
+# Moved to figure.smk: rule plot_coverage_figures
+# Reads coverage_stats.tsv + gene_result.parquet -> coverage_figures.pdf

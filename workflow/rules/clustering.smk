@@ -313,24 +313,8 @@ rule finalize_manual_merge:
 # Works for every configured variant (uses the global `variant` wildcard_constraints
 # above). Every variant, manual_merge included, now builds its final_clusters.tsv
 # under results/ via its finalize rule, so this just needs that tsv as input.
-rule plot_variant_clusters:
-    input:
-        final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
-    output:
-        scatter="results/clustering/{dataset}/{variant}/cluster_scatter.pdf",
-    log:
-        "logs/clustering/plot_variant_clusters_{dataset}_{variant}.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [clustering] Plotting DR/DL cluster scatter for {wildcards.variant} ({wildcards.dataset})..."
-    shell:
-        """
-        python workflow/scripts/clustering/plot_variant_clusters.py \
-            --final-clusters {input.final_clusters} \
-            --output {output.scatter} \
-            --variant-label {wildcards.variant} &> {log}
-        """
+# Moved to figure.smk: rule plot_variant_clusters
+# Reads final_clusters.tsv -> cluster_scatter.pdf
 
 
 # --- Compare variants: gather every buildable variant's metrics into one table ---
@@ -381,24 +365,5 @@ rule plot_all_variants:
 # quick visual comparison of how the finalize strategies differ. NOT part of
 # `rule all`; request explicitly:
 #   snakemake --use-conda results/clustering/{dataset}/all_variants_cluster_scatter.pdf
-rule plot_all_variants_grid:
-    input:
-        final_clusters=lambda wc: all_variant_final_clusters(wc.dataset),
-    output:
-        scatter="results/clustering/{dataset}/all_variants_cluster_scatter.pdf",
-    params:
-        variant_labels=lambda wc: buildable_variants(),
-    log:
-        "logs/clustering/plot_all_variants_grid_{dataset}.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [clustering] Plotting summary grid of all {wildcards.dataset} variants' final clusters..."
-    shell:
-        """
-        python workflow/scripts/clustering/plot_all_variant_clusters.py \
-            --final-clusters {input.final_clusters} \
-            --variant-labels {params.variant_labels} \
-            --dataset {wildcards.dataset} \
-            --output {output.scatter} &> {log}
-        """
+# Moved to figure.smk: rule plot_all_variants_grid
+# Reads all final_clusters.tsv files -> all_variants_cluster_scatter.pdf
