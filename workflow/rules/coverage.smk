@@ -100,3 +100,24 @@ rule compute_coverage_stats:
 # -----------------------------------------------------------------------------
 # Moved to figure.smk: rule plot_coverage_figures
 # Reads coverage_stats.tsv + gene_result.parquet -> coverage_figures.pdf
+
+
+rule plot_coverage_figures:
+    input:
+        stats="results/coverage/{dataset}/coverage_stats.tsv",
+        gene_result=f"{_COVWORK}/gene_result.parquet",
+    output:
+        figures="results/coverage/{dataset}/coverage_figures.pdf",
+    log:
+        "logs/coverage/plot_coverage_figures_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coverage] Plotting coverage figures for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coverage/plot_coverage_figures.py \
+            --stats {input.stats} \
+            --gene-result {input.gene_result} \
+            --output-figures {output.figures} &> {log}
+        """

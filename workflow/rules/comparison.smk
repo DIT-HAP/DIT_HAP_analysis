@@ -82,3 +82,24 @@ rule compute_comparison_stats:
 # -----------------------------------------------------------------------------
 # Moved to figure.smk: rule plot_comparison_figures
 # Reads fitness_table.parquet + fitness_correlation_stats.tsv -> pairwise_fitness_comparison.pdf
+
+
+rule plot_comparison_figures:
+    input:
+        fitness_table=f"{_CWORK}/fitness_table.parquet",
+        stats="results/comparison/{dataset}/fitness_correlation_stats.tsv",
+    output:
+        figures="results/comparison/{dataset}/pairwise_fitness_comparison.pdf",
+    log:
+        "logs/comparison/plot_comparison_figures_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [comparison] Plotting pairwise comparison figures for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/comparison/plot_comparison_figures.py \
+            --fitness-table {input.fitness_table} \
+            --stats {input.stats} \
+            --output-figures {output.figures} &> {log}
+        """
