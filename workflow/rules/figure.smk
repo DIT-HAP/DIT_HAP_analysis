@@ -172,3 +172,39 @@ rule plot_ncrna_figures:
             --output-figures {output.figures} &> {log}
         """
 
+
+# -----------------------------------------------------------------------------
+# Coherence
+# -----------------------------------------------------------------------------
+_COH = "results/coherence/{dataset}/{source}"
+_COH_CFG = config.get("coherence", {})
+
+rule plot_coherence:
+    input:
+        metrics=f"{_COH}/coherence.parquet",
+        annotation=f"{_COH}/group_annotation_long.tsv",
+        features=lambda wc: (
+            f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv"
+            if _COH_CFG.get("features_panels", True) else []
+        ),
+    output:
+        f"{_COH}/coherence.pdf",
+    params:
+        features_flag=lambda wc, input: (
+            f"--features {input.features}"
+            if _COH_CFG.get("features_panels", True) and input.features else ""
+        ),
+    log:
+        "logs/coherence/plot_{dataset}_{source}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Plotting coherence figure for {wildcards.dataset} × {wildcards.source}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_coherence.py \
+            --input {input.metrics} \
+            --annotation {input.annotation} \
+            {params.features_flag} \
+            --output {output} &> {log}
+        """

@@ -74,10 +74,8 @@ rule compute_coherence:
             f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
         ),
         annotation=f"{_COH}/group_annotation_long.tsv",
-        features=lambda wc: f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv",
     output:
-        metrics=f"{_COH}/coherence_metrics.tsv",
-        figure=f"{_COH}/coherence_analysis.pdf",
+        f"{_COH}/coherence.parquet",
     params:
         min_size=_COH_CFG.get("min_group_size", 3),
         max_size=_COH_CFG.get("max_group_size", 300),
@@ -85,10 +83,6 @@ rule compute_coherence:
         dr_threshold=_COH_CFG.get("dr_threshold", 0.3),
         n_permutations=_COH_CFG.get("n_permutations", 1000),
         random_state=_COH_CFG.get("random_state", 42),
-        features_flag=lambda wc, input: (
-            f"--features {input.features}"
-            if _COH_CFG.get("features_panels", True) else ""
-        ),
     log:
         "logs/coherence/compute_{dataset}_{source}.log",
     conda:
@@ -107,9 +101,7 @@ rule compute_coherence:
             --dr-threshold {params.dr_threshold} \
             --n-permutations {params.n_permutations} \
             --random-state {params.random_state} \
-            {params.features_flag} \
-            --output-metrics {output.metrics} \
-            --output-figure {output.figure} &> {log}
+            --output {output} &> {log}
         """
 
 
