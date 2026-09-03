@@ -42,7 +42,6 @@ include: "workflow/rules/comparison.smk"
 include: "workflow/rules/coherence.smk"
 include: "workflow/rules/utr.smk"
 include: "workflow/rules/domain_differences.smk"
-include: "workflow/rules/figure.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
