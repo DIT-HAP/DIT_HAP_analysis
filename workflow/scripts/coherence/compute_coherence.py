@@ -89,18 +89,20 @@ from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 # The Weiszfeld geometric median + the seeded MPD permutation test are the
 # shared coherence algorithm, sourced from the canonical workflow/src/coherence
 # module (also used by the themes-A/D verification_complex scripts). We call it
 # with median_pairwise_distance, matching this analysis's coherence axis; the
 # descriptive pairwise-distance summary below is trivial numpy kept local (the
 # shared coherence_metrics exposes a different, richer key set).
-from workflow.src.coherence.metrics import (  # noqa: E402
+from coherence.metrics import (  # noqa: E402
     geometric_median,
     compute_distance_zscore,
 )
-from workflow.src.plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+from plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+from logging_setup import setup_logger  # noqa: E402
 
 
 # =============================================================================
@@ -179,12 +181,6 @@ class CoherenceConfig:
 # =============================================================================
 # HELPERS
 # =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
-
-
 def _min_max_normalize(values: np.ndarray, min_value: float, max_value: float) -> np.ndarray:
     """Normalize to [0, 1] via (v - min) / (max - min); all-zeros if the range is degenerate.
 

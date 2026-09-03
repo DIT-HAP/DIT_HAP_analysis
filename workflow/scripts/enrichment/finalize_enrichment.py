@@ -47,8 +47,10 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.enrichment.cluster_enrichment import ONTOLOGIES, POP_COUNT_MAX, filter_go_full
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from enrichment.cluster_enrichment import ONTOLOGIES, POP_COUNT_MAX, filter_go_full  # noqa: E402
+from logging_setup import setup_logger  # noqa: E402
 
 
 # =============================================================================
@@ -73,12 +75,6 @@ class FinalizeConfig:
 # =============================================================================
 # HELPERS
 # =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
-
-
 # =============================================================================
 # CORE LOGIC
 # =============================================================================

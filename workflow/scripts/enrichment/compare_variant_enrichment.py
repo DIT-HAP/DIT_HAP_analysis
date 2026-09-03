@@ -58,8 +58,10 @@ import seaborn as sns  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.plotting import style  # noqa: E402, F401
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from plotting import style  # noqa: E402, F401
+from logging_setup import setup_logger  # noqa: E402
 
 
 # =============================================================================
@@ -83,12 +85,6 @@ class CompareEnrichmentConfig:
 # =============================================================================
 # HELPERS
 # =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(sys.stdout, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=log_level, colorize=False)
-
-
 def load_variant_enrichment(dataset: str, variant: str, pombase_version: str) -> pd.DataFrame:
     """Load one variant's GO enrichment results and add variant column."""
     path = Path(f"results/enrichment/raw/{dataset}/{variant}/{pombase_version}/go_enrichment_full_filtered.tsv")

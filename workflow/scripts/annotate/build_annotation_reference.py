@@ -56,8 +56,9 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from workflow.src.annotation.core import (
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from annotation.core import (  # noqa: E402
     assemble_annotation_reference,
     build_complex_block,
     build_go_slim_block,
@@ -72,9 +73,10 @@ from workflow.src.annotation.core import (
     read_sgd_feature_data,
     read_sgd_phenotype_data,
 )
-from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
-from workflow.src.enrichment.pipeline import get_slim_ns2assoc
-from workflow.src.io_table import read_file, write_parquet
+from enrichment.ontology import OntologyDataConfig, load_ontology_data  # noqa: E402
+from enrichment.pipeline import get_slim_ns2assoc  # noqa: E402
+from io_table import read_file, write_parquet  # noqa: E402
+from logging_setup import setup_logger  # noqa: E402
 
 
 # =============================================================================
@@ -145,17 +147,6 @@ class AnnotationReferenceConfig:
 # =============================================================================
 # HELPERS
 # =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
-
-
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
