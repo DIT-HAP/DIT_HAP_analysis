@@ -67,6 +67,7 @@ def render_spikein_panel(
     if spikein_filtered.empty:
         raise ValueError(f"No spike-in rows left after dropping {REFERENCE_SAMPLE}")
 
+    spikein_filtered["Name"] = spikein_filtered["Name"].str.replace("Spike-in Insertion ", "#")
     if hue_order is None:
         hue_order = sorted(spikein_filtered["Name"].unique())
 
@@ -90,7 +91,7 @@ def render_spikein_panel(
     # the only free space, since the series fill the diagonal. Re-run it with an
     # empty title so the colour column's name does not leak in as "Name".
     if ax.get_legend() is not None:
-        cns.take_legend_out(title="", ax=ax)
+        cns.take_legend_out(title="Spike-in", ax=ax)
 
     logger.debug(
         f"Rendered spike-in panel: {len(spikein_filtered)} points, "
