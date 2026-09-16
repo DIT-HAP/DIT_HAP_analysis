@@ -124,10 +124,21 @@ pcr_qc:
 > `plot_spike_in_correlation`、`pcr_qc/core.py` 的 `plot_spikein_panel` 三处随规则
 > 一并删除（均无引用）。
 >
-> **面板 (d) 图例**：留在面板内 `loc="lower right"`（与源 notebook 一致），但标签去掉
-> 冗余的 "Spike-in " 前缀、图例 padding 收紧——5 条完整标签在该面板尺寸下放不进
-> 对角线下方那块空白三角，会压到 (-4,-4) 那组圆环上。（曾试过整图下方横排条带，
-> 会横跨 C、D 两栏，已弃用。）
+> **面板 (d) 改走 `cns.regplot`**（同日第三步）：渲染器不再手搓 matplotlib
+> 散点/拟合线/统计文本，改为薄封装 `cns.regplot(color="Name", add_equation=True)`
+> —— 5 条彩色系列 + 一条总拟合 + Pearson r/P 标注 + 方程/R² 全由 cnsplots 出。
+> 关键选择是 `color=` 而非 `hue=`：`hue=` 会给 5 条 insertion 各画一条拟合线、
+> 各标一行统计（实测 5 行标注糊成一片），`color=` 才是「一组一色、一条总拟合」。
+> `hue_order` 显式钉死配色映射（实测反转该参数即反转配色，确认生效）。
+>
+> 图例随之落在轴外右缘：cnsplots 在 `add_equation=True` 且有图例时会把图例移到
+> 右边距（`take_legend_out`，且**只有**这一个落点，无位置参数），因为面板被对角线
+> 填满，轴内没有不压数据的地方——实测轴内四个角位、以及去掉方程标注的方案都会压到
+> 数据或标注。附带把列名漏成的图例标题 "Name" 清空。
+>
+> 视觉上由空心圆环+黑色虚线改为实心圆点+实线（cnsplots 的默认样式），这是「直接用
+> cnsplots」的预期代价。灰度打印下 Insertion 2 与 4 明度接近，但两者点位本就重叠，
+> 如需灰度可分需调整项目 `HOUSE_PALETTE`，本次未动。
 >
 > 验证：`snakemake --use-conda` 从零重建 4 条规则全部通过，面板 (d) 显示 PCC=1.00 /
 > R²=1.00 / Slope=1.00（5 条 insertion 系列），与 §4 下方记录的 notebook 拟合逐位一致。

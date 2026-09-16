@@ -1,28 +1,28 @@
 """
-Spike-In Panel Renderer (cnsplots-adapted)
-===========================================
+Spike-In Panel Renderer
+=======================
 
-cnsplots-style renderer for spike-in dilution linearity panel. Replaces the
-traditional matplotlib implementation in workflow/src/pcr_qc/core.py with a
-figure_render-compatible approach.
-
-This is a domain-specific renderer for spike-in QC that cannot use a generic
-figure_render plotter (no built-in spike-in plot type), so it follows cnsplots
-conventions directly.
+Panel (d) of the PCR QC figure: spike-in dilution linearity. Thin wrapper over
+``cns.regplot`` — the scatter, the linear fit, the Pearson r/P annotation and
+the legend are all cnsplots' own; this module only excludes the zero-dilution
+reference and fixes the axis labels.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-09-02
-Version:  2.0.0
+Version:  3.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import linregress
+import pandas as pd
+import cnsplots as cns
 from loguru import logger
+
+# The zero-dilution reference sample: no spike-in reads to be linear against.
+REFERENCE_SAMPLE = "Spikein0"
+
 
 # =============================================================================
 # CORE LOGIC
@@ -32,139 +32,67 @@ def render_spikein_panel(
     ax: plt.Axes,
     spikein: pd.DataFrame,
     *,
-    marker_size: float = 150,
-    marker_linewidth: float = 1.5,
-    marker_alpha: float = 0.9,
-    fit_line_color: str = "black",
-    fit_line_style: str = "--",
-    fit_line_width: float = 2.5,
-    fit_line_alpha: float = 0.7,
-    show_stats: bool = True,
-    stats_position: tuple[float, float] = (0.05, 0.95),
-    legend_location: str = "lower right",
+    marker_size: float = 20,
+    add_equation: bool = True,
+    hue_order: list[str] | None = None,
 ) -> None:
-    """Render spike-in dilution linearity panel with cnsplots style.
+    """Render the spike-in dilution linearity panel via ``cns.regplot``.
 
-    Draws a scatter plot of log2(relative dilution ratio) vs log2(relative read
-    ratio) for each spike-in insertion site, plus a linear regression fit line.
-    Excludes Spikein0 (zero-dilution reference) from the fit.
+    Draws log2(relative dilution ratio) against log2(relative read ratio), one
+    colour per spike-in insertion site, with a single linear fit and Pearson
+    correlation over all points.
 
     Parameters
     ----------
     ax : plt.Axes
-        Target axes (already styled by cnsplots)
+        Target axes, already styled by ``figures.apply_house_style``.
     spikein : pd.DataFrame
-        Spike-in stats with columns: Sample, Name, Relative_Dilution_Ratio,
-        Relative_Read_Ratio
-    marker_size : float, default 150
-        Scatter marker size in points²
-    marker_linewidth : float, default 1.5
-        Scatter marker edge width
-    marker_alpha : float, default 0.9
-        Scatter marker alpha
-    fit_line_color : str, default "black"
-        Linear fit line color
-    fit_line_style : str, default "--"
-        Linear fit line style
-    fit_line_width : float, default 2.5
-        Linear fit line width
-    fit_line_alpha : float, default 0.7
-        Linear fit line alpha
-    show_stats : bool, default True
-        Whether to show fit statistics (PCC, R², Slope, Intercept)
-    stats_position : tuple[float, float], default (0.05, 0.95)
-        Statistics text position in axes coordinates (x, y)
-    legend_location : str, default "lower right"
-        Legend location
+        Spike-in stats with columns Sample, Name, Relative_Dilution_Ratio,
+        Relative_Read_Ratio.
+    marker_size : float, default 20
+        Scatter marker size in points², forwarded to ``cns.regplot``'s ``s``.
+    add_equation : bool, default True
+        Annotate the fitted equation and R² in the bottom-right.
+    hue_order : list of str, optional
+        Explicit ``Name`` order, so the site→colour mapping does not depend on
+        pandas' group ordering. Defaults to the encountered order.
 
     Notes
     -----
-    - This function assumes ax is already styled by cnsplots (via apply_house_style)
-    - Uses categorical colors from the current color cycle
-    - Marker colors cycle through available palette colors
-    - Does NOT call apply_house_style itself (caller's responsibility)
+    ``Spikein0`` is dropped: it is the zero-dilution reference, so its reads say
+    nothing about linearity, and its floored read count would anchor the fit at
+    -inf. Matches the source notebook.
     """
-    # Exclude Spikein0 (zero-dilution reference) from fit, matching original logic
-    spikein_filtered = spikein.query("Sample != 'Spikein0'")
+    spikein_filtered = spikein.query("Sample != @REFERENCE_SAMPLE").copy()
+    if spikein_filtered.empty:
+        raise ValueError(f"No spike-in rows left after dropping {REFERENCE_SAMPLE}")
 
-    # Get current color cycle from rcParams (set by cnsplots)
-    color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    if hue_order is None:
+        hue_order = sorted(spikein_filtered["Name"].unique())
 
-    # Scatter plot for each spike-in insertion site. The legend drops the
-    # redundant "Spike-in " prefix — the whole panel is spike-in data, and 5
-    # full-length labels do not fit inside a panel this size.
-    for idx, (name, sub) in enumerate(spikein_filtered.groupby("Name")):
-        color = color_cycle[idx % len(color_cycle)]
-        ax.scatter(
-            sub["Relative_Dilution_Ratio"],
-            sub["Relative_Read_Ratio"],
-            label=name.removeprefix("Spike-in "),
-            facecolor="none",
-            edgecolor=color,
-            s=marker_size,
-            linewidth=marker_linewidth,
-            alpha=marker_alpha,
-        )
-
-    # Linear regression fit
-    slope, intercept, r_value, p_value, std_err = linregress(
-        spikein_filtered["Relative_Dilution_Ratio"],
-        spikein_filtered["Relative_Read_Ratio"],
+    # color=<column> (not hue=): one legend entry per insertion site, but a
+    # single overall fit — hue= would fit and annotate five separate lines.
+    cns.regplot(
+        data=spikein_filtered,
+        x="Relative_Dilution_Ratio",
+        y="Relative_Read_Ratio",
+        color="Name",
+        hue_order=hue_order,
+        s=marker_size,
+        add_equation=add_equation,
+        ax=ax,
     )
 
-    # Draw fit line
-    x_range = spikein_filtered["Relative_Dilution_Ratio"]
-    x_min, x_max = x_range.min(), x_range.max()
-    line_x = np.array([x_min - 1, x_max + 1])  # Extend slightly beyond data
-    line_y = slope * line_x + intercept
-
-    ax.plot(
-        line_x,
-        line_y,
-        color=fit_line_color,
-        linestyle=fit_line_style,
-        linewidth=fit_line_width,
-        alpha=fit_line_alpha,
-        zorder=1,  # Behind scatter points
-    )
-
-    # Set axis labels (mathematical notation)
     ax.set_xlabel(r"$\log_2$(relative dilution ratio)")
     ax.set_ylabel(r"$\log_2$(relative read ratio)")
 
-    # Show fit statistics
-    if show_stats:
-        stats_text = (
-            f"PCC = {r_value:.2f}\n"
-            f"R² = {r_value**2:.2f}\n"
-            f"Slope = {slope:.2f}\n"
-            f"Intercept = {intercept:.2f}"
-        )
-        ax.text(
-            stats_position[0],
-            stats_position[1],
-            stats_text,
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            # Do not specify fontsize - inherit from cnsplots rcParams
-        )
+    # cnsplots moves the legend to the right margin once add_equation is on —
+    # the only free space, since the series fill the diagonal. Re-run it with an
+    # empty title so the colour column's name does not leak in as "Name".
+    if ax.get_legend() is not None:
+        cns.take_legend_out(title="", ax=ax)
 
-    # Legend (frameon controlled by cnsplots rcParams). The series run along the
-    # diagonal and the markers are large enough to poke below it, so the usable
-    # free space is the corner triangle minus the marker radius. Tightening the
-    # padding keeps the 5 entries inside it; the default spacing does not.
-    ax.legend(
-        loc=legend_location,
-        ncol=1,
-        labelspacing=0.25,
-        borderpad=0.2,
-        handletextpad=0.5,
+    logger.debug(
+        f"Rendered spike-in panel: {len(spikein_filtered)} points, "
+        f"{len(hue_order)} insertion sites"
     )
-
-    # Set reasonable tick positions if data range is known
-    # (cnsplots handles tick formatting)
-    if x_range.min() >= -10 and x_range.max() <= 0:
-        ax.set_xticks(np.arange(-10, 1, 2))
-
-    logger.debug(f"Rendered spike-in panel: {len(spikein_filtered)} points, R²={r_value**2:.3f}")
