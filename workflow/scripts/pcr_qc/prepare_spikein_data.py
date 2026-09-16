@@ -13,7 +13,7 @@ intermediate consumed by the compute-stats / plot-correlation rules.
 Input
 -----
 - Filtered raw-reads insertion table (Spikein's pre-release results/13_filtered/
-  raw_reads.filtered.tsv — release/ never packages this file, see pcr_qc.smk),
+  raw_reads.filtered.tsv — release/ never packages this file, see 1a_pcr_qc.smk),
   indexed by [Chr, Coordinate, Strand] (a 4th Target level, if present, is
   dropped), columned by [Sample, Timepoint] (one Timepoint per dilution point).
 

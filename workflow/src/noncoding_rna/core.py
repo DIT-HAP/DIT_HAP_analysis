@@ -53,7 +53,7 @@ from plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
 # GtRNAdb chr column is normalized before the positional merge.
 _CHROMOSOME_NAME_MAP = {"chrI": "I", "chrII": "II", "chrIII": "III"}
 
-# Legacy -> current metric column names, same quirk as coverage.smk /
+# Legacy -> current metric column names, same quirk as 2a_coverage.smk /
 # verification: the non-coding-gene fitting_results.tsv still ships the
 # pre-rename um/lam headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}

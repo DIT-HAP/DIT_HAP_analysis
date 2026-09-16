@@ -27,14 +27,26 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 # Includes
 # ---------------------------------------------------------------------------
-include: "workflow/rules/features.smk"
+# Rule filenames carry a two-level prefix: <chapter><section>, e.g. 1a_pcr_qc.
+# The chapter is the analysis block, the section the position inside it — so
+# `ls workflow/rules/` reads in analysis order. Chapters are narrative order,
+# NOT dependency depth: same-chapter files have no order between them.
+#
+#   1  data plausibility + reference layer
+#   2  characterisation that does not need clusters
+#   3  clustering and what depends on it
+#   9  terminal (annotate)
+#
+# Included in prefix order. clustering.smk must stay ahead of enrichment /
+# ml / comparison — they call its selected_variant() / final_clusters_path().
+include: "workflow/rules/1a_pcr_qc.smk"
+include: "workflow/rules/1b_features.smk"
+include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/annotate.smk"
 include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
-include: "workflow/rules/pcr_qc.smk"
-include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"

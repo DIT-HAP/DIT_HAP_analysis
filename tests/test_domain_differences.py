@@ -37,7 +37,7 @@ def test_dr_threshold_constant():
 
 
 def test_in_gene_filter_matches_repo_convention():
-    """The in-gene filter string is byte-faithful to the notebook / coverage.smk quirk."""
+    """The in-gene filter string is byte-faithful to the notebook / 2a_coverage.smk quirk."""
     assert IN_GENE_FILTER == "Type != 'Intergenic region' and Distance_to_stop_codon > 4"
 
 

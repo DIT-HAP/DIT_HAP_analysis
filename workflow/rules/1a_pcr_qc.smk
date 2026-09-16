@@ -1,5 +1,5 @@
 # =============================================================================
-# pcr_qc.smk — Library-prep QC: spike-in linearity + PCR QC figure
+# 1a_pcr_qc.smk — Library-prep QC: spike-in linearity + PCR QC figure
 # =============================================================================
 #
 # One stage, two halves (spikein.smk was folded in here 2026-09-16). The spike-in

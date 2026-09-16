@@ -60,7 +60,7 @@ DENSITY_COLUMNS = [
     "uipkm",
 ]
 
-# Legacy -> current metric column names, same quirk as coverage.smk /
+# Legacy -> current metric column names, same quirk as 2a_coverage.smk /
 # verification / noncoding_rna: some curated final_clusters.tsv releases still
 # ship the pre-rename `um`/`lam` headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}

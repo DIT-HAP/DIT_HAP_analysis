@@ -1,5 +1,5 @@
 # =============================================================================
-# features.smk — Pombe coding gene feature collection (dataset-independent)
+# 1b_features.smk — Pombe coding gene feature collection (dataset-independent)
 # =============================================================================
 #
 # Split by biological level: the DNA level is the "spine" (it builds the

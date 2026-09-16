@@ -42,7 +42,7 @@ enrichment:
 enrichment_network:
   revigo_cutoffs: [0.7, 0.5]   # REVIGO semantic-similarity cutoffs, run in order (loose then tight)
 
-# --- PCR / library-prep quality control (pcr_qc.smk) ---
+# --- PCR / library-prep quality control (1a_pcr_qc.smk) ---
 # Which specific libraries to compare in the 2x2 QC figure. These read upstream
 # pre-release merged reads (results/8_merged/...) via data_config.merged_reads_path(),
 # so every dataset named here must declare `results_dir` in datasets.yaml.
@@ -68,7 +68,7 @@ pcr_qc:
     timepoint: 0h
     condition: "YES"
 
-# --- Spike-in dilution linearity QC (pcr_qc.smk) ---
+# --- Spike-in dilution linearity QC (1a_pcr_qc.smk) ---
 # 5 known spike-in insertion coordinates in the Spikein calibration project;
 # reads at each site are ranked and matched against a known dilution series.
 spikein:

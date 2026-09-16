@@ -1,5 +1,5 @@
 # =============================================================================
-# coverage.smk — Gene insertion coverage statistics
+# 2a_coverage.smk — Gene insertion coverage statistics
 # =============================================================================
 #
 # Per-dataset: computes insertion coverage fractions (in-gene vs intergenic)

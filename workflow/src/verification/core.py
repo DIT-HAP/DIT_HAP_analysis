@@ -101,7 +101,7 @@ _CATEGORY_ORDER = [
 
 
 
-# Legacy -> current metric column names, same quirk as coverage.smk's
+# Legacy -> current metric column names, same quirk as 2a_coverage.smk's
 # compute_coverage_stats.load_gene_level / clustering's candidates.load_and_annotate:
 # some releases' gene-level fitting_results.tsv still ship the pre-rename um/lam
 # headers instead of DR/DL.

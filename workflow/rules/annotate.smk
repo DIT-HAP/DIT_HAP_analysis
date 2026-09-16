@@ -4,7 +4,7 @@
 #
 # Parses PomBase + SGD sources once into a single wide annotation table (24
 # columns) keyed by pombe systematic ID, then joins it onto tables that need it.
-# The reference is dataset-independent (like features.smk): it depends only on a
+# The reference is dataset-independent (like 1b_features.smk): it depends only on a
 # PomBase version and an SGD snapshot, not on any DIT-HAP sequencing project.
 #
 # The split between "build the reference" and "annotate a table" exists because
