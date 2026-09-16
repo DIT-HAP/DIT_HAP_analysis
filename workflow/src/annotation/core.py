@@ -246,21 +246,16 @@ def build_sc_ortholog_block(
     sc_gene_info: pd.DataFrame,
     sc_essentiality: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Assemble per-ortholog S. cerevisiae id/name/qualifier/essentiality columns, positionally aligned."""
+    """Assemble per-ortholog S. cerevisiae id/name/essentiality/description columns, positionally aligned."""
     records = {}
     for pombe_id, field in zip(orthologs["gene_systematic_id"], orthologs["orthologs"]):
         groups = parse_ortholog_field(field)
         records[pombe_id] = {
             "Sc_ortholog_id": _INDEPENDENT_SEP.join(groups),
             "Sc_ortholog_name": _join_per_group(groups, sc_gene_info, _lookup_standard_name),
-            "Sc_ortholog_qualifier": _join_per_group(groups, sc_gene_info, _lookup_qualifier),
             "Sc_essentiality": _join_per_group(groups, sc_essentiality, _lookup_essentiality),
-            "Sc_essentiality_evidence": _join_per_group(
-                groups, sc_essentiality, _lookup_essentiality_evidence
-            ),
             "Sc_description": _join_per_group(groups, sc_gene_info, _lookup_description),
             "Sc_ortholog_count": len(groups),
-            "Sc_ortholog_raw": field if isinstance(field, str) else "",
         }
 
     block = pd.DataFrame.from_dict(records, orient="index")
@@ -444,6 +439,47 @@ def assemble_annotation_reference(
 ) -> pd.DataFrame:
     """Left-join annotation blocks onto the pombe gene set, which alone defines the row set."""
     reference = pombe_block.copy()
+    for block in annotation_blocks:
+        if block.index.has_duplicates:
+            duplicates = block.index[block.index.duplicated()].unique().tolist()
+            raise ValueError(
+                f"Annotation block has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+            )
+        reference = reference.join(block, how="outer")
+
+    # Genes missing from a block introduce NaN, which promotes int count columns to
+    # float and renders as "1.0" in the exported table. Nullable Int64 keeps them
+    # integral while still allowing a blank.
+    for column in reference.columns:
+        if column.endswith(_COUNT_COLUMN_SUFFIX):
+            reference[column] = reference[column].astype("Int64")
+
+    reference.index.name = "gene_systematic_id"
+    return reference
+
+
+def assemble_annotation_reference_split(
+    pombe_block: pd.DataFrame,
+    experimental_blocks: list[pd.DataFrame],
+    annotation_blocks: list[pd.DataFrame],
+) -> pd.DataFrame:
+    """Assemble annotation reference with different join strategies.
+
+    experimental_blocks: Use outer join (include genes from any experimental source)
+    annotation_blocks: Use left join (only annotate genes already in the reference)
+    """
+    reference = pombe_block.copy()
+
+    # Outer join for experimental data blocks (deletion library, DR/DL, gRNA, etc.)
+    for block in experimental_blocks:
+        if block.index.has_duplicates:
+            duplicates = block.index[block.index.duplicated()].unique().tolist()
+            raise ValueError(
+                f"Experimental block has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+            )
+        reference = reference.join(block, how="outer")
+
+    # Left join for annotation blocks (orthologs, functional annotation)
     for block in annotation_blocks:
         if block.index.has_duplicates:
             duplicates = block.index[block.index.duplicated()].unique().tolist()

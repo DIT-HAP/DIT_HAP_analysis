@@ -24,10 +24,11 @@
 # the other rules read it from.
 _ANNOT_CFG = config.get("annotate", {})
 _SGD_VERSION = _ANNOT_CFG.get("sgd_version", "2026-08-11")
+_ANNOT_GENE_TYPE = _ANNOT_CFG.get("gene_type", "protein")
 _ANNOT_TABLES = _ANNOT_CFG.get("tables", {})
 _ANNOT_REF = (
     f"results/annotation/{DATASETS['reference']['pombase_version']}/"
-    f"{_SGD_VERSION}/gene_annotation_reference.parquet"
+    f"{_SGD_VERSION}/gene_annotation_reference.{_ANNOT_GENE_TYPE}.parquet"
 )
 
 # `name` is a config key, not a path component of the input — constrain it to the
@@ -74,22 +75,28 @@ rule build_annotation_reference:
         pombase_dir="resources/external/pombase/{pombase_version}",
         sgd_dir="resources/external/sgd/{sgd_version}",
         deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
+        verification_csv="resources/curated/essentiality_verification.csv",
         grna_parameters_tsv="resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv",
     output:
-        reference="results/annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.parquet",
+        reference="results/annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.{gene_type}.parquet",
+    params:
+        hd_dithap_dataset="HD_DIT_HAP",
     log:
-        "logs/annotate/build_annotation_reference_{pombase_version}_{sgd_version}.log",
+        "logs/annotate/build_annotation_reference_{pombase_version}_{sgd_version}_{gene_type}.log",
     conda:
         "../envs/biopython.yml"
     message:
-        "*** [annotate] Building gene annotation reference (PomBase {wildcards.pombase_version}, SGD {wildcards.sgd_version})..."
+        "*** [annotate] Building gene annotation reference ({wildcards.gene_type}) (PomBase {wildcards.pombase_version}, SGD {wildcards.sgd_version})..."
     shell:
         """
         python workflow/scripts/annotate/build_annotation_reference.py \
             --pombase-dir {input.pombase_dir} \
             --sgd-dir {input.sgd_dir} \
             --deletion-library-xlsx {input.deletion_library_xlsx} \
+            --verification-csv {input.verification_csv} \
+            --hd-dithap-dataset {params.hd_dithap_dataset} \
             --grna-parameters-tsv {input.grna_parameters_tsv} \
+            --gene-type {wildcards.gene_type} \
             --output {output.reference} &> {log}
         """
 

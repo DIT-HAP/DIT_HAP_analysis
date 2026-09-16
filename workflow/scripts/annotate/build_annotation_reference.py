@@ -7,11 +7,11 @@ Gene Annotation Reference Construction
 
 Parses PomBase and SGD sources once into a single per-gene annotation table, so
 that annotating a user table is later just a join. Combines blocks in order:
-1. PomBase gene metadata (systematic_id, name, product, characterisation_status, etc.)
+1. PomBase gene metadata (systematic_id, name, product, feature_type, characterisation_status, etc.)
 2. Deletion library categories (this study's essentiality classification)
 3. Gene-level HD_DIT_HAP depletion (DR/DL)
 4. gRNA-level depletion (DR/DL)
-5. S. cerevisiae ortholog info (id/name/qualifier/essentiality)
+5. S. cerevisiae ortholog info (id/name/essentiality/description)
 6. Human ortholog symbols
 7. Functional annotation (GO-slim, complex membership)
 
@@ -30,7 +30,8 @@ Input
 
 Output
 ------
-- gene_annotation_reference.parquet: one row per pombe gene, one column per annotation field
+- gene_annotation_reference.{gene_type}.parquet: one row per pombe gene, one column per annotation field
+  where {gene_type} can be: all, protein, lncRNA, tRNA, rRNA, snoRNA, sncRNA, snRNA, noncoding
 
 Usage
 -----
@@ -40,11 +41,12 @@ Usage
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
         --hd-dithap-dataset HD_DIT_HAP \\
         --grna-parameters-tsv resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
-        --output results/annotation/2026-06-01/2026-08-11/gene_annotation_reference.parquet
+        --gene-type protein \\
+        --output results/annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
 Date:     2026-09-03
-Version:  2.0.0
+Version:  2.1.0
 """
 
 # =============================================================================
@@ -67,6 +69,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from annotation.core import (  # noqa: E402
     assemble_annotation_reference,
+    assemble_annotation_reference_split,
     build_complex_block,
     build_go_slim_block,
     build_grna_block,
@@ -88,6 +91,20 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
+# Valid gene type filters based on PomBase feature_type values
+VALID_GENE_TYPES = {
+    "all": None,  # No filtering
+    "protein": ["protein"],
+    "lncRNA": ["lncRNA gene"],
+    "tRNA": ["tRNA gene"],
+    "rRNA": ["rRNA gene"],
+    "snoRNA": ["snoRNA gene"],
+    "sncRNA": ["sncRNA gene"],
+    "snRNA": ["snRNA gene"],
+    "noncoding": ["lncRNA gene", "tRNA gene", "rRNA gene", "snoRNA gene", "sncRNA gene", "snRNA gene"],
+}
+
+
 @dataclass(kw_only=True, slots=True, frozen=True)
 class AnnotationReferenceConfig:
     """Inputs/outputs for annotation-reference construction."""
@@ -95,16 +112,23 @@ class AnnotationReferenceConfig:
     pombase_dir: Path
     sgd_dir: Path
     deletion_library_xlsx: Path
+    verification_csv: Path
     hd_dithap_dataset: str
     grna_parameters_tsv: Path
+    gene_type: str
     output: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure the output dir exists."""
+        if self.gene_type not in VALID_GENE_TYPES:
+            raise ValueError(
+                f"Invalid gene_type '{self.gene_type}'. Valid options: {list(VALID_GENE_TYPES.keys())}"
+            )
         for path in [
             self.pombase_dir,
             self.sgd_dir,
             self.deletion_library_xlsx,
+            self.verification_csv,
             self.grna_parameters_tsv,
             self.sgd_features,
             self.sgd_phenotypes,
@@ -149,21 +173,29 @@ class AnnotationReferenceConfig:
 # BLOCK BUILDERS (NEW STRUCTURE)
 # =============================================================================
 @logger.catch(reraise=True)
-def build_pombase_metadata_block(gene_ids_parquet: Path) -> pd.DataFrame:
+def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.DataFrame:
     """Build block 1: PomBase gene metadata from gene_ids_and_details.parquet.
 
-    Extracts: systematic_id, name, gene_product, product, characterisation_status,
-    taxonomic_distribution, deletion_viability (renamed to FYPOviability).
+    Extracts: systematic_id, name, gene_product, product, feature_type,
+    characterisation_status, taxonomic_distribution, deletion_viability (renamed to FYPOviability).
+
+    Args:
+        gene_ids_parquet: Path to gene_ids_and_details.parquet
+        gene_type: Gene type filter (e.g., 'all', 'protein', 'noncoding')
+
+    Returns:
+        DataFrame indexed by systematic_id with metadata columns
     """
     logger.info("Reading PomBase gene metadata from parquet")
     gene_meta = read_parquet(gene_ids_parquet)
 
-    # Select and rename columns
+    # Select and rename columns - feature_type goes after product
     columns_map = {
         "systematic_id": "systematic_id",
         "name": "gene_name",
         "gene_product": "gene_product",
         "product": "product",
+        "feature_type": "feature_type",
         "characterisation_status": "characterisation_status",
         "taxonomic_distribution": "taxonomic_distribution",
         "deletion_viability": "FYPOviability",
@@ -172,6 +204,13 @@ def build_pombase_metadata_block(gene_ids_parquet: Path) -> pd.DataFrame:
     available_columns = [col for col in columns_map.keys() if col in gene_meta.columns]
     block = gene_meta[available_columns].copy()
     block = block.rename(columns={k: v for k, v in columns_map.items() if k in available_columns})
+
+    # Apply gene type filter
+    feature_types = VALID_GENE_TYPES.get(gene_type)
+    if feature_types is not None and "feature_type" in block.columns:
+        before_count = len(block)
+        block = block[block["feature_type"].isin(feature_types)]
+        logger.info(f"  Filtered {before_count:,} genes to {len(block):,} {gene_type} genes")
 
     # Set systematic_id as index
     if "systematic_id" in block.columns:
@@ -211,7 +250,33 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
     if "systematic_id" in block.columns:
         block = block.set_index("systematic_id")
 
+    # Fill empty deletion_essentiality with "Not_determined"
+    if "deletion_essentiality" in block.columns:
+        block["deletion_essentiality"] = block["deletion_essentiality"].fillna("Not_determined")
+
     logger.info(f"  {len(block):,} genes in deletion library")
+    return block
+
+
+@logger.catch(reraise=True)
+def build_verification_block(verification_csv: Path) -> pd.DataFrame:
+    """Build block 2b: Essentiality verification phenotype.
+
+    Extracts: systematic_id, verification_phenotype
+    """
+    logger.info("Reading essentiality verification data")
+    verification = read_file(verification_csv)
+
+    # Select columns
+    required_cols = ["systematic_id", "verification_phenotype"]
+    missing = [col for col in required_cols if col not in verification.columns]
+    if missing:
+        raise ValueError(f"Verification CSV missing columns: {missing}")
+
+    block = verification[required_cols].copy()
+    block = block.set_index("systematic_id")
+
+    logger.info(f"  {len(block):,} genes with verification phenotype")
     return block
 
 
@@ -230,14 +295,15 @@ def build_gene_level_depletion_block(dataset_name: str) -> pd.DataFrame:
     # Read fitting results which contain DR/DL
     fitting_results = read_file(dataset_config.gene_level.fitting_results)
 
-    # Extract gene_systematic_id, DR, DL
-    required_cols = ["gene_systematic_id", "DR", "DL"]
+    # The column is "Systematic ID" (with space), not "gene_systematic_id"
+    required_cols = ["Systematic ID", "DR", "DL"]
     missing = [col for col in required_cols if col not in fitting_results.columns]
     if missing:
         raise ValueError(f"Gene-level fitting results missing columns: {missing}")
 
     block = fitting_results[required_cols].copy()
-    block = block.set_index("gene_systematic_id")
+    block = block.rename(columns={"Systematic ID": "systematic_id"})
+    block = block.set_index("systematic_id")
 
     logger.info(f"  {len(block):,} genes with gene-level DR/DL")
     return block
@@ -246,6 +312,57 @@ def build_gene_level_depletion_block(dataset_name: str) -> pd.DataFrame:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def add_gene_status_column(
+    gene_ids: pd.Index, gene_ids_parquet: Path
+) -> pd.Series:
+    """Add gene_status column showing gene presence and type in current PomBase.
+
+    Uses the FULL gene_ids_and_details.parquet (not filtered), so it correctly
+    identifies genes of all types.
+
+    Returns:
+        Series with values like "protein", "lncRNA gene", "not_in_pombase", etc.
+    """
+    # Read full gene metadata (before any filtering)
+    full_gene_meta = read_parquet(gene_ids_parquet)
+    full_gene_meta = full_gene_meta.set_index("systematic_id")
+
+    status = []
+    for gene_id in gene_ids:
+        if gene_id not in full_gene_meta.index:
+            status.append("not_in_pombase")
+        else:
+            # Gene exists in PomBase, get its actual feature_type
+            actual_type = full_gene_meta.loc[gene_id, "feature_type"]
+            status.append(actual_type)
+
+    return pd.Series(status, index=gene_ids, name="gene_status")
+
+
+def report_gene_status_summary(reference: pd.DataFrame, filter_type: str) -> None:
+    """Log summary of gene_status distribution."""
+    status_counts = reference["gene_status"].value_counts()
+
+    logger.info("Gene status summary:")
+    for status, count in status_counts.items():
+        logger.info(f"  {status}: {count:,} genes")
+
+    # Highlight unexpected cases when filtering for specific type
+    if filter_type != "all":
+        not_in_pombase = (reference["gene_status"] == "not_in_pombase").sum()
+        wrong_type = (
+            (reference["gene_status"] != "not_in_pombase") &
+            (reference["gene_status"] != filter_type)
+        ).sum()
+
+        if not_in_pombase > 0:
+            logger.warning(f"  {not_in_pombase:,} genes not in current PomBase version")
+        if wrong_type > 0:
+            logger.warning(
+                f"  {wrong_type:,} genes have different type than expected '{filter_type}'"
+            )
+
+
 @logger.catch(reraise=True)
 def build_ortholog_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFrame]:
     """Build the S. cerevisiae and human ortholog blocks from PomBase + SGD sources."""
@@ -304,11 +421,14 @@ def build_functional_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFr
 def run(config: AnnotationReferenceConfig) -> None:
     """Assemble every annotation block onto the PomBase gene set and write the reference table."""
     # Block 1: PomBase metadata (defines the reference row set)
-    pombe_block = build_pombase_metadata_block(config.gene_ids_parquet)
+    pombe_block = build_pombase_metadata_block(config.gene_ids_parquet, config.gene_type)
     logger.info(f"  {len(pombe_block):,} pombe genes define the reference row set")
 
     # Block 2: Deletion library categories
     deletion_block = build_deletion_library_block(config.deletion_library_xlsx)
+
+    # Block 2b: Verification phenotype
+    verification_block = build_verification_block(config.verification_csv)
 
     # Block 3: Gene-level HD_DIT_HAP depletion (DR/DL)
     gene_depletion_block = build_gene_level_depletion_block(config.hd_dithap_dataset)
@@ -318,13 +438,25 @@ def run(config: AnnotationReferenceConfig) -> None:
     grna_block = build_grna_block(read_file(config.grna_parameters_tsv))
     logger.info(f"  {len(grna_block):,} genes with gRNA-level DR/DL")
 
-    # Blocks 5-7: Orthologs and functional annotation
+    # Blocks 5-7: Orthologs and functional annotation (use left join for these)
     ortholog_blocks = build_ortholog_blocks(config)
     functional_blocks = build_functional_blocks(config)
 
-    # Assemble in order: deletion_lib, gene_depletion, grna, orthologs, functional
-    blocks = [deletion_block, gene_depletion_block, grna_block] + ortholog_blocks + functional_blocks
-    reference = assemble_annotation_reference(pombe_block, blocks)
+    # Assemble: outer join for experimental data, left join for ortholog/functional annotation
+    experimental_blocks = [deletion_block, verification_block, gene_depletion_block, grna_block]
+    annotation_blocks = ortholog_blocks + functional_blocks
+
+    reference = assemble_annotation_reference_split(pombe_block, experimental_blocks, annotation_blocks)
+
+    # Fill missing deletion_essentiality with "Not_determined" after assembly (outer join)
+    if "deletion_essentiality" in reference.columns:
+        reference["deletion_essentiality"] = reference["deletion_essentiality"].fillna("Not_determined")
+
+    # Add gene_status column to track gene presence and type in current PomBase
+    reference["gene_status"] = add_gene_status_column(reference.index, config.gene_ids_parquet)
+
+    # Report genes not matching expected type
+    report_gene_status_summary(reference, config.gene_type)
 
     write_parquet(reference, config.output)
     logger.success(
@@ -346,6 +478,9 @@ def parse_args() -> argparse.Namespace:
         "--deletion-library-xlsx", type=Path, required=True, help="Curated deletion-library categories xlsx"
     )
     parser.add_argument(
+        "--verification-csv", type=Path, required=True, help="Curated essentiality verification CSV"
+    )
+    parser.add_argument(
         "--hd-dithap-dataset",
         type=str,
         required=True,
@@ -356,6 +491,13 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         help="Curated gRNA fitted-parameters TSV (supplies gRNA-level DR/DL)",
+    )
+    parser.add_argument(
+        "--gene-type",
+        type=str,
+        default="all",
+        choices=list(VALID_GENE_TYPES.keys()),
+        help=f"Gene type filter: {', '.join(VALID_GENE_TYPES.keys())} (default: all)",
     )
     parser.add_argument("--output", type=Path, required=True, help="Output annotation reference parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -371,8 +513,10 @@ def main() -> int:
             pombase_dir=args.pombase_dir,
             sgd_dir=args.sgd_dir,
             deletion_library_xlsx=args.deletion_library_xlsx,
+            verification_csv=args.verification_csv,
             hd_dithap_dataset=args.hd_dithap_dataset,
             grna_parameters_tsv=args.grna_parameters_tsv,
+            gene_type=args.gene_type,
             output=args.output,
         )
         config.validate()
