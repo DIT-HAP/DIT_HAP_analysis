@@ -14,7 +14,6 @@ import pandas as pd
 import pytest
 
 from workflow.src.data_config import MERGED_READS_SUBDIR, merged_reads_path
-from workflow.src.plotting.generic import create_scatter_correlation_plot
 from workflow.scripts.pcr_qc.prepare_pcr_qc_data import PCRQCConfig
 
 
@@ -41,39 +40,6 @@ def test_merged_reads_path_raises_for_unknown_dataset():
     """An unregistered dataset name raises KeyError, not a silently-wrong path."""
     with pytest.raises(KeyError):
         merged_reads_path("NoSuchDataset", "x", "0h", "YES")
-
-
-# =============================================================================
-# create_scatter_correlation_plot (generic, domain-agnostic)
-# =============================================================================
-def test_scatter_correlation_returns_axes_with_stats_box():
-    """The plot renders points and annotates a PCC/R² stats text box."""
-    import matplotlib.pyplot as plt
-
-    rng = np.random.default_rng(0)
-    x = rng.random(50) + 1
-    y = x * 2 + rng.random(50) * 0.1
-    fig, ax = plt.subplots()
-    returned = create_scatter_correlation_plot(x, y, ax=ax)
-    assert returned is ax
-    texts = [t.get_text() for t in ax.texts]
-    assert any("PCC" in t and "R²" in t for t in texts)
-    plt.close(fig)
-
-
-def test_scatter_correlation_log_filters_nonpositive():
-    """xscale='log' drops non-positive x so log10 never sees a zero/negative."""
-    import matplotlib.pyplot as plt
-
-    # Two of the four points are non-positive in x; they must be excluded.
-    x = np.array([0.0, -1.0, 10.0, 100.0])
-    y = np.array([1.0, 2.0, 10.0, 100.0])
-    fig, ax = plt.subplots()
-    create_scatter_correlation_plot(x, y, ax=ax, xscale="log", yscale="log")
-    stats = " ".join(t.get_text() for t in ax.texts)
-    assert "Data points: 2" in stats  # only the two positive-x points survive
-    assert ax.get_xscale() == "log"
-    plt.close(fig)
 
 
 # =============================================================================

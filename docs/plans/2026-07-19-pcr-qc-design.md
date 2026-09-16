@@ -105,6 +105,24 @@ pcr_qc:
 
 ## 4. spike-in 占位
 
+> **2026-09-16 更新（spike-in 与 pcr-qc 合并为一个 stage）**：`spikein.smk` 撤销，
+> 其两条规则（`prepare_spikein_data`、`compute_spikein_stats`）并入 `pcr_qc.smk`
+> —— spike-in 表本就是面板 (d) 的数据源，两侧合为一个模块后这层依赖不再跨文件。
+> 同时**出图也合并**：删掉独立的 `plot_spikein_correlation` 规则，面板 (d) 改由
+> `figure_render/spikein.py::render_spikein_panel` 真实渲染（此前该渲染器虽已写好
+> 却从未接线，`plot_pcr_qc.py` 里面板 (d) 是复制面板 (c) 的占位代码，即出图里 (c)(d)
+> 曾完全相同）。产物路径保持不变：`results/spikein/spike_in_stats.tsv` 仍产出，
+> `results/spikein/spike_in_correlation.pdf` 不再产出（从未被构建过）。
+>
+> 随机附带清理：`spikein/core.py` 的 `compute_linear_regression_stats` /
+> `plot_spike_in_correlation`、`pcr_qc/core.py` 的 `plot_spikein_panel` 三处随规则
+> 一并删除（均无引用）。面板 (d) 的 5 条系列图例改为整图下方的条带（`fit_panels(
+> rect=...)`）——该面板对角线铺满数据区，图内图例必然压点。
+>
+> 验证：`snakemake --use-conda results/pcr_qc/PCR_quality_control.pdf` 实跑出图，
+> 面板 (d) 显示 PCC=1.00 / R²=1.00 / Slope=1.00（5 条 insertion 系列），与 §4 下方
+> 记录的 notebook 拟合逐位一致。
+
 > **2026-07-23 更新（已实现，占位退役）**：`spikein.smk` 已落地，面板 (d) 现直接读
 > 其产物 `results/spikein/spike_in_stats.tsv`，`spikein → pcr_qc` 成为真实 DAG 边。
 > 已验证：live

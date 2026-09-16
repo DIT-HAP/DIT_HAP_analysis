@@ -12,10 +12,10 @@ control"). Four panels, all deterministic:
   (a) PBL vs PBR primer reads of one library.
   (b) Technical replicate: one sample processed in two upstream projects.
   (c) Biological replicate: two samples within one project.
-  (d) Spike-in dilution linearity (spikein.smk's spike_in_stats.tsv).
+  (d) Spike-in dilution linearity (pcr_qc.smk's spike_in_stats.tsv).
 
 Panels (a)-(c) use the domain-agnostic create_scatter_correlation_plot; panel
-(d) uses core.plot_spikein_panel (specific to this figure).
+(d) uses figure_render.spikein.render_spikein_panel (specific to this figure).
 
 Input
 -----
@@ -69,6 +69,7 @@ from figures import (  # noqa: E402
     PanelShape,
 )
 from figure_render.scatter import ScatterPanel, render_scatter_panel  # noqa: E402
+from figure_render.spikein import render_spikein_panel  # noqa: E402
 
 
 # =============================================================================
@@ -155,24 +156,18 @@ def run(config: PlotPCRQCConfig) -> None:
     )
     render_scatter_panel(ax_c, bio, panel_c, show_legend=False)
 
-    panel_d = ScatterPanel(
-            x="Reads_1",
-            y="Reads_2",
-            xlabel="Reads of Biological Replicate 1",
-            ylabel="Reads of Biological Replicate 2",
-            title="",
-            reference="identity",
-            scale="log",
-            show_stats=True,
-            density=True,
-        )
-    render_scatter_panel(ax_d, bio, panel_d, show_legend=False)
-
-    # Panel (d): Spike-in dilution
-    # plot_spikein_panel(ax_d, spikein)
     apply_house_style()
+    # Panel (d): Spike-in dilution linearity
+    render_spikein_panel(ax_d, spikein, show_legend=False)
+
+    # The 5 insertion series still need naming, but panel (d) is filled
+    # corner-to-corner by the diagonal, so the legend goes in a strip below the
+    # whole grid rather than over the data.
+    handles, labels = ax_d.get_legend_handles_labels()
+    plt.gcf().legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False)
+
     # Layout and save
-    fit_panels()
+    fit_panels(rect=(0, 0.05, 1, 1))
     save_dual(config.output.parent / config.output.stem)
     logger.success(f"Wrote PCR QC figure: {config.output}")
 

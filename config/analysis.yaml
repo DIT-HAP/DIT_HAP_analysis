@@ -68,7 +68,7 @@ pcr_qc:
     timepoint: 0h
     condition: "YES"
 
-# --- Spike-in dilution linearity QC (spikein.smk) ---
+# --- Spike-in dilution linearity QC (pcr_qc.smk) ---
 # 5 known spike-in insertion coordinates in the Spikein calibration project;
 # reads at each site are ranked and matched against a known dilution series.
 spikein:

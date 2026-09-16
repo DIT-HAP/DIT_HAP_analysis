@@ -2,42 +2,31 @@
 Spike-In Dilution Linearity QC — Core Logic
 ============================================
 
-Shared constants, ratio-assignment, stats, and figure builders for the
-spike-in linearity QC. Ported from
-DIT_HAP_pipeline/workflow/notebooks/spike_in.ipynb and factored out of the
-original single-script port so the stage can be split into independent
-Snakemake rules (prepare -> compute stats / plot correlation), each
-re-runnable on its own.
+Shared constants, ratio-assignment, and stats builders for the spike-in
+linearity QC. Ported from DIT_HAP_pipeline/workflow/notebooks/spike_in.ipynb
+and factored out of the original single-script port so the stage can be split
+into independent Snakemake rules (prepare -> compute stats), each re-runnable
+on its own.
+
+The figure half lives in figure_render/spikein.py (panel (d) of the PCR QC
+figure) — this module produces only the stats table, not a PDF.
 
 Usage
 -----
     from spikein.core import (
-        SPIKE_IN_RATIO, DEFAULT_SPIKE_IN_SITES,
-        build_spike_in_stats, compute_linear_regression_stats,
-        plot_spike_in_correlation,
+        SPIKE_IN_RATIO, DEFAULT_SPIKE_IN_SITES, build_spike_in_stats,
     )
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
-# 1. Standard Library Imports
-from pathlib import Path
-
-# 2. Data Processing Imports
+# 1. Data Processing Imports
 import numpy as np
 import pandas as pd
 
-# 3. Third-party Imports
-import matplotlib
-
-matplotlib.use("Agg")  # headless: builders only write PDFs, never display
-import matplotlib.pyplot as plt  # noqa: E402
+# 2. Third-party Imports
 from loguru import logger  # noqa: E402
-from scipy.stats import linregress  # noqa: E402
-
-# 4. Local Imports
-from plotting.style import COLORS  # noqa: E402
 
 
 # =============================================================================
@@ -143,45 +132,3 @@ def build_spike_in_stats(raw_reads: pd.DataFrame, spike_in_sites: dict[str, dict
     )
 
     return long_df.groupby("Strain").apply(assign_ratio_by_order, spike_in_ratio=SPIKE_IN_RATIO).droplevel(0, axis=0)
-
-
-def compute_linear_regression_stats(x: pd.Series, y: pd.Series) -> dict[str, float]:
-    """Fit y = slope*x + intercept and return slope/intercept/r_value/p_value/std_err/r2."""
-    slope, intercept, r_value, p_value, std_err = linregress(x, y)
-    return {
-        "slope": slope,
-        "intercept": intercept,
-        "r_value": r_value,
-        "p_value": p_value,
-        "std_err": std_err,
-        "r2": r_value ** 2,
-    }
-
-
-def plot_spike_in_correlation(spike_in_stats: pd.DataFrame, stats: dict[str, float], output: Path) -> None:
-    """Scatter Relative_Dilution_Ratio vs Relative_Read_Ratio per site + the combined linear fit."""
-    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
-
-    for idx, (name, sub) in enumerate(spike_in_stats.groupby("Name")):
-        ax.scatter(
-            sub["Relative_Dilution_Ratio"], sub["Relative_Read_Ratio"],
-            label=name, facecolor="none", edgecolor=COLORS[idx % len(COLORS)],
-            s=150, lw=1.5, alpha=0.75,
-        )
-
-    line_x = np.array([-10, 0])
-    line_y = stats["slope"] * line_x + stats["intercept"]
-    ax.plot(line_x, line_y, color="black", ls="--", alpha=0.7, lw=2.5)
-
-    ax.set_xlabel("log$_{2}$(relative dilution ratio)")
-    ax.set_ylabel("log$_{2}$(relative read ratio)")
-    ax.text(
-        0.05, 0.95,
-        f"Slope={stats['slope']:.2f}\nPCC={stats['r_value']:.2f}\nR$^2$={stats['r2']:.2f}",
-        transform=ax.transAxes, ha="left", va="top",
-    )
-    ax.legend(loc="lower right")
-
-    fig.tight_layout()
-    fig.savefig(output, dpi=300, bbox_inches="tight")
-    plt.close(fig)

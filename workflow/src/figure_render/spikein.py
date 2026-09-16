@@ -41,6 +41,7 @@ def render_spikein_panel(
     fit_line_alpha: float = 0.7,
     show_stats: bool = True,
     stats_position: tuple[float, float] = (0.05, 0.95),
+    show_legend: bool = True,
     legend_location: str = "lower right",
 ) -> None:
     """Render spike-in dilution linearity panel with cnsplots style.
@@ -74,6 +75,10 @@ def render_spikein_panel(
         Whether to show fit statistics (PCC, R², Slope, Intercept)
     stats_position : tuple[float, float], default (0.05, 0.95)
         Statistics text position in axes coordinates (x, y)
+    show_legend : bool, default True
+        Whether to draw the per-insertion legend on this axes. Set False when
+        the caller places it at figure level instead — the 5 series span the
+        whole diagonal, so an in-axes legend of these labels covers the data.
     legend_location : str, default "lower right"
         Legend location
 
@@ -149,7 +154,8 @@ def render_spikein_panel(
         )
 
     # Legend (frameon controlled by cnsplots rcParams)
-    ax.legend(loc=legend_location)
+    if show_legend:
+        ax.legend(loc=legend_location)
 
     # Set reasonable tick positions if data range is known
     # (cnsplots handles tick formatting)

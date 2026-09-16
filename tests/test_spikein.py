@@ -11,7 +11,6 @@ import pandas as pd
 from workflow.src.spikein.core import (
     assign_ratio_by_order,
     build_spike_sites_df,
-    compute_linear_regression_stats,
     SPIKE_IN_RATIO,
 )
 
@@ -71,13 +70,3 @@ def test_build_spike_sites_df_shape():
     df = build_spike_sites_df(mock_df, spike_in_sites)
     assert len(df) == 5
     assert "Strain" in df.columns
-
-
-def test_compute_linear_regression_stats():
-    """compute_linear_regression_stats returns slope, r_value, p_value, r2."""
-    x = np.array([-10.0, -8.0, -6.0, -4.0, -2.0, 0.0])
-    y = 0.95 * x + 0.1  # near-perfect linear
-    stats = compute_linear_regression_stats(pd.Series(x), pd.Series(y))
-    assert abs(stats["slope"] - 0.95) < 0.01
-    assert stats["r2"] > 0.99
-    assert "p_value" in stats

@@ -33,7 +33,6 @@ include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
-include: "workflow/rules/spikein.smk"
 include: "workflow/rules/pcr_qc.smk"
 include: "workflow/rules/coverage.smk"
 include: "workflow/rules/verification.smk"
@@ -74,9 +73,9 @@ rule all:
         # ML AutoML (target x mode; uses selected_variant):
         # f"results/ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
         # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
-        # PCR / library-prep QC figure (no dataset wildcard):
+        # Library-prep QC (no dataset wildcard; spike-in stats feed the figure's
+        # panel d, so both targets come from pcr_qc.smk):
         # "results/pcr_qc/PCR_quality_control.pdf",
-        # Batch A (no final_clusters.tsv dependency):
         # "results/spikein/spike_in_stats.tsv",
         f"results/coverage/{_DATASET}/coverage_stats.tsv",
         f"results/coverage/{_DATASET}/detailed_genes.xlsx",
