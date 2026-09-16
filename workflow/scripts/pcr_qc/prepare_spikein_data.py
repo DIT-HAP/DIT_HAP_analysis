@@ -26,7 +26,7 @@ Usage
 -----
     python prepare_spikein_data.py \\
         --raw-reads .../Spikein/results/13_filtered/raw_reads.filtered.tsv \\
-        --output-spike-in-stats results/spikein/_work/spike_in_stats.parquet \\
+        --output-spike-in-stats results/pcr_qc/_work/spike_in_stats.parquet \\
         --spike-in-sites-json '{"DY215": {"chr": "I", "coord": 3749394, "strand": "-"}, ...}'
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -54,7 +54,7 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import write_parquet  # noqa: E402
-from spikein.core import DEFAULT_SPIKE_IN_SITES, build_spike_in_stats  # noqa: E402
+from pcr_qc.spikein import DEFAULT_SPIKE_IN_SITES, build_spike_in_stats  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 

@@ -8,13 +8,14 @@
 #
 #   prepare_spikein_data   -> spike_in_stats parquet (single fan-out point for
 #                             both downstream consumers)
-#   compute_spikein_stats  -> long-form stats TSV (results/spikein/)
+#   compute_spikein_stats  -> long-form stats TSV
 #   prepare_pcr_qc_data    -> pbl_pbr / tech / bio / spikein parquet intermediates
 #   plot_pcr_qc            -> the 2x2 QC figure PDF
 #
 # The figure renders the spike-in stats itself (figure_render/spikein.py, panel
-# d), so the former standalone plot_spikein_correlation rule and its
-# results/spikein/spike_in_correlation.pdf are retired: one figure, not two.
+# d), so the former standalone plot_spikein_correlation rule is retired: one
+# figure, not two. Code, results/ and logs/ all live under pcr_qc/ — the old
+# spikein.smk / workflow/src/spikein/ / results/spikein/ names are gone.
 #
 # NO dataset wildcard: this QC compares a few specifically-named libraries
 # against each other (LD1328-7 processed twice, LD1328-4 vs LD1328-8) plus the
@@ -42,7 +43,6 @@ _B = _PCR_QC["technical_replicate"]
 _C = _PCR_QC["biological_replicate"]
 
 # Parquet intermediates.
-_SPIKEWORK = "results/spikein/_work"
 _PCRWORK = "results/pcr_qc/_work"
 
 
@@ -56,18 +56,18 @@ rule prepare_spikein_data:
             f"{DATASETS['datasets']['Spikein']['results_dir']}/13_filtered/raw_reads.filtered.tsv"
         ),
     output:
-        spike_in_stats=f"{_SPIKEWORK}/spike_in_stats.parquet",
+        spike_in_stats=f"{_PCRWORK}/spike_in_stats.parquet",
     params:
         spike_in_sites_json=json.dumps(config.get("spikein", {}).get("coordinates", {})),
     log:
-        "logs/spikein/prepare_spikein_data.log",
+        "logs/pcr_qc/prepare_spikein_data.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
         "*** [pcr_qc] Preparing spike-in stats..."
     shell:
         """
-        python workflow/scripts/spikein/prepare_spikein_data.py \
+        python workflow/scripts/pcr_qc/prepare_spikein_data.py \
             --raw-reads {input.raw_reads} \
             --output-spike-in-stats {output.spike_in_stats} \
             --spike-in-sites-json '{params.spike_in_sites_json}' &> {log}
@@ -76,18 +76,18 @@ rule prepare_spikein_data:
 
 rule compute_spikein_stats:
     input:
-        spike_in_stats=f"{_SPIKEWORK}/spike_in_stats.parquet",
+        spike_in_stats=f"{_PCRWORK}/spike_in_stats.parquet",
     output:
-        stats="results/spikein/spike_in_stats.tsv",
+        stats="results/pcr_qc/spike_in_stats.tsv",
     log:
-        "logs/spikein/compute_spikein_stats.log",
+        "logs/pcr_qc/compute_spikein_stats.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
         "*** [pcr_qc] Computing spike-in stats table..."
     shell:
         """
-        python workflow/scripts/spikein/compute_spikein_stats.py \
+        python workflow/scripts/pcr_qc/compute_spikein_stats.py \
             --spike-in-stats {input.spike_in_stats} \
             --output-stats {output.stats} &> {log}
         """
@@ -107,7 +107,7 @@ rule prepare_pcr_qc_data:
         bio_rep_1=merged_reads_path(_C["dataset"], _C["sample_1"], _C["timepoint"], _C["condition"]),
         bio_rep_2=merged_reads_path(_C["dataset"], _C["sample_2"], _C["timepoint"], _C["condition"]),
         # Panel (d): spike-in linearity — live output of compute_spikein_stats above.
-        spikein="results/spikein/spike_in_stats.tsv",
+        spikein="results/pcr_qc/spike_in_stats.tsv",
     output:
         pbl_pbr=f"{_PCRWORK}/pbl_pbr.parquet",
         tech=f"{_PCRWORK}/tech.parquet",

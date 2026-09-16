@@ -76,7 +76,7 @@ rule all:
         # Library-prep QC (no dataset wildcard; spike-in stats feed the figure's
         # panel d, so both targets come from pcr_qc.smk):
         # "results/pcr_qc/PCR_quality_control.pdf",
-        # "results/spikein/spike_in_stats.tsv",
+        # "results/pcr_qc/spike_in_stats.tsv",
         f"results/coverage/{_DATASET}/coverage_stats.tsv",
         f"results/coverage/{_DATASET}/detailed_genes.xlsx",
         f"results/coverage/{_DATASET}/coverage_figures.pdf",

@@ -52,7 +52,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Third-party Imports
-import matplotlib.pyplot as plt
 from loguru import logger
 
 # 3. Local Imports (relative path resolution)
@@ -158,16 +157,10 @@ def run(config: PlotPCRQCConfig) -> None:
 
     apply_house_style()
     # Panel (d): Spike-in dilution linearity
-    render_spikein_panel(ax_d, spikein, show_legend=False)
-
-    # The 5 insertion series still need naming, but panel (d) is filled
-    # corner-to-corner by the diagonal, so the legend goes in a strip below the
-    # whole grid rather than over the data.
-    handles, labels = ax_d.get_legend_handles_labels()
-    plt.gcf().legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False)
+    render_spikein_panel(ax_d, spikein)
 
     # Layout and save
-    fit_panels(rect=(0, 0.05, 1, 1))
+    fit_panels()
     save_dual(config.output.parent / config.output.stem)
     logger.success(f"Wrote PCR QC figure: {config.output}")
 

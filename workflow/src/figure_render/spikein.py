@@ -41,7 +41,6 @@ def render_spikein_panel(
     fit_line_alpha: float = 0.7,
     show_stats: bool = True,
     stats_position: tuple[float, float] = (0.05, 0.95),
-    show_legend: bool = True,
     legend_location: str = "lower right",
 ) -> None:
     """Render spike-in dilution linearity panel with cnsplots style.
@@ -75,10 +74,6 @@ def render_spikein_panel(
         Whether to show fit statistics (PCC, R², Slope, Intercept)
     stats_position : tuple[float, float], default (0.05, 0.95)
         Statistics text position in axes coordinates (x, y)
-    show_legend : bool, default True
-        Whether to draw the per-insertion legend on this axes. Set False when
-        the caller places it at figure level instead — the 5 series span the
-        whole diagonal, so an in-axes legend of these labels covers the data.
     legend_location : str, default "lower right"
         Legend location
 
@@ -95,13 +90,15 @@ def render_spikein_panel(
     # Get current color cycle from rcParams (set by cnsplots)
     color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-    # Scatter plot for each spike-in insertion site
+    # Scatter plot for each spike-in insertion site. The legend drops the
+    # redundant "Spike-in " prefix — the whole panel is spike-in data, and 5
+    # full-length labels do not fit inside a panel this size.
     for idx, (name, sub) in enumerate(spikein_filtered.groupby("Name")):
         color = color_cycle[idx % len(color_cycle)]
         ax.scatter(
             sub["Relative_Dilution_Ratio"],
             sub["Relative_Read_Ratio"],
-            label=name,
+            label=name.removeprefix("Spike-in "),
             facecolor="none",
             edgecolor=color,
             s=marker_size,
@@ -153,9 +150,17 @@ def render_spikein_panel(
             # Do not specify fontsize - inherit from cnsplots rcParams
         )
 
-    # Legend (frameon controlled by cnsplots rcParams)
-    if show_legend:
-        ax.legend(loc=legend_location)
+    # Legend (frameon controlled by cnsplots rcParams). The series run along the
+    # diagonal and the markers are large enough to poke below it, so the usable
+    # free space is the corner triangle minus the marker radius. Tightening the
+    # padding keeps the 5 entries inside it; the default spacing does not.
+    ax.legend(
+        loc=legend_location,
+        ncol=1,
+        labelspacing=0.25,
+        borderpad=0.2,
+        handletextpad=0.5,
+    )
 
     # Set reasonable tick positions if data range is known
     # (cnsplots handles tick formatting)

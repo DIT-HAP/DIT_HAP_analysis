@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
 
-from workflow.src.spikein.core import (
+from workflow.src.pcr_qc.spikein import (
     assign_ratio_by_order,
     build_spike_sites_df,
     SPIKE_IN_RATIO,

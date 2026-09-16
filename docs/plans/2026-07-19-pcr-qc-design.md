@@ -111,17 +111,26 @@ pcr_qc:
 > 同时**出图也合并**：删掉独立的 `plot_spikein_correlation` 规则，面板 (d) 改由
 > `figure_render/spikein.py::render_spikein_panel` 真实渲染（此前该渲染器虽已写好
 > 却从未接线，`plot_pcr_qc.py` 里面板 (d) 是复制面板 (c) 的占位代码，即出图里 (c)(d)
-> 曾完全相同）。产物路径保持不变：`results/spikein/spike_in_stats.tsv` 仍产出，
-> `results/spikein/spike_in_correlation.pdf` 不再产出（从未被构建过）。
+> 曾完全相同）。
 >
-> 随机附带清理：`spikein/core.py` 的 `compute_linear_regression_stats` /
+> **代码/产物/日志目录一并归并**（同日第二步）：`workflow/scripts/spikein/` →
+> `workflow/scripts/pcr_qc/`，`workflow/src/spikein/core.py` →
+> `workflow/src/pcr_qc/spikein.py`（import 改 `pcr_qc.spikein`）；产物
+> `results/spikein/spike_in_stats.tsv` → `results/pcr_qc/spike_in_stats.tsv`，
+> 中间 parquet 并入 `results/pcr_qc/_work/`，日志并入 `logs/pcr_qc/`。
+> `results/spikein/` 与 `logs/spikein/` 两个目录随之消失（均 git-ignored，重跑即得）。
+>
+> 顺手清理：`spikein/core.py` 的 `compute_linear_regression_stats` /
 > `plot_spike_in_correlation`、`pcr_qc/core.py` 的 `plot_spikein_panel` 三处随规则
-> 一并删除（均无引用）。面板 (d) 的 5 条系列图例改为整图下方的条带（`fit_panels(
-> rect=...)`）——该面板对角线铺满数据区，图内图例必然压点。
+> 一并删除（均无引用）。
 >
-> 验证：`snakemake --use-conda results/pcr_qc/PCR_quality_control.pdf` 实跑出图，
-> 面板 (d) 显示 PCC=1.00 / R²=1.00 / Slope=1.00（5 条 insertion 系列），与 §4 下方
-> 记录的 notebook 拟合逐位一致。
+> **面板 (d) 图例**：留在面板内 `loc="lower right"`（与源 notebook 一致），但标签去掉
+> 冗余的 "Spike-in " 前缀、图例 padding 收紧——5 条完整标签在该面板尺寸下放不进
+> 对角线下方那块空白三角，会压到 (-4,-4) 那组圆环上。（曾试过整图下方横排条带，
+> 会横跨 C、D 两栏，已弃用。）
+>
+> 验证：`snakemake --use-conda` 从零重建 4 条规则全部通过，面板 (d) 显示 PCC=1.00 /
+> R²=1.00 / Slope=1.00（5 条 insertion 系列），与 §4 下方记录的 notebook 拟合逐位一致。
 
 > **2026-07-23 更新（已实现，占位退役）**：`spikein.smk` 已落地，面板 (d) 现直接读
 > 其产物 `results/spikein/spike_in_stats.tsv`，`spikein → pcr_qc` 成为真实 DAG 边。

@@ -13,7 +13,7 @@ figure) — this module produces only the stats table, not a PDF.
 
 Usage
 -----
-    from spikein.core import (
+    from pcr_qc.spikein import (
         SPIKE_IN_RATIO, DEFAULT_SPIKE_IN_SITES, build_spike_in_stats,
     )
 """
