@@ -1,24 +1,40 @@
 """Tests for deletion library verification logic."""
 
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import pytest
 
 from workflow.src.verification.core import (
-    merge_deletion_library,
-    compute_category_stats,
+    CATEGORY_FAMILIES,
+    CATEGORY_FAMILY,
+    GRNA_AMPLITUDE_COLUMN,
+    GRNA_FITTED_COLS,
+    GRNA_LAG_COLUMN,
+    GRNA_METRIC_SIGN,
+    GRNA_RATE_COLUMN,
+    GRNA_VALUE_COLS,
+    UNVERIFIED_FAMILY,
     build_final_merged,
+    category_family,
+    compute_category_stats,
+    load_grna_timepoints,
+    merge_deletion_library,
+    order_categories,
+    order_verification_buckets,
     prepare_verification_data,
     select_group_outliers,
 )
-from workflow.src.plotting.style import (
-    CATEGORY_COLOR_MAP,
-    DONUT_COLOR_MAP,
-)
+from workflow.src.figure_render.verification import render_gene_depletion_curve_panel
 
 
 def _make_gene_results():
@@ -37,20 +53,96 @@ def _make_deletion_library():
     })
 
 
-def test_category_color_map_has_required_keys():
-    """CATEGORY_COLOR_MAP must cover all expected deletion phenotype labels."""
-    required = {"WT", "small colonies", "very small colonies", "E",
-                "E (tiny colonies)", "microcolonies", "germinated", "spores", "Not verified"}
-    assert required.issubset(set(CATEGORY_COLOR_MAP.keys()))
+# =============================================================================
+# CATEGORY -> FAMILY + ORDER
+# =============================================================================
+def test_every_palette_label_resolves_to_a_family():
+    """Every raw curated label and verification bucket maps into CATEGORY_FAMILIES."""
+    labels = set(CATEGORY_FAMILY) | {"Not verified"}
+    unresolved = {label for label in labels if category_family(label) not in (*CATEGORY_FAMILIES, UNVERIFIED_FAMILY)}
+    assert not unresolved
 
 
-def test_donut_color_map_has_required_keys():
-    """DONUT_COLOR_MAP must cover all expected donut chart categories."""
-    required = {"spores", "germinated", "microcolonies", "E",
-                "E (tiny colonies)", "very small colonies", "small colonies", "WT"}
-    assert required.issubset(set(DONUT_COLOR_MAP.keys()))
+def test_compound_labels_follow_their_leading_phenotype():
+    """A compound multi-phenotype label colours as its most severe component."""
+    assert category_family("spores, germinated") == "spores"
+    assert category_family("germinated, divided or microcolonies") == "germinated"
+    assert category_family("microcolonies, small colonies") == "microcolonies"
+    # 'small colonies (E)' carries the essentiality call, so it is the essential family.
+    assert category_family("small colonies (E)") == "essential"
+    assert category_family("WT-like") == "wt_like"
+    assert category_family(None) == UNVERIFIED_FAMILY
 
 
+def test_order_categories_is_severity_sorted_and_keeps_unknowns():
+    """Known labels come back in severity order; an unlisted label is appended, not dropped."""
+    labels = pd.Series(["WT-like", "spores", "germinated", "a new label"])
+    assert order_categories(labels) == ["spores", "germinated", "WT-like", "a new label"]
+
+
+def test_order_verification_buckets_excludes_absent_labels():
+    """Only the buckets present in the data are returned, in severity order."""
+    labels = pd.Series(["WT", "spores", "E"])
+    assert order_verification_buckets(labels) == ["spores", "E", "WT"]
+
+
+# =============================================================================
+# gRNA LOADER
+# =============================================================================
+def _write_grna_table(tmp_path: Path) -> Path:
+    path = tmp_path / "grna.tsv"
+    points = "0.0,3.7,6.8,10.3,13.6,16.7"
+    pd.DataFrame({
+        "Systematic ID": ["g1", "g2"],
+        "time_points": [points, points],
+        "A": [2.0, 3.0],
+        "um": [0.5, 0.6],
+        "lam": [1.0, 1.5],
+        **{col: [1.0, 2.0] for col in GRNA_VALUE_COLS},
+        **{col: [1.5, 2.5] for col in GRNA_FITTED_COLS},
+    }).to_csv(path, sep="\t", index=False)
+    return path
+
+
+def test_load_grna_timepoints_flips_sign(tmp_path):
+    """Every sign-carrying gRNA column comes back negated, amplitude included.
+
+    The amplitude has to flip with the values: it is the plateau the fitted curve
+    settles at, so leaving it positive makes the gRNA curve run away from the
+    DIT-HAP one even once the LFC values are negated.
+    """
+    frame, generations = load_grna_timepoints(_write_grna_table(tmp_path))
+    assert generations == [0.0, 3.7, 6.8, 10.3, 13.6, 16.7]
+    assert frame.loc["g1", GRNA_VALUE_COLS[0]] == -1.0
+    assert frame.loc["g1", GRNA_FITTED_COLS[0]] == -1.5
+    assert frame.loc["g1", GRNA_AMPLITUDE_COLUMN] == -2.0
+    assert frame.loc["g1", GRNA_RATE_COLUMN] == -0.5
+    # lam is a lag in generations, not a signed magnitude, so it is left alone.
+    assert frame.loc["g1", GRNA_LAG_COLUMN] == 1.0
+
+
+def test_load_grna_timepoints_none_returns_none():
+    """No gRNA path (a non-HD dataset) yields None rather than an empty frame."""
+    assert load_grna_timepoints(None) is None
+
+
+def test_grna_sign_constant_matches_comparison():
+    """verification and comparison must agree on the curated gRNA table's sign convention.
+
+    The constant is duplicated rather than imported so the flat (script) and
+    package (test) import paths both work; this is what stops the two drifting.
+    comparison/core.py cannot be imported to compare against (it still imports
+    the retired plotting.style), so the value is read off its source.
+    """
+    source = (Path(__file__).resolve().parents[1] / "workflow/src/comparison/core.py").read_text()
+    match = re.search(r"^GRNA_METRIC_SIGN\s*=\s*([-\d.]+)", source, re.MULTILINE)
+    assert match is not None, "GRNA_METRIC_SIGN not found in comparison/core.py"
+    assert float(match.group(1)) == GRNA_METRIC_SIGN
+
+
+# =============================================================================
+# MERGE + STATS
+# =============================================================================
 def test_merge_deletion_library_joins_on_systematic_id():
     """merge_deletion_library joins on Systematic ID / Updated_Systematic_ID."""
     gene = _make_gene_results()
@@ -182,3 +274,43 @@ def test_build_final_merged_zero_fills_essential_missing_area():
     final = build_final_merged(merged, verification_full)
     assert final.loc[0, "median_area_day3"] == 0
     assert final.loc[0, "median_area_day6"] == 0
+
+
+# =============================================================================
+# DEPLETION-CURVE PANEL
+# =============================================================================
+def _dit_row(**overrides) -> pd.Series:
+    row = {
+        "A": -6.0, "DR": -0.5, "DL": 2.0, "time_points": "0.0,2.352,5.588,9.104,12.48",
+        "YES0": 0.0, "YES1": -1.0, "YES2": -3.0, "YES3": -5.0, "YES4": -6.0,
+        "YES0_fitted": 0.0, "YES1_fitted": -1.2, "YES2_fitted": -3.1,
+        "YES3_fitted": -5.2, "YES4_fitted": -6.0,
+    }
+    row.update(overrides)
+    return pd.Series(row)
+
+
+def test_render_gene_depletion_curve_panel_dit_only():
+    """Without a gRNA row the panel carries one point set and one fitted curve, both DIT-HAP."""
+    fig, ax = plt.subplots()
+    render_gene_depletion_curve_panel(ax, _dit_row(), None, None, "myGene")
+    assert ax.get_title() == "myGene"
+    assert [line.get_label() for line in ax.get_lines()] == ["DIT-HAP fit (DR=-0.5)"]
+    assert len(ax.collections) == 1  # the DIT-HAP point set, one scatter per assay
+    plt.close(fig)
+
+
+def test_render_gene_depletion_curve_panel_with_grna_overlay():
+    """A gRNA row adds its own points and its own fitted curve, each labelled with its DR."""
+    grna_row = pd.Series({
+        "A": -4.0, "um": -0.7, "lam": 1.5,
+        **{c: float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
+        **{f"{c}_fitted": float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
+    })
+    fig, ax = plt.subplots()
+    render_gene_depletion_curve_panel(ax, _dit_row(), grna_row, [0.0, 3.7, 6.8, 10.3, 13.6, 16.7], "myGene")
+    assert [line.get_label() for line in ax.get_lines()] == [
+        "DIT-HAP fit (DR=-0.5)", "gRNA fit (DR=-0.7)",
+    ]
+    assert len(ax.collections) == 2  # one point set per assay
+    plt.close(fig)

@@ -6,14 +6,14 @@ Verification Boxplots
 =====================
 
 Stage 2b of the verification split: read the prepared merged / final_merged /
-simplified_verification parquet intermediates and emit the boxplot+violin PDF
-(basic per-category DR + four critical-gene groups, each with a boxplot and a
-verification-composition donut) plus the per-group critical-gene review TSVs.
-Depends only on prepare_verification_table's output.
+simplified_verification parquet intermediates and emit one figure per analysis —
+the canonical-category DR box plot, plus a DR-box-plot-versus-verification-donut
+figure for each critical-gene group — and the per-group critical-gene review
+TSVs. Depends only on prepare_verification_table's output.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -32,8 +32,16 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet  # noqa: E402
-from verification.core import build_boxplot_pdf  # noqa: E402
+from figure_render.verification import (  # noqa: E402
+    render_category_boxplot_figure,
+    render_critical_group_figure,
+)
 from logging_setup import setup_logger  # noqa: E402
+from verification.core import (  # noqa: E402
+    CRITICAL_GROUPS,
+    critical_group_boxplot_data,
+    order_verification_buckets,
+)
 
 
 # =============================================================================
@@ -41,11 +49,11 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class BoxplotConfig:
-    """Parquet inputs + PDF/TSV outputs for the boxplot stage."""
+    """Parquet inputs + figure/TSV output paths for the boxplot stage."""
     merged: Path
     final_merged: Path
     simplified_verification: Path
-    output_boxplots: Path
+    output_figure: Path
     output_critical_genes_dir: Path
 
     def validate(self) -> None:
@@ -53,7 +61,7 @@ class BoxplotConfig:
         for path in [self.merged, self.final_merged, self.simplified_verification]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        self.output_boxplots.parent.mkdir(parents=True, exist_ok=True)
+        self.output_figure.parent.mkdir(parents=True, exist_ok=True)
         self.output_critical_genes_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -62,19 +70,36 @@ class BoxplotConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: BoxplotConfig) -> None:
-    """Read parquet -> write boxplot/donut PDF + critical-gene review TSVs."""
+    """Read parquet -> write the category box plot, per-group figures and review TSVs."""
     config.validate()
 
     merged = read_parquet(config.merged)
     final_merged = read_parquet(config.final_merged)
     simplified_verification = read_parquet(config.simplified_verification)
 
-    build_boxplot_pdf(
-        merged, final_merged, simplified_verification,
-        config.output_boxplots, config.output_critical_genes_dir,
-    )
+    render_category_boxplot_figure(merged, config.output_figure)
 
-    logger.success(f"Boxplots + critical-gene TSVs written to {config.output_boxplots.parent}")
+    order = order_verification_buckets(
+        simplified_verification["Verification result"].dropna()
+    )
+    for group in CRITICAL_GROUPS:
+        dr_by_bucket, detail = critical_group_boxplot_data(
+            merged, final_merged, simplified_verification, group
+        )
+        detail.to_csv(
+            config.output_critical_genes_dir / f"critical_genes_{group}.tsv",
+            sep="\t",
+            index=False,
+        )
+        render_critical_group_figure(
+            dr_by_bucket,
+            config.output_critical_genes_dir / f"critical_genes_{group}",
+            group=group,
+            order=order,
+        )
+        logger.info(f"{group}: {len(detail):,} genes across {len(dr_by_bucket)} verification buckets")
+
+    logger.success(f"Box plot figures + critical-gene TSVs written to {config.output_critical_genes_dir.parent}")
 
 
 # =============================================================================
@@ -82,12 +107,12 @@ def run(config: BoxplotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Verification boxplot/violin + critical-gene donuts + review TSVs")
+    parser = argparse.ArgumentParser(description="Verification category box plot + per-critical-group figures and review TSVs")
     parser.add_argument("--merged", type=Path, required=True, help="Input merged.parquet")
     parser.add_argument("--final-merged", type=Path, required=True, help="Input final_merged.parquet")
     parser.add_argument("--simplified-verification", type=Path, required=True, help="Input simplified_verification.parquet")
-    parser.add_argument("--output-boxplots", type=Path, required=True, help="Output boxplot/violin + donut PDF")
-    parser.add_argument("--output-critical-genes-dir", type=Path, required=True, help="Output dir for per-group critical-gene TSVs")
+    parser.add_argument("--output-figure", type=Path, required=True, help="Output stem for the category box plot (writes <stem>.pdf + <stem>.review.png)")
+    parser.add_argument("--output-critical-genes-dir", type=Path, required=True, help="Output dir for per-group figures + review TSVs")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -101,7 +126,7 @@ def main() -> int:
             merged=args.merged,
             final_merged=args.final_merged,
             simplified_verification=args.simplified_verification,
-            output_boxplots=args.output_boxplots,
+            output_figure=args.output_figure,
             output_critical_genes_dir=args.output_critical_genes_dir,
         )
         run(config)

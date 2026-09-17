@@ -5,19 +5,31 @@
 # Split into 4 rules so each analysis step is independently re-runnable:
 #   prepare_verification_table  -> merged / final_merged / simplified_verification
 #                                  parquet intermediates (the single fan-out point)
-#   verification_category_summary -> stats TSV + category donut/scatter PDF
-#   verification_boxplots         -> boxplot/violin PDF + per-critical-group TSVs
-#   verification_depletion_curves -> DIT-HAP (+gRNA) depletion-curve PDF
+#   verification_category_summary -> stats TSV + deletion-library comparison figure
+#   verification_boxplots         -> category box plot + one figure and one review
+#                                    TSV per critical-gene group
+#   verification_depletion_curves -> one single-page per-gene depletion-curve
+#                                    figure per critical-gene group
 # The three figure rules depend only on the prepared parquets, so editing e.g.
 # the boxplots never forces the depletion curves to rebuild. Ported from
-# compare_with_deletion_library.ipynb; altair charts stay notebook-only.
+# compare_with_deletion_library.ipynb; the altair charts stay notebook-only.
 #
-# gRNA per-timepoint LFC (depletion-curve overlay) is HD-only and lives in the
-# legacy pipeline repo, so it's sourced from a per-dataset map — same pattern as
+# Figures follow the house cnsplots pipeline (ADR-0001): workflow/src/figure_render/
+# verification.py renders, workflow/src/figures.py owns the style, and every rule
+# writes <stem>.pdf plus a <stem>.review.png preview. Only the PDFs are declared
+# as outputs — the PNG is a review artifact.
+#
+# prepare_verification_table stays on the statistics env: it reads the curated
+# .xlsx and renders nothing (the cnsplots env has no openpyxl).
+
+# gRNA per-timepoint LFC (depletion-curve overlay) is HD-only. The curated
+# fitted-parameters table is the project's single gRNA source (annotate.smk and
+# comparison.smk read the same file) — a per-dataset map, same pattern as
 # noncoding_rna.smk's _NONCODING_FITTING. Datasets absent from the map render
 # DIT-HAP-only curves (the --grna-timepoints flag is omitted).
+_GRNA_PARAMETERS = "resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv"
 _GRNA_TIMEPOINT_DATA = {
-    "HD_DIT_HAP": "/data/c/yangyusheng_optimized/DIT_HAP_pipeline/resources/HD_gRNA_data.csv",
+    "HD_DIT_HAP": _GRNA_PARAMETERS,
 }
 
 # Parquet intermediates shared by the three figure rules.
@@ -60,11 +72,11 @@ rule verification_category_summary:
         simplified_verification=f"{_VWORK}/simplified_verification.parquet",
     output:
         stats="results/verification/{dataset}/verification_stats.tsv",
-        figures="results/verification/{dataset}/deletion_library_comparison.pdf",
+        figure="results/verification/{dataset}/deletion_library_comparison.pdf",
     log:
         "logs/verification/verification_category_summary_{dataset}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
         "*** [verification] Category summary for {wildcards.dataset}..."
     shell:
@@ -73,7 +85,7 @@ rule verification_category_summary:
             --merged {input.merged} \
             --simplified-verification {input.simplified_verification} \
             --output-stats {output.stats} \
-            --output-figures {output.figures} &> {log}
+            --output-figure results/verification/{wildcards.dataset}/deletion_library_comparison &> {log}
         """
 
 
@@ -83,22 +95,22 @@ rule verification_boxplots:
         final_merged=f"{_VWORK}/final_merged.parquet",
         simplified_verification=f"{_VWORK}/simplified_verification.parquet",
     output:
-        boxplots="results/verification/{dataset}/verification_boxplots.pdf",
+        category_boxplot="results/verification/{dataset}/verification_category_boxplot.pdf",
         critical_genes_dir=directory("results/verification/{dataset}/critical_genes"),
     log:
         "logs/verification/verification_boxplots_{dataset}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
-        "*** [verification] Boxplots + critical-gene TSVs for {wildcards.dataset}..."
+        "*** [verification] Box plots + critical-gene figures/TSVs for {wildcards.dataset}..."
     shell:
         """
         python workflow/scripts/verification/verification_boxplots.py \
             --merged {input.merged} \
             --final-merged {input.final_merged} \
             --simplified-verification {input.simplified_verification} \
-            --output-boxplots {output.boxplots} \
-            --output-critical-genes-dir {output.critical_genes_dir} &> {log}
+            --output-figure results/verification/{wildcards.dataset}/verification_category_boxplot \
+            --output-critical-genes-dir results/verification/{wildcards.dataset}/critical_genes &> {log}
         """
 
 
@@ -110,7 +122,7 @@ rule verification_depletion_curves:
             f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/gene_level_fitting_statistics.tsv"
         ),
     output:
-        depletion_curves="results/verification/{dataset}/verification_depletion_curves.pdf",
+        depletion_curves=directory("results/verification/{dataset}/depletion_curves"),
     params:
         # Optional gRNA overlay: build the flag only when the dataset is in the map.
         grna_flag=lambda wc: (
@@ -120,7 +132,7 @@ rule verification_depletion_curves:
     log:
         "logs/verification/verification_depletion_curves_{dataset}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
         "*** [verification] Depletion curves for {wildcards.dataset}..."
     shell:
@@ -129,5 +141,5 @@ rule verification_depletion_curves:
             --merged {input.merged} \
             --gene-timepoints {input.gene_timepoints} \
             {params.grna_flag} \
-            --output-depletion-curves {output.depletion_curves} &> {log}
+            --output-dir results/verification/{wildcards.dataset}/depletion_curves &> {log}
         """

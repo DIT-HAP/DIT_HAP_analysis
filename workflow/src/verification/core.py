@@ -2,12 +2,16 @@
 Deletion Library Verification — Core Logic
 ==========================================
 
-Shared constants, loaders, merge/stats functions, critical-gene analysis, and
-figure builders for the verification stage. Ported from
+Shared constants, loaders, merge/stats functions and critical-gene selection for
+the verification stage. Ported from
 DIT_HAP_pipeline/workflow/notebooks/compare_with_deletion_library.ipynb and
-factored out of the original single-script port so the stage can be split into
-independent Snakemake rules (prepare -> category summary / boxplots /
-depletion curves), each re-runnable on its own.
+factored so the stage can be split into independent Snakemake rules
+(prepare -> category summary / boxplots / depletion curves), each re-runnable on
+its own.
+
+Data logic only — everything that draws lives in
+``workflow/src/figure_render/verification.py`` (ADR-0001: computation and
+plotting are separate layers).
 
 Design doc: docs/plans/2026-07-22-verification-rules-split-design.md.
 
@@ -20,15 +24,14 @@ were added). Per project decision the verification stage uses those RAW
 Category values verbatim everywhere — display text, boxplot/critical grouping,
 and the outlier filters all match the literal curated labels; there is no
 folding back to the notebook vocabulary. Colors are the one exception: a raw
-label with no direct color entry reuses its phenotype family's representative
-color via _category_color_key() (color lookup only, never display text).
+label resolves to its phenotype family (CATEGORY_FAMILY) for *color* only,
+never for display text or grouping.
 
 Usage
 -----
     from verification.core import (
         load_gene_level, load_deletion_library, load_essentiality_verification,
-        merge_deletion_library, build_final_merged,
-        build_boxplot_pdf, build_depletion_curve_pdf,
+        merge_deletion_library, build_final_merged, select_group_outliers,
     )
 """
 
@@ -39,30 +42,10 @@ Usage
 from pathlib import Path
 
 # 2. Data Processing Imports
-import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib
-
-matplotlib.use("Agg")  # headless: builders only write PDFs, never display
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-from loguru import logger  # noqa: E402
-
-# 4. Local Imports
-from plotting.generic import boxplot_with_violinplot, donut_chart  # noqa: E402
-from plotting.gene_level import (  # noqa: E402
-    DIT_HAP_GENERATIONS,
-    GRNA_GENERATIONS,
-    plot_gene_depletion_curve,
-)
-from plotting.style import (  # noqa: E402
-    AX_HEIGHT,
-    AX_WIDTH,
-    CATEGORY_COLOR_MAP,
-    DONUT_COLOR_MAP,
-)
+from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -99,42 +82,52 @@ _CATEGORY_ORDER = [
     "WT-like",
 ]
 
-
-
 # Legacy -> current metric column names, same quirk as 2a_coverage.smk's
 # compute_coverage_stats.load_gene_level / clustering's candidates.load_and_annotate:
 # some releases' gene-level fitting_results.tsv still ship the pre-rename um/lam
 # headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
-# COLOR-ONLY fallback (never affects display text). CATEGORY_COLOR_MAP /
-# DONUT_COLOR_MAP only know the notebook's original single-phenotype vocabulary,
-# but the curated file uses the raw labels "WT-like" and several compound
-# multi-phenotype labels that have no direct color entry. For color lookup only,
-# each such label reuses its phenotype family's representative color; the label
-# itself is always shown verbatim.
-_CATEGORY_COLOR_ALIASES = {
-    "WT-like": "WT",
-    # Leading phenotype determines the family color for the compound labels.
+# Phenotype families, most-arrested first. Every raw curated label and every
+# verification-result bucket resolves to exactly one of these (or to
+# "unverified" for genes with no wet-lab call). Display text is always the raw
+# label; the family exists so one phenotype keeps one colour across every panel
+# of the stage (design decision 2026-09-17 — Cell, the house palette, holds 10
+# colours and the raw vocabulary has 11 labels).
+CATEGORY_FAMILIES = ("essential", "spores", "germinated", "microcolonies", "small_colonies", "wt_like")
+
+# Genes with no wet-lab call are not a phenotype — the renderer draws them in the
+# neutral furniture grey rather than a palette colour.
+UNVERIFIED_FAMILY = "unverified"
+
+# Raw curated label -> family. Compound multi-phenotype labels follow their
+# leading (most severe) phenotype. "small colonies (E)" is the
+# Category_with_essentiality spelling of an essential call, so it joins
+# "essential" rather than "small_colonies".
+CATEGORY_FAMILY = {
+    "E": "essential",
+    "E (tiny colonies)": "essential",
+    "small colonies (E)": "essential",
+    "spores": "spores",
     "spores, germinated": "spores",
     "spores, germinated, divided or microcolonies": "spores",
     "spores, miscellaneous": "spores",
+    "germinated": "germinated",
     "germinated, divided or microcolonies": "germinated",
-    # "microcolonies, small colonies" -> "small colonies": the finer distinction.
-    "microcolonies, small colonies": "small colonies",
+    "microcolonies": "microcolonies",
+    "microcolonies, small colonies": "microcolonies",
+    "small colonies": "small_colonies",
+    "very small colonies": "small_colonies",
+    "WT": "wt_like",
+    "WT-like": "wt_like",
+    "Not verified": UNVERIFIED_FAMILY,
 }
-
-
-def _category_color_key(category: str) -> str:
-    """Map a raw Category value to a CATEGORY_COLOR_MAP/DONUT_COLOR_MAP key (color lookup only)."""
-    return _CATEGORY_COLOR_ALIASES.get(category, category)
-
 
 # Basic-boxplot category selection using the RAW curated labels verbatim.
 # Grouping is by Category_with_essentiality after restricting to these
 # categories. Compound multi-phenotype labels are intentionally excluded (they
 # are not one of the notebook's canonical single-phenotype buckets).
-_BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT-like"]
+BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT-like"]
 
 # The four "critical gene" outlier groups (notebook §4.2-4.4). Each filter runs
 # against the RAW `Category` column (literal curated labels — no folding), so
@@ -150,12 +143,17 @@ _CRITICAL_GROUPS = {
     "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR > -0.35", "sort": "desc"},
 }
 
+CRITICAL_GROUPS = tuple(_CRITICAL_GROUPS)
+
 # Verification-result bucket order for the critical-group boxplots/donuts,
 # byte-faithful to the notebook's prepare_verification_data loop + label_orders.
 _VERIFICATION_BUCKET_ORDER = [
     "spores", "germinated", "microcolonies", "E", "E (tiny colonies)",
     "very small colonies", "small colonies", "WT",
 ]
+
+# Bucket shown for critical-group genes that carry no wet-lab call.
+NOT_VERIFIED_BUCKET = "Not verified"
 
 # gpd1: the source notebook manually appends this gene to the simplified
 # verification table (cell 3) as an E/E verified call — it wasn't in the curated
@@ -164,6 +162,80 @@ _VERIFICATION_BUCKET_ORDER = [
 _MANUAL_VERIFICATION_ROWS = pd.DataFrame(
     {"Systematic ID": ["SPBC215.05"], "Verification result": ["E"], "Verified essentiality": ["E"]}
 )
+
+# DIT-HAP per-timepoint LFC columns in the release gene-level statistics table
+# (5 time points; the assay always has this shape), and the same points as
+# fitted by the upstream curve fit.
+DIT_HAP_VALUE_COLS = ["YES0", "YES1", "YES2", "YES3", "YES4"]
+DIT_HAP_FITTED_COLS = [f"{column}_fitted" for column in DIT_HAP_VALUE_COLS]
+
+# Column names of the prepared tables, named once so a rename is one edit.
+CATEGORY_COLUMN = "Category"
+CATEGORY_WITH_ESSENTIALITY_COLUMN = "Category_with_essentiality"
+DR_COLUMN = "DR"
+GENE_NAME_COLUMN = "Name"
+BUCKET_COLUMN = "Verification result bucket"
+
+# gRNA per-timepoint LFC columns in the curated HD gRNA fitted-parameters table
+# (6 time points — the gRNA assay samples one more than DIT-HAP).
+GRNA_VALUE_COLS = ["M_G0Tet", "M_YES1_Tet", "M_YES2_Tet", "M_YES3_Tet", "M_YES4_Tet", "M_YES5_Tet"]
+
+# The same six time points as fitted by the upstream curve fit.
+GRNA_FITTED_COLS = [f"{column}_fitted" for column in GRNA_VALUE_COLS]
+
+# Fit parameters in the curated gRNA table, mirroring the release's A/DR/DL.
+GRNA_AMPLITUDE_COLUMN = "A"
+GRNA_RATE_COLUMN = "um"
+GRNA_LAG_COLUMN = "lam"
+
+# The curated gRNA table is frozen at the pre-2026-09-17 sign convention —
+# positive = depleted — while upstream flipped DIT-HAP so negative is now the
+# depleted end. Flip the gRNA sign-carrying columns on the way in so both assays
+# point the same way on one panel; without it the gRNA curve rises where
+# DIT-HAP falls.
+#
+# The amplitude is flipped with the values, not just the values: in this fitting
+# convention A *is* the plateau the curve settles at, so it carries the curve's
+# direction. DIT-HAP's A is negative for depleted genes; gRNA's is positive, and
+# a curve drawn from the raw A would run away from the DIT-HAP one even with the
+# LFC values negated.
+#
+# ``lam`` is a lag in generations, not a signed magnitude, and is left alone.
+# comparison/core.py applies the same rate flip to the same file for the fitness
+# correlation, and pins the two constants equal in tests/test_verification.py.
+GRNA_METRIC_SIGN = -1.0
+GRNA_SIGN_FLIP_COLS = [GRNA_AMPLITUDE_COLUMN, GRNA_RATE_COLUMN, *GRNA_VALUE_COLS, *GRNA_FITTED_COLS]
+
+
+def category_family(label: str | None) -> str:
+    """Resolve a raw curated label or verification bucket to its phenotype family.
+
+    Unknown labels fall back to ``wt_like`` only if literally blank; anything else
+    returns itself so an unmapped label shows up as a missing colour rather than
+    silently sharing a family's meaning. Callers treat an unknown family as
+    "draw in furniture grey" and log it.
+    """
+    if label is None or (isinstance(label, float) and pd.isna(label)):
+        return UNVERIFIED_FAMILY
+    return CATEGORY_FAMILY.get(str(label), str(label))
+
+
+def _order_by(known_order: list[str], labels: pd.Series) -> list[str]:
+    """Order the labels present in ``labels`` by ``known_order``, appending unlisted ones after it."""
+    present = set(labels.dropna().unique())
+    ordered = [label for label in known_order if label in present]
+    return ordered + sorted(label for label in present if label not in known_order)
+
+
+def order_categories(labels: pd.Series) -> list[str]:
+    """Order raw curated Category labels by phenotype severity (see _CATEGORY_ORDER)."""
+    return _order_by(_CATEGORY_ORDER, labels)
+
+
+def order_verification_buckets(labels: pd.Series) -> list[str]:
+    """Order verification-result buckets from most-arrested to healthiest (see _VERIFICATION_BUCKET_ORDER)."""
+    return _order_by(_VERIFICATION_BUCKET_ORDER, labels)
+
 
 # =============================================================================
 # LOADERS
@@ -225,6 +297,54 @@ def load_essentiality_verification_full(essentiality_verification_path: Path) ->
     return pd.read_csv(essentiality_verification_path)
 
 
+def load_grna_timepoints(grna_path: Path | None) -> tuple[pd.DataFrame, list[float]] | None:
+    """Load the curated HD gRNA fitted-parameters table, indexed by Systematic ID.
+
+    Source: ``resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv``
+    — one row per gene (the order-1 gRNA already selected upstream), so no
+    de-duplication is needed; the previous source was a per-gRNA export that had
+    to be keyed off the systematic ID embedded in ``gRNA_ID``.
+
+    The generation grid is read per row from the ``time_points`` CSV string
+    rather than hardcoded: the gRNA assay's six sample times differ from
+    DIT-HAP's five, and every row must agree on them for one overlay to be
+    meaningful.
+
+    The value, amplitude and rate columns are sign-flipped by
+    ``GRNA_METRIC_SIGN`` (see GRNA_SIGN_FLIP_COLS): the curated file is frozen
+    at the pre-2026-09-17 convention where positive means depleted, while
+    DIT-HAP's columns now run negative for depletion. Without the flip the two
+    curves on one panel would rise and fall in opposite directions — see
+    comparison/core.py, where the same flip is applied.
+
+    Returns ``(frame, generations)``, or None when no path is given (non-HD
+    datasets render DIT-HAP-only curves).
+    """
+    if grna_path is None:
+        return None
+
+    grna = pd.read_csv(grna_path, sep="\t")
+    missing = [c for c in ("Systematic ID", "time_points", *GRNA_SIGN_FLIP_COLS) if c not in grna.columns]
+    if missing:
+        raise KeyError(f"gRNA table {grna_path} is missing columns: {missing}")
+
+    grids = grna["time_points"].astype(str).str.split(",").map(lambda pts: [float(p) for p in pts])
+    if grids.map(tuple).nunique() != 1:
+        raise ValueError(f"gRNA table {grna_path} carries more than one time-point grid")
+    generations = grids.iloc[0]
+
+    if len(generations) != len(GRNA_VALUE_COLS):
+        raise ValueError(
+            f"gRNA table {grna_path} has {len(generations)} time points but "
+            f"{len(GRNA_VALUE_COLS)} value columns ({GRNA_VALUE_COLS})"
+        )
+
+    grna[GRNA_SIGN_FLIP_COLS] = grna[GRNA_SIGN_FLIP_COLS] * GRNA_METRIC_SIGN
+    indexed = grna.drop_duplicates("Systematic ID").set_index("Systematic ID")
+    logger.info(f"Loaded gRNA time points for {len(indexed):,} genes at generations {generations}")
+    return indexed, generations
+
+
 # =============================================================================
 # MERGE + STATS (unit-tested)
 # =============================================================================
@@ -258,20 +378,20 @@ def apply_category_with_essentiality(row: pd.Series) -> str:
 def compute_category_stats(merged: pd.DataFrame) -> pd.DataFrame:
     """Count genes per deletion-library Category in the merged frame."""
     return (
-        merged.groupby("Category", dropna=False)
+        merged.groupby(CATEGORY_COLUMN, dropna=False)
         .size()
         .reset_index(name="count")
-        .rename(columns={"Category": "category"})
+        .rename(columns={CATEGORY_COLUMN: "category"})
     )
 
 
 def compute_category_with_essentiality_stats(merged: pd.DataFrame) -> pd.DataFrame:
     """Count genes per Category_with_essentiality (see apply_category_with_essentiality)."""
     return (
-        merged.groupby("Category_with_essentiality", dropna=False)
+        merged.groupby(CATEGORY_WITH_ESSENTIALITY_COLUMN, dropna=False)
         .size()
         .reset_index(name="count")
-        .rename(columns={"Category_with_essentiality": "category"})
+        .rename(columns={CATEGORY_WITH_ESSENTIALITY_COLUMN: "category"})
     )
 
 
@@ -366,7 +486,7 @@ def prepare_verification_data(
 
     buckets: dict[str, list[str]] = {}
     if missing:
-        buckets["Not verified"] = missing
+        buckets[NOT_VERIFIED_BUCKET] = missing
     for category in _VERIFICATION_BUCKET_ORDER:
         genes = verified.loc[verified["Verification result"] == category, "Systematic ID"].unique().tolist()
         if genes:
@@ -380,7 +500,7 @@ def prepare_verification_data(
     detail_frames = []
     for bucket, genes in buckets.items():
         sub = final_merged[final_merged["Systematic ID"].isin(genes)].copy()
-        sub["Verification result bucket"] = bucket
+        sub[BUCKET_COLUMN] = bucket
         detail_frames.append(sub)
     detail = pd.concat(detail_frames, ignore_index=True) if detail_frames else final_merged.iloc[0:0].copy()
 
@@ -402,215 +522,21 @@ def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
     )
 
 
-# =============================================================================
-# FIGURES — category summary (donut + DR scatter)
-# =============================================================================
-def plot_category_donut(category_stats: pd.DataFrame) -> plt.Figure:
-    """Donut chart of gene counts per deletion-library phenotype category."""
-    raw_categories = set(category_stats["category"])
-    ordered = [c for c in raw_categories if c in _CATEGORY_ORDER]
-    ordered.sort(key=lambda c: _CATEGORY_ORDER.index(c))
-    remaining = [c for c in category_stats["category"] if c not in ordered]
-    labels = ordered + remaining
-    counts_by_label = category_stats.set_index("category")["count"]
-    values = [int(counts_by_label[label]) for label in labels]
-    colors = [DONUT_COLOR_MAP.get(_category_color_key(label), "gray") for label in labels]
-
-    unmapped = [(label, int(counts_by_label[label])) for label, color in zip(labels, colors) if color == "gray"]
-    if unmapped:
-        logger.warning(
-            f"{sum(n for _, n in unmapped):,} genes plotted as gray (unmapped category): "
-            + ", ".join(f"{label!r} (n={n})" for label, n in unmapped)
-        )
-
-    fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
-    donut_chart(
-        values=values, labels=labels, colors=colors,
-        center_text=f"Total\n{sum(values):,}\ngenes", ax=ax,
-    )
-    ax.set_title("Deletion library phenotype categories")
-    fig.tight_layout()
-    return fig
+def basic_category_boxplot_data(merged: pd.DataFrame) -> dict[str, list[float]]:
+    """DR values per Category_with_essentiality, restricted to the canonical single-phenotype labels."""
+    basic = merged[merged["Category"].isin(BASIC_BOXPLOT_CATEGORIES)]
+    return basic.groupby("Category_with_essentiality")["DR"].apply(list).to_dict()
 
 
-def plot_dr_scatter_by_category(merged: pd.DataFrame) -> plt.Figure:
-    """Scatter of DR per gene, grouped by RAW category (x-jittered), n= on the x-tick labels.
-
-    Every curated category is plotted verbatim — nothing is filtered out. Order
-    follows _CATEGORY_ORDER, with any label not listed there appended after the
-    ordered ones. Colors use the phenotype-family representative color
-    (_category_color_key); a label with no family mapping falls back to gray.
-    """
-    all_categories = list(merged["Category"].dropna().unique())
-    ordered = [c for c in all_categories if c in _CATEGORY_ORDER]
-    ordered.sort(key=lambda c: _CATEGORY_ORDER.index(c))
-    categories = ordered + [c for c in all_categories if c not in _CATEGORY_ORDER]
-
-    fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
-    rng = np.random.default_rng(42)
-    tick_labels = []
-    for i, category in enumerate(categories):
-        dr_values = merged.query("Category == @category")["DR"].dropna()
-        jitter = rng.uniform(-0.15, 0.15, size=len(dr_values))
-        ax.scatter(
-            i + jitter, dr_values, alpha=0.5, s=10,
-            color=CATEGORY_COLOR_MAP.get(_category_color_key(category), "gray"),
-        )
-        tick_labels.append(f"{category}\n(n={len(dr_values)})")
-    ax.set_xticks(range(len(categories)))
-    ax.set_xticklabels(tick_labels, rotation=30, ha="right")
-    ax.set_ylabel("Depletion Rate (DR)")
-    ax.set_title("DR by deletion library category")
-    fig.tight_layout()
-    return fig
-
-
-def build_category_summary_pdf(category_stats: pd.DataFrame, merged: pd.DataFrame, output_figures: Path) -> None:
-    """Write the two-page category-summary PDF: phenotype donut + DR-by-category scatter."""
-    fig_donut = plot_category_donut(category_stats)
-    fig_scatter = plot_dr_scatter_by_category(merged)
-    with PdfPages(output_figures) as pdf:
-        pdf.savefig(fig_donut, dpi=300, bbox_inches="tight")
-        pdf.savefig(fig_scatter, dpi=300, bbox_inches="tight")
-    plt.close(fig_donut)
-    plt.close(fig_scatter)
-
-
-# =============================================================================
-# FIGURES — boxplot/violin + critical-group donuts + review TSVs
-# =============================================================================
-def _boxplot_figure(dr_dict: dict[str, list[float]], title: str) -> plt.Figure:
-    """Two-panel figure: boxplot+violin left, per-bucket Q1/median/Q3/mean text right.
-
-    Empty buckets are dropped so the violin/box call never sees a zero-length
-    sample (which matplotlib rejects).
-    """
-    dr_dict = {k: v for k, v in dr_dict.items() if len(v) > 0}
-    # Sort by reverse _CATEGORY_ORDER (healthiest -> most arrested)
-    _cat_order_index = {cat: i for i, cat in enumerate(_CATEGORY_ORDER)}
-    dr_dict = dict(
-        sorted(dr_dict.items(), key=lambda item: _cat_order_index.get(item[0], len(_CATEGORY_ORDER)), reverse=True)
-    )
-    fig, axes = plt.subplots(
-        1, 2, figsize=(2 * AX_WIDTH, AX_HEIGHT), sharey=True, gridspec_kw={"width_ratios": [3, 1]}
-    )
-    colors = [CATEGORY_COLOR_MAP.get(bucket, "gray") for bucket in dr_dict]
-    boxplot_with_violinplot(list(dr_dict.keys()), list(dr_dict.values()), axes[0], colors)
-    axes[0].set_title(f"{title}\nDepletion Rate (DR)")
-    axes[0].set_xlim(-0.3, 1.5)
-
-    for row, (bucket, drs) in enumerate(dr_dict.items()):
-        q1, median, q3 = np.percentile(drs, [25, 50, 75])
-        info = f"Q1={q1:.2f}, Median={median:.2f}, Q3={q3:.2f}, Mean={np.mean(drs):.2f}"
-        axes[1].text(0.0, row, info, va="center", ha="left", fontweight="bold")
-    axes[1].axis("off")
-    fig.tight_layout()
-    return fig
-
-
-def _verification_donut_figure(dr_dict: dict[str, list[float]], title: str) -> plt.Figure:
-    """Donut of verification-bucket composition (bucket size = wedge), ordered by _VERIFICATION_BUCKET_ORDER."""
-    ordered = {k: dr_dict[k] for k in _VERIFICATION_BUCKET_ORDER if k in dr_dict and len(dr_dict[k]) > 0}
-    labels = list(ordered.keys())
-    values = [len(v) for v in ordered.values()]
-    colors = [DONUT_COLOR_MAP.get(label, "gray") for label in labels]
-
-    fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
-    if values:
-        donut_chart(values=values, labels=labels, colors=colors, center_text="have been\nverified", ax=ax)
-    ax.set_title(f"{title}\nverification results")
-    fig.tight_layout()
-    return fig
-
-
-def build_boxplot_pdf(
+def critical_group_boxplot_data(
     merged: pd.DataFrame,
     final_merged: pd.DataFrame,
     simplified_verification: pd.DataFrame,
-    output_boxplots: Path,
-    output_critical_genes_dir: Path,
-) -> None:
-    """Write the boxplot/violin + critical-group donut PDF and per-group review TSVs."""
-    figures: list[plt.Figure] = []
-
-    # Basic per-category boxplot (notebook §4.1): DR grouped by
-    # Category_with_essentiality, restricted to the canonical categories.
-    basic = merged[merged["Category"].isin(_BASIC_BOXPLOT_CATEGORIES)]
-    basic_dict = basic.groupby("Category_with_essentiality")["DR"].apply(list).to_dict()
-    figures.append(_boxplot_figure(basic_dict, "Deletion library categories"))
-
-    # Critical-gene groups (notebook §4.2-4.4): boxplot + donut + review TSV each.
-    for group, spec in _CRITICAL_GROUPS.items():
-        dr_dict, detail = prepare_verification_data(
-            merged, final_merged, simplified_verification,
-            outlier_filter=spec["filter"], sort=spec["sort"],
-        )
-        figures.append(_boxplot_figure(dr_dict, group))
-        figures.append(_verification_donut_figure(dr_dict, group))
-        detail.to_csv(output_critical_genes_dir / f"critical_genes_{group}.tsv", sep="\t", index=False)
-
-    with PdfPages(output_boxplots) as pdf:
-        for fig in figures:
-            pdf.savefig(fig, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-
-def load_grna_timepoints(grna_path: Path | None) -> pd.DataFrame | None:
-    """Load the gRNA per-timepoint LFC table, indexed by Systematic ID (extracted from gRNA_ID).
-
-    gRNA rows are keyed by gene Name in the source file, which is NOT unique;
-    the systematic ID embedded in gRNA_ID ("SPAC1002.02_42" -> "SPAC1002.02")
-    is unique, so we index on it to align with the DIT-HAP table. Returns None
-    when no gRNA file is provided (non-HD datasets render DIT-HAP-only curves).
-    """
-    if grna_path is None:
-        return None
-    grna = pd.read_csv(grna_path, index_col=0)
-    grna["Systematic ID"] = grna["gRNA_ID"].str.rsplit("_", n=1).str[0]
-    return grna.drop_duplicates("Systematic ID").set_index("Systematic ID")
-
-
-def build_depletion_curve_pdf(
-    merged: pd.DataFrame,
-    gene_timepoints: pd.DataFrame,
-    grna_timepoints: pd.DataFrame | None,
-    output_depletion_curves: Path,
-) -> None:
-    """One 4-column grid per critical group; each panel a gene's DIT-HAP (+gRNA) depletion curve.
-
-    Genes per group come from select_group_outliers (same set as the boxplots /
-    review TSVs). gene_timepoints must be indexed by Systematic ID and carry
-    A/DR/DL + YES0-4; panels titled by gene Name, aligned on Systematic ID.
-    """
-    n_cols = 4
-    with PdfPages(output_depletion_curves) as pdf:
-        for group in _CRITICAL_GROUPS:
-            genes = select_group_outliers(merged, group)
-            present = [g for g in genes if g in gene_timepoints.index]
-            if not present:
-                continue
-            n_rows = int(np.ceil(len(present) / n_cols))
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * AX_WIDTH, n_rows * AX_HEIGHT))
-            axes = np.atleast_1d(axes).flatten()
-            for ax, gene in zip(axes, present):
-                dit_row = gene_timepoints.loc[gene]
-                grna_row = (
-                    grna_timepoints.loc[gene]
-                    if grna_timepoints is not None and gene in grna_timepoints.index
-                    else None
-                )
-                title = f"{dit_row['Name']} ({gene})" if "Name" in dit_row else gene
-                plot_gene_depletion_curve(
-                    ax, dit_row, grna_row, title,
-                    dit_generations=DIT_HAP_GENERATIONS, grna_generations=GRNA_GENERATIONS,
-                )
-            for extra_ax in axes[len(present):]:
-                fig.delaxes(extra_ax)
-            fig.suptitle(f"{group} depletion curves (n={len(present)})")
-            pdf.savefig(fig, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-
-
-
-
+    group: str,
+) -> tuple[dict[str, list[float]], pd.DataFrame]:
+    """``prepare_verification_data`` for one named critical group (see _CRITICAL_GROUPS)."""
+    spec = _CRITICAL_GROUPS[group]
+    return prepare_verification_data(
+        merged, final_merged, simplified_verification,
+        outlier_filter=spec["filter"], sort=spec["sort"],
+    )
