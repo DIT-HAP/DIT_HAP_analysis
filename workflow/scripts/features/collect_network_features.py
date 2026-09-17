@@ -24,8 +24,8 @@ Usage
     python collect_network_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --biogrid-tsv resources/external/biogrid/BIOGRID-....tab3.txt \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
-        --output results/features/2025-10-01/_levels/network_features.parquet
+        --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/1b_features/2025-10-01/_levels/network_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

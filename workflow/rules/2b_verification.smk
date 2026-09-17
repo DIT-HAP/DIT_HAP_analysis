@@ -1,5 +1,5 @@
 # =============================================================================
-# verification.smk — Deletion library phenotype verification
+# 2b_verification.smk — Deletion library phenotype verification
 # =============================================================================
 #
 # Split into 4 rules so each analysis step is independently re-runnable:
@@ -23,7 +23,7 @@
 # .xlsx and renders nothing (the cnsplots env has no openpyxl).
 
 # gRNA per-timepoint LFC (depletion-curve overlay) is HD-only. The curated
-# fitted-parameters table is the project's single gRNA source (annotate.smk and
+# fitted-parameters table is the project's single gRNA source (1c_annotate.smk and
 # comparison.smk read the same file) — a per-dataset map, same pattern as
 # noncoding_rna.smk's _NONCODING_FITTING. Datasets absent from the map render
 # DIT-HAP-only curves (the --grna-timepoints flag is omitted).
@@ -33,7 +33,7 @@ _GRNA_TIMEPOINT_DATA = {
 }
 
 # Parquet intermediates shared by the three figure rules.
-_VWORK = "results/verification/{dataset}/_work"
+_VWORK = "results/2b_verification/{dataset}/_work"
 
 
 rule prepare_verification_table:
@@ -69,8 +69,8 @@ rule verification_category_summary:
         merged=f"{_VWORK}/merged.parquet",
         verification=f"{_VWORK}/verification.parquet",
     output:
-        stats="results/verification/{dataset}/verification_stats.tsv",
-        figure="results/verification/{dataset}/deletion_library_comparison.pdf",
+        stats="results/2b_verification/{dataset}/verification_stats.tsv",
+        figure="results/2b_verification/{dataset}/deletion_library_comparison.pdf",
     log:
         "logs/verification/verification_category_summary_{dataset}.log",
     conda:
@@ -83,7 +83,7 @@ rule verification_category_summary:
             --merged {input.merged} \
             --verification {input.verification} \
             --output-stats {output.stats} \
-            --output-figure results/verification/{wildcards.dataset}/deletion_library_comparison &> {log}
+            --output-figure results/2b_verification/{wildcards.dataset}/deletion_library_comparison &> {log}
         """
 
 
@@ -92,8 +92,8 @@ rule verification_boxplots:
         merged=f"{_VWORK}/merged.parquet",
         verification=f"{_VWORK}/verification.parquet",
     output:
-        category_boxplot="results/verification/{dataset}/verification_category_boxplot.pdf",
-        critical_genes_dir=directory("results/verification/{dataset}/critical_genes"),
+        category_boxplot="results/2b_verification/{dataset}/verification_category_boxplot.pdf",
+        critical_genes_dir=directory("results/2b_verification/{dataset}/critical_genes"),
     log:
         "logs/verification/verification_boxplots_{dataset}.log",
     conda:
@@ -105,8 +105,8 @@ rule verification_boxplots:
         python workflow/scripts/verification/verification_boxplots.py \
             --merged {input.merged} \
             --verification {input.verification} \
-            --output-figure results/verification/{wildcards.dataset}/verification_category_boxplot \
-            --output-critical-genes-dir results/verification/{wildcards.dataset}/critical_genes &> {log}
+            --output-figure results/2b_verification/{wildcards.dataset}/verification_category_boxplot \
+            --output-critical-genes-dir results/2b_verification/{wildcards.dataset}/critical_genes &> {log}
         """
 
 
@@ -118,7 +118,7 @@ rule verification_depletion_curves:
             f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/gene_level_fitting_statistics.tsv"
         ),
     output:
-        depletion_curves=directory("results/verification/{dataset}/depletion_curves"),
+        depletion_curves=directory("results/2b_verification/{dataset}/depletion_curves"),
     params:
         # Optional gRNA overlay: build the flag only when the dataset is in the map.
         grna_flag=lambda wc: (
@@ -137,5 +137,5 @@ rule verification_depletion_curves:
             --merged {input.merged} \
             --gene-timepoints {input.gene_timepoints} \
             {params.grna_flag} \
-            --output-dir results/verification/{wildcards.dataset}/depletion_curves &> {log}
+            --output-dir results/2b_verification/{wildcards.dataset}/depletion_curves &> {log}
         """

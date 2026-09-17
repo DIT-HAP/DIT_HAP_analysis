@@ -17,7 +17,7 @@ No imputation and no train/test split: missing values are dropped
 
 Input
 -----
-- Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
+- Per-gene feature matrix (results/1b_features/{version}/pombe_coding_gene_protein_features.tsv)
 - Curated final_clusters.tsv (Systematic ID, A, DR, DL, cluster)
 
 Output
@@ -29,7 +29,7 @@ Output
 Usage
 -----
     python prepare_features_targets.py \\
-        --feature-matrix results/features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
+        --feature-matrix results/1b_features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
         --final-clusters resources/curated/final_clusters.tsv \\
         --output-dir results/ml/features_targets/{dataset}
 

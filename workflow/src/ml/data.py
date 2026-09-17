@@ -12,7 +12,7 @@ train_automl.py's former load_modeling_data).
 
 Input
 -----
-- Per-gene feature matrix (results/features/{version}/pombe_coding_gene_protein_features.tsv)
+- Per-gene feature matrix (results/1b_features/{version}/pombe_coding_gene_protein_features.tsv)
 - Curated final_clusters.tsv (Systematic ID, A, DR, DL, cluster)
 
 Output

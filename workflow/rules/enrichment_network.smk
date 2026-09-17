@@ -10,7 +10,7 @@
 # enrichment outputs (gene lists + go_enrichment_full.tsv) from run_ontology_enrichment
 # (enrichment.smk) directly and write unrelated outputs (an xlsx workbook vs a
 # tsv) — neither depends on the other's output, so there's no shared "prepare"
-# stage to factor out (unlike verification.smk's prepare->result split).
+# stage to factor out (unlike 2b_verification.smk's prepare->result split).
 rule run_string_enrichment:
     input:
         all_genes="results/enrichment/raw/{dataset}/{variant}/{pombase_version}/DIT_HAP_all_genes.txt",

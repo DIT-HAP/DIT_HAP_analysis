@@ -15,7 +15,7 @@ intermediates consumed by the compute-stats / plot-figures rules:
   workflow.src.coverage.core.resolve_duplicate_annotations) — ready for
   compute_insertion_coverage / compute_per_chromosome_insertion_coverage.
 - gene_result.parquet: the full protein-coding gene universe (from the gene
-  annotation reference, annotate.smk) left-joined to the dataset's own gene-level
+  annotation reference, 1c_annotate.smk) left-joined to the dataset's own gene-level
   fitting results, with legacy um/lam headers normalized to DR/DL.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -85,7 +85,7 @@ def run(config: PrepareConfig) -> None:
     # coverage-fields verification), and to the reference on the full universe (2026-09-17).
     gene_result = gene_result.drop(columns=["FYPOviability", "DeletionLibrary_essentiality"], errors="ignore")
 
-    # Gene universe + annotation come from the annotation reference (annotate.smk) rather
+    # Gene universe + annotation come from the annotation reference (1c_annotate.smk) rather
     # than re-reading PomBase metadata + the deletion-library xlsx here. Only the columns
     # coverage needs are selected, under the reference's own names — so a coverage table
     # reads the same as the reference and the annotated workbook, with no renaming in
@@ -156,7 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv")
     parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)")
     parser.add_argument("--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv")
-    parser.add_argument("--annotation-reference", type=Path, required=True, help="Gene annotation reference parquet (annotate.smk)")
+    parser.add_argument("--annotation-reference", type=Path, required=True, help="Gene annotation reference parquet (1c_annotate.smk)")
     parser.add_argument("--output-annotations", type=Path, required=True, help="Output annotations.parquet")
     parser.add_argument("--output-gene-result", type=Path, required=True, help="Output gene_result.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")

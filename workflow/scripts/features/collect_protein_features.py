@@ -28,8 +28,8 @@ Usage
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --alphafold-dir /path/to/AlphaFold_Dataset \\
         --literature-dir resources/literature \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
-        --output results/features/2025-10-01/_levels/protein_features.parquet
+        --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/1b_features/2025-10-01/_levels/protein_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

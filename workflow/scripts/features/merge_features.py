@@ -24,13 +24,13 @@ Usage
 -----
     python merge_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
-        --dna-features   results/features/2025-10-01/_levels/dna_features.parquet \\
-        --rna-features   results/features/2025-10-01/_levels/rna_features.parquet \\
-        --protein-features results/features/2025-10-01/_levels/protein_features.parquet \\
-        --evolutionary-features results/features/2025-10-01/_levels/evolutionary_features.parquet \\
-        --network-features results/features/2025-10-01/_levels/network_features.parquet \\
-        --phenotype-features results/features/2025-10-01/_levels/phenotype_features.parquet \\
-        --output results/features/2025-10-01/pombe_coding_gene_protein_features.tsv
+        --dna-features   results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --rna-features   results/1b_features/2025-10-01/_levels/rna_features.parquet \\
+        --protein-features results/1b_features/2025-10-01/_levels/protein_features.parquet \\
+        --evolutionary-features results/1b_features/2025-10-01/_levels/evolutionary_features.parquet \\
+        --network-features results/1b_features/2025-10-01/_levels/network_features.parquet \\
+        --phenotype-features results/1b_features/2025-10-01/_levels/phenotype_features.parquet \\
+        --output results/1b_features/2025-10-01/pombe_coding_gene_protein_features.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

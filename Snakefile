@@ -32,25 +32,28 @@ wildcard_constraints:
 # `ls workflow/rules/` reads in analysis order. Chapters are narrative order,
 # NOT dependency depth: same-chapter files have no order between them.
 #
-#   1  data plausibility + reference layer
-#   2  characterisation that does not need clusters
+#   1  data plausibility + reference layer          (1a pcr_qc, 1b features, 1c annotate)
+#   2  characterisation that does not need clusters (2a coverage, 2b verification)
 #   3  clustering and what depends on it
 #
-# annotate.smk carries no prefix (added after the numbering scheme) and straddles
-# both ends: its reference build belongs to the chapter-1 reference layer —
-# 2a_coverage reads _ANNOT_REF — while build_annotated_workbook is terminal.
+# Every prefixed stage carries the same prefix into results/, so `ls results/`
+# reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
+# results/1b_features/, results/1c_annotation/ (the stage noun — the rule file is
+# the verb), results/2a_coverage/, results/2b_verification/. The later stages
+# (clustering, enrichment, ml, ...) have no prefix in either place yet.
 #
 # Included in prefix order. clustering.smk must stay ahead of enrichment /
-# ml / comparison — they call its selected_variant() / final_clusters_path().
+# ml / comparison — they call its selected_variant() / final_clusters_path();
+# 1c_annotate.smk must stay ahead of 2a_coverage.smk — coverage reads _ANNOT_REF.
 include: "workflow/rules/1a_pcr_qc.smk"
 include: "workflow/rules/1b_features.smk"
-include: "workflow/rules/annotate.smk"
+include: "workflow/rules/1c_annotate.smk"
 include: "workflow/rules/2a_coverage.smk"
+include: "workflow/rules/2b_verification.smk"
 include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
-include: "workflow/rules/verification.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
 include: "workflow/rules/coherence.smk"
@@ -75,7 +78,7 @@ _SELECTED_VARIANT = config["clustering"]["selected_variant"]
 
 rule all:
     input:
-        # f"results/features/{_REF}/pombe_coding_gene_protein_features.tsv",
+        # f"results/1b_features/{_REF}/pombe_coding_gene_protein_features.tsv",
         # Selected finalize variant's clusters (buildable variants only):
         # f"results/clustering/{_DATASET}/{_SELECTED_VARIANT}/final_clusters.tsv",
         # Compare ALL buildable variants (builds every variant + a metrics table):
@@ -89,24 +92,24 @@ rule all:
         # f"results/ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
         # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
         # Library-prep QC (no dataset wildcard; spike-in stats feed the figure's
-        # panel d, so both targets come from pcr_qc.smk):
-        # "results/pcr_qc/PCR_quality_control.pdf",
-        # "results/pcr_qc/spike_in_stats.tsv",
-        f"results/coverage/{_DATASET}/coverage_stats.tsv",
-        f"results/coverage/{_DATASET}/detailed_genes.xlsx",
+        # panel d, so both targets come from 1a_pcr_qc.smk):
+        # "results/1a_pcr_qc/PCR_quality_control.pdf",
+        # "results/1a_pcr_qc/spike_in_stats.tsv",
+        f"results/2a_coverage/{_DATASET}/coverage_stats.tsv",
+        f"results/2a_coverage/{_DATASET}/detailed_genes.xlsx",
         # Ten single-figure PDFs (cnsplots) — one coverage composition + a DR and
         # a DL distribution per annotation dimension, + insertion placement; see
         # 2a_coverage.smk for the full list.
-        f"results/coverage/{_DATASET}/coverage_by_deletion_essentiality.pdf",
-        # f"results/coverage/{_DATASET}/coverage_by_characterisation_status.pdf",
-        # f"results/coverage/{_DATASET}/coverage_by_FYPOviability.pdf",
-        # f"results/coverage/{_DATASET}/coverage_insertion_placement.pdf",
-        # f"results/coverage/{_DATASET}/coverage_dr_by_deletion_essentiality.pdf",
-        # f"results/coverage/{_DATASET}/coverage_dl_by_deletion_essentiality.pdf",
-        # f"results/coverage/{_DATASET}/coverage_dr_by_characterisation_status.pdf",
-        # f"results/verification/{_DATASET}/verification_stats.tsv",
-        # f"results/verification/{_DATASET}/verification_boxplots.pdf",
-        # f"results/verification/{_DATASET}/verification_depletion_curves.pdf",
+        f"results/2a_coverage/{_DATASET}/coverage_by_deletion_essentiality.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_by_characterisation_status.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_by_FYPOviability.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_insertion_placement.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_dr_by_deletion_essentiality.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_dl_by_deletion_essentiality.pdf",
+        # f"results/2a_coverage/{_DATASET}/coverage_dr_by_characterisation_status.pdf",
+        # f"results/2b_verification/{_DATASET}/verification_stats.tsv",
+        # f"results/2b_verification/{_DATASET}/verification_boxplots.pdf",
+        # f"results/2b_verification/{_DATASET}/verification_depletion_curves.pdf",
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",

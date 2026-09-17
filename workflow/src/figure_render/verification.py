@@ -3,7 +3,7 @@ Verification Figure Renderers
 =============================
 
 cnsplots renderers for the deletion-library phenotype verification stage
-(``workflow/rules/verification.smk``). Four artifacts, one per analysis:
+(``workflow/rules/2b_verification.smk``). Four artifacts, one per analysis:
 
 - ``render_category_summary_figure`` — deletion-library phenotype composition
   (donut) and its DR distribution (strip plot).

@@ -14,7 +14,7 @@
 #                              (the single fan-out point). gene_result is built
 #                              from the FULL protein-coding gene universe + its
 #                              annotation columns, both taken from the gene
-#                              annotation reference (annotate.smk), left-joined to
+#                              annotation reference (1c_annotate.smk), left-joined to
 #                              the fitting results so uncovered genes survive as
 #                              DR=NaN rows. Only the reference's annotation columns
 #                              are read — its baked-in HD_DIT_HAP DR/DL and the
@@ -29,7 +29,7 @@
 # the numbers in the stats table. Editing the stats rule therefore rebuilds the
 # figures too — a deliberate coupling for figure/table agreement.
 
-_COVWORK = "results/coverage/{dataset}/_work"
+_COVWORK = "results/2a_coverage/{dataset}/_work"
 
 
 rule prepare_coverage_data:
@@ -73,8 +73,8 @@ rule compute_coverage_stats:
         annotations=f"{_COVWORK}/annotations.parquet",
         gene_result=f"{_COVWORK}/gene_result.parquet",
     output:
-        stats="results/coverage/{dataset}/coverage_stats.tsv",
-        detailed_genes_xlsx="results/coverage/{dataset}/detailed_genes.xlsx",
+        stats="results/2a_coverage/{dataset}/coverage_stats.tsv",
+        detailed_genes_xlsx="results/2a_coverage/{dataset}/detailed_genes.xlsx",
     log:
         "logs/coverage/compute_coverage_stats_{dataset}.log",
     conda:
@@ -108,19 +108,19 @@ rule compute_coverage_stats:
 
 rule plot_coverage_figures:
     input:
-        stats="results/coverage/{dataset}/coverage_stats.tsv",
+        stats="results/2a_coverage/{dataset}/coverage_stats.tsv",
         gene_result=f"{_COVWORK}/gene_result.parquet",
     output:
-        composition_characterisation="results/coverage/{dataset}/coverage_by_characterisation_status.pdf",
-        composition_fypoviability="results/coverage/{dataset}/coverage_by_FYPOviability.pdf",
-        composition_essentiality="results/coverage/{dataset}/coverage_by_deletion_essentiality.pdf",
-        insertion_placement="results/coverage/{dataset}/coverage_insertion_placement.pdf",
-        dr_characterisation="results/coverage/{dataset}/coverage_dr_by_characterisation_status.pdf",
-        dl_characterisation="results/coverage/{dataset}/coverage_dl_by_characterisation_status.pdf",
-        dr_fypoviability="results/coverage/{dataset}/coverage_dr_by_FYPOviability.pdf",
-        dl_fypoviability="results/coverage/{dataset}/coverage_dl_by_FYPOviability.pdf",
-        dr_essentiality="results/coverage/{dataset}/coverage_dr_by_deletion_essentiality.pdf",
-        dl_essentiality="results/coverage/{dataset}/coverage_dl_by_deletion_essentiality.pdf",
+        composition_characterisation="results/2a_coverage/{dataset}/coverage_by_characterisation_status.pdf",
+        composition_fypoviability="results/2a_coverage/{dataset}/coverage_by_FYPOviability.pdf",
+        composition_essentiality="results/2a_coverage/{dataset}/coverage_by_deletion_essentiality.pdf",
+        insertion_placement="results/2a_coverage/{dataset}/coverage_insertion_placement.pdf",
+        dr_characterisation="results/2a_coverage/{dataset}/coverage_dr_by_characterisation_status.pdf",
+        dl_characterisation="results/2a_coverage/{dataset}/coverage_dl_by_characterisation_status.pdf",
+        dr_fypoviability="results/2a_coverage/{dataset}/coverage_dr_by_FYPOviability.pdf",
+        dl_fypoviability="results/2a_coverage/{dataset}/coverage_dl_by_FYPOviability.pdf",
+        dr_essentiality="results/2a_coverage/{dataset}/coverage_dr_by_deletion_essentiality.pdf",
+        dl_essentiality="results/2a_coverage/{dataset}/coverage_dl_by_deletion_essentiality.pdf",
     log:
         "logs/coverage/plot_coverage_figures_{dataset}.log",
     conda:
@@ -132,5 +132,5 @@ rule plot_coverage_figures:
         python workflow/scripts/coverage/plot_coverage_figures.py \
             --stats {input.stats} \
             --gene-result {input.gene_result} \
-            --output-dir results/coverage/{wildcards.dataset} &> {log}
+            --output-dir results/2a_coverage/{wildcards.dataset} &> {log}
         """

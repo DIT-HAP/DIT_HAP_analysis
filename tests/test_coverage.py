@@ -24,7 +24,7 @@ from workflow.src.coverage.core import (
 )
 
 
-# Real S. pombe systematic IDs (from results/coverage/HD_DIT_HAP/_work/gene_result.parquet),
+# Real S. pombe systematic IDs (from results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet),
 # used in place of fabricated placeholder gene IDs across this file's fixtures.
 _REAL_GENE_IDS = [
     "SPAC1002.01", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.04c", "SPAC1002.05c",

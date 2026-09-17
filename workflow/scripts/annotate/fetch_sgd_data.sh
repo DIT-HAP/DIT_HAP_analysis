@@ -7,7 +7,7 @@
 #   SGD_features.tab    per-ORF systematic name, standard name, qualifier, description
 #   phenotype_data.tab  per-allele phenotype records (null-mutant viability)
 #
-# Driven by `rule fetch_sgd_data` (annotate.smk) — the only rule in this repo that
+# Driven by `rule fetch_sgd_data` (1c_annotate.smk) — the only rule in this repo that
 # makes a network call, and not reachable from `rule all`. Like pombase/ and
 # biogrid/, the SGD copies are git-ignored regenerable caches; the rule exists so
 # build_annotation_reference can declare the snapshot directory as an input.
@@ -57,4 +57,4 @@ fetch "${SGD_BASE_URL}/chromosomal_feature/SGD_features.tab" "${TARGET_DIR}/SGD_
 fetch "${SGD_BASE_URL}/literature/phenotype_data.tab" "${TARGET_DIR}/phenotype_data.tab"
 
 echo "Done. Build the annotation reference with:"
-echo "  snakemake --use-conda --cores 4 results/annotation/2026-06-01/${VERSION}/gene_annotation_reference.parquet"
+echo "  snakemake --use-conda --cores 4 results/1c_annotation/2026-06-01/${VERSION}/gene_annotation_reference.parquet"

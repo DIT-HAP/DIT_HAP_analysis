@@ -92,7 +92,7 @@ DL_BINS = np.arange(0, 15, 0.5)
 
 # The three per-gene annotation dimensions every coverage breakdown is computed
 # for: (gene_result column, display labels for that column's values). The column
-# names are the annotation reference's own (annotate.smk), so a coverage table
+# names are the annotation reference's own (1c_annotate.smk), so a coverage table
 # reads the same as the reference and the annotated workbook, with no renaming
 # in between. Labels are display-only; keys absent from a map fall back to the
 # raw value, so a new category still renders rather than vanishing.

@@ -29,7 +29,7 @@ rule prepare_fitness_table:
     input:
         final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
         protein_features=lambda wc: (
-            f"results/features/{DATASETS['reference']['pombase_version']}/"
+            f"results/1b_features/{DATASETS['reference']['pombase_version']}/"
             "pombe_coding_gene_protein_features.tsv"
         ),
         gRNA_data=config.get("comparison", {}).get(

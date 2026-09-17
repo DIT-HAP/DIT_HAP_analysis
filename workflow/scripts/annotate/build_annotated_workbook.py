@@ -13,21 +13,21 @@ Output: one master sheet (All genes annotated), 15 category sheets from detailed
 
 Input
 -----
-- results/coverage/{dataset}/detailed_genes.xlsx
-- results/verification/{dataset}/critical_genes/*.tsv
+- results/2a_coverage/{dataset}/detailed_genes.xlsx
+- results/2b_verification/{dataset}/critical_genes/*.tsv
 - gene_annotation_reference.parquet
 
 Output
 ------
-- {output_xlsx}: consolidated annotated workbook under results/annotation/
+- {output_xlsx}: consolidated annotated workbook under results/1c_annotation/
 
 Usage
 -----
     python build_annotated_workbook.py \\
-        --detailed-xlsx results/coverage/HD_DIT_HAP/detailed_genes.xlsx \\
-        --critical-dir results/verification/HD_DIT_HAP/critical_genes \\
-        --annotation-reference results/annotation/2026-06-01/2026-08-11/gene_annotation_reference.parquet \\
-        --output results/annotation/HD_DIT_HAP/HD_DIT_HAP_annotated.xlsx
+        --detailed-xlsx results/2a_coverage/HD_DIT_HAP/detailed_genes.xlsx \\
+        --critical-dir results/2b_verification/HD_DIT_HAP/critical_genes \\
+        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.parquet \\
+        --output results/1c_annotation/HD_DIT_HAP/HD_DIT_HAP_annotated.xlsx
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
 Date:     2026-08-11

@@ -26,7 +26,7 @@ Usage
 -----
     python prepare_spikein_data.py \\
         --raw-reads .../Spikein/results/13_filtered/raw_reads.filtered.tsv \\
-        --output-spike-in-stats results/pcr_qc/_work/spike_in_stats.parquet \\
+        --output-spike-in-stats results/1a_pcr_qc/_work/spike_in_stats.parquet \\
         --spike-in-sites-json '{"DY215": {"chr": "I", "coord": 3749394, "strand": "-"}, ...}'
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

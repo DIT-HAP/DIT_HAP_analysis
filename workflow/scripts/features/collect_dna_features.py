@@ -24,8 +24,8 @@ Usage
 -----
     python collect_dna_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
-        --output results/features/2025-10-01/_levels/dna_features.parquet \\
-        --codon-usage-output results/features/2025-10-01/codon_usage_matrix.tsv
+        --output results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --codon-usage-output results/1b_features/2025-10-01/codon_usage_matrix.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

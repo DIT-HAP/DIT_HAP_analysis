@@ -110,7 +110,7 @@ rule plot_coherence:
         metrics=f"{_COH}/coherence.parquet",
         annotation=f"{_COH}/group_annotation_long.tsv",
         features=lambda wc: (
-            f"results/features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv"
+            f"results/1b_features/{DATASETS['reference']['pombase_version']}/pombe_coding_gene_protein_features.tsv"
             if _COH_CFG.get("features_panels", True) else []
         ),
     output:

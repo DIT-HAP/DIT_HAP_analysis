@@ -31,8 +31,8 @@ Usage
         --literature-dir resources/literature \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
         --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
-        --output results/features/2025-10-01/_levels/phenotype_features.parquet
+        --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/1b_features/2025-10-01/_levels/phenotype_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

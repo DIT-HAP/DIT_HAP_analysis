@@ -51,7 +51,7 @@ class PCRQCConfig:
 
     `output` doubles as the pbl_pbr.parquet output path: it and the other three
     parquet outputs (tech/bio/spikein, passed separately to run()) all land
-    under the same results/pcr_qc/_work/ directory, so mkdir'ing its parent
+    under the same results/1a_pcr_qc/_work/ directory, so mkdir'ing its parent
     covers all four.
     """
     pbl_pbr: Path

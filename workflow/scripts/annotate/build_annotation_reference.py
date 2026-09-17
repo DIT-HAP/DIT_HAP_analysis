@@ -42,7 +42,7 @@ Usage
         --hd-dithap-dataset HD_DIT_HAP \\
         --grna-parameters-tsv resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
         --gene-type protein \\
-        --output results/annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
+        --output results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
 Date:     2026-09-03

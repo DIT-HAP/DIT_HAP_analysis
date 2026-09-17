@@ -1,5 +1,5 @@
 # =============================================================================
-# annotate.smk — Per-gene annotation reference + annotated tables
+# 1c_annotate.smk — Per-gene annotation reference + annotated tables
 # =============================================================================
 #
 # Parses PomBase + SGD sources once into a single wide annotation table (24
@@ -27,7 +27,7 @@ _SGD_VERSION = _ANNOT_CFG.get("sgd_version", "2026-08-11")
 _ANNOT_GENE_TYPE = _ANNOT_CFG.get("gene_type", "protein")
 _ANNOT_TABLES = _ANNOT_CFG.get("tables", {})
 _ANNOT_REF = (
-    f"results/annotation/{DATASETS['reference']['pombase_version']}/"
+    f"results/1c_annotation/{DATASETS['reference']['pombase_version']}/"
     f"{_SGD_VERSION}/gene_annotation_reference.{_ANNOT_GENE_TYPE}.parquet"
 )
 
@@ -78,7 +78,7 @@ rule build_annotation_reference:
         verification_csv="resources/curated/essentiality_verification.csv",
         grna_parameters_tsv="resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv",
     output:
-        reference="results/annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.{gene_type}.parquet",
+        reference="results/1c_annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.{gene_type}.parquet",
     params:
         hd_dithap_dataset="HD_DIT_HAP",
     log:
@@ -122,7 +122,7 @@ rule annotate_table:
         ),
         reference=_ANNOT_REF,
     output:
-        annotated="results/annotation/{dataset}/{variant}/tables/{name}.annotated.tsv",
+        annotated="results/1c_annotation/{dataset}/{variant}/tables/{name}.annotated.tsv",
     params:
         gene_column=lambda wc: _ANNOT_TABLES[wc.name]["gene_column"],
         columns_flag=lambda wc: (
@@ -164,11 +164,11 @@ rule annotate_table:
 # script (Snakemake cannot enumerate files it did not declare).
 rule build_annotated_workbook:
     input:
-        detailed_xlsx="results/coverage/{dataset}/detailed_genes.xlsx",
-        critical_dir="results/verification/{dataset}/critical_genes",
+        detailed_xlsx="results/2a_coverage/{dataset}/detailed_genes.xlsx",
+        critical_dir="results/2b_verification/{dataset}/critical_genes",
         reference=_ANNOT_REF,
     output:
-        workbook="results/annotation/{dataset}/{dataset}_annotated.xlsx",
+        workbook="results/1c_annotation/{dataset}/{dataset}_annotated.xlsx",
     log:
         "logs/annotate/build_annotated_workbook_{dataset}.log",
     conda:

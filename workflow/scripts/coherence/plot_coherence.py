@@ -35,7 +35,7 @@ Usage
         --input results/coherence/{dataset}/{source}/coherence.parquet \\
         --annotation results/coherence/{dataset}/{source}/group_annotation_long.tsv \\
         --output results/coherence/{dataset}/{source}/coherence.pdf \\
-        [--features results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv]
+        [--features results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv]
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-09-03

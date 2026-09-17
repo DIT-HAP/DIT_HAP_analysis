@@ -31,11 +31,11 @@ Output
 Usage
 -----
     python plot_pcr_qc.py \\
-        --pbl-pbr results/pcr_qc/_work/pbl_pbr.parquet \\
-        --tech results/pcr_qc/_work/tech.parquet \\
-        --bio results/pcr_qc/_work/bio.parquet \\
-        --spikein results/pcr_qc/_work/spikein.parquet \\
-        --output results/pcr_qc/PCR_quality_control.pdf
+        --pbl-pbr results/1a_pcr_qc/_work/pbl_pbr.parquet \\
+        --tech results/1a_pcr_qc/_work/tech.parquet \\
+        --bio results/1a_pcr_qc/_work/bio.parquet \\
+        --spikein results/1a_pcr_qc/_work/spikein.parquet \\
+        --output results/1a_pcr_qc/PCR_quality_control.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22

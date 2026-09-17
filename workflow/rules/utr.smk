@@ -10,7 +10,7 @@
 # fitting stats, computes um_ratio (insertion DR / gene DR) and A_ratio.
 #
 # Split into 2 rules so the loading/normalizing step and the core classification
-# step are independently re-runnable (same shape as verification.smk's
+# step are independently re-runnable (same shape as 2b_verification.smk's
 # prepare -> analysis split; this module only produces a stats TSV, no figure,
 # so there's no separate "figure" rule):
 #   prepare_utr_data        -> fitting_results / annotations / gene_result

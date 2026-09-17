@@ -21,7 +21,7 @@
 # against each other (LD1328-7 processed twice, LD1328-4 vs LD1328-8) plus the
 # standalone Spikein calibration project — not a per-dataset generalization.
 # Split per half so each analysis step is independently re-runnable; the
-# figure's "load+merge" vs "render" boundary replaces verification.smk's
+# figure's "load+merge" vs "render" boundary replaces 2b_verification.smk's
 # "stats vs figure" split, since this module's only rendered artifact is a PDF.
 # Ported from DIT_HAP_pipeline thesis_figures.ipynb ("2. PCR quality control")
 # and spike_in.ipynb; see docs/plans/2026-07-19-pcr-qc-design.md.
@@ -43,7 +43,7 @@ _B = _PCR_QC["technical_replicate"]
 _C = _PCR_QC["biological_replicate"]
 
 # Parquet intermediates.
-_PCRWORK = "results/pcr_qc/_work"
+_PCRWORK = "results/1a_pcr_qc/_work"
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ rule compute_spikein_stats:
     input:
         spike_in_stats=f"{_PCRWORK}/spike_in_stats.parquet",
     output:
-        stats="results/pcr_qc/spike_in_stats.tsv",
+        stats="results/1a_pcr_qc/spike_in_stats.tsv",
     log:
         "logs/pcr_qc/compute_spikein_stats.log",
     conda:
@@ -107,7 +107,7 @@ rule prepare_pcr_qc_data:
         bio_rep_1=merged_reads_path(_C["dataset"], _C["sample_1"], _C["timepoint"], _C["condition"]),
         bio_rep_2=merged_reads_path(_C["dataset"], _C["sample_2"], _C["timepoint"], _C["condition"]),
         # Panel (d): spike-in linearity — live output of compute_spikein_stats above.
-        spikein="results/pcr_qc/spike_in_stats.tsv",
+        spikein="results/1a_pcr_qc/spike_in_stats.tsv",
     output:
         pbl_pbr=f"{_PCRWORK}/pbl_pbr.parquet",
         tech=f"{_PCRWORK}/tech.parquet",
@@ -142,7 +142,7 @@ rule plot_pcr_qc:
         bio=f"{_PCRWORK}/bio.parquet",
         spikein=f"{_PCRWORK}/spikein.parquet",
     output:
-        "results/pcr_qc/PCR_quality_control.pdf",
+        "results/1a_pcr_qc/PCR_quality_control.pdf",
     log:
         "logs/pcr_qc/plot_pcr_qc.log",
     conda:

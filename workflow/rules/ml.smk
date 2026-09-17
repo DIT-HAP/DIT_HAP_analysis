@@ -21,7 +21,7 @@ wildcard_constraints:
 # --- Shared modeling-data spine (merge + DR filter, once per dataset) ---
 rule prepare_ml_data:
     input:
-        feature_matrix="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
+        feature_matrix="results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
         final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
     output:
         modeling_data=f"{_MLWORK}/modeling_data.parquet",

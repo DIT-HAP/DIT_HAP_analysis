@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # Split into 3 rules so the process and results are separated for
-# readability/maintainability, same shape as verification.smk:
+# readability/maintainability, same shape as 2b_verification.smk:
 #   prepare_ncrna_table  -> combined / nuclear_trnas parquet intermediates
 #                           (the single fan-out point)
 #   compute_ncrna_stats  -> per-nuclear-tRNA stats TSV

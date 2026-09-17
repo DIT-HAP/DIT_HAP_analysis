@@ -23,8 +23,8 @@ Usage
     python collect_rna_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --literature-dir resources/literature \\
-        --dna-features results/features/2025-10-01/_levels/dna_features.parquet \\
-        --output results/features/2025-10-01/_levels/rna_features.parquet
+        --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
+        --output results/1b_features/2025-10-01/_levels/rna_features.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

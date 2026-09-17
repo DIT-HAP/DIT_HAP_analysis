@@ -13,7 +13,7 @@
 # DeletionLibrary_essentiality column survive round-trip; only the final matrix
 # is a TSV.
 
-_LEVELS = "results/features/{pombase_version}/_levels"
+_LEVELS = "results/1b_features/{pombase_version}/_levels"
 
 
 # --- DNA level (the spine: builds the DB, enumerates coding genes, codon usage) ---
@@ -23,7 +23,7 @@ rule collect_dna_features:
         genome_landmarks="config/genome_landmarks.yaml",
     output:
         dna=f"{_LEVELS}/dna_features.parquet",
-        codon_usage="results/features/{pombase_version}/codon_usage_matrix.tsv",
+        codon_usage="results/1b_features/{pombase_version}/codon_usage_matrix.tsv",
     log:
         "logs/features/collect_dna_features_{pombase_version}.log",
     conda:
@@ -179,7 +179,7 @@ rule merge_pombe_features:
         network=f"{_LEVELS}/network_features.parquet",
         phenotype=f"{_LEVELS}/phenotype_features.parquet",
     output:
-        features="results/features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
+        features="results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
     log:
         "logs/features/merge_pombe_features_{pombase_version}.log",
     conda:

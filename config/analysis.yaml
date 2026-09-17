@@ -133,7 +133,7 @@ coherence:
   attribution_sources: [go_macrocomplex]  # sources to attribute (major/minor & shared-subunit are meaningful for physical complexes)
   attribution_z_threshold: 0.0       # z_score above this = incoherent
 
-# --- Per-gene annotation reference + annotated tables (annotate.smk) ---
+# --- Per-gene annotation reference + annotated tables (1c_annotate.smk) ---
 annotate:
   # SGD snapshot to build the reference against. This is a data-source VERSION,
   # pinned here rather than auto-detected from resources/external/sgd/: picking
@@ -146,7 +146,7 @@ annotate:
   #   gene_column: column holding pombe systematic IDs
   #   columns:     optional subset of annotation columns (omit = all 24)
   #   drop_unmatched: optional, default false (keep unmatched rows, empty annotation)
-  # Output lands at results/annotation/{dataset}/tables/{name}.annotated.tsv
+  # Output lands at results/1c_annotation/{dataset}/tables/{name}.annotated.tsv
   tables:
     final_clusters:
       input: "results/clustering/{dataset}/{variant}/final_clusters.tsv"
