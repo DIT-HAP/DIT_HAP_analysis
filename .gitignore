@@ -14,9 +14,9 @@ __pycache__/
 /reports/
 /logs/
 
-# Regenerable local copies of external databases (see resources/curated/ which IS tracked)
+# Regenerable local copies of external databases (see resources/curated/ and
+# resources/literature/, which ARE tracked)
 /resources/external/
-/resources/literature/
 
 # Claude/editor artifacts
 .claude
