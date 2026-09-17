@@ -62,8 +62,11 @@ from io_table import read_file
 # Curve-fit features considered for correlation (viz only); clustering uses DR+DL.
 ALL_FEATURES = ["A", "DR", "DL", "t10", "t50", "t90", "t_window", "t_inflection", "y_inflection", "auc"]
 SELECTED_FEATURES = ["DR", "DL"]
-# DR above this cap is clamped; DL is divided by this divisor (byte-faithful quirk).
-DR_CAP = 1.3
+# DR below this floor is clamped; DL is divided by this divisor (byte-faithful quirk).
+# Upstream flipped the DR sign convention on 2026-09-17 (negative = depleted), so what
+# used to be a cap on the depleted tail at +1.3 is now a floor at -1.3. Renamed from
+# DR_CAP so the name cannot be read as an upper bound.
+DR_CLAMP = -1.3
 DL_DIVISOR = 10
 # The four clustering methods, in the fixed order the metrics table reports them.
 METHODS = ["kmeans", "hierarchical_agg", "hierarchical_div", "gmm"]
@@ -111,11 +114,11 @@ def load_and_annotate(fitting_results: Path, essentiality_verification_csv: Path
 
 @logger.catch
 def scale_features(
-    data_df: pd.DataFrame, selected_features: list[str], dr_cap: float = DR_CAP, dl_divisor: float = DL_DIVISOR
+    data_df: pd.DataFrame, selected_features: list[str], dr_clamp: float = DR_CLAMP, dl_divisor: float = DL_DIVISOR
 ) -> pd.DataFrame:
-    """Apply the notebook's bespoke scaling: cap DR at dr_cap, divide DL by dl_divisor; dropna defines the clustered set."""
+    """Apply the notebook's bespoke scaling: clamp DR at dr_clamp (a floor), divide DL by dl_divisor; dropna defines the clustered set."""
     scaled_data = data_df[selected_features].dropna().copy()
-    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x < dr_cap else dr_cap)
+    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x > dr_clamp else dr_clamp)
     scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / dl_divisor)
     logger.info(f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features")
     return scaled_data
@@ -192,10 +195,12 @@ def renumber_by_dr(
 
     Every finalize variant (direct / auto_merge / grid / manual) ends here so the
     numbering is identical and cross-variant comparable (design doc §2): the group
-    with the lowest mean DR becomes wt_cluster (WT), the rest ascend in mean-DR
-    order (ties broken by mean DL then the group's own label). `raw_labels` is a
-    Series of group labels indexed by gene id; returns the final 1..n_clusters
-    labels on that same index. Raises if the group count != n_clusters.
+    with the HIGHEST mean DR becomes wt_cluster (WT). Upstream flipped the DR sign
+    convention on 2026-09-17 — negative DR is now the depleted end — so WT, the
+    undepleted reference, sits at the top of the range instead of the bottom.
+    Cluster 1 is the most depleted group. `raw_labels` is a Series of group labels
+    indexed by gene id; returns the final 1..n_clusters labels on that same index.
+    Raises if the group count != n_clusters.
     """
     stats = (
         annotated.loc[raw_labels.index, ["DR", "DL"]]
@@ -203,11 +208,12 @@ def renumber_by_dr(
         .groupby("_raw")
         .agg(mean_dr=("DR", "mean"), mean_dl=("DL", "mean"))
         .reset_index()
-        .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable", ascending=[False, True, True])
+        # Ascending mean DR -> row 0 is the most depleted group, the last row is WT.
+        .sort_values(["mean_dr", "mean_dl", "_raw"], kind="stable", ascending=[True, True, True])
         .reset_index(drop=True)
     )
-    # Ascending DR -> the lowest-DR group becomes wt_cluster; the remaining ids
-    # 1..n_clusters (excluding wt) fill the other ranks in ascending-DR order.
+    # Row order is rank order: rank 0 (lowest DR = most depleted) -> id 1, and the
+    # last row (highest DR = WT) -> wt_cluster. The remaining ids fill the ranks between.
     remaining = [i for i in range(1, n_clusters + 1) if i != wt_cluster]
     ordered_ids = remaining + [wt_cluster]
     # Guard against silent mis-numbering: dict(zip(...)) would quietly truncate if
@@ -287,7 +293,7 @@ def finalize_grid(
     """`grid` variant: split the scaled DR/DL axes at dr_cuts / dl_cuts into a
     (len(dr_cuts)+1) x (len(dl_cuts)+1) rectangular grid, assign each gene to its
     cell, then renumber by DR. Cell count must equal n_clusters. Cuts are thresholds
-    in SCALED space (DR already capped, DL already divided). See design doc §3.3.
+    in SCALED space (DR already clamped, DL already divided). See design doc §3.3.
     """
     n_cells = (len(dr_cuts) + 1) * (len(dl_cuts) + 1)
     if n_cells != n_clusters:

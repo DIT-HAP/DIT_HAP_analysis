@@ -6,7 +6,8 @@ ML Modeling-Data Preparation (the spine)
 ==========================================
 
 Merges the per-gene feature matrix with curve-fit targets + cluster labels and
-applies the DR > threshold filter ONCE, emitting a modeling_data parquet shared
+applies the DR < threshold filter ONCE (negative DR = depleted), emitting a
+modeling_data parquet shared
 by the four target x mode AutoML jobs (which previously each re-merged the same
 data). Deterministic and target/mode-independent.
 
@@ -94,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
     parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
     parser.add_argument("--output", type=Path, required=True, help="Output modeling_data pickle")
-    parser.add_argument("--dr-filter", type=float, default=DR_FILTER, help="DR > filter threshold (default 0.3)")
+    parser.add_argument("--dr-filter", type=float, default=DR_FILTER, help="DR < filter threshold (negative = depleted; default -0.3)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 

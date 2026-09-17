@@ -13,7 +13,7 @@ from workflow.src.io_table import write_parquet, read_parquet
 
 from workflow.src.clustering.candidates import (
     BEST_METHOD,
-    DR_CAP,
+    DR_CLAMP,
     DL_DIVISOR,
     METHODS,
     cluster_one_method,
@@ -38,27 +38,27 @@ def test_best_method_is_pinned_to_kmeans():
     assert METHODS[0] == "kmeans"
 
 
-def test_scale_features_caps_DR_and_divides_DL():
-    """DR above 1.3 is clamped to 1.3; DL is divided by 10 (byte-faithful quirk #1)."""
+def test_scale_features_clamps_DR_and_divides_DL():
+    """DR below -1.3 is clamped up to -1.3; DL is divided by 10 (byte-faithful quirk #1)."""
     df = pd.DataFrame(
-        {"DR": [0.5, 1.3, 2.0, 1.29], "DL": [10.0, 20.0, 5.0, 100.0]},
+        {"DR": [-0.5, -1.3, -2.0, -1.29], "DL": [10.0, 20.0, 5.0, 100.0]},
         index=["g1", "g2", "g3", "g4"],
     )
     scaled = scale_features(df, ["DR", "DL"])
-    # DR: 0.5 stays, 1.3 stays (strict < so equal is unchanged), 2.0 -> 1.3, 1.29 stays.
-    assert list(scaled["DR"]) == [0.5, 1.3, DR_CAP, 1.29]
+    # DR: -0.5 stays, -1.3 stays (strict > so equal is unchanged), -2.0 -> -1.3, -1.29 stays.
+    assert list(scaled["DR"]) == [-0.5, -1.3, DR_CLAMP, -1.29]
     # DL divided by 10.
     assert list(scaled["DL"]) == [1.0, 2.0, 0.5, 10.0]
 
 
-def test_scale_features_respects_custom_dr_cap_and_dl_divisor():
-    """Non-default dr_cap/dl_divisor (as would come from config/analysis.yaml) are honored."""
+def test_scale_features_respects_custom_dr_clamp_and_dl_divisor():
+    """Non-default dr_clamp/dl_divisor (as would come from config/analysis.yaml) are honored."""
     df = pd.DataFrame(
-        {"DR": [0.5, 1.0, 2.0], "DL": [10.0, 20.0, 5.0]},
+        {"DR": [-0.5, -1.0, -2.0], "DL": [10.0, 20.0, 5.0]},
         index=["g1", "g2", "g3"],
     )
-    scaled = scale_features(df, ["DR", "DL"], dr_cap=1.0, dl_divisor=5)
-    assert list(scaled["DR"]) == [0.5, 1.0, 1.0]
+    scaled = scale_features(df, ["DR", "DL"], dr_clamp=-1.0, dl_divisor=5)
+    assert list(scaled["DR"]) == [-0.5, -1.0, -1.0]
     assert list(scaled["DL"]) == [2.0, 4.0, 1.0]
 
 

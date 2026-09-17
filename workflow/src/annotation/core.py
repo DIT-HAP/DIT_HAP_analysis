@@ -99,6 +99,13 @@ _GRNA_DEPLETION_COLUMNS = {
 }
 _GRNA_TARGET_COLUMNS = ["gRNA_DR", "gRNA_DL"]
 
+# The curated gRNA table (resources/curated/*_gRNA_HDdata_fitted_parameters.tsv) is
+# frozen at the pre-2026-09-17 sign convention — positive = depleted — while
+# upstream flipped DIT-HAP so negative DR is now the depleted end. Flip gRNA_DR on
+# the way in, so this workbook's gRNA_DR and DR columns point the same way; read
+# side by side with opposite signs, agreeing genes look contradictory.
+GRNA_DR_SIGN = -1.0
+
 # SGD_features.tab covers many feature types (CDS, intron, ARS, ...); only ORF rows
 # carry the systematic name that PomBase orthologs refer to.
 _SGD_ORF_TYPE = "ORF"
@@ -405,7 +412,9 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
     Columns are prefixed `gRNA_` because these are NOT the gene-level DR/DL that
     clustering tables carry: they come from a single representative gRNA fit rather
     than a gene-level aggregate fit, and the two disagree substantially (DR
-    correlates ~0.92 but DL only ~0.55 across ~4.5k shared genes).
+    correlates ~0.92 but DL only ~0.55 across ~4.5k shared genes). gRNA_DR is
+    sign-flipped on the way in (see GRNA_DR_SIGN) so it matches the DIT-HAP DR
+    convention that upstream flipped on 2026-09-17.
     """
     available = {
         source: target
@@ -427,6 +436,7 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
 
     block = grna_parameters.set_index(_GRNA_GENE_COLUMN)[list(available)].rename(columns=available)
     block = block[_GRNA_TARGET_COLUMNS]
+    block["gRNA_DR"] = block["gRNA_DR"] * GRNA_DR_SIGN
     block.index.name = "gene_systematic_id"
     return block
 

@@ -5,7 +5,8 @@ Intra-gene DR Heterogeneity (Domain-Difference) — Core Logic
 Shared constants, loaders, and statistics functions for the domain-differences
 stage. Per-dataset: surfaces genes whose in-gene insertions have heterogeneous
 positional distribution as a proxy for functional (sub-gene) domains. For every
-gene with a high gene-level DR (> DR_THRESHOLD = 0.15), it positions each in-gene
+gene past the depletion cutoff (DR < DR_THRESHOLD = -0.15, negative DR = depleted),
+it positions each in-gene
 insertion along the CDS (insertion_fraction, 0 = start codon, 1 = stop codon) and
 reports per-gene distribution statistics (count, mean, std of insertion_fraction).
 
@@ -18,7 +19,8 @@ IMPORTANT — notebook vs. this module
 -------------------------------------
 The source notebook is a *visualization* notebook: it (1) loads the release
 tables, (2) filters to in-gene insertions with the exact IN_GENE_FILTER quirk,
-(3) selects genes with gene-level DR (legacy header `um`) > 0.15, and (4)
+(3) selects genes past the depletion cutoff (DR < -0.15; negative = depleted; the
+notebook's `um > 0.15` mirrored), and (4)
 scatter-plots each in-gene insertion (Residue_affected vs DR) into per-gene PDF
 panels. It computes NO per-gene statistics table and writes no deterministic
 data output — the "domain" call is done by human review of the PDFs plus a
@@ -31,7 +33,8 @@ index, used only for the notebook's x-axis), it positions each insertion by the
 release table's nucleotide distances via
 insertion_fraction = Distance_to_start_codon / (Distance_to_start_codon +
 Distance_to_stop_codon), clamped to [0, 1], then aggregates per gene. The gene
-selection (DR > 0.15) and the in-gene filter are byte-faithful to the notebook.
+selection is the notebook's `um > 0.15` mirrored for the flipped DR sign; the
+in-gene filter is byte-faithful unchanged.
 
 Input
 -----
@@ -50,7 +53,7 @@ Input
 Usage
 -----
     from domain_differences.core import (
-        load_gene_level, load_insertion_annotations, filter_high_dr_genes,
+        load_gene_level, load_insertion_annotations, filter_depleted_genes,
         compute_insertion_fraction, compute_domain_candidate_stats,
     )
 """
@@ -71,10 +74,11 @@ from loguru import logger
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Gene-selection cutoff: keep genes with gene-level DR strictly greater than
-# this value. Byte-faithful to the notebook's `gene_statistics.query("um > 0.15")`
-# (um is the legacy header for DR).
-DR_THRESHOLD = 0.15
+# Gene-selection cutoff: keep genes with gene-level DR strictly BELOW this value.
+# Mirrors the notebook's `gene_statistics.query("um > 0.15")` (um is the legacy
+# header for DR) after upstream flipped the DR sign convention on 2026-09-17 —
+# negative DR is now the depleted end, so the same gene set is DR < -0.15.
+DR_THRESHOLD = -0.15
 
 # Byte-faithful to the source notebook's in_gene_insertions query (identical to
 # workflow/scripts/coverage/compute_coverage_stats.py): an insertion counts as
@@ -158,14 +162,14 @@ def load_insertion_annotations(fitting_results_path: Path, annotations_path: Pat
 # =============================================================================
 # CORE LOGIC — primitives (unit-tested)
 # =============================================================================
-def filter_high_dr_genes(gene_result: pd.DataFrame, dr_threshold: float = DR_THRESHOLD) -> pd.DataFrame:
-    """Keep genes whose gene-level DR is strictly greater than ``dr_threshold``.
+def filter_depleted_genes(gene_result: pd.DataFrame, dr_threshold: float = DR_THRESHOLD) -> pd.DataFrame:
+    """Keep genes whose gene-level DR is strictly below ``dr_threshold``.
 
-    Byte-faithful to the notebook's `gene_statistics.query("um > 0.15")`. NaN DR
-    rows are dropped (they fail the strict `>` comparison), so uncovered genes
-    never enter the candidate set.
+    Mirrors the notebook's `gene_statistics.query("um > 0.15")` for the flipped DR
+    sign (negative = depleted). NaN DR rows are dropped (they fail the strict `<`
+    comparison), so uncovered genes never enter the candidate set.
     """
-    return gene_result[gene_result["DR"] > dr_threshold]
+    return gene_result[gene_result["DR"] < dr_threshold]
 
 
 def compute_insertion_fraction(df: pd.DataFrame) -> pd.DataFrame:
@@ -186,23 +190,23 @@ def compute_insertion_fraction(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_domain_candidate_stats(
     in_gene_insertions: pd.DataFrame,
-    high_dr_genes: pd.DataFrame,
+    depleted_genes: pd.DataFrame,
 ) -> pd.DataFrame:
     """Aggregate in-gene insertions into per-gene positional-spread statistics.
 
-    Restricts ``in_gene_insertions`` to the ``high_dr_genes`` set via an inner
-    join on ``Systematic ID`` (so only genes with gene-level DR > threshold are
+    Restricts ``in_gene_insertions`` to the ``depleted_genes`` set via an inner
+    join on ``Systematic ID`` (so only genes past the depletion cutoff are
     reported, and only those with >=1 in-gene insertion appear), then computes
     per gene:
       - n_insertions            (count of in-gene insertions)
       - mean_insertion_fraction (mean position along the CDS)
       - std_insertion_fraction  (sample std, ddof=1; NaN for single-insertion genes)
-      - gene_DR                 (the gene-level DR carried from high_dr_genes)
+      - gene_DR                 (the gene-level DR carried from depleted_genes)
 
     Rows are sorted by std_insertion_fraction descending (genes whose insertions
     are most positionally spread — the strongest intra-gene heterogeneity /
     domain-difference candidates — first); single-insertion genes have NaN std
-    and sort last. ``high_dr_genes`` must carry ``Systematic ID``, ``Name``, and
+    and sort last. ``depleted_genes`` must carry ``Systematic ID``, ``Name``, and
     ``DR`` columns; ``in_gene_insertions`` must carry ``Systematic ID`` and
     ``insertion_fraction``.
 
@@ -218,7 +222,7 @@ def compute_domain_candidate_stats(
     # otherwise turn each merge into a cross-product and inflate per-gene counts
     # / emit duplicate output rows.
     genes = (
-        high_dr_genes[["Systematic ID", "Name", "DR"]]
+        depleted_genes[["Systematic ID", "Name", "DR"]]
         .rename(columns={"DR": "gene_DR"})
         .drop_duplicates("Systematic ID")
     )

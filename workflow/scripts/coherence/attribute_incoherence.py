@@ -140,8 +140,9 @@ def load_member_points(fitting_results: Path) -> dict[str, tuple[float, float]]:
     """Load fitting_results.tsv -> {Systematic ID: (norm_DR, norm_DL)} for DR/DL-finite genes.
 
     Mirrors compute_coherence.py::load_fitting_results: legacy um/lam -> DR/DL,
-    +/-inf -> NaN dropped, DR against [0,1] (unchanged), DL against [0,10] (/10).
-    Returns ALL fitted genes (the DR>threshold filter is applied later against the
+    +/-inf -> NaN dropped, DR unchanged (a plain divisor, so a DR sign flip mirrors
+    the space without moving the distance-based metrics), DL against [0,10] (/10).
+    Returns ALL fitted genes (the DR<threshold filter is applied later against the
     same member set coherence used).
     """
     fitting = pd.read_csv(fitting_results, sep="\t", index_col=0).reset_index()

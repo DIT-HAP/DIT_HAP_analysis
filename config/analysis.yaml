@@ -7,7 +7,9 @@ clustering:
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
   k_min: 2              # k-sweep lower bound (evaluate_cluster_numbers, diagnostic)
   k_max: 20             # k-sweep upper bound
-  dr_cap: 1.3           # DR above this is clamped to this value (byte-faithful quirk)
+  dr_clamp: -1.3        # DR below this is clamped to this value (byte-faithful quirk;
+                        # a floor, not a cap — upstream flipped the DR sign 2026-09-17,
+                        # negative DR is now the depleted end)
   dl_divisor: 10        # DL is divided by this before clustering
   final_n_clusters: 9   # final cluster count k for EVERY variant (WT = enrichment.wt_cluster)
   # --- Finalize variants (design doc 2026-07-21-clustering-finalize-variants) ---
@@ -19,7 +21,8 @@ clustering:
   #   auto_merge   {method, n_intermediate}  -> cluster to n_intermediate, ward-merge centroids -> final_n_clusters
   #   grid         {dr_cuts, dl_cuts}        -> axis-cut grid (cell count must == final_n_clusters)
   #   manual_merge {method, n_intermediate}  -> cluster to n_intermediate, hand-tuned merge (finalize_gene_clusters.ipynb, run headlessly by finalize_manual_merge)
-  # grid cuts are thresholds in SCALED space (DR capped, DL divided).
+  # grid cuts are thresholds in SCALED space (DR clamped, DL divided); DR cuts are
+  # negative because the depleted end is now the low end (sign flipped 2026-09-17).
   variants:
     kmeans_direct9:       {type: direct,       method: kmeans}
     kmeans_merge9_auto:   {type: auto_merge,   method: kmeans,           n_intermediate: 64}
@@ -28,7 +31,7 @@ clustering:
     hc_merge9_auto:       {type: auto_merge,   method: hierarchical_agg, n_intermediate: 64}
     gmm_direct9:          {type: direct,       method: gmm}
     gmm_merge9_auto:      {type: auto_merge,   method: gmm,              n_intermediate: 64}
-    grid9:                {type: grid,         dr_cuts: [0.4, 0.8], dl_cuts: [0.05, 0.3]}
+    grid9:                {type: grid,         dr_cuts: [-0.8, -0.4], dl_cuts: [0.05, 0.3]}
   selected_variant: kmeans_direct9   # variant ml.smk reads (equiv. old finalize_mode: auto)
   selected_variant_overrides: {}     # per-dataset override, e.g. {HD_DIT_HAP: kmeans_merge9_manual}
 
@@ -81,9 +84,9 @@ spikein:
 
 # --- Machine learning (ml.smk) ---
 ml:
-  dr_split_threshold: 0.35   # DR > / <= this defines the DR_gt_p35 / DR_le_p35 splits
+  dr_split_threshold: -0.35  # DR < / >= this defines the DR_lt_p35 / DR_ge_p35 splits
   wt_cluster: 9              # DIT_HAP_cluster != this defines the nonWT split
-  dr_filter: 0.3             # AutoML modeling filter: keep genes with DR > this (train_automl)
+  dr_filter: -0.3            # AutoML modeling filter: keep genes with DR < this (train_automl)
   test_size: 0.2             # AutoML train/test split fraction
   random_state: 42           # AutoML split + mljar seed (reproducibility)
   total_time_limit: 14400    # mljar budget (s); large so full algorithm list always finishes
@@ -98,7 +101,8 @@ comparison:
 
 # --- Coherence of gene groups in DR-DL fitness space (coherence.smk) ---
 # Per (dataset x source): for every group (GO complex / CC / BP term) whose
-# DR>dr_threshold members number min..max AND whose total annotated size is
+# DR<dr_threshold members (negative DR = depleted, sign flipped 2026-09-17) number
+# min..max AND whose total annotated size is
 # <= max_term_genes, measure how tightly they cluster in normalized (DR, DL/10)
 # space vs a seeded permutation null (median pairwise distance z-score). Fans out
 # by `source`; add a database = add a loader in workflow/src/coherence/sources.py
@@ -109,7 +113,7 @@ coherence:
   min_group_size: 3
   max_group_size: 300
   max_term_genes: 500
-  dr_threshold: 0.3
+  dr_threshold: -0.3
   n_permutations: 1000
   random_state: 42
   features_panels: true

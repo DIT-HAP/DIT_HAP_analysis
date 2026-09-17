@@ -22,7 +22,7 @@ from workflow.src.domain_differences.core import (
     IN_GENE_FILTER,
     _normalize_legacy_metrics,
     compute_insertion_fraction,
-    filter_high_dr_genes,
+    filter_depleted_genes,
     compute_domain_candidate_stats,
     resolve_duplicate_annotations,
 )
@@ -32,8 +32,8 @@ from workflow.src.domain_differences.core import (
 # constants
 # ---------------------------------------------------------------------------
 def test_dr_threshold_constant():
-    """DR_THRESHOLD == 0.15 is the exact gene-selection cutoff from the notebook."""
-    assert DR_THRESHOLD == 0.15
+    """DR_THRESHOLD == -0.15 is the notebook cutoff mirrored for the flipped DR sign."""
+    assert DR_THRESHOLD == -0.15
 
 
 def test_in_gene_filter_matches_repo_convention():
@@ -85,22 +85,22 @@ def test_compute_insertion_fraction_does_not_mutate_input():
 
 
 # ---------------------------------------------------------------------------
-# filter_high_dr_genes
+# filter_depleted_genes
 # ---------------------------------------------------------------------------
-def test_filter_high_dr_genes_keeps_strictly_above_threshold():
-    """Keeps genes with gene-level DR strictly > 0.15; NaN DR is dropped."""
+def test_filter_depleted_genes_keeps_strictly_below_threshold():
+    """Keeps genes with gene-level DR strictly < -0.15 (negative DR = depleted); NaN DR is dropped."""
     genes = pd.DataFrame({
         "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "DR": [0.10, 0.15, 0.16, 0.50, np.nan],
+        "DR": [-0.10, -0.15, -0.16, -0.50, np.nan],
     })
-    out = filter_high_dr_genes(genes)
+    out = filter_depleted_genes(genes)
     assert out["Systematic ID"].tolist() == ["g3", "g4"]
 
 
-def test_filter_high_dr_genes_boundary_excluded():
-    """DR exactly equal to the threshold is excluded (strict >)."""
+def test_filter_depleted_genes_boundary_excluded():
+    """DR exactly equal to the threshold is excluded (strict <)."""
     genes = pd.DataFrame({"Systematic ID": ["g1"], "DR": [DR_THRESHOLD]})
-    assert len(filter_high_dr_genes(genes)) == 0
+    assert len(filter_depleted_genes(genes)) == 0
 
 
 # ---------------------------------------------------------------------------

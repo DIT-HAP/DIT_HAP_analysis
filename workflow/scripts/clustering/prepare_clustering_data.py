@@ -53,7 +53,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from clustering.candidates import (  # noqa: E402
     DL_DIVISOR,
-    DR_CAP,
+    DR_CLAMP,
     SELECTED_FEATURES,
     evaluate_cluster_numbers,
     load_and_annotate,
@@ -77,7 +77,7 @@ class PrepareConfig:
     random_state: int = 42
     k_min: int = 2
     k_max: int = 20
-    dr_cap: float = DR_CAP
+    dr_clamp: float = DR_CLAMP
     dl_divisor: float = DL_DIVISOR
     selected_features: list[str] = field(default_factory=lambda: list(SELECTED_FEATURES))
 
@@ -102,7 +102,7 @@ def run(config: PrepareConfig) -> None:
     config.validate()
 
     data_df = load_and_annotate(config.fitting_results, config.essentiality_verification_csv)
-    scaled_data = scale_features(data_df, config.selected_features, dr_cap=config.dr_cap, dl_divisor=config.dl_divisor)
+    scaled_data = scale_features(data_df, config.selected_features, dr_clamp=config.dr_clamp, dl_divisor=config.dl_divisor)
 
     k_range = range(config.k_min, config.k_max + 1)
     k_sweep = evaluate_cluster_numbers(scaled_data.values, k_range, config.random_state)
@@ -130,7 +130,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")
     parser.add_argument("--k-min", type=int, default=2, help="k-sweep lower bound (default 2)")
     parser.add_argument("--k-max", type=int, default=20, help="k-sweep upper bound (default 20)")
-    parser.add_argument("--dr-cap", type=float, default=DR_CAP, help=f"DR clamp ceiling (default {DR_CAP})")
+    parser.add_argument("--dr-clamp", type=float, default=DR_CLAMP, help=f"DR clamp floor (default {DR_CLAMP})")
     parser.add_argument("--dl-divisor", type=float, default=DL_DIVISOR, help=f"DL scaling divisor (default {DL_DIVISOR})")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -150,7 +150,7 @@ def main() -> int:
             random_state=args.random_state,
             k_min=args.k_min,
             k_max=args.k_max,
-            dr_cap=args.dr_cap,
+            dr_clamp=args.dr_clamp,
             dl_divisor=args.dl_divisor,
         )
         run(config)

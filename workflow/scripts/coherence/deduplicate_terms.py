@@ -17,7 +17,7 @@ compute_coherence.py is carried through unchanged, and every term is retained
 Redundancy axis (config-driven, "both" by design)
 -------------------------------------------------
 - MEMBER OVERLAP (primary): overlap_coefficient(A, B) = |A ∩ B| / min(|A|, |B|)
-  over each term's coherence member set (the DR>threshold `covered_genes`, which
+  over each term's coherence member set (the DR<threshold `covered_genes`, which
   is exactly what the coherence z-score was computed on). Two terms with
   overlap >= dedup_overlap_threshold are redundant. This provably catches all
   GO parent/child nesting: propagation makes a child's genes a subset of its

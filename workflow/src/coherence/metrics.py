@@ -5,8 +5,12 @@ A gene set is "coherent" when its members sit tighter in (DR, DL) space than a
 random gene set of equal size — quantified as a permutation z-score (negative =
 tighter than random = coherent). The primary axis is median_pairwise_distance.
 
-Normalization (byte-faithful to the notebook): normalized_DR = DR (bounds 0..1),
-normalized_DL = DL / 10 (bounds 0..10) — the same DL/10 scaling clustering uses.
+Normalization (byte-faithful to the notebook): DR_NORM_MAX is a plain divisor, so
+normalized_DR = DR and normalized_DL = DL / 10. Every metric here is a Euclidean
+distance in that space, and a reflection of one axis leaves all distances — and
+therefore every z-score — unchanged. Upstream flipped the DR sign on 2026-09-17
+(negative DR is now the depleted end), which mirrors the space without moving the
+coherence results; only the plots' DR axis orientation changes.
 """
 from __future__ import annotations
 

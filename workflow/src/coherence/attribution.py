@@ -8,12 +8,12 @@ be labelled with its most likely explanation. The diagnostic lines:
   (a) major/minor subunit split — fit a 2-component GMM to the members' normalized
       DR-DL and test whether they separate into a tight "core" + looser "minority"
       (silhouette + component-size/spread asymmetry). E.g. eIF3's essential core
-      (tif301/302, DR~1.2, DL~0) vs the dispensable regulatory eIF3e/int6 (DL~7).
+      (tif301/302, DR~-1.2, DL~0) vs the dispensable regulatory eIF3e/int6 (DL~7).
   (b) shared-subunit — members that also belong to OTHER groups get pulled toward
       those groups' functional centres, inflating apparent incoherence. E.g. Swr1,
       whose members are almost all shared with NuA4 / Ino80 / HAT complexes.
   (c) paralog buffering — members with a paralog can have their deletion phenotype
-      masked (lower DR), pulling the group toward the WT corner and splitting it.
+      masked (DR nearer 0), pulling the group toward the WT corner and splitting it.
 
 Not every cause is detectable from these signals: annotation artefacts (transient
 members, over-broad "complex" definitions) and technical issues (sparse insertion

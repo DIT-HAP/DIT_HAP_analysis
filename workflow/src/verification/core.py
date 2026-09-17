@@ -140,13 +140,14 @@ _BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very smal
 # against the RAW `Category` column (literal curated labels — no folding), so
 # only genes with those exact single-phenotype labels are selected; the compound
 # multi-phenotype labels do not enter these analytical groups. `sort` orders the
-# outlier gene list by DR: WT->nonWT / small->E look at highest-DR first (desc),
-# E->V lowest (asc).
+# outlier gene list by DR: WT->nonWT / small->E look at the most depleted first,
+# E->V the least (sign flipped 2026-09-17 — negative DR is the depleted end, so
+# both the thresholds and every `sort` direction are mirrored from the original).
 _CRITICAL_GROUPS = {
-    "WT2nonWT": {"filter": "Category == 'WT-like' and DR > 0.35", "sort": "desc"},
-    "scE2E": {"filter": "Category == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality == 'E'", "sort": "desc"},
-    "sc2E": {"filter": "Category == 'small colonies' and DR > 0.75 and DeletionLibrary_essentiality != 'E'", "sort": "desc"},
-    "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR < 0.35", "sort": "asc"},
+    "WT2nonWT": {"filter": "Category == 'WT-like' and DR < -0.35", "sort": "asc"},
+    "scE2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality == 'E'", "sort": "asc"},
+    "sc2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality != 'E'", "sort": "asc"},
+    "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR > -0.35", "sort": "desc"},
 }
 
 # Verification-result bucket order for the critical-group boxplots/donuts,

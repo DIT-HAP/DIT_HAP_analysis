@@ -8,7 +8,7 @@ ML Feature/Target Preparation
 Merges the per-gene feature matrix with DIT-HAP curve-fit targets + cluster
 labels, then applies per-feature transformations (PowerTransformer /
 StandardScaler / one-hot / binary), emitting transformed feature/target tables
-for the `all`, `DR_gt_p35`, `DR_le_p35`, and `nonWT` splits. Deterministic port
+for the `all`, `DR_lt_p35`, `DR_ge_p35`, and `nonWT` splits. Deterministic port
 of DIT_HAP_pipeline/workflow/notebooks/machine_learning_data_preparation.ipynb
 (the canonical version — not the obsolete Feature_organization copy).
 
@@ -24,7 +24,7 @@ Output
 ------
 - all_features_with_target_values.csv, missing_value_analysis.csv
 - {split}_transformed_{features,targets,features_and_targets}.csv for
-  split in {all, DR_gt_p35, DR_le_p35, nonWT}
+  split in {all, DR_lt_p35, DR_ge_p35, nonWT}
 
 Usage
 -----
@@ -57,7 +57,7 @@ from sklearn.preprocessing import PowerTransformer, StandardScaler
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-DR_SPLIT_THRESHOLD = 0.35
+DR_SPLIT_THRESHOLD = -0.35   # negative DR = depleted (upstream sign flip 2026-09-17)
 WT_CLUSTER = 9
 TARGET_FEATURES = ["A", "DR", "DL", "DIT_HAP_cluster"]
 
@@ -243,10 +243,12 @@ def run_preparation(config: PrepConfig) -> None:
     )
 
     # Build the three primary splits (no imputation — dropna defines each set).
+    # Negative DR is the depleted end (upstream sign flip, 2026-09-17), so the
+    # "more depleted than p35" split is DR < threshold, not DR > threshold.
     working = {
         "all": merged[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "DR_gt_p35": merged.query(f"DR > {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "DR_le_p35": merged.query(f"DR <= {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
+        "DR_lt_p35": merged.query(f"DR < {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
+        "DR_ge_p35": merged.query(f"DR >= {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
     }
 
     transformed = {des: transform_data(data, config.transformations, TARGET_FEATURES) for des, data in working.items()}
@@ -278,7 +280,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
     parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output dir for features_targets tables")
-    parser.add_argument("--dr-split-threshold", type=float, default=DR_SPLIT_THRESHOLD, help="DR split threshold (default 0.35)")
+    parser.add_argument("--dr-split-threshold", type=float, default=DR_SPLIT_THRESHOLD, help="DR split threshold (negative = depleted; default -0.35)")
     parser.add_argument("--wt-cluster", type=int, default=WT_CLUSTER, help="WT cluster id for nonWT split (default 9)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

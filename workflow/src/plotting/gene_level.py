@@ -141,10 +141,17 @@ def sigmoid_gompertz(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarra
     to the release column vocabulary (DR/DL; the notebook used um/lam). A==0
     yields a flat zero curve; the exponent is clipped to [-700, 700] to avoid
     overflow in np.exp.
+
+    DR enters as a shape parameter — it is the curve's maximum depletion rate, a
+    magnitude — so the steepness uses ``abs(DR)``. Upstream flipped the DR sign on
+    2026-09-17 (negative = depleted); taking the raw value would make alpha
+    negative for every depleted gene and draw the curve upside down. The old code
+    assumed DR >= 0, so this also fixes the near-WT genes that were already
+    negative under the old convention.
     """
     if A == 0:
         return np.zeros_like(x)
-    alpha = (DR * np.e) / A
+    alpha = (abs(DR) * np.e) / A
     u = alpha * (DL - x) + 1
     exponent = np.clip(u, -700, 700)
     return A * np.exp(-np.exp(exponent))
@@ -170,11 +177,14 @@ def plot_gene_depletion_curve(
 
     # Inflection slope segment: the linear part tangent at the inflection point,
     # spanning the generations where the fitted curve rises (byte-faithful to
-    # the notebook's x_slope/y_slope construction).
+    # the notebook's x_slope/y_slope construction). The rate is abs(DR) for the
+    # same reason as in sigmoid_gompertz — DR is a magnitude, and the tangent
+    # must rise with the fitted curve whatever side of zero DR sits on.
+    rate = abs(DR)
     xstart = max(DL, 0)
-    xend = max(DL + A / DR, 1) if DR != 0 else 1
+    xend = max(DL + A / rate, 1) if rate != 0 else 1
     x_slope = np.linspace(xstart, xend, 100)
-    y_slope = (x_slope - DL) * DR
+    y_slope = (x_slope - DL) * rate
 
     y_dit = dit_row[RAW_VALUE_COLS].to_numpy(dtype=float)
 

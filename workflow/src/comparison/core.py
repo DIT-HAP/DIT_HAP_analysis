@@ -85,6 +85,14 @@ STUDY_FITNESS_COLUMNS = [
 DIT_HAP_FITNESS_COLUMN = "um_DIT_HAP"
 GRNA_FITNESS_COLUMN = "um_gRNA"
 
+# The curated gRNA table (resources/curated/*_gRNA_HDdata_fitted_parameters.tsv) is
+# frozen at the pre-2026-09-17 sign convention — positive = depleted — while
+# upstream flipped DIT-HAP so negative DR is now the depleted end. Flip the gRNA
+# metric on the way in so both fitness columns point the same way. Without this
+# the stage reports a strong ANTI-correlation: measured r = -0.92 where the two
+# studies actually agree at r = +0.92 (n = 4,465).
+GRNA_METRIC_SIGN = -1.0
+
 # A Pearson correlation needs at least this many complete (non-NaN) pairs to be
 # meaningful; pairs below this are skipped (logged) rather than emitting a
 # degenerate r/p that scipy warns or NaNs on.
@@ -150,8 +158,10 @@ def build_fitness_table(
     Mirrors the notebook's merged_fitness_data: the protein-features table
     (keyed on gene_systematic_id) is the spine, left-joined to the curated
     DIT-HAP metric and the gRNA metric on Systematic ID. Both metric columns
-    are the fitting `DR`/`um` column, disambiguated to um_DIT_HAP / um_gRNA.
-    The integration-density columns are clipped at clip_upper on the way out.
+    are the fitting `DR`/`um` column, disambiguated to um_DIT_HAP / um_gRNA;
+    the gRNA metric is sign-flipped (see GRNA_METRIC_SIGN) so the two agree in
+    direction. The integration-density columns are clipped at clip_upper on the
+    way out.
     """
     dit_hap_metric = _dit_hap_metric_column(final_clusters)
     grna_metric = _grna_metric_column(grna_data)
@@ -172,6 +182,7 @@ def build_fitness_table(
         how="left",
         suffixes=("_dithap", "_grna"),
     )
+    merged[GRNA_FITNESS_COLUMN] = merged[GRNA_FITNESS_COLUMN] * GRNA_METRIC_SIGN
     return clip_density_columns(merged, clip_upper=clip_upper)
 
 

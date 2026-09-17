@@ -92,7 +92,7 @@ def test_critical_filters_match_raw_labels():
     from workflow.src.verification.core import _CRITICAL_GROUPS
     merged = pd.DataFrame({
         "Systematic ID": ["g1", "g2", "g3", "g4"],
-        "DR": [0.9, 0.1, 0.1, 0.1],
+        "DR": [-0.9, -0.1, -0.1, -0.1],
         "DeletionLibrary_essentiality": ["V", "V", "V", "V"],
         "Category": ["WT-like", "spores", "spores, germinated", "germinated"],
     })
@@ -109,7 +109,7 @@ def _make_critical_fixtures():
     merged = pd.DataFrame({
         "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
         "Name": ["a", "b", "c", "d", "e"],
-        "DR": [0.9, 0.8, 0.7, 0.5, 0.4],
+        "DR": [-0.9, -0.8, -0.7, -0.5, -0.4],
         "DL": [5.0, 4.0, 3.0, 2.0, 1.0],
         "DeletionLibrary_essentiality": ["V", "V", "V", "V", "V"],
         "Category": ["WT-like", "WT-like", "WT-like", "WT-like", "small colonies"],
@@ -134,13 +134,13 @@ def test_prepare_verification_data_buckets():
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
         merged, final_merged, simplified,
-        outlier_filter="Category == 'WT-like' and DR > 0.35",
+        outlier_filter="Category == 'WT-like' and DR < -0.35",
     )
-    # g1..g4 are WT-like outliers (DR>0.35); g1 verified E, g2 verified small colonies,
-    # g3+g4 unverified. Not-verified DR list is DR-sorted descending.
-    assert dr_dict["E"] == [0.9]
-    assert dr_dict["small colonies"] == [0.8]
-    assert dr_dict["Not verified"] == [0.7, 0.5]
+    # g1..g4 are WT-like outliers (DR<-0.35); g1 verified E, g2 verified small colonies,
+    # g3+g4 unverified. Not-verified DR list is DR-sorted ascending = most depleted first.
+    assert dr_dict["E"] == [-0.9]
+    assert dr_dict["small colonies"] == [-0.8]
+    assert dr_dict["Not verified"] == [-0.7, -0.5]
     assert set(detail["Verification result bucket"]) == {"E", "small colonies", "Not verified"}
 
 
@@ -150,7 +150,7 @@ def test_prepare_verification_data_empty_group():
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
         merged, final_merged, simplified,
-        outlier_filter="Category == 'WT-like' and DR > 100",
+        outlier_filter="Category == 'WT-like' and DR < -100",
     )
     assert dr_dict == {}
     assert len(detail) == 0
@@ -159,7 +159,7 @@ def test_prepare_verification_data_empty_group():
 def test_select_group_outliers_matches_filter_and_sort():
     """select_group_outliers returns the group's filter hits, DR-sorted, deduped."""
     merged, _, _ = _make_critical_fixtures()
-    # WT2nonWT = Category=='WT-like' and DR>0.35, sorted desc: g1(0.9),g2(0.8),g3(0.7),g4(0.5)
+    # WT2nonWT = Category=='WT-like' and DR<-0.35, sorted asc: g1(-0.9),g2(-0.8),g3(-0.7),g4(-0.5)
     genes = select_group_outliers(merged, "WT2nonWT")
     assert genes == ["g1", "g2", "g3", "g4"]
 

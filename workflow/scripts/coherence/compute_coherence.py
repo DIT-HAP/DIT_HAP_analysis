@@ -6,7 +6,7 @@ Gene-Group Coherence Analysis (source-agnostic) — Computation Only
 ==================================================================
 
 Per-dataset x source: for every group (complex / GO term / ...) whose
-DR>threshold members number between --min-size and --max-size AND whose total
+DR<threshold members (negative DR = depleted) number between --min-size and --max-size AND whose total
 annotated membership is <= --max-term-genes, measures how tightly its member
 genes cluster in the 2D DIT-HAP fitness space and tests that tightness against
 a genome-wide null via a seeded permutation test.
@@ -41,7 +41,7 @@ Usage
         --fitting-results .../fitting_results.tsv \\
         --annotation results/coherence/{dataset}/{source}/group_annotation_long.tsv \\
         --source go_macrocomplex \\
-        --min-size 3 --max-size 300 --max-term-genes 500 --dr-threshold 0.3 \\
+        --min-size 3 --max-size 300 --max-term-genes 500 --dr-threshold -0.3 \\
         --n-permutations 1000 --random-state 42 \\
         --output results/coherence/{dataset}/{source}/coherence.parquet
 
@@ -84,7 +84,12 @@ from logging_setup import setup_logger  # noqa: E402
 # Legacy -> current metric column names
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
-# Min-max normalization ranges for the DIT-HAP fitness "points"
+# Min-max normalization ranges for the DIT-HAP fitness "points". Stored as a plain
+# value/divisor pair, so these are an affine reshape of (DR, DL/10), not a fitted
+# range: the coherence metrics are all Euclidean distances in this space, which a
+# reflection of one axis leaves unchanged. Upstream flipped the DR sign on
+# 2026-09-17 (negative = depleted), so the space is now a mirror of the old one —
+# the z-scores do not move, only which side of the DR axis WT sits on.
 _DR_NORM_RANGE = (0.0, 1.0)
 _DL_NORM_RANGE = (0.0, 10.0)
 
@@ -107,7 +112,7 @@ class CoherenceConfig:
     min_size: int = 3
     max_size: int = 300
     max_term_genes: int = 500
-    dr_threshold: float = 0.3
+    dr_threshold: float = -0.3
     n_permutations: int = 1000
     random_state: int = 42
 
@@ -165,10 +170,10 @@ def load_fitting_results(fitting_results_path: Path, dr_threshold: float) -> pd.
     fitting["norm_DR"] = _min_max_normalize(fitting["DR"].to_numpy(dtype=float), *_DR_NORM_RANGE)
     fitting["norm_DL"] = _min_max_normalize(fitting["DL"].to_numpy(dtype=float), *_DL_NORM_RANGE)
 
-    background = fitting[fitting["DR"] > dr_threshold].copy()
+    background = fitting[fitting["DR"] < dr_threshold].copy()
     logger.info(
         f"fitting_results.tsv: {len(fitting):,} fitted genes -> "
-        f"{len(background):,} background genes with DR > {dr_threshold}"
+        f"{len(background):,} background genes with DR < {dr_threshold}"
     )
     return background
 
@@ -221,7 +226,7 @@ def build_groups(
     max_group_size: int,
     max_term_genes: int,
 ) -> dict[str, pd.DataFrame]:
-    """Map surviving groups (keyed on group_id) -> their DR>threshold member rows."""
+    """Map surviving groups (keyed on group_id) -> their DR<threshold member rows."""
     merged = long_table.merge(
         background[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID", how="inner"
     )
@@ -340,13 +345,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", type=str, required=True,
                         help="Grouping-database source name (fan-out dimension)")
     parser.add_argument("--min-size", type=int, default=3,
-                        help="Minimum DR>threshold members per group")
+                        help="Minimum DR<threshold members per group")
     parser.add_argument("--max-size", type=int, default=300,
-                        help="Maximum DR>threshold members per group")
+                        help="Maximum DR<threshold members per group")
     parser.add_argument("--max-term-genes", type=int, default=500,
                         help="Drop groups whose total annotated membership (n_group_genes) exceeds this")
-    parser.add_argument("--dr-threshold", type=float, default=0.3,
-                        help="Keep genes with DR > this")
+    parser.add_argument("--dr-threshold", type=float, default=-0.3,
+                        help="Keep genes with DR < this (negative = depleted)")
     parser.add_argument("--n-permutations", type=int, default=1000,
                         help="Permutation null draws")
     parser.add_argument("--random-state", type=int, default=42,

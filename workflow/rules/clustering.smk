@@ -116,7 +116,7 @@ rule prepare_clustering_data:
         random_state=_CLUSTERING.get("random_state", 42),
         k_min=_CLUSTERING.get("k_min", 2),
         k_max=_CLUSTERING.get("k_max", 20),
-        dr_cap=_CLUSTERING.get("dr_cap", 1.3),
+        dr_clamp=_CLUSTERING.get("dr_clamp", -1.3),
         dl_divisor=_CLUSTERING.get("dl_divisor", 10),
     log:
         "logs/clustering/prepare_clustering_data_{dataset}.log",
@@ -135,7 +135,7 @@ rule prepare_clustering_data:
             --random-state {params.random_state} \
             --k-min {params.k_min} \
             --k-max {params.k_max} \
-            --dr-cap {params.dr_cap} \
+            --dr-clamp {params.dr_clamp} \
             --dl-divisor {params.dl_divisor} &> {log}
         """
 

@@ -210,7 +210,7 @@ def plot_coherence(
     log_max = np.log10(table["term_size"].max())
     log_bins = np.logspace(log_min, log_max, 21)
     ax_size.hist(table["term_size"], bins=log_bins, rwidth=0.9, color="#6b99df")
-    ax_size.set_xlabel("Group size (DR>threshold members)")
+    ax_size.set_xlabel("Group size (DR<threshold members)")
     ax_size.set_ylabel("Number of groups")
     ax_size.set_title("Group size distribution")
     ax_size.set_xscale("log")

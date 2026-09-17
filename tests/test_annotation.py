@@ -686,10 +686,10 @@ def _grna_frame(rows: list[tuple[str, float, float]]) -> pd.DataFrame:
 
 
 def test_grna_block_renames_legacy_um_and_lam():
-    """The curated table still uses upstream's legacy um/lam names for DR/DL."""
+    """The curated table uses legacy um/lam names; gRNA_DR is sign-flipped to match DIT-HAP."""
     grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
     result = build_grna_block(grna)
-    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == 1.048
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == -1.048   # sign-flipped to the DIT-HAP convention
     assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
 
 
@@ -709,10 +709,10 @@ def test_grna_columns_are_prefixed_to_avoid_colliding_with_gene_level_dr_dl():
 
 
 def test_grna_block_accepts_a_table_already_using_dr_dl_names():
-    """If upstream ever ships DR/DL directly, the same loader must keep working."""
+    """If upstream ever ships DR/DL directly, the same loader must keep working (and flip)."""
     grna = pd.DataFrame({"Systematic ID": ["SPAC3A12.11c"], "DR": [1.048], "DL": [1.103]})
     result = build_grna_block(grna)
-    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == 1.048
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == -1.048   # sign-flipped to the DIT-HAP convention
     assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
 
 
