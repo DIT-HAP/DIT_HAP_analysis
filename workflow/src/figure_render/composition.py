@@ -13,6 +13,7 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 import sys
+import textwrap
 from pathlib import Path
 
 # Add workflow/src to path for imports
@@ -87,21 +88,15 @@ CENTER_LINE_MAX_CHARS = 15
 
 
 def _wrap_center_text(center_text: str) -> str:
-    """Hyphen-wrap ``center_text`` so no line exceeds CENTER_LINE_MAX_CHARS."""
-    if len(center_text) <= CENTER_LINE_MAX_CHARS:
-        return center_text
-    lines: list[str] = []
-    current = ""
-    for part in center_text.split("-"):
-        candidate = f"{current}-{part}" if current else part
-        if len(candidate) > CENTER_LINE_MAX_CHARS and current:
-            lines.append(current)
-            current = part
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return "\n".join(lines)
+    """Wrap ``center_text`` so no line exceeds CENTER_LINE_MAX_CHARS.
+
+    Breaks on whitespace and hyphens, never mid-word: PomBase category names
+    contain words ("Schizosaccharomyces", 20 chars) already longer than the
+    hole, and splitting one reads worse than letting it overhang a little.
+    """
+    return "\n".join(
+        textwrap.wrap(center_text, width=CENTER_LINE_MAX_CHARS, break_long_words=False)
+    )
 
 
 # =============================================================================

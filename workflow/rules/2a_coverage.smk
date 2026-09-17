@@ -16,11 +16,16 @@
 #                              for uncovered genes is backfilled from the curated
 #                              deletion_library_categories.xlsx.
 #   compute_coverage_stats  -> coverage_stats.tsv + detailed_genes.xlsx
-#   plot_coverage_figures   -> coverage_figures.pdf
-# plot_coverage_figures reads coverage_stats.tsv (donuts/bars) + gene_result
-# parquet (per-gene DR/DL histograms), so the figures always match the numbers
-# in the stats table. Editing the stats rule therefore rebuilds the figures too —
-# a deliberate coupling for figure/table agreement.
+#   plot_coverage_figures   -> six single-figure PDFs (cnsplots style): an
+#                              overview, one composition figure per gene
+#                              classification (deletion viability,
+#                              characterisation_status), insertion placement per
+#                              chromosome, and a DR / a DL histogram per
+#                              essentiality class.
+# plot_coverage_figures reads coverage_stats.tsv (the composition figures) +
+# gene_result parquet (per-gene DR/DL histograms), so the figures always match
+# the numbers in the stats table. Editing the stats rule therefore rebuilds the
+# figures too — a deliberate coupling for figure/table agreement.
 
 _COVWORK = "results/coverage/{dataset}/_work"
 
@@ -98,8 +103,7 @@ rule compute_coverage_stats:
 # -----------------------------------------------------------------------------
 # Stage 2b: Plot figures
 # -----------------------------------------------------------------------------
-# Moved to figure.smk: rule plot_coverage_figures
-# Reads coverage_stats.tsv + gene_result.parquet -> coverage_figures.pdf
+# Reads coverage_stats.tsv + gene_result.parquet -> six cnsplots figures.
 
 
 rule plot_coverage_figures:
@@ -107,7 +111,12 @@ rule plot_coverage_figures:
         stats="results/coverage/{dataset}/coverage_stats.tsv",
         gene_result=f"{_COVWORK}/gene_result.parquet",
     output:
-        figures="results/coverage/{dataset}/coverage_figures.pdf",
+        overview="results/coverage/{dataset}/coverage_overview.pdf",
+        deletion_viability="results/coverage/{dataset}/coverage_by_deletion_viability.pdf",
+        characterisation="results/coverage/{dataset}/coverage_by_characterisation.pdf",
+        insertion_placement="results/coverage/{dataset}/coverage_insertion_placement.pdf",
+        dr_histogram="results/coverage/{dataset}/coverage_dr_by_essentiality.pdf",
+        dl_histogram="results/coverage/{dataset}/coverage_dl_by_essentiality.pdf",
     log:
         "logs/coverage/plot_coverage_figures_{dataset}.log",
     conda:
@@ -119,5 +128,10 @@ rule plot_coverage_figures:
         python workflow/scripts/coverage/plot_coverage_figures.py \
             --stats {input.stats} \
             --gene-result {input.gene_result} \
-            --output-figures {output.figures} &> {log}
+            --output-overview {output.overview} \
+            --output-deletion-viability {output.deletion_viability} \
+            --output-characterisation {output.characterisation} \
+            --output-insertion-placement {output.insertion_placement} \
+            --output-dr-histogram {output.dr_histogram} \
+            --output-dl-histogram {output.dl_histogram} &> {log}
         """

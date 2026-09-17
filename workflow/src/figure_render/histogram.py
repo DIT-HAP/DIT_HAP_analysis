@@ -50,6 +50,11 @@ from ._schema import require_columns  # noqa: E402
 # under this name. It never reaches the axis labels, which callers supply.
 _VALUE_COLUMN = "value"
 
+# Stand-in column for the un-faceted call (col_key=None). Carries one blank
+# value, so the grid collapses to a single column and the row key alone labels
+# each panel.
+_SINGLE_COLUMN = "_single"
+
 
 # =============================================================================
 # CORE LOGIC — single-axes primitive
@@ -58,7 +63,7 @@ def draw_histogram_panel(
     ax: Axes,
     data: pd.Series,
     *,
-    bins: int,
+    bins: int | np.ndarray,
     log_scale: bool = False,
     xlabel: str = "Value",
     ylabel: str = "Frequency",
@@ -177,8 +182,8 @@ def render_grouped_histogram_figure(
     *,
     value_column: str,
     row_key: str,
-    col_key: str,
-    bins: int = 50,
+    col_key: str | None = None,
+    bins: int | np.ndarray = 50,
     log_scale: bool = False,
     xlabel: str = "Value",
     ylabel: str = "Frequency",
@@ -208,7 +213,15 @@ def render_grouped_histogram_figure(
     smaller panels.
 
     The row_key value rides in the first column's ylabel rather than the title.
+
+    ``col_key=None`` renders the un-faceted case: one panel per row value, the
+    row value as the panel title and the plain ylabel beneath it.
     """
+    if col_key is None:
+        col_key = _SINGLE_COLUMN
+        df = df.assign(**{_SINGLE_COLUMN: ""})
+    un_faceted = col_key == _SINGLE_COLUMN
+
     require_columns(df, [row_key, col_key, value_column], context="grouped histogram input")
 
     if df.empty:
@@ -267,14 +280,18 @@ def render_grouped_histogram_figure(
         c = col_values.index(col_val)
         ax = axes[r * n_cols + c]
 
-        panel_ylabel = f"{row_val}\n{ylabel}" if c == 0 else ylabel
+        if un_faceted:
+            panel_ylabel, panel_title = ylabel, str(row_val)
+        else:
+            panel_ylabel = f"{row_val}\n{ylabel}" if c == 0 else ylabel
+            panel_title = str(col_val)
         draw_histogram_panel(
             ax, data,
             bins=bins,
             log_scale=log_scale,
             xlabel=xlabel,
             ylabel=panel_ylabel,
-            title=str(col_val),
+            title=panel_title,
             bin_edges=shared_edges,
         )
 

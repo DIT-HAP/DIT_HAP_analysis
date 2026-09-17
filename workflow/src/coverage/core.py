@@ -2,12 +2,15 @@
 Gene Insertion Coverage — Core Logic
 =====================================
 
-Shared constants, loaders, coverage computations, stats-table assembly, and
-figure builders for the coverage stage. Ported from
+Shared constants, loaders, coverage computations, stats-table assembly, and the
+render-ready frame builders for the coverage figures. Ported from
 DIT_HAP_pipeline/workflow/notebooks/gene_coverage_analysis.ipynb and factored
 out of the original single-script port so the stage can be split into
 independent Snakemake rules (prepare -> compute stats / plot figures), each
 re-runnable on its own.
+
+Drawing itself belongs to workflow/src/figure_render/; the builders at the
+bottom of this module only reshape numbers into the frames those renderers take.
 
 Input
 -----
@@ -40,8 +43,9 @@ Usage
         compute_characterisation_status_coverage,
         compute_deletion_viability_coverage, compute_essentiality_category_coverage,
         build_stats_table, coverage_dicts_from_stats_table,
-        plot_coverage_donuts, plot_dr_dl_histograms,
-        plot_characterisation_status_donuts, plot_characterisation_status_histograms,
+        composition_frame, overall_coverage_frame, deletion_viability_frame,
+        characterisation_status_frame, insertion_placement_frame,
+        dr_dl_histogram_frame,
     )
 """
 
@@ -49,6 +53,7 @@ Usage
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
+from collections.abc import Mapping
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -56,15 +61,7 @@ import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib
-
-matplotlib.use("Agg")  # headless: builders only write PDFs, never display
-import matplotlib.pyplot as plt  # noqa: E402
-from loguru import logger  # noqa: E402
-
-# 4. Local Imports
-from plotting.generic import donut_chart  # noqa: E402
-from plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+from loguru import logger
 
 
 # =============================================================================
@@ -82,34 +79,59 @@ IN_GENE_FILTER = "Type != 'Intergenic region' and Distance_to_stop_codon > 4"
 # headers instead of DR/DL.
 _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
-# Donut chart colors, byte-faithful to the notebook's per-chart hardcoded values.
-_INSERTION_COVERAGE_COLORS = ["#c4954b", "#C0C0C0"]
-_GENE_COVERAGE_COLORS = ["#6b99df", "#C0C0C0"]
-_ESSENTIAL_COVERAGE_COLORS = ["#dd8369", "#C0C0C0"]
-_NON_ESSENTIAL_COVERAGE_COLORS = ["#98a64e", "#C0C0C0"]
-# characterisation_status donuts reuse the shared covered/not-covered scheme
-# (covered = the gene-coverage blue, not-covered = the same grey as every other donut).
-_CHARACTERISATION_COVERAGE_COLORS = ["#6b99df", "#C0C0C0"]
+# DR/DL histogram bin edges, byte-faithful to the notebook's "DR DL Histogram"
+# cell. Passed to the histogram renderer as explicit edges, so they also set
+# each panel's x range (the notebook's own xlim).
+#
+# Mirrored 2026-09-17 when upstream flipped the DR sign convention (negative =
+# depleted). The DR edges are the exact negation of the old ones, so the axis
+# still truncates the extreme-depletion tail rather than the WT shoulder — the
+# old [-0.2, 1.45] cut the top 0.1%, the new [-1.45, 0.2] cuts the bottom ~1%.
+# Leaving them un-mirrored would have silently dropped 38% of genes (all the
+# depleted ones) out of the histogram. DL did not flip.
+DR_BINS = np.arange(-1.45, 0.25, 0.05)
+DL_BINS = np.arange(0, 15, 0.5)
 
-# DR/DL histogram bin edges + x-limits + per-essentiality row colors, byte-faithful
-# to the notebook's "DR DL Histogram" cell.
-_DR_BINS = np.arange(-0.2, 1.5, 0.05)
-_DR_XLIM = (-0.2, 1.5)
-_DL_BINS = np.arange(0, 15, 0.5)
-_DL_XLIM = (0, 15)
-_HIST_ROW_COLORS = ["#6b99df", "#dd8369", "#98a64e"]
-# Essential/non-essential rows use the SAME == 'E' / == 'V' definition as
-# compute_essentiality_coverage (see that function's docstring) — genes with
-# essentiality == 'Not_determined' land in neither row, only in the
-# "All genes" (.notna()) row. Keep these two definitions in sync: a mismatch
-# here previously caused coverage_stats.tsv and coverage_figures.pdf to report
-# different non_essential totals for the same run.
-_HIST_ROW_QUERIES = [
-    "essentiality.notna()",
-    "essentiality == 'E'",
-    "essentiality == 'V'",
-]
-_HIST_ROW_LABELS = ["All genes", "Essential", "Non-essential"]
+# The histogram's rows, as (label, essentiality value) pairs. "All genes" keeps
+# every fitted gene; the E/V rows use the SAME == 'E' / == 'V' definition as
+# compute_essentiality_coverage (see that function's docstring), so genes with
+# essentiality == 'Not_determined' land in neither row, only in "All genes".
+# Keep these two definitions in sync: a mismatch here previously made the
+# coverage stats table and the coverage figures report different non_essential
+# totals for the same run.
+HISTOGRAM_STRATA = (
+    ("All genes", None),
+    ("Essential", "E"),
+    ("Non-essential", "V"),
+)
+
+# Display labels for the stats-table category keys of the breakdowns that get
+# plotted. Keys absent from a map fall back to the raw key, so a new category
+# still renders rather than vanishing from the figure.
+ESSENTIALITY_LABELS = {
+    "E": "Essential",
+    "V": "Non-essential",
+    "Not_determined": "Not determined",
+}
+DELETION_VIABILITY_LABELS = {
+    "viable": "Viable",
+    "inviable": "Inviable",
+    "depends_on_conditions": "Depends on conditions",
+    "unknown": "Unknown",
+}
+
+# Insertion placement is plotted for the three main chromosomes only. The
+# telomeric gap (220 insertions), mitochondrial (25) and mating-type region (3)
+# are too small for their percentage to mean anything beside chr_I's 42,252 —
+# 2 of 3 insertions reads as 66.7%.
+PLOTTED_CHROMOSOMES = ("I", "II", "III")
+
+# Donut labels. Gene-level figures show a covered fraction against the
+# remainder; the insertion-placement figure shows where insertions landed.
+COVERED_LABEL = "Covered"
+NOT_COVERED_LABEL = "Not covered"
+IN_GENE_LABEL = "In genes"
+INTERGENIC_LABEL = "Intergenic"
 
 
 # =============================================================================
@@ -379,7 +401,8 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
       essentiality is never null — "Not_determined" when no deletion-library call exists)
     - coverage_status: "covered" if DR is not NaN, "not_covered" otherwise
 
-    Sorted by characterisation_status (descending by gene count), then by coverage_status, then by DR (desc).
+    Sorted by characterisation_status (descending by gene count), then by coverage_status,
+    then by DR ascending — most depleted first, since negative DR now means depleted.
     """
     # Start with full protein-coding gene universe from metadata
     protein_genes = gene_metadata[gene_metadata["feature_type"] == "protein"].copy()
@@ -404,6 +427,7 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
     detailed_table["coverage_status"] = detailed_table["DR"].notna().map({True: "covered", False: "not_covered"})
 
     # Sort: by characterisation_status frequency (most common first), then coverage, then DR
+    # ascending (most depleted first — negative DR is the depleted end).
     if "characterisation_status" in detailed_table.columns:
         status_order = detailed_table["characterisation_status"].value_counts().index.tolist()
         detailed_table["_status_rank"] = detailed_table["characterisation_status"].map(
@@ -411,13 +435,13 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
         )
         detailed_table = detailed_table.sort_values(
             ["_status_rank", "coverage_status", "DR"],
-            ascending=[True, True, False],
+            ascending=[True, True, True],
             na_position="last"
         ).drop(columns=["_status_rank"])
     else:
         detailed_table = detailed_table.sort_values(
             ["coverage_status", "DR"],
-            ascending=[True, False],
+            ascending=[True, True],
             na_position="last"
         )
 
@@ -563,174 +587,106 @@ def build_stats_table(
 
 
 # =============================================================================
-# PLOTTING
+# RENDER-READY FRAMES
 # =============================================================================
-def plot_coverage_donuts(
-    insertion_coverage: dict[str, int],
-    gene_coverage: dict[str, int],
-    essentiality_coverage: dict[str, dict[str, int]],
-    per_chromosome: pd.DataFrame,
-) -> plt.Figure:
-    """Donut charts for insertion/gene/essential/non-essential coverage + per-chromosome bars."""
-    fig, axes = plt.subplot_mosaic(
-        [["A", "C", "E"], ["B", "D", "E"]],
-        figsize=(AX_WIDTH * 3, AX_HEIGHT * 2),
-    )
+# Drawing belongs to workflow/src/figure_render/: every coverage breakdown goes
+# through render_composition_figure (percentage bar + one part/whole donut per
+# category), and the DR/DL distributions through render_grouped_histogram_figure.
+# These builders only reshape numbers into the frames those renderers take —
+# every value still comes from coverage_dicts_from_stats_table, so a figure can
+# never disagree with the stats table it was drawn from.
 
-    donut_chart(
-        values=[insertion_coverage["in_gene"], insertion_coverage["intergenic"]],
-        labels=["In genes", "Intergenic regions"],
-        colors=_INSERTION_COVERAGE_COLORS,
-        center_text=f"Total\n{insertion_coverage['total']:,}\ninsertions",
-        ax=axes["A"],
-    )
-    axes["A"].set_title("Insertions in coding genes")
+def composition_frame(
+    category_coverage: Mapping[str, Mapping[str, int]],
+    *,
+    labels: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """Reshape {category: {covered, not_covered, total}} into a composition frame.
 
-    donut_chart(
-        values=[gene_coverage["covered"], gene_coverage["not_covered"]],
-        labels=["Covered", "Not covered"],
-        colors=_GENE_COVERAGE_COLORS,
-        center_text=f"Total\n{gene_coverage['total']:,}\ngenes",
-        ax=axes["B"],
-    )
-    axes["B"].set_title("Gene coverage by insertions")
-
-    essential = essentiality_coverage["essential"]
-    donut_chart(
-        values=[essential["covered"], essential["not_covered"]],
-        labels=["Covered", "Not covered"],
-        colors=_ESSENTIAL_COVERAGE_COLORS,
-        center_text=f"Total\n{essential['total']:,}\nessential\ngenes",
-        ax=axes["C"],
-    )
-    axes["C"].set_title("Essential gene\ncoverage by insertions")
-
-    non_essential = essentiality_coverage["non_essential"]
-    donut_chart(
-        values=[non_essential["covered"], non_essential["not_covered"]],
-        labels=["Covered", "Not covered"],
-        colors=_NON_ESSENTIAL_COVERAGE_COLORS,
-        center_text=f"Total\n{non_essential['total']:,}\nnon-essential\ngenes",
-        ax=axes["D"],
-    )
-    axes["D"].set_title("Non-essential gene\ncoverage by insertions")
-
-    ax = axes["E"]
-    x = np.arange(len(per_chromosome))
-    ax.bar(x, per_chromosome["in_gene"], label="In genes", color=_INSERTION_COVERAGE_COLORS[0])
-    ax.bar(x, per_chromosome["intergenic"], bottom=per_chromosome["in_gene"],
-           label="Intergenic regions", color=_INSERTION_COVERAGE_COLORS[1])
-    ax.set_xticks(x)
-    ax.set_xticklabels(per_chromosome["Chr"])
-    ax.set_xlabel("Chromosome")
-    ax.set_ylabel("Number of insertions")
-    ax.set_title("Per-chromosome insertion coverage")
-    ax.legend()
-
-    fig.tight_layout(h_pad=1, w_pad=1)
-    return fig
-
-
-def plot_dr_dl_histograms(gene_result: pd.DataFrame) -> plt.Figure:
-    """3 rows (all/essential/non-essential) x 2 cols (DR/DL) histogram grid."""
-    fig, axes = plt.subplots(3, 2, figsize=(AX_WIDTH * 2, AX_HEIGHT * 2))
-
-    for col, col_feature in enumerate(["DR", "DL"]):
-        bins, xlim = (_DR_BINS, _DR_XLIM) if col_feature == "DR" else (_DL_BINS, _DL_XLIM)
-        for row, row_query in enumerate(_HIST_ROW_QUERIES):
-            ax = axes[row, col]
-            data = gene_result.query(row_query)[col_feature].dropna()
-            ax.hist(data, bins=bins, rwidth=0.9, color=_HIST_ROW_COLORS[row])
-            ax.set_xlim(xlim)
-            if col == 0:
-                ax.set_ylabel(f"{_HIST_ROW_LABELS[row]}\nNumber of genes")
-            if row == 0:
-                ax.set_title(f"{col_feature} distribution")
-
-    fig.tight_layout()
-    return fig
-
-
-def _grid_shape(n: int, ncols: int) -> tuple[int, int]:
-    """Rows/cols for an n-panel grid at a fixed column count (ceil-divide for the last partial row)."""
-    nrows = (n + ncols - 1) // ncols
-    return nrows, ncols
-
-
-def plot_characterisation_status_donuts(
-    characterisation_status_coverage: dict[str, dict[str, int]],
-    ncols: int = 4,
-) -> plt.Figure:
-    """One covered/not-covered donut per characterisation_status category, in a grid.
-
-    Categories are drawn in the dict's own order (compute_characterisation_status_coverage
-    yields them most-frequent-first). Any trailing empty grid cells are hidden.
+    ``labels`` renames categories for display; unlisted keys pass through as
+    they are. ``covered_pct`` is rounded to 1 decimal, matching
+    build_stats_table, so the drawn bar labels read identically to
+    coverage_stats.tsv.
     """
-    statuses = list(characterisation_status_coverage)
-    nrows, ncols = _grid_shape(len(statuses), ncols)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(AX_WIDTH * ncols, AX_HEIGHT * nrows))
-    axes = np.atleast_1d(axes).ravel()
-
-    for ax, status in zip(axes, statuses):
-        counts = characterisation_status_coverage[status]
-        donut_chart(
-            values=[counts["covered"], counts["not_covered"]],
-            labels=["Covered", "Not covered"],
-            colors=_CHARACTERISATION_COVERAGE_COLORS,
-            center_text=f"Total\n{counts['total']:,}\ngenes",
-            ax=ax,
-        )
-        # Wrap long status labels so titles don't collide with neighbours.
-        ax.set_title(_wrap_label(status))
-
-    for ax in axes[len(statuses):]:
-        ax.axis("off")
-
-    fig.suptitle("Gene coverage by characterisation status", y=1.02)
-    fig.tight_layout(h_pad=1, w_pad=1)
-    return fig
+    labels = labels or {}
+    rows = []
+    for category, counts in category_coverage.items():
+        total = int(counts["total"])
+        covered = int(counts["covered"])
+        rows.append({
+            "category": labels.get(category, category),
+            "covered": covered,
+            "not_covered": int(counts["not_covered"]),
+            "covered_pct": round(covered / total * 100, 1) if total else float("nan"),
+        })
+    return pd.DataFrame(rows)
 
 
-def plot_characterisation_status_histograms(
-    gene_result: pd.DataFrame,
-    ncols: int = 2,
-) -> plt.Figure:
-    """DR + DL distribution histograms per characterisation_status category.
+def overall_coverage_frame(
+    gene_coverage: Mapping[str, int],
+    essentiality_category_coverage: Mapping[str, Mapping[str, int]],
+) -> pd.DataFrame:
+    """Every gene, then the three essentiality classes.
 
-    One row per category, two columns (DR, DL) — mirroring plot_dr_dl_histograms'
-    per-feature bins/x-limits. Categories are ordered most-frequent-first.
+    "All genes" and the E/V/Not_determined rows partition the same 5,126 genes,
+    so the bars read as one decomposition rather than four unrelated numbers.
     """
-    if "characterisation_status" not in gene_result.columns:
-        logger.warning("characterisation_status column not found; skipping per-category histograms")
-        fig, ax = plt.subplots()
-        ax.axis("off")
-        return fig
-
-    statuses = gene_result["characterisation_status"].value_counts().index.tolist()
-    features = ["DR", "DL"]
-    nrows = len(statuses)
-    fig, axes = plt.subplots(nrows, len(features), figsize=(AX_WIDTH * len(features), AX_HEIGHT * nrows))
-    axes = np.atleast_2d(axes)
-
-    for row, status in enumerate(statuses):
-        subset = gene_result[gene_result["characterisation_status"] == status]
-        for col, feature in enumerate(features):
-            ax = axes[row, col]
-            bins, xlim = (_DR_BINS, _DR_XLIM) if feature == "DR" else (_DL_BINS, _DL_XLIM)
-            data = subset[feature].dropna()
-            ax.hist(data, bins=bins, rwidth=0.9, color=_CHARACTERISATION_COVERAGE_COLORS[0])
-            ax.set_xlim(xlim)
-            if col == 0:
-                ax.set_ylabel(f"{_wrap_label(status)}\nNumber of genes")
-            if row == 0:
-                ax.set_title(f"{feature} distribution")
-
-    fig.tight_layout()
-    return fig
+    return composition_frame(
+        {"All genes": gene_coverage, **essentiality_category_coverage},
+        labels=ESSENTIALITY_LABELS,
+    )
 
 
-def _wrap_label(label: str, width: int = 20) -> str:
-    """Soft-wrap a long category label onto multiple lines for plot titles/axis labels."""
-    import textwrap
+def deletion_viability_frame(
+    deletion_viability_coverage: Mapping[str, Mapping[str, int]],
+) -> pd.DataFrame:
+    """Coverage per class of the curated deletion-library viability table."""
+    return composition_frame(
+        deletion_viability_coverage, labels=DELETION_VIABILITY_LABELS
+    )
 
-    return "\n".join(textwrap.wrap(str(label), width=width)) or str(label)
+
+def characterisation_status_frame(
+    characterisation_status_coverage: Mapping[str, Mapping[str, int]],
+) -> pd.DataFrame:
+    """Coverage per PomBase characterisation_status (how well annotated a gene is)."""
+    return composition_frame(characterisation_status_coverage)
+
+
+def insertion_placement_frame(per_chromosome: pd.DataFrame) -> pd.DataFrame:
+    """In-gene vs intergenic insertion share for the three main chromosomes.
+
+    Small regions (telomeric gap, mitochondrial, mating type) are dropped — see
+    PLOTTED_CHROMOSOMES.
+    """
+    rows = per_chromosome[per_chromosome["Chr"].isin(PLOTTED_CHROMOSOMES)]
+    if rows.empty:
+        raise ValueError(f"None of {PLOTTED_CHROMOSOMES} found in the per-chromosome table")
+    coverage = {
+        f"chr_{row['Chr']}": {
+            "covered": int(row["in_gene"]),
+            "not_covered": int(row["intergenic"]),
+            "total": int(row["total"]),
+        }
+        for _, row in rows.iterrows()
+    }
+    return composition_frame(coverage)
+
+
+def dr_dl_histogram_frame(gene_result: pd.DataFrame, feature: str) -> pd.DataFrame:
+    """Long-form frame for one DR/DL histogram figure: one row per (stratum, gene).
+
+    A gene contributes to every stratum it belongs to, so an essential gene
+    appears under both "All genes" and "Essential" — that is what makes the
+    facet's three panels directly comparable. See HISTOGRAM_STRATA.
+    """
+    if feature not in gene_result.columns:
+        raise ValueError(f"{feature!r} not in the gene_result table")
+    if "essentiality" not in gene_result.columns:
+        raise ValueError("'essentiality' not in the gene_result table; cannot stratify")
+
+    parts = []
+    for label, value in HISTOGRAM_STRATA:
+        mask = gene_result["essentiality"].notna() if value is None else gene_result["essentiality"] == value
+        parts.append(pd.DataFrame({"stratum": label, feature: gene_result.loc[mask, feature].to_numpy()}))
+    return pd.concat(parts, ignore_index=True)
