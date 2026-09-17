@@ -14,8 +14,9 @@ intermediates consumed by the compute-stats / plot-figures rules:
   and with duplicate-indexed rows collapsed (see
   workflow.src.coverage.core.resolve_duplicate_annotations) — ready for
   compute_insertion_coverage / compute_per_chromosome_insertion_coverage.
-- gene_result.parquet: gene-level fitting results, with legacy um/lam headers
-  normalized to DR/DL.
+- gene_result.parquet: the full protein-coding gene universe (from the gene
+  annotation reference, annotate.smk) left-joined to the dataset's own gene-level
+  fitting results, with legacy um/lam headers normalized to DR/DL.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
@@ -33,7 +34,6 @@ from pathlib import Path
 
 # 2. Third-party Imports
 from loguru import logger
-import pandas as pd
 
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -52,14 +52,13 @@ class PrepareConfig:
     fitting_results: Path
     annotations: Path
     gene_level: Path
-    gene_metadata: Path
-    deletion_library_xlsx: Path
+    annotation_reference: Path
     output_annotations: Path
     output_gene_result: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.fitting_results, self.annotations, self.gene_level, self.gene_metadata, self.deletion_library_xlsx]:
+        for path in [self.fitting_results, self.annotations, self.gene_level, self.annotation_reference]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for out in [self.output_annotations, self.output_gene_result]:
@@ -79,27 +78,32 @@ def run(config: PrepareConfig) -> None:
 
     # gene_level's fitting_results.tsv carries FYPOviability + DeletionLibrary_essentiality,
     # but both are PomBase-era snapshots limited to the genes DIT-HAP happened to cover.
-    # Drop them here — deletion_viability (from gene_metadata, below) and essentiality
-    # (from deletion_library_categories.xlsx, below) are the same two facts sourced
-    # directly and applied to the FULL protein-coding gene universe, uncovered genes
-    # included. Verified byte-for-byte equal to these two on the covered subset (see
-    # 2026-07-23 coverage-fields verification): FYPOviability == deletion_viability after
-    # normalizing the "condition-dependent"/"depends_on_conditions" label spelling; native
-    # DeletionLibrary_essentiality == deletion_library_categories.xlsx's "Gene
-    # dispensability. This study", with every native "Not_determined" exactly matching a
-    # gene absent from that xlsx.
+    # Drop them here — FYPOviability and deletion_essentiality come from the annotation
+    # reference below (same two sources: PomBase gene metadata + deletion_library_categories
+    # .xlsx) applied to the FULL protein-coding gene universe, uncovered genes included.
+    # Verified identical to these two columns on the covered subset (2026-07-23
+    # coverage-fields verification), and to the reference on the full universe (2026-09-17).
     gene_result = gene_result.drop(columns=["FYPOviability", "DeletionLibrary_essentiality"], errors="ignore")
 
-    # Load full protein-coding gene universe from gene metadata
-    gene_metadata = read_parquet(config.gene_metadata)
-    protein_genes = gene_metadata[gene_metadata["feature_type"] == "protein"].copy()
-
-    # Start with full protein-coding gene list, then left join fitting results
-    # This ensures uncovered genes (no DR/DL) are present as DR=NaN rows
-    full_gene_cols = ["systematic_id", "name", "characterisation_status", "deletion_viability"]
-    available_cols = [c for c in full_gene_cols if c in protein_genes.columns]
-    gene_universe = protein_genes[available_cols].copy()
-    gene_universe = gene_universe.rename(columns={"systematic_id": "Systematic ID", "name": "Name"})
+    # Gene universe + annotation come from the annotation reference (annotate.smk) rather
+    # than re-reading PomBase metadata + the deletion-library xlsx here. Only the columns
+    # coverage needs are selected, under the reference's own names — so a coverage table
+    # reads the same as the reference and the annotated workbook, with no renaming in
+    # between. The reference also carries HD_DIT_HAP's own gene-level DR/DL (baked in at
+    # build time) and the SGD-derived blocks, none of which belong in a per-dataset
+    # coverage analysis.
+    reference = read_parquet(config.annotation_reference)
+    # protein-only: the reference is built filtered to protein genes, but its experimental
+    # blocks are outer-joined, so rows with no current PomBase record carry feature_type=NaN.
+    gene_universe = (
+        reference.loc[
+            reference["feature_type"] == "protein",
+            ["gene_name", "product", "characterisation_status", "FYPOviability", "deletion_essentiality"],
+        ]
+        .rename(columns={"gene_name": "Name"})
+        .rename_axis("Systematic ID")
+        .reset_index()
+    )
 
     # Left join: all genes from universe, fitting results where available
     gene_result_full = gene_universe.merge(
@@ -114,18 +118,12 @@ def run(config: PrepareConfig) -> None:
         gene_result_full["Name"] = gene_result_full["Name_fitting"].fillna(gene_result_full["Name_meta"])
         gene_result_full = gene_result_full.drop(columns=["Name_meta", "Name_fitting"])
 
-    # essentiality: sourced straight from deletion_library_categories.xlsx (the curated
-    # Hayles-derived dispensability study) for every gene in the universe, not just the
-    # ones DIT-HAP's curve fitting covered. Genes absent from the xlsx (no deletion-library
-    # call was ever made for them) are labeled "Not_determined" rather than left null.
-    deletion_library = pd.read_excel(config.deletion_library_xlsx)
-    dl_essentiality = deletion_library.set_index("Systematic ID")["Gene dispensability. This study"]
-    gene_result_full["essentiality"] = (
-        gene_result_full["Systematic ID"].map(dl_essentiality).fillna("Not_determined")
-    )
-    n_not_determined = (gene_result_full["essentiality"] == "Not_determined").sum()
+    # Genes absent from the deletion library (no deletion-library call was ever made for
+    # them) are labeled "Not_determined" rather than left null.
+    gene_result_full["deletion_essentiality"] = gene_result_full["deletion_essentiality"].fillna("Not_determined")
+    n_not_determined = (gene_result_full["deletion_essentiality"] == "Not_determined").sum()
     logger.info(
-        f"Assigned essentiality from deletion_library_categories.xlsx: "
+        f"Assigned essentiality from the annotation reference: "
         f"{len(gene_result_full) - n_not_determined:,} E/V, {n_not_determined:,} Not_determined"
     )
 
@@ -137,9 +135,9 @@ def run(config: PrepareConfig) -> None:
 
     if "characterisation_status" in gene_result_full.columns:
         logger.info(f"characterisation_status annotated: {gene_result_full['characterisation_status'].notna().sum():,} genes")
-    if "deletion_viability" in gene_result_full.columns:
-        n_missing_viability = gene_result_full["deletion_viability"].isna().sum()
-        logger.info(f"deletion_viability null count: {n_missing_viability:,} (PomBase's own 'unknown' category covers the rest)")
+    if "FYPOviability" in gene_result_full.columns:
+        n_missing_viability = gene_result_full["FYPOviability"].isna().sum()
+        logger.info(f"FYPOviability null count: {n_missing_viability:,} (PomBase's own 'unknown' category covers the rest)")
 
     write_parquet(annotations, config.output_annotations)
     write_parquet(gene_result_full, config.output_gene_result)
@@ -158,8 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv")
     parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)")
     parser.add_argument("--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv")
-    parser.add_argument("--gene-metadata", type=Path, required=True, help="Gene metadata parquet with characterisation_status")
-    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Deletion library categories Excel file")
+    parser.add_argument("--annotation-reference", type=Path, required=True, help="Gene annotation reference parquet (annotate.smk)")
     parser.add_argument("--output-annotations", type=Path, required=True, help="Output annotations.parquet")
     parser.add_argument("--output-gene-result", type=Path, required=True, help="Output gene_result.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -175,8 +172,7 @@ def main() -> int:
             fitting_results=args.fitting_results,
             annotations=args.annotations,
             gene_level=args.gene_level,
-            gene_metadata=args.gene_metadata,
-            deletion_library_xlsx=args.deletion_library_xlsx,
+            annotation_reference=args.annotation_reference,
             output_annotations=args.output_annotations,
             output_gene_result=args.output_gene_result,
         )

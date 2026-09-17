@@ -8,15 +8,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 
 from workflow.src.coverage.core import (
+    DIMENSION_LABELS,
     IN_GENE_FILTER,
     compute_insertion_coverage,
     compute_gene_coverage,
+    compute_category_coverage,
     compute_essentiality_coverage,
-    compute_characterisation_status_coverage,
-    compute_deletion_viability_coverage,
-    compute_essentiality_category_coverage,
     coverage_dicts_from_stats_table,
     build_stats_table,
+    build_detailed_gene_table,
+    dr_dl_histogram_frame,
     load_gene_level,
     resolve_duplicate_annotations,
     write_detailed_gene_excel,
@@ -83,17 +84,17 @@ def test_compute_gene_coverage_counts():
 
 
 def test_compute_essentiality_coverage_excludes_not_determined():
-    """Genes with essentiality 'Not_determined' land in neither essential nor non_essential.
+    """Genes with deletion_essentiality 'Not_determined' land in neither essential nor non_essential.
 
-    Real releases (e.g. HD_DIT_HAP) carry a third essentiality value besides
-    'E'/'V'. Splitting on `== 'E'` vs `== 'V'` (matching the source notebook
-    and _HIST_ROW_QUERIES) means such genes are excluded from both buckets,
+    Real releases (e.g. HD_DIT_HAP) carry a third deletion_essentiality value
+    besides 'E'/'V'. Splitting on `== 'E'` vs `== 'V'` (matching the source
+    notebook) means such genes are excluded from both buckets,
     so essential.total + non_essential.total < len(gene_result).
     """
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
         "DR": [0.733, -0.007, 0.001, None, 0.656],
-        "essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
+        "deletion_essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
     })
     result = compute_essentiality_coverage(gene_result)
     assert result["essential"]["total"] == 2
@@ -109,7 +110,7 @@ def test_compute_essentiality_coverage_essential():
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1006.02", "SPAC1002.08c", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.01"],
         "DR": [0.733, None, 0.656, -0.007, 0.024, None],
-        "essentiality": ["E", "E", "E", "V", "V", "V"],
+        "deletion_essentiality": ["E", "E", "E", "V", "V", "V"],
     })
     result = compute_essentiality_coverage(gene_result)
     assert result["essential"]["total"] == 3
@@ -209,7 +210,7 @@ def test_resolve_duplicate_annotations_no_duplicates_is_noop():
     pd.testing.assert_frame_equal(result, annotations)
 
 
-def test_compute_characterisation_status_coverage_splits_by_status():
+def test_compute_category_coverage_splits_by_every_value():
     """Coverage is computed separately for each characterisation_status value."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC105.02c", "SPAC1002.11", "SPAC1002.18", "SPBC1348.06c", "SPAC1002.20"],
@@ -222,9 +223,8 @@ def test_compute_characterisation_status_coverage_splits_by_status():
             "conserved unknown",
             "dubious",
         ],
-        "essentiality": ["E", "V", "E", "V", "E", "V"],
     })
-    result = compute_characterisation_status_coverage(gene_result)
+    result = compute_category_coverage(gene_result, "characterisation_status")
 
     # 2 genes with "biological role published": 1 covered, 1 not covered
     assert result["biological role published"]["total"] == 2
@@ -244,26 +244,24 @@ def test_compute_characterisation_status_coverage_splits_by_status():
     assert result["dubious"]["covered"] == 1
 
 
-def test_compute_characterisation_status_coverage_handles_missing_column():
-    """Returns empty dict when characterisation_status column is missing."""
+def test_compute_category_coverage_handles_missing_column():
+    """Returns empty dict when the dimension column is missing."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1002.02"],
         "DR": [0.5, 0.6],
-        "essentiality": ["E", "V"],
     })
-    result = compute_characterisation_status_coverage(gene_result)
+    result = compute_category_coverage(gene_result, "characterisation_status")
     assert result == {}
 
 
-def test_compute_characterisation_status_coverage_skips_null_status():
-    """Genes with null characterisation_status are excluded from all categories."""
+def test_compute_category_coverage_skips_null_values():
+    """Genes with a null value are excluded from all categories."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1002.18"],
         "DR": [0.5, 0.6, 0.7],
         "characterisation_status": ["biological role published", None, "conserved unknown"],
-        "essentiality": ["E", "V", "E"],
     })
-    result = compute_characterisation_status_coverage(gene_result)
+    result = compute_category_coverage(gene_result, "characterisation_status")
 
     # Only 2 categories (the gene with null status is excluded)
     assert len(result) == 2
@@ -273,16 +271,16 @@ def test_compute_characterisation_status_coverage_skips_null_status():
     assert result["conserved unknown"]["total"] == 1
 
 
-def test_compute_deletion_viability_coverage_splits_by_viability():
-    """Coverage is computed separately for each deletion_viability value."""
+def test_compute_category_coverage_splits_by_fypoviability():
+    """The same generic split covers FYPOviability's four values."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.02", "SPAC1002.01", "SPAC1002.04c", "SPAC1006.08", "SPAC1071.11", "SPAC1071.13"],
         "DR": [-0.007, None, 0.733, 1.082, None, 0.001],
-        "deletion_viability": [
+        "FYPOviability": [
             "viable", "viable", "inviable", "depends_on_conditions", "depends_on_conditions", "unknown",
         ],
     })
-    result = compute_deletion_viability_coverage(gene_result)
+    result = compute_category_coverage(gene_result, "FYPOviability")
 
     assert result["viable"]["total"] == 2
     assert result["viable"]["covered"] == 1
@@ -298,14 +296,14 @@ def test_compute_deletion_viability_coverage_splits_by_viability():
     assert result["unknown"]["covered"] == 1
 
 
-def test_compute_essentiality_category_coverage_includes_not_determined():
-    """Unlike compute_essentiality_coverage, every essentiality value gets its own row."""
+def test_compute_category_coverage_includes_not_determined():
+    """Unlike compute_essentiality_coverage, every deletion_essentiality value gets its own bucket."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
         "DR": [0.733, -0.007, 0.001, None, 0.656],
-        "essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
+        "deletion_essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
     })
-    result = compute_essentiality_category_coverage(gene_result)
+    result = compute_category_coverage(gene_result, "deletion_essentiality")
 
     assert set(result) == {"E", "V", "Not_determined"}
     assert result["E"]["total"] == 2
@@ -321,6 +319,21 @@ def test_compute_essentiality_category_coverage_includes_not_determined():
 # =============================================================================
 # STATS-TABLE READBACK (figures read the same numbers the stats rule wrote)
 # =============================================================================
+def test_dr_dl_histogram_frame_stratifies_by_dimension():
+    """One "All genes" stratum plus one per value, most common first; a gene repeats across strata."""
+    gene_result = pd.DataFrame({
+        "DR": [0.1, 0.2, 0.3, None],
+        "FYPOviability": ["viable", "viable", "inviable", "unknown"],
+    })
+
+    frame = dr_dl_histogram_frame(gene_result, "DR", "FYPOviability", {"viable": "Viable"})
+
+    assert set(frame["stratum"]) == {"All genes", "Viable", "inviable", "unknown"}
+    # "All genes" first, then values most-common-first — the same order the
+    # dimension's composition figure uses, so panels line up with its bars.
+    assert list(frame["stratum"].drop_duplicates())[:2] == ["All genes", "Viable"]
+    assert list(frame[frame["stratum"] == "Viable"]["DR"]) == [0.1, 0.2]
+    assert len(frame[frame["stratum"] == "All genes"]) == len(gene_result)
 def _make_per_chromosome():
     """Minimal per-chromosome insertion table for build_stats_table."""
     return pd.DataFrame([
@@ -338,37 +351,39 @@ def test_coverage_dicts_from_stats_table_roundtrips_build_stats_table():
         "non_essential": {"total": 25, "covered": 20, "not_covered": 5},
     }
     per_chromosome = _make_per_chromosome()
-    characterisation_status_coverage = {
-        "biological role published": {"total": 30, "covered": 25, "not_covered": 5},
-        "conserved unknown": {"total": 12, "covered": 8, "not_covered": 4},
-    }
-    deletion_viability_coverage = {
-        "viable": {"total": 28, "covered": 24, "not_covered": 4},
-        "inviable": {"total": 10, "covered": 9, "not_covered": 1},
-    }
-    essentiality_category_coverage = {
-        "E": {"total": 20, "covered": 15, "not_covered": 5},
-        "V": {"total": 25, "covered": 20, "not_covered": 5},
-        "Not_determined": {"total": 5, "covered": 3, "not_covered": 2},
+    dimension_coverage = {
+        "characterisation_status": {
+            "biological role published": {"total": 30, "covered": 25, "not_covered": 5},
+            "conserved unknown": {"total": 12, "covered": 8, "not_covered": 4},
+        },
+        "FYPOviability": {
+            "viable": {"total": 28, "covered": 24, "not_covered": 4},
+            "inviable": {"total": 10, "covered": 9, "not_covered": 1},
+        },
+        "deletion_essentiality": {
+            "E": {"total": 20, "covered": 15, "not_covered": 5},
+            "V": {"total": 25, "covered": 20, "not_covered": 5},
+            "Not_determined": {"total": 5, "covered": 3, "not_covered": 2},
+        },
     }
 
     stats = build_stats_table(
         insertion_coverage, gene_coverage, essentiality_coverage,
-        per_chromosome, characterisation_status_coverage,
-        deletion_viability_coverage, essentiality_category_coverage,
+        per_chromosome, dimension_coverage=dimension_coverage,
     )
-    ins, gene, ess, per_chr, char, viability, ess_cat = coverage_dicts_from_stats_table(stats)
+    ins, gene, ess, per_chr, recovered = coverage_dicts_from_stats_table(stats)
 
     assert ins == insertion_coverage
     assert gene == gene_coverage
     assert ess == essentiality_coverage
-    assert char == characterisation_status_coverage
-    assert viability == deletion_viability_coverage
-    assert ess_cat == essentiality_category_coverage
+    assert recovered == dimension_coverage
     # Per-chromosome: Chr labels recovered without the chr_ prefix build_stats_table added.
     assert list(per_chr["Chr"]) == ["I", "II"]
     assert list(per_chr["in_gene"]) == [40, 30]
     assert list(per_chr["intergenic"]) == [60, 50]
+    # The rows are labeled "<column>_<value>", so a value reused across dimensions
+    # (e.g. a category literally named "all") could never be read back as the wrong one.
+    assert set(stats["category"]) >= {"characterisation_status_conserved unknown", "FYPOviability_viable", "deletion_essentiality_E"}
 
 
 def test_coverage_dicts_from_stats_table_missing_row_raises():
@@ -383,8 +398,8 @@ def test_coverage_dicts_from_stats_table_missing_row_raises():
         coverage_dicts_from_stats_table(stats)
 
 
-def test_coverage_dicts_from_stats_table_no_characterisation_rows():
-    """Stats table without characterisation_/deletion_viability_/essentiality_ rows yields empty category dicts."""
+def test_coverage_dicts_from_stats_table_no_dimension_rows():
+    """Stats table without any per-category rows yields one empty dict per dimension."""
     insertion_coverage = {"total": 10, "in_gene": 4, "intergenic": 6}
     gene_coverage = {"total": 5, "covered": 3, "not_covered": 2}
     essentiality_coverage = {
@@ -394,10 +409,9 @@ def test_coverage_dicts_from_stats_table_no_characterisation_rows():
     stats = build_stats_table(
         insertion_coverage, gene_coverage, essentiality_coverage, _make_per_chromosome()
     )
-    _ins, _gene, _ess, _per_chr, char, viability, ess_cat = coverage_dicts_from_stats_table(stats)
-    assert char == {}
-    assert viability == {}
-    assert ess_cat == {}
+    _ins, _gene, _ess, _per_chr, dimension_coverage = coverage_dicts_from_stats_table(stats)
+    assert set(dimension_coverage) == set(DIMENSION_LABELS)
+    assert all(coverage == {} for coverage in dimension_coverage.values())
 
 
 def test_build_stats_table_percent_columns():
@@ -447,7 +461,7 @@ def test_build_stats_table_percent_handles_zero_total():
 
 
 # =============================================================================
-# DETAILED GENE EXCEL (one sheet per characterisation_status / essentiality / deletion_viability value)
+# DETAILED GENE EXCEL (one sheet per characterisation_status / deletion_essentiality / FYPOviability value)
 # =============================================================================
 def _make_detailed_table():
     return pd.DataFrame({
@@ -461,16 +475,41 @@ def _make_detailed_table():
             "conserved unknown",
             "dubious",
         ],
-        "deletion_viability": ["viable", "inviable", "viable", "unknown", "depends_on_conditions", "unknown"],
+        "FYPOviability": ["viable", "inviable", "viable", "unknown", "depends_on_conditions", "unknown"],
         "DR": [0.653, None, 0.038, 0.007, None, 0.056],
         "DL": [1.645, None, 0.0, 0.0, None, -0.0],
-        "essentiality": ["E", "E", "V", "Not_determined", "V", "Not_determined"],
+        "deletion_essentiality": ["E", "E", "V", "Not_determined", "V", "Not_determined"],
         "coverage_status": ["covered", "not_covered", "covered", "covered", "not_covered", "covered"],
     })
 
 
+def test_build_detailed_gene_table_reads_annotation_from_gene_result():
+    """Detailed table = gene_result's annotation columns + coverage_status, sorted DR-ascending within a status."""
+    gene_result = pd.DataFrame({
+        "Systematic ID": ["SPAC1002.02", "SPAC1002.01", "SPAC1002.04c"],
+        "Name": ["pom34", "SPAC1002.01", "asa1"],
+        "product": ["nucleoporin Pom34", "hypothetical protein", "DASH complex subunit Asa1"],
+        "characterisation_status": ["biological role published"] * 3,
+        "FYPOviability": ["viable"] * 3,
+        "deletion_essentiality": ["V", "Not_determined", "E"],
+        "DR": [-0.007, None, 0.733],
+        "DL": [0.0, None, 1.645],
+        "R2": [0.9, 0.8, 0.7],  # extra fitting column — not carried into the detailed table
+    })
+
+    result = build_detailed_gene_table(gene_result)
+
+    assert list(result.columns) == [
+        "Systematic ID", "Name", "product", "characterisation_status",
+        "FYPOviability", "DR", "DL", "deletion_essentiality", "coverage_status",
+    ]
+    # covered first, then DR ascending (most depleted first — negative DR is the depleted end)
+    assert list(result["Systematic ID"]) == ["SPAC1002.02", "SPAC1002.04c", "SPAC1002.01"]
+    assert list(result["coverage_status"]) == ["covered", "covered", "not_covered"]
+
+
 def test_write_detailed_gene_excel_sheets_cover_every_category(tmp_path):
-    """Every characterisation_status, essentiality, and deletion_viability value gets its own sheet."""
+    """Every characterisation_status, deletion_essentiality, and FYPOviability value gets its own sheet."""
     import openpyxl
 
     detailed_table = _make_detailed_table()
@@ -520,10 +559,10 @@ def test_write_detailed_gene_excel_sheet_row_counts_match_value_counts(tmp_path)
 
 
 def test_write_detailed_gene_excel_skips_missing_columns(tmp_path):
-    """When essentiality/deletion_viability columns are absent, only the characterisation_status sheets are written."""
+    """When deletion_essentiality/FYPOviability columns are absent, only the characterisation_status sheets are written."""
     import openpyxl
 
-    detailed_table = _make_detailed_table().drop(columns=["essentiality", "deletion_viability"])
+    detailed_table = _make_detailed_table().drop(columns=["deletion_essentiality", "FYPOviability"])
     out_path = tmp_path / "detailed_genes.xlsx"
     write_detailed_gene_excel(detailed_table, out_path)
 

@@ -255,7 +255,10 @@ def render_grouped_histogram_figure(
     n_cols = df[col_key].nunique()
     n_rows = df[row_key].nunique()
 
-    row_values = sorted(df[row_key].unique())
+    # First-appearance order, not sorted: the caller builds the strata in the
+    # order they should read (e.g. "All genes" then most-common category first),
+    # which alphabetical sorting would scramble.
+    row_values = list(dict.fromkeys(df[row_key]))
     col_values = sorted(df[col_key].unique())
 
     labels = panel_labels(n_rows * n_cols)

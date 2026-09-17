@@ -12,21 +12,25 @@ figure can never disagree with the numbers compute_coverage_stats wrote. The
 DR/DL histograms are the exception: they need the per-gene values that the
 aggregated stats table does not carry, so they read the gene_result parquet.
 
-Figures
--------
-1. overview              — coverage of every gene, then per essentiality class
-2. by_deletion_viability — per class of the curated deletion-library table
-3. by_characterisation   — per PomBase characterisation_status
-4. insertion_placement   — in-gene vs intergenic, per main chromosome
-5. dr / dl_by_essentiality — DR and DL distributions per essentiality class
+Each column in coverage.core.DIMENSION_LABELS gets the SAME two figures, broken
+down the same way, so no annotation dimension is analysed differently from the
+others:
 
-DR and DL are two files rather than one 3x2 grid because the notebook bins them
-on different scales (DR -0.2..1.5 by 0.05, DL 0..15 by 0.5); the grouped
-histogram renderer takes one binning per figure.
+  coverage_by_{column}.pdf      — composition: "All genes", then one bar per value
+  coverage_dr_by_{column}.pdf   — DR distribution, one panel per value
+  coverage_dl_by_{column}.pdf   — DL distribution, one panel per value
+
+plus one figure that is not per-gene-dimension (coverage_insertion_placement.pdf,
+in-gene vs intergenic per main chromosome). File names are derived from the column
+names, so the figure set follows DIMENSION_LABELS instead of being listed here.
+
+DR and DL are two files rather than one grid because the notebook bins them on
+different scales (DR -1.45..0.2 by 0.05, DL 0..15 by 0.5); the grouped histogram
+renderer takes one binning per figure.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-09-17
-Version:  4.0.0
+Version:  5.0.0
 """
 
 # =============================================================================
@@ -48,17 +52,16 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from coverage.core import (  # noqa: E402
     COVERED_LABEL,
+    DIMENSION_LABELS,
     DL_BINS,
     DR_BINS,
     IN_GENE_LABEL,
     INTERGENIC_LABEL,
     NOT_COVERED_LABEL,
-    characterisation_status_frame,
     coverage_dicts_from_stats_table,
-    deletion_viability_frame,
+    dimension_coverage_frame,
     dr_dl_histogram_frame,
     insertion_placement_frame,
-    overall_coverage_frame,
 )
 from figure_render.composition import render_composition_figure  # noqa: E402
 from figure_render.histogram import render_grouped_histogram_figure  # noqa: E402
@@ -70,14 +73,31 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 PERCENT_AXIS = "Coverage (%)"
 
+# Display (ylabel, title) for each dimension's composition figure, keyed by the
+# gene_result column. A dimension missing here falls back to its column name
+# rather than failing, so adding one to DIMENSION_LABELS still renders.
+DIMENSION_AXES = {
+    "characterisation_status": ("Characterisation status", "Gene coverage by characterisation status"),
+    "FYPOviability": ("FYPO viability", "Gene coverage by FYPO viability"),
+    "deletion_essentiality": ("Deletion essentiality", "Gene coverage by deletion essentiality"),
+}
 
-def as_stem(path: Path) -> Path:
-    """Drop a trailing .pdf so save_dual appends the suffixes instead of stacking them.
+HISTOGRAM_FEATURES = (("DR", DR_BINS), ("DL", DL_BINS))
 
-    save_dual takes a stem and writes ``<stem>.pdf`` + ``<stem>.review.png``; handing
-    it the rule's declared .pdf output would produce ``<name>.pdf.pdf``.
-    """
-    return path.with_suffix("") if path.suffix == ".pdf" else path
+
+def figure_stems(output_dir: Path) -> dict[str, Path]:
+    """Every figure's output stem: a composition + two DR/DL histograms per dimension, plus insertion placement."""
+    stems = {
+        f"composition_{column}": output_dir / f"coverage_by_{column}"
+        for column in DIMENSION_LABELS
+    }
+    stems |= {
+        f"histogram_{feature.lower()}_{column}": output_dir / f"coverage_{feature.lower()}_by_{column}"
+        for column in DIMENSION_LABELS
+        for feature, _ in HISTOGRAM_FEATURES
+    }
+    stems["insertion_placement"] = output_dir / "coverage_insertion_placement"
+    return stems
 
 
 # =============================================================================
@@ -85,35 +105,17 @@ def as_stem(path: Path) -> Path:
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class PlotFiguresConfig:
-    """Inputs (stats TSV + gene_result parquet) and one output stem per figure."""
+    """Inputs (stats TSV + gene_result parquet) and the directory the figures are written to."""
     stats: Path
     gene_result: Path
-    output_overview: Path
-    output_deletion_viability: Path
-    output_characterisation: Path
-    output_insertion_placement: Path
-    output_dr_histogram: Path
-    output_dl_histogram: Path
+    output_dir: Path
 
     def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure output dirs exist."""
+        """Raise ValueError if any required input is missing, then ensure the output dir exists."""
         for path in [self.stats, self.gene_result]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        for directory in {path.parent for path in self.output_stems}:
-            directory.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def output_stems(self) -> list[Path]:
-        """Every figure's output stem, in render order."""
-        return [
-            self.output_overview,
-            self.output_deletion_viability,
-            self.output_characterisation,
-            self.output_insertion_placement,
-            self.output_dr_histogram,
-            self.output_dl_histogram,
-        ]
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -126,49 +128,44 @@ def run(config: PlotFiguresConfig) -> None:
 
     stats = pd.read_csv(config.stats, sep="\t")
     gene_result = read_parquet(config.gene_result)
+    stems = figure_stems(config.output_dir)
 
     (
         _insertion_coverage,
         gene_coverage,
         _essentiality_coverage,
         per_chromosome,
-        characterisation_status_coverage,
-        deletion_viability_coverage,
-        essentiality_category_coverage,
+        dimension_coverage,
     ) = coverage_dicts_from_stats_table(stats)
 
-    render_composition_figure(
-        overall_coverage_frame(gene_coverage, essentiality_category_coverage),
-        config.output_overview,
-        category_column="category", percentage_column="covered_pct",
-        part_column="covered", whole_column="not_covered",
-        part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
-        xlabel=PERCENT_AXIS, ylabel="Essentiality", title="Gene coverage",
-    )
+    for column in DIMENSION_LABELS:
+        ylabel, title = DIMENSION_AXES.get(column, (column, f"Gene coverage by {column}"))
 
-    render_composition_figure(
-        deletion_viability_frame(deletion_viability_coverage),
-        config.output_deletion_viability,
-        category_column="category", percentage_column="covered_pct",
-        part_column="covered", whole_column="not_covered",
-        part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
-        xlabel=PERCENT_AXIS, ylabel="Deletion-library viability",
-        title="Gene coverage by deletion viability",
-    )
+        render_composition_figure(
+            dimension_coverage_frame(gene_coverage, dimension_coverage[column], DIMENSION_LABELS[column]),
+            stems[f"composition_{column}"],
+            category_column="category", percentage_column="covered_pct",
+            part_column="covered", whole_column="not_covered",
+            part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
+            xlabel=PERCENT_AXIS, ylabel=ylabel, title=title,
+        )
 
-    render_composition_figure(
-        characterisation_status_frame(characterisation_status_coverage),
-        config.output_characterisation,
-        category_column="category", percentage_column="covered_pct",
-        part_column="covered", whole_column="not_covered",
-        part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
-        xlabel=PERCENT_AXIS, ylabel="Characterisation status",
-        title="Gene coverage by characterisation status",
-    )
+        for feature, bins in HISTOGRAM_FEATURES:
+            render_grouped_histogram_figure(
+                dr_dl_histogram_frame(gene_result, feature, column, DIMENSION_LABELS[column]),
+                stems[f"histogram_{feature.lower()}_{column}"],
+                value_column=feature, row_key="stratum", bins=bins,
+                xlabel=feature, ylabel="Number of genes",
+                # Per-panel y, NOT shared: dimension values differ by an order of
+                # magnitude (characterisation_status runs 2,456 down to 11), and one
+                # shared top flattens everything but the biggest panel to nothing.
+                # The x axis stays shared, so the shapes are still comparable.
+                share_y_range=False,
+            )
 
     render_composition_figure(
         insertion_placement_frame(per_chromosome),
-        config.output_insertion_placement,
+        stems["insertion_placement"],
         category_column="category", percentage_column="covered_pct",
         part_column="covered", whole_column="not_covered",
         part_label=IN_GENE_LABEL, whole_label=INTERGENIC_LABEL,
@@ -176,22 +173,7 @@ def run(config: PlotFiguresConfig) -> None:
         title="Insertion placement by chromosome",
     )
 
-    for feature, bins, stem in (
-        ("DR", DR_BINS, config.output_dr_histogram),
-        ("DL", DL_BINS, config.output_dl_histogram),
-    ):
-        render_grouped_histogram_figure(
-            dr_dl_histogram_frame(gene_result, feature),
-            stem,
-            value_column=feature, row_key="stratum", bins=bins,
-            xlabel=feature, ylabel="Number of genes",
-            # One shared y top: the three strata are meant to be compared, and
-            # per-panel scaling makes the 1,144 essential genes' peak look as
-            # tall as the 4,513 all-genes peak.
-            share_y_range=True,
-        )
-
-    logger.success(f"Wrote {len(config.output_stems)} coverage figures")
+    logger.success(f"Wrote {len(stems)} coverage figures")
 
 
 # =============================================================================
@@ -202,12 +184,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot gene insertion coverage figures")
     parser.add_argument("--stats", type=Path, required=True, help="Input coverage_stats.tsv (composition figures read from here)")
     parser.add_argument("--gene-result", type=Path, required=True, help="Input gene_result.parquet (histograms read from here)")
-    parser.add_argument("--output-overview", type=Path, required=True, help="Output stem: overall + per-essentiality coverage")
-    parser.add_argument("--output-deletion-viability", type=Path, required=True, help="Output stem: coverage per deletion-library viability")
-    parser.add_argument("--output-characterisation", type=Path, required=True, help="Output stem: coverage per characterisation_status")
-    parser.add_argument("--output-insertion-placement", type=Path, required=True, help="Output stem: in-gene vs intergenic per chromosome")
-    parser.add_argument("--output-dr-histogram", type=Path, required=True, help="Output stem: DR distribution per essentiality")
-    parser.add_argument("--output-dl-histogram", type=Path, required=True, help="Output stem: DL distribution per essentiality")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory the figures are written to")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -220,12 +197,7 @@ def main() -> int:
         config = PlotFiguresConfig(
             stats=args.stats,
             gene_result=args.gene_result,
-            output_overview=as_stem(args.output_overview),
-            output_deletion_viability=as_stem(args.output_deletion_viability),
-            output_characterisation=as_stem(args.output_characterisation),
-            output_insertion_placement=as_stem(args.output_insertion_placement),
-            output_dr_histogram=as_stem(args.output_dr_histogram),
-            output_dl_histogram=as_stem(args.output_dl_histogram),
+            output_dir=args.output_dir,
         )
         run(config)
     except ValueError as e:

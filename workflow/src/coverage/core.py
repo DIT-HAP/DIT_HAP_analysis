@@ -28,11 +28,11 @@ Input
   still ship the pre-rename um/lam headers instead of DR/DL; normalized on
   load (same quirk as workflow/src/clustering/candidates.py). Its native
   FYPOviability/DeletionLibrary_essentiality columns are dropped by
-  prepare_coverage_data.py in favor of deletion_viability (gene_metadata) and
-  essentiality (deletion_library_categories.xlsx) — same underlying facts,
-  sourced for the FULL protein-coding gene universe instead of just the
-  DIT-HAP-covered subset (see prepare_coverage_data.py's run() for the
-  byte-for-byte equivalence check).
+  prepare_coverage_data.py: the gene universe and its annotation columns
+  (characterisation_status, FYPOviability, deletion_essentiality) come from the
+  gene annotation reference instead, so coverage reads the same values — under
+  the same column names — as the rest of the analysis (see
+  prepare_coverage_data.py's run()).
 
 Usage
 -----
@@ -40,12 +40,10 @@ Usage
         load_gene_level, load_insertion_level, resolve_duplicate_annotations,
         compute_insertion_coverage, compute_gene_coverage,
         compute_essentiality_coverage, compute_per_chromosome_insertion_coverage,
-        compute_characterisation_status_coverage,
-        compute_deletion_viability_coverage, compute_essentiality_category_coverage,
+        compute_category_coverage,
         build_stats_table, coverage_dicts_from_stats_table,
-        composition_frame, overall_coverage_frame, deletion_viability_frame,
-        characterisation_status_frame, insertion_placement_frame,
-        dr_dl_histogram_frame,
+        composition_frame, dimension_coverage_frame, insertion_placement_frame,
+        dr_dl_histogram_frame, DIMENSION_LABELS,
     )
 """
 
@@ -92,32 +90,34 @@ _LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 DR_BINS = np.arange(-1.45, 0.25, 0.05)
 DL_BINS = np.arange(0, 15, 0.5)
 
-# The histogram's rows, as (label, essentiality value) pairs. "All genes" keeps
-# every fitted gene; the E/V rows use the SAME == 'E' / == 'V' definition as
-# compute_essentiality_coverage (see that function's docstring), so genes with
-# essentiality == 'Not_determined' land in neither row, only in "All genes".
-# Keep these two definitions in sync: a mismatch here previously made the
-# coverage stats table and the coverage figures report different non_essential
-# totals for the same run.
-HISTOGRAM_STRATA = (
-    ("All genes", None),
-    ("Essential", "E"),
-    ("Non-essential", "V"),
-)
-
-# Display labels for the stats-table category keys of the breakdowns that get
-# plotted. Keys absent from a map fall back to the raw key, so a new category
-# still renders rather than vanishing from the figure.
-ESSENTIALITY_LABELS = {
-    "E": "Essential",
-    "V": "Non-essential",
-    "Not_determined": "Not determined",
-}
+# The three per-gene annotation dimensions every coverage breakdown is computed
+# for: (gene_result column, display labels for that column's values). The column
+# names are the annotation reference's own (annotate.smk), so a coverage table
+# reads the same as the reference and the annotated workbook, with no renaming
+# in between. Labels are display-only; keys absent from a map fall back to the
+# raw value, so a new category still renders rather than vanishing.
+#
+# One ordered registry, consumed by everything downstream: compute_coverage_stats
+# computes a breakdown per column, build_stats_table prefixes its rows with the
+# column name, coverage_dicts_from_stats_table reads them back, and
+# plot_coverage_figures renders the SAME two figures per column (coverage
+# composition + DR/DL distributions) — so no dimension is analysed differently
+# from the others, and adding one is a line here.
 DELETION_VIABILITY_LABELS = {
     "viable": "Viable",
     "inviable": "Inviable",
     "depends_on_conditions": "Depends on conditions",
     "unknown": "Unknown",
+}
+DELETION_ESSENTIALITY_LABELS = {
+    "E": "Essential",
+    "V": "Non-essential",
+    "Not_determined": "Not determined",
+}
+DIMENSION_LABELS = {
+    "characterisation_status": {},
+    "FYPOviability": DELETION_VIABILITY_LABELS,
+    "deletion_essentiality": DELETION_ESSENTIALITY_LABELS,
 }
 
 # Insertion placement is plotted for the three main chromosomes only. The
@@ -198,13 +198,6 @@ def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> 
 # =============================================================================
 # STATS-TABLE READBACK (so figures read the SAME numbers the stats rule wrote)
 # =============================================================================
-# Prefixes build_stats_table uses for per-category rows; readers strip them to
-# recover the raw category label. Keep in sync with build_stats_table.
-_CHARACTERISATION_PREFIX = "characterisation_"
-_DELETION_VIABILITY_PREFIX = "deletion_viability_"
-_ESSENTIALITY_CATEGORY_PREFIX = "essentiality_"
-
-
 def coverage_dicts_from_stats_table(
     stats: pd.DataFrame,
 ) -> tuple[
@@ -212,9 +205,7 @@ def coverage_dicts_from_stats_table(
     dict[str, int],
     dict[str, dict[str, int]],
     pd.DataFrame,
-    dict[str, dict[str, int]],
-    dict[str, dict[str, int]],
-    dict[str, dict[str, int]],
+    dict[str, dict[str, dict[str, int]]],
 ]:
     """Reconstruct the coverage dicts + per-chromosome table from a coverage_stats.tsv frame.
 
@@ -222,13 +213,9 @@ def coverage_dicts_from_stats_table(
     exact numbers compute_coverage_stats wrote, instead of recomputing them from the
     gene_result parquet (which risks figure/table drift if the two paths ever diverge).
     Returns (insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome,
-    characterisation_status_coverage, deletion_viability_coverage,
-    essentiality_category_coverage) — the first four match plot_coverage_donuts' args
-    (insertion dict re-exposes covered/not_covered as in_gene/intergenic), the
-    characterisation_status dict feeds plot_characterisation_status_donuts, and the last
-    two are the full per-category breakdowns (4 deletion_viability values, 3 essentiality
-    values including Not_determined) that essentiality_coverage's essential/non_essential
-    split omits.
+    dimension_coverage). The insertion dict re-exposes covered/not_covered as
+    in_gene/intergenic; dimension_coverage maps each column in DIMENSION_LABELS to its
+    {value: counts} breakdown, recovered from the `<column>_` row prefix.
     """
     def _row(metric: str, category: str) -> pd.Series:
         hit = stats[(stats["metric"] == metric) & (stats["category"] == category)]
@@ -257,26 +244,23 @@ def coverage_dicts_from_stats_table(
         "intergenic": per_chr_rows["not_covered"].astype(int),
     }).reset_index(drop=True)
 
-    def _prefixed_category_coverage(prefix: str) -> dict[str, dict[str, int]]:
+    def _dimension_coverage(column: str) -> dict[str, dict[str, int]]:
+        prefix = f"{column}_"
         result: dict[str, dict[str, int]] = {}
         rows = stats[(stats["metric"] == "gene") & (stats["category"].str.startswith(prefix))]
         for _, r in rows.iterrows():
-            key = r["category"][len(prefix):]
-            result[key] = {"total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])}
+            value = r["category"][len(prefix):]
+            result[value] = {"total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])}
         return result
 
-    characterisation_status_coverage = _prefixed_category_coverage(_CHARACTERISATION_PREFIX)
-    deletion_viability_coverage = _prefixed_category_coverage(_DELETION_VIABILITY_PREFIX)
-    essentiality_category_coverage = _prefixed_category_coverage(_ESSENTIALITY_CATEGORY_PREFIX)
+    dimension_coverage = {column: _dimension_coverage(column) for column in DIMENSION_LABELS}
 
     return (
         insertion_coverage,
         gene_coverage,
         essentiality_coverage,
         per_chromosome,
-        characterisation_status_coverage,
-        deletion_viability_coverage,
-        essentiality_category_coverage,
+        dimension_coverage,
     )
 
 
@@ -298,18 +282,16 @@ def compute_gene_coverage(gene_result: pd.DataFrame) -> dict[str, int]:
 
 
 def compute_essentiality_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by essentiality == 'E' vs == 'V'.
+    """Split compute_gene_coverage by deletion_essentiality == 'E' vs == 'V'.
 
     Byte-faithful to the source notebook, which only ever tested
-    `== 'E'` / `== 'V'` (never `!= 'E'`). Genes with essentiality ==
+    `== 'E'` / `== 'V'` (never `!= 'E'`). Genes with deletion_essentiality ==
     `Not_determined` (no deletion_library_categories.xlsx call for that gene)
-    are EXCLUDED from both buckets here (previously an earlier draft folded
-    them into "non_essential" via `!= 'E'`, which silently diverged from the
-    `_HIST_ROW_QUERIES` == 'V' filter used by plot_dr_dl_histograms and
-    produced inconsistent totals between coverage_stats.tsv and the PDF).
+    are EXCLUDED from both buckets here — the two-bucket summary that
+    compute_category_coverage's full per-value breakdown deliberately is not.
     """
-    essential = gene_result[gene_result["essentiality"] == "E"]
-    non_essential = gene_result[gene_result["essentiality"] == "V"]
+    essential = gene_result[gene_result["deletion_essentiality"] == "E"]
+    non_essential = gene_result[gene_result["deletion_essentiality"] == "V"]
     return {
         "essential": compute_gene_coverage(essential),
         "non_essential": compute_gene_coverage(non_essential),
@@ -325,13 +307,14 @@ def compute_per_chromosome_insertion_coverage(annotation: pd.DataFrame) -> pd.Da
     return pd.DataFrame(rows).sort_values("Chr").reset_index(drop=True)
 
 
-def _compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[str, dict[str, int]]:
+def compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[str, dict[str, int]]:
     """Split compute_gene_coverage by every non-null value of `column`.
 
     Returns a dict mapping each value to its coverage stats
-    (total/covered/not_covered). Shared by the per-column category breakdowns
-    (characterisation_status, deletion_viability, essentiality) that all feed
-    build_stats_table's category rows.
+    (total/covered/not_covered), most common value first. Called once per column
+    in DIMENSION_LABELS, so all three annotation dimensions get an identical
+    breakdown; `column` missing from the table is a warning, not a crash, so a
+    reference built without a block still produces the other figures.
     """
     if column not in gene_result.columns:
         logger.warning(f"{column} column not found in gene_result")
@@ -350,78 +333,39 @@ def _compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[s
     return result
 
 
-def compute_characterisation_status_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by characterisation_status values.
-
-    Returns a dict mapping each characterisation_status value to its coverage
-    stats (total/covered/not_covered). Only includes protein-coding genes that
-    have a non-null characterisation_status annotation.
-    """
-    return _compute_category_coverage(gene_result, "characterisation_status")
-
-
-def compute_deletion_viability_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by deletion_viability values.
-
-    deletion_viability has 4 categories (viable/inviable/depends_on_conditions/
-    unknown), all sourced from gene_metadata for the full protein-coding gene
-    universe, so every category is represented here (no nulls to skip).
-    """
-    return _compute_category_coverage(gene_result, "deletion_viability")
-
-
-def compute_essentiality_category_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by essentiality values (E / V / Not_determined).
-
-    Unlike compute_essentiality_coverage (which keeps the E/V two-bucket split
-    used by the donut plots and DR/DL histograms, excluding Not_determined
-    genes entirely), this gives every essentiality value — including
-    Not_determined — its own coverage_stats.tsv row.
-    """
-    return _compute_category_coverage(gene_result, "essentiality")
-
 def compute_non_name_genes_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by whether the gene has a non-null Name.
+    """Split compute_gene_coverage by whether the gene has a common name.
 
-    Returns a dict mapping each category (has_name / no_name) to its coverage
-    stats (total/covered/not_covered). Only includes protein-coding genes that
-    have a non-null Name annotation.
+    Name always comes from the annotation reference, where a gene with no common
+    name falls back to its systematic ID — so "Name == Systematic ID" is exactly
+    "this gene has no common name" (775 of 5,126 for pombe). Returns a dict mapping
+    each category (has_name / no_name) to its coverage stats (total/covered/not_covered).
     """
     gene_result["has_name"] = (gene_result["Systematic ID"] != gene_result["Name"]).map({True: "has_name", False: "no_name"})
-    return _compute_category_coverage(gene_result, "has_name")
+    return compute_category_coverage(gene_result, "has_name")
 
 
-def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataFrame) -> pd.DataFrame:
-    """Build a detailed gene-level table with DIT-HAP data + metadata for all protein-coding genes.
+def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
+    """Build a detailed gene-level table with DIT-HAP data + annotation for all protein-coding genes.
+
+    `gene_result` is already the full protein-coding gene universe, carrying its annotation
+    columns (Name, product, characterisation_status, FYPOviability, deletion_essentiality) from
+    the gene annotation reference — see prepare_coverage_data.
 
     Returns a table with columns:
-    - Systematic ID, Name, product (from metadata)
-    - characterisation_status, deletion_viability (from metadata)
-    - DR, DL, essentiality (from gene_result, DR/DL NaN if not covered;
-      essentiality is never null — "Not_determined" when no deletion-library call exists)
+    - Systematic ID, Name, product, characterisation_status, FYPOviability
+    - DR, DL (NaN if not covered)
+    - deletion_essentiality (never null — "Not_determined" when no deletion-library call exists)
     - coverage_status: "covered" if DR is not NaN, "not_covered" otherwise
 
     Sorted by characterisation_status (descending by gene count), then by coverage_status,
     then by DR ascending — most depleted first, since negative DR now means depleted.
     """
-    # Start with full protein-coding gene universe from metadata
-    protein_genes = gene_metadata[gene_metadata["feature_type"] == "protein"].copy()
-
-    # Select commonly used metadata columns
-    meta_cols = ["systematic_id", "name", "product", "characterisation_status", "deletion_viability"]
-    available_meta_cols = [c for c in meta_cols if c in protein_genes.columns]
-    base_table = protein_genes[available_meta_cols].copy()
-    base_table = base_table.rename(columns={"systematic_id": "Systematic ID", "name": "Name"})
-
-    # Merge with gene_result (left join so uncovered genes remain)
-    dit_hap_cols = ["Systematic ID", "DR", "DL", "essentiality"]
-    available_dit_hap_cols = [c for c in dit_hap_cols if c in gene_result.columns]
-
-    detailed_table = base_table.merge(
-        gene_result[available_dit_hap_cols],
-        on="Systematic ID",
-        how="left"
-    )
+    detail_cols = [
+        "Systematic ID", "Name", "product", "characterisation_status",
+        "FYPOviability", "DR", "DL", "deletion_essentiality",
+    ]
+    detailed_table = gene_result[[c for c in detail_cols if c in gene_result.columns]].copy()
 
     # Add coverage status
     detailed_table["coverage_status"] = detailed_table["DR"].notna().map({True: "covered", False: "not_covered"})
@@ -448,9 +392,9 @@ def build_detailed_gene_table(gene_result: pd.DataFrame, gene_metadata: pd.DataF
     return detailed_table.reset_index(drop=True)
 
 
-# essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
+# deletion_essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
 # tabs, so map them to the same essential/non_essential naming already used by
-# essentiality_coverage's bucket names (deletion_viability's values are used as-is).
+# essentiality_coverage's bucket names (FYPOviability's values are used as-is).
 _ESSENTIALITY_SHEET_NAMES = {"E": "essential", "V": "non_essential", "Not_determined": "essentiality_not_determined"}
 
 
@@ -460,8 +404,8 @@ def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -
     Sheets:
     - "All genes": complete table (5,126 genes)
     - one sheet per characterisation_status category (e.g. "biological role published")
-    - one sheet per essentiality category ("essential" / "non_essential" / "essentiality_not_determined")
-    - one sheet per deletion_viability category ("viable" / "inviable" / "depends_on_conditions" / "unknown")
+    - one sheet per deletion_essentiality category ("essential" / "non_essential" / "essentiality_not_determined")
+    - one sheet per FYPOviability category ("viable" / "inviable" / "depends_on_conditions" / "unknown")
     """
     sheet_count = 1
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -478,21 +422,21 @@ def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -
                 subset.to_excel(writer, sheet_name=str(status)[:31], index=False)
                 sheet_count += 1
 
-        # One sheet per essentiality category
-        if "essentiality" in detailed_table.columns:
+        # One sheet per deletion_essentiality category
+        if "deletion_essentiality" in detailed_table.columns:
             for value, sheet_name in _ESSENTIALITY_SHEET_NAMES.items():
-                subset = detailed_table[detailed_table["essentiality"] == value]
+                subset = detailed_table[detailed_table["deletion_essentiality"] == value]
                 if subset.empty:
                     continue
                 subset.to_excel(writer, sheet_name=sheet_name[:31], index=False)
                 sheet_count += 1
 
-        # One sheet per deletion_viability category
-        if "deletion_viability" in detailed_table.columns:
-            for viability in detailed_table["deletion_viability"].value_counts().index:
+        # One sheet per FYPOviability category
+        if "FYPOviability" in detailed_table.columns:
+            for viability in detailed_table["FYPOviability"].value_counts().index:
                 if pd.isna(viability):
                     continue
-                subset = detailed_table[detailed_table["deletion_viability"] == viability]
+                subset = detailed_table[detailed_table["FYPOviability"] == viability]
                 subset.to_excel(writer, sheet_name=str(viability)[:31], index=False)
                 sheet_count += 1
 
@@ -507,12 +451,16 @@ def build_stats_table(
     gene_coverage: dict[str, int],
     essentiality_coverage: dict[str, dict[str, int]],
     per_chromosome: pd.DataFrame,
-    characterisation_status_coverage: dict[str, dict[str, int]] | None = None,
-    deletion_viability_coverage: dict[str, dict[str, int]] | None = None,
-    essentiality_category_coverage: dict[str, dict[str, int]] | None = None,
+    dimension_coverage: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
     non_name_genes_coverage: dict[str, dict[str, int]] | None = None,
 ) -> pd.DataFrame:
-    """Flatten all coverage dicts into one long-form stats table."""
+    """Flatten all coverage dicts into one long-form stats table.
+
+    `dimension_coverage` maps each column in DIMENSION_LABELS to its
+    {value: counts} breakdown; every row is labeled `<column>_<value>`, which is
+    both self-describing in the TSV and exactly the key
+    coverage_dicts_from_stats_table strips back off.
+    """
     rows = [
         {"metric": "insertion", "category": "all", "total": insertion_coverage["total"],
          "covered": insertion_coverage["in_gene"], "not_covered": insertion_coverage["intergenic"]},
@@ -542,23 +490,15 @@ def build_stats_table(
             "covered": row["in_gene"], "not_covered": row["intergenic"],
         })
 
-    # Per-category coverage rows: characterisation_status (arbitrary # of
-    # categories), deletion_viability (4: viable/inviable/depends_on_conditions/
-    # unknown), essentiality (3: E/V/Not_determined — the full breakdown, unlike
-    # essentiality_coverage's essential/non_essential rows above which exclude
-    # Not_determined). Each dict contributes one row per category, prefixed so
-    # coverage_dicts_from_stats_table can recover which breakdown a row belongs to.
-    for prefix, coverage in (
-        ("characterisation_", characterisation_status_coverage),
-        ("deletion_viability_", deletion_viability_coverage),
-        ("essentiality_", essentiality_category_coverage),
-    ):
-        if not coverage:
-            continue
+    # Per-category coverage rows, one per value of each annotation dimension
+    # (characterisation_status's categories, FYPOviability's 4, deletion_essentiality's
+    # 3 — the full breakdown, unlike essentiality_coverage's essential/non_essential
+    # rows above which exclude Not_determined).
+    for column, coverage in (dimension_coverage or {}).items():
         for category, counts in coverage.items():
             rows.append({
                 "metric": "gene",
-                "category": f"{prefix}{category}",
+                "category": f"{column}_{category}",
                 "total": counts["total"],
                 "covered": counts["covered"],
                 "not_covered": counts["not_covered"],
@@ -622,35 +562,19 @@ def composition_frame(
     return pd.DataFrame(rows)
 
 
-def overall_coverage_frame(
+def dimension_coverage_frame(
     gene_coverage: Mapping[str, int],
-    essentiality_category_coverage: Mapping[str, Mapping[str, int]],
+    category_coverage: Mapping[str, Mapping[str, int]],
+    labels: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Every gene, then the three essentiality classes.
+    """Every gene, then one row per category of one annotation dimension.
 
-    "All genes" and the E/V/Not_determined rows partition the same 5,126 genes,
-    so the bars read as one decomposition rather than four unrelated numbers.
+    "All genes" and the category rows partition the same 5,126 genes, so the bars
+    read as one decomposition rather than N unrelated numbers. Built for each
+    column in DIMENSION_LABELS, so all three dimensions' composition figures have
+    the same shape.
     """
-    return composition_frame(
-        {"All genes": gene_coverage, **essentiality_category_coverage},
-        labels=ESSENTIALITY_LABELS,
-    )
-
-
-def deletion_viability_frame(
-    deletion_viability_coverage: Mapping[str, Mapping[str, int]],
-) -> pd.DataFrame:
-    """Coverage per class of the curated deletion-library viability table."""
-    return composition_frame(
-        deletion_viability_coverage, labels=DELETION_VIABILITY_LABELS
-    )
-
-
-def characterisation_status_frame(
-    characterisation_status_coverage: Mapping[str, Mapping[str, int]],
-) -> pd.DataFrame:
-    """Coverage per PomBase characterisation_status (how well annotated a gene is)."""
-    return composition_frame(characterisation_status_coverage)
+    return composition_frame({"All genes": gene_coverage, **category_coverage}, labels=labels)
 
 
 def insertion_placement_frame(per_chromosome: pd.DataFrame) -> pd.DataFrame:
@@ -673,20 +597,32 @@ def insertion_placement_frame(per_chromosome: pd.DataFrame) -> pd.DataFrame:
     return composition_frame(coverage)
 
 
-def dr_dl_histogram_frame(gene_result: pd.DataFrame, feature: str) -> pd.DataFrame:
+def dr_dl_histogram_frame(
+    gene_result: pd.DataFrame,
+    feature: str,
+    column: str,
+    labels: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
     """Long-form frame for one DR/DL histogram figure: one row per (stratum, gene).
 
-    A gene contributes to every stratum it belongs to, so an essential gene
-    appears under both "All genes" and "Essential" — that is what makes the
-    facet's three panels directly comparable. See HISTOGRAM_STRATA.
+    Strata are "All genes" plus one per value of one annotation dimension
+    (`column`), in the same most-common-first order compute_category_coverage
+    uses — so the panels line up with that dimension's composition figure. A gene
+    contributes to every stratum it belongs to, so an essential gene appears under
+    both "All genes" and "Essential": that is what makes the panels comparable.
     """
     if feature not in gene_result.columns:
         raise ValueError(f"{feature!r} not in the gene_result table")
-    if "essentiality" not in gene_result.columns:
-        raise ValueError("'essentiality' not in the gene_result table; cannot stratify")
+    if column not in gene_result.columns:
+        raise ValueError(f"{column!r} not in the gene_result table; cannot stratify")
 
-    parts = []
-    for label, value in HISTOGRAM_STRATA:
-        mask = gene_result["essentiality"].notna() if value is None else gene_result["essentiality"] == value
-        parts.append(pd.DataFrame({"stratum": label, feature: gene_result.loc[mask, feature].to_numpy()}))
+    labels = labels or {}
+    values = [v for v in gene_result[column].value_counts().index if not pd.isna(v)]
+
+    parts = [pd.DataFrame({"stratum": "All genes", feature: gene_result.loc[gene_result[column].notna(), feature].to_numpy()})]
+    for value in values:
+        mask = gene_result[column] == value
+        parts.append(
+            pd.DataFrame({"stratum": labels.get(value, str(value)), feature: gene_result.loc[mask, feature].to_numpy()})
+        )
     return pd.concat(parts, ignore_index=True)

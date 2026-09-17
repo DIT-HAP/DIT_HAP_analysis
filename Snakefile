@@ -35,14 +35,17 @@ wildcard_constraints:
 #   1  data plausibility + reference layer
 #   2  characterisation that does not need clusters
 #   3  clustering and what depends on it
-#   9  terminal (annotate)
+#
+# annotate.smk carries no prefix (added after the numbering scheme) and straddles
+# both ends: its reference build belongs to the chapter-1 reference layer —
+# 2a_coverage reads _ANNOT_REF — while build_annotated_workbook is terminal.
 #
 # Included in prefix order. clustering.smk must stay ahead of enrichment /
 # ml / comparison — they call its selected_variant() / final_clusters_path().
 include: "workflow/rules/1a_pcr_qc.smk"
 include: "workflow/rules/1b_features.smk"
-include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/annotate.smk"
+include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
@@ -91,13 +94,16 @@ rule all:
         # "results/pcr_qc/spike_in_stats.tsv",
         f"results/coverage/{_DATASET}/coverage_stats.tsv",
         f"results/coverage/{_DATASET}/detailed_genes.xlsx",
-        # Six single-figure PDFs (cnsplots); see 2a_coverage.smk for the list.
-        f"results/coverage/{_DATASET}/coverage_overview.pdf",
-        # f"results/coverage/{_DATASET}/coverage_by_deletion_viability.pdf",
-        # f"results/coverage/{_DATASET}/coverage_by_characterisation.pdf",
+        # Ten single-figure PDFs (cnsplots) — one coverage composition + a DR and
+        # a DL distribution per annotation dimension, + insertion placement; see
+        # 2a_coverage.smk for the full list.
+        f"results/coverage/{_DATASET}/coverage_by_deletion_essentiality.pdf",
+        # f"results/coverage/{_DATASET}/coverage_by_characterisation_status.pdf",
+        # f"results/coverage/{_DATASET}/coverage_by_FYPOviability.pdf",
         # f"results/coverage/{_DATASET}/coverage_insertion_placement.pdf",
-        # f"results/coverage/{_DATASET}/coverage_dr_by_essentiality.pdf",
-        # f"results/coverage/{_DATASET}/coverage_dl_by_essentiality.pdf",
+        # f"results/coverage/{_DATASET}/coverage_dr_by_deletion_essentiality.pdf",
+        # f"results/coverage/{_DATASET}/coverage_dl_by_deletion_essentiality.pdf",
+        # f"results/coverage/{_DATASET}/coverage_dr_by_characterisation_status.pdf",
         # f"results/verification/{_DATASET}/verification_stats.tsv",
         # f"results/verification/{_DATASET}/verification_boxplots.pdf",
         # f"results/verification/{_DATASET}/verification_depletion_curves.pdf",
