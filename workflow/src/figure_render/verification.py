@@ -52,7 +52,6 @@ import pandas as pd
 
 # 3. Third-party Imports
 import cnsplots as cns
-import matplotlib.pyplot as plt
 from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.path import Path as MplPath
@@ -187,8 +186,9 @@ def family_colors() -> dict[str, str]:
     return colors
 
 
-def colors_for_labels(labels: Sequence[str], colors: dict[str, str]) -> list[str]:
+def colors_for_labels(labels: Sequence[str]) -> list[str]:
     """Return the hex colour for each raw label, logging any label with no family."""
+    colors = family_colors()
     resolved = []
     for label in labels:
         family = category_family(label)
@@ -248,11 +248,12 @@ def _narrow_embedded_box(ax: Axes) -> None:
             line.set_ydata(shrink(centre, values))
 
 
-def _paint_legend(ax: Axes, colors: dict[str, str]) -> None:
+def _paint_legend(ax: Axes) -> None:
     """Recolour legend handles to match their label's family colour."""
     legend = ax.get_legend()
     if legend is None:
         return
+    colors = family_colors()
     for text, handle in zip(legend.get_texts(), legend.legend_handles, strict=True):
         color = colors.get(category_family(text.get_text()))
         if color is not None:
@@ -384,7 +385,7 @@ def render_dr_boxplot_panel(
     )
     # The violin bodies are the collections; the embedded boxes are patches and
     # keep their own colour.
-    _paint(list(ax.collections), colors_for_labels(order, family_colors()), what="violins")
+    _paint(list(ax.collections), colors_for_labels(order), what="violins")
     _narrow_embedded_box(ax)
     # Counts are written here rather than via cns.violinplot's add_count, which
     # formats into the tick labels: this overwrites them, and group size is the
@@ -411,7 +412,7 @@ def render_composition_donut_panel(
     """Donut of gene counts per category, wedges in family colours."""
     cns.donutplot(data=data, x=category_column, order=list(order), legend=legend, ax=ax)
 
-    colors = colors_for_labels(order, family_colors())
+    colors = colors_for_labels(order)
     _paint(list(ax.patches), colors, what="wedges")
 
     # cnsplots annotates the hole and the legend title with the column name,
@@ -423,7 +424,7 @@ def render_composition_donut_panel(
     legend_obj = ax.get_legend()
     if legend_obj is not None:
         legend_obj.set_title(None)
-    _paint_legend(ax, family_colors())
+    _paint_legend(ax)
     ax.set_title(title)
 
 
@@ -456,7 +457,7 @@ def render_dr_scatter_panel(
             position + jitter,
             s=SCATTER_MARKER_SIZE,
             alpha=SCATTER_ALPHA,
-            color=colors_for_labels([label], family_colors())[0],
+            color=colors_for_labels([label])[0],
         )
 
     ax.set_yticks(range(len(labels)))

@@ -5,10 +5,10 @@
 Verification Category Summary
 =============================
 
-Stage 2a of the verification split: read the prepared merged /
-simplified_verification parquet intermediates and emit the category-level stats
-TSV plus the deletion-library comparison figure (phenotype-category donut +
-DR-by-category scatter). Depends only on prepare_verification_table's output,
+Stage 2a of the verification split: read the prepared merged / verification
+parquet intermediates and emit the category-level stats TSV plus the
+deletion-library comparison figure (phenotype-category donut + DR-by-category
+scatter). Depends only on prepare_verification_table's output,
 so it re-runs independently of the boxplot / depletion-curve rules.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -37,10 +37,7 @@ from figure_render.verification import render_category_summary_figure  # noqa: E
 from verification.core import (  # noqa: E402
     CATEGORY_COLUMN,
     build_stats_table,
-    compute_category_stats,
-    compute_category_with_essentiality_stats,
     compute_verification_match_stats,
-    merge_essentiality_verification,
     order_categories,
 )
 
@@ -52,13 +49,13 @@ from verification.core import (  # noqa: E402
 class CategorySummaryConfig:
     """Parquet inputs + TSV/summary-figure outputs for the category summary."""
     merged: Path
-    simplified_verification: Path
+    verification: Path
     output_stats: Path
     output_figure: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.merged, self.simplified_verification]:
+        for path in [self.merged, self.verification]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for out in [self.output_stats, self.output_figure]:
@@ -74,15 +71,9 @@ def run(config: CategorySummaryConfig) -> None:
     config.validate()
 
     merged = read_parquet(config.merged)
-    simplified_verification = read_parquet(config.simplified_verification)
-    merged_with_verification = merge_essentiality_verification(merged, simplified_verification)
+    verification = read_parquet(config.verification)
 
-    category_stats = compute_category_stats(merged)
-    category_with_essentiality_stats = compute_category_with_essentiality_stats(merged)
-    verification_stats = compute_verification_match_stats(merged_with_verification)
-
-    stats_table = build_stats_table(category_stats, category_with_essentiality_stats, verification_stats)
-    stats_table.to_csv(config.output_stats, sep="\t", index=False)
+    build_stats_table(merged, verification).to_csv(config.output_stats, sep="\t", index=False)
 
     render_category_summary_figure(
         merged,
@@ -90,9 +81,11 @@ def run(config: CategorySummaryConfig) -> None:
         order=order_categories(merged[CATEGORY_COLUMN]),
     )
 
+    match_stats = compute_verification_match_stats(merged, verification)
     logger.success(
-        f"Category summary: {len(merged):,} genes across {len(category_stats):,} categories, "
-        f"{verification_stats['match']:,}/{verification_stats['verified_total']:,} curated verifications match"
+        f"Category summary: {len(merged):,} genes across "
+        f"{merged[CATEGORY_COLUMN].nunique():,} categories, "
+        f"{match_stats['match']:,}/{match_stats['verified_total']:,} curated verifications match"
     )
 
 
@@ -103,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Verification category summary (stats TSV + comparison figure)")
     parser.add_argument("--merged", type=Path, required=True, help="Input merged.parquet")
-    parser.add_argument("--simplified-verification", type=Path, required=True, help="Input simplified_verification.parquet")
+    parser.add_argument("--verification", type=Path, required=True, help="Input verification.parquet")
     parser.add_argument("--output-stats", type=Path, required=True, help="Output verification stats TSV")
     parser.add_argument("--output-figure", type=Path, required=True, help="Output figure stem (writes <stem>.pdf + <stem>.review.png)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -117,7 +110,7 @@ def main() -> int:
     try:
         config = CategorySummaryConfig(
             merged=args.merged,
-            simplified_verification=args.simplified_verification,
+            verification=args.verification,
             output_stats=args.output_stats,
             output_figure=args.output_figure,
         )

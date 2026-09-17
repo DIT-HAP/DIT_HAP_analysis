@@ -8,19 +8,17 @@ Prepare Verification Tables
 Stage 1 of the verification split (see
 docs/plans/2026-07-22-verification-rules-split-design.md): load the gene-level
 DIT-HAP results, deletion-library categories, and curated essentiality
-verification table, then merge them into three parquet intermediates consumed
+verification table, then merge them into the two parquet intermediates consumed
 by the category-summary / boxplot / depletion-curve rules:
 
 - merged.parquet: gene-level DR/DL + DeletionLibrary_essentiality + Category
   (raw curated label) + Category_with_essentiality (one row per gene).
-- final_merged.parquet: the curated-verification genes with area day3-6 columns
-  (feeds the critical-gene review TSVs).
-- simplified_verification.parquet: Systematic ID / Verification result /
-  Verified essentiality (+ the manual gpd1 row), for outlier bucketing.
+- verification.parquet: the curated verification table, all columns, plus the
+  simplified `Verification result` the outlier bucketing groups on.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -41,12 +39,11 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 from verification.core import (  # noqa: E402
+    CATEGORY_WITH_ESSENTIALITY_COLUMN,
     apply_category_with_essentiality,
-    build_final_merged,
     load_deletion_library,
-    load_essentiality_verification,
-    load_essentiality_verification_full,
     load_gene_level,
+    load_verification,
     merge_deletion_library,
 )
 
@@ -61,15 +58,14 @@ class PrepareConfig:
     deletion_library: Path
     essentiality_verification: Path
     output_merged: Path
-    output_final_merged: Path
-    output_simplified_verification: Path
+    output_verification: Path
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
         for path in [self.fitting_results, self.deletion_library, self.essentiality_verification]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        for out in [self.output_merged, self.output_final_merged, self.output_simplified_verification]:
+        for out in [self.output_merged, self.output_verification]:
             out.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -78,25 +74,22 @@ class PrepareConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Load -> merge -> write the three parquet intermediates."""
+    """Load -> merge -> write the two parquet intermediates."""
     config.validate()
 
-    gene_result = load_gene_level(config.fitting_results)
-    deletion_library = load_deletion_library(config.deletion_library)
-    simplified_verification = load_essentiality_verification(config.essentiality_verification)
-    verification_full = load_essentiality_verification_full(config.essentiality_verification)
-
-    merged = merge_deletion_library(gene_result, deletion_library)
-    merged["Category_with_essentiality"] = merged.apply(apply_category_with_essentiality, axis=1)
-    final_merged = build_final_merged(merged, verification_full)
+    merged = merge_deletion_library(
+        load_gene_level(config.fitting_results),
+        load_deletion_library(config.deletion_library),
+    )
+    merged[CATEGORY_WITH_ESSENTIALITY_COLUMN] = merged.apply(apply_category_with_essentiality, axis=1)
+    verification = load_verification(config.essentiality_verification)
 
     write_parquet(merged, config.output_merged)
-    write_parquet(final_merged, config.output_final_merged)
-    write_parquet(simplified_verification, config.output_simplified_verification)
+    write_parquet(verification, config.output_verification)
 
     logger.success(
         f"Prepared verification tables: {len(merged):,} genes, "
-        f"{len(final_merged):,} verified-gene rows, {len(simplified_verification):,} simplified verifications"
+        f"{len(verification):,} verified-gene rows"
     )
 
 
@@ -110,8 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deletion-library", type=Path, required=True, help="Curated deletion_library_categories.xlsx")
     parser.add_argument("--essentiality-verification", type=Path, required=True, help="Curated essentiality_verification.csv")
     parser.add_argument("--output-merged", type=Path, required=True, help="Output merged.parquet")
-    parser.add_argument("--output-final-merged", type=Path, required=True, help="Output final_merged.parquet")
-    parser.add_argument("--output-simplified-verification", type=Path, required=True, help="Output simplified_verification.parquet")
+    parser.add_argument("--output-verification", type=Path, required=True, help="Output verification.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -126,8 +118,7 @@ def main() -> int:
             deletion_library=args.deletion_library,
             essentiality_verification=args.essentiality_verification,
             output_merged=args.output_merged,
-            output_final_merged=args.output_final_merged,
-            output_simplified_verification=args.output_simplified_verification,
+            output_verification=args.output_verification,
         )
         run(config)
     except ValueError as e:

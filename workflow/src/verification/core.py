@@ -30,7 +30,7 @@ never for display text or grouping.
 Usage
 -----
     from verification.core import (
-        load_gene_level, load_deletion_library, load_essentiality_verification,
+        load_gene_level, load_deletion_library, load_verification,
         merge_deletion_library, build_final_merged, select_group_outliers,
     )
 """
@@ -136,14 +136,12 @@ BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small
 # outlier gene list by DR: WT->nonWT / small->E look at the most depleted first,
 # E->V the least (sign flipped 2026-09-17 — negative DR is the depleted end, so
 # both the thresholds and every `sort` direction are mirrored from the original).
-_CRITICAL_GROUPS = {
+CRITICAL_GROUPS = {
     "WT2nonWT": {"filter": "Category == 'WT-like' and DR < -0.35", "sort": "asc"},
     "scE2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality == 'E'", "sort": "asc"},
     "sc2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality != 'E'", "sort": "asc"},
     "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR > -0.35", "sort": "desc"},
 }
-
-CRITICAL_GROUPS = tuple(_CRITICAL_GROUPS)
 
 # Verification-result bucket order for the critical-group boxplots/donuts,
 # byte-faithful to the notebook's prepare_verification_data loop + label_orders.
@@ -160,7 +158,7 @@ NOT_VERIFIED_BUCKET = "Not verified"
 # verification file then and still isn't now, but it IS a real release gene, so
 # the append stays meaningful. Kept byte-faithful.
 _MANUAL_VERIFICATION_ROWS = pd.DataFrame(
-    {"Systematic ID": ["SPBC215.05"], "Verification result": ["E"], "Verified essentiality": ["E"]}
+    {"Systematic ID": ["SPBC215.05"], "Verification result": ["E"], "verification_essentiality": ["E"]}
 )
 
 # DIT-HAP per-timepoint LFC columns in the release gene-level statistics table
@@ -265,36 +263,28 @@ def load_deletion_library(deletion_library_path: Path) -> pd.DataFrame:
     return deletion_library[[id_col, "Category"]]
 
 
-def load_essentiality_verification(essentiality_verification_path: Path) -> pd.DataFrame:
-    """Load + rename the curated verification table to the notebook's column names.
+def load_verification(essentiality_verification_path: Path) -> pd.DataFrame:
+    """Load the curated verification table: every column, plus the simplified phenotype.
 
-    Simplifies compound `verification_phenotype` values down to plain "E" (see
-    _VERIFICATION_PHENOTYPE_SIMPLIFY), drops rows missing either call, and
-    appends the manual gpd1 row (_MANUAL_VERIFICATION_ROWS).
+    One table for both uses the stage makes of it. The per-critical-group review
+    TSVs want the raw ``verification_phenotype`` and the colony-area columns; the
+    outlier bucketing wants the compound phenotype labels collapsed to plain "E"
+    (see _VERIFICATION_PHENOTYPE_SIMPLIFY). Loading it twice to produce two
+    projections was the stage's only reason to read the same CSV twice.
+
+    ``systematic_id`` is renamed to the ``Systematic ID`` key the rest of the
+    stage joins on; the curated names are otherwise kept as they are, so the
+    essentiality column stays ``verification_essentiality``. Rows missing either
+    call are dropped, and the notebook's hand-added gpd1 row is appended.
     """
     verification = pd.read_csv(essentiality_verification_path).rename(
-        columns={
-            "systematic_id": "Systematic ID",
-            "verification_phenotype": "Verification result",
-            "verification_essentiality": "Verified essentiality",
-        }
-    )[["Systematic ID", "Verification result", "Verified essentiality"]]
-    verification["Verification result"] = verification["Verification result"].replace(
+        columns={"systematic_id": "Systematic ID"}
+    )
+    verification["Verification result"] = verification["verification_phenotype"].replace(
         _VERIFICATION_PHENOTYPE_SIMPLIFY
     )
-    verification = verification.dropna(subset=["Verification result", "Verified essentiality"])
+    verification = verification.dropna(subset=["Verification result", "verification_essentiality"])
     return pd.concat([verification, _MANUAL_VERIFICATION_ROWS], ignore_index=True)
-
-
-def load_essentiality_verification_full(essentiality_verification_path: Path) -> pd.DataFrame:
-    """Load the curated verification table keeping ALL columns (area day3-6, comments, ...).
-
-    Feeds build_final_merged / the per-critical-group review TSVs, which need the
-    colony-area measurements load_essentiality_verification drops. The
-    `verification_phenotype` values are NOT simplified here (the raw label is
-    what a human reviewer wants to see).
-    """
-    return pd.read_csv(essentiality_verification_path)
 
 
 def load_grna_timepoints(grna_path: Path | None) -> tuple[pd.DataFrame, list[float]] | None:
@@ -375,66 +365,54 @@ def apply_category_with_essentiality(row: pd.Series) -> str:
     return row["Category"]
 
 
-def compute_category_stats(merged: pd.DataFrame) -> pd.DataFrame:
-    """Count genes per deletion-library Category in the merged frame."""
+def count_by(merged: pd.DataFrame, column: str) -> pd.DataFrame:
+    """Count genes per value of ``column`` as a category/count frame."""
     return (
-        merged.groupby(CATEGORY_COLUMN, dropna=False)
+        merged.groupby(column, dropna=False)
         .size()
         .reset_index(name="count")
-        .rename(columns={CATEGORY_COLUMN: "category"})
+        .rename(columns={column: "category"})
     )
 
 
-def compute_category_with_essentiality_stats(merged: pd.DataFrame) -> pd.DataFrame:
-    """Count genes per Category_with_essentiality (see apply_category_with_essentiality)."""
-    return (
-        merged.groupby(CATEGORY_WITH_ESSENTIALITY_COLUMN, dropna=False)
-        .size()
-        .reset_index(name="count")
-        .rename(columns={CATEGORY_WITH_ESSENTIALITY_COLUMN: "category"})
+def compute_verification_match_stats(merged: pd.DataFrame, verification: pd.DataFrame) -> dict[str, int]:
+    """Compare the curated verification call against the library's, where both are known.
+
+    Only genes carrying both calls can agree or disagree, so this is an inner
+    join: a gene the library never classified, or the wet-lab work never reached,
+    is not evidence either way.
+    """
+    both = (
+        merged[["Systematic ID", "DeletionLibrary_essentiality"]]
+        .merge(verification[["Systematic ID", "verification_essentiality"]], on="Systematic ID", how="inner")
+        .dropna()
     )
+    match = int((both["verification_essentiality"] == both["DeletionLibrary_essentiality"]).sum())
+    return {"verified_total": len(both), "match": match, "mismatch": len(both) - match}
 
 
-def merge_essentiality_verification(merged: pd.DataFrame, essentiality_verification: pd.DataFrame) -> pd.DataFrame:
-    """Left-merge in the curated Verification result / Verified essentiality columns."""
-    return merged.merge(essentiality_verification, on="Systematic ID", how="left")
-
-
-def compute_verification_match_stats(merged_with_verification: pd.DataFrame) -> dict[str, int]:
-    """Compare curated 'Verified essentiality' against 'DeletionLibrary_essentiality' where both known."""
-    known = merged_with_verification.dropna(subset=["Verified essentiality", "DeletionLibrary_essentiality"])
-    match = int((known["Verified essentiality"] == known["DeletionLibrary_essentiality"]).sum())
-    return {
-        "verified_total": len(known),
-        "match": match,
-        "mismatch": len(known) - match,
-    }
-
-
-def build_stats_table(
-    category_stats: pd.DataFrame,
-    category_with_essentiality_stats: pd.DataFrame,
-    verification_stats: dict[str, int],
-) -> pd.DataFrame:
+def build_stats_table(merged: pd.DataFrame, verification: pd.DataFrame) -> pd.DataFrame:
     """Flatten category counts + verification match/mismatch counts into one long-form table."""
     rows = [
-        {"metric": "category_count", "category": row["category"], "count": row["count"]}
-        for _, row in category_stats.iterrows()
+        {"metric": f"{label}_count", "category": row["category"], "count": row["count"]}
+        for label, column in (
+            ("category", CATEGORY_COLUMN),
+            ("category_with_essentiality", CATEGORY_WITH_ESSENTIALITY_COLUMN),
+        )
+        for _, row in count_by(merged, column).iterrows()
     ]
     rows += [
-        {"metric": "category_with_essentiality_count", "category": row["category"], "count": row["count"]}
-        for _, row in category_with_essentiality_stats.iterrows()
+        {"metric": "verification", "category": key, "count": count}
+        for key, count in compute_verification_match_stats(merged, verification).items()
     ]
-    for key, count in verification_stats.items():
-        rows.append({"metric": "verification", "category": key, "count": count})
     return pd.DataFrame(rows)
 
 
 # =============================================================================
 # CRITICAL-GENE ANALYSIS (unit-tested)
 # =============================================================================
-def build_final_merged(merged: pd.DataFrame, verification_full: pd.DataFrame) -> pd.DataFrame:
-    """Right-join gene-level+category data with the FULL verification table (area columns kept).
+def build_final_merged(merged: pd.DataFrame, verification: pd.DataFrame) -> pd.DataFrame:
+    """Right-join gene-level+category data with the verification table (area columns kept).
 
     Reconstructs the notebook's `final_merged`: one row per curated-verification
     gene, carrying DR/DL/FYPOviability/DeletionLibrary_essentiality/Category plus
@@ -442,12 +420,8 @@ def build_final_merged(merged: pd.DataFrame, verification_full: pd.DataFrame) ->
     verified essential ('E') but missing a day-3 area are zero-filled for the
     area columns, byte-faithful to the notebook (confirmed dead = zero area).
     """
-    area_cols = [c for c in verification_full.columns if "area" in c]
-    final = merged.merge(
-        verification_full.rename(columns={"systematic_id": "Systematic ID"}),
-        on="Systematic ID",
-        how="right",
-    )
+    area_cols = [c for c in verification.columns if "area" in c]
+    final = merged.merge(verification, on="Systematic ID", how="right")
     e_missing_day3 = final.query(
         "verification_essentiality == 'E' and median_area_day3.isna()",
         engine="python",
@@ -459,15 +433,14 @@ def build_final_merged(merged: pd.DataFrame, verification_full: pd.DataFrame) ->
 def prepare_verification_data(
     merged: pd.DataFrame,
     final_merged: pd.DataFrame,
-    simplified_verification: pd.DataFrame,
+    verification: pd.DataFrame,
     outlier_filter: str,
     sort: str = "desc",
 ) -> tuple[dict[str, list[float]], pd.DataFrame]:
     """Bucket a group's outliers by verification result; return {bucket: [DR...]} + gene detail.
 
     Selects outliers via `outlier_filter` (run against `merged`, which carries
-    the raw `Category` column), crosses them with the simplified verification
-    table, buckets
+    the raw `Category` column), crosses them with the verification table, buckets
     into {"Not verified": [...], <verified category>: [...]} preserving
     _VERIFICATION_BUCKET_ORDER. Each bucket value is member DR values (boxplot);
     bucket size drives the donut. Second return is the per-gene detail frame
@@ -480,7 +453,7 @@ def prepare_verification_data(
         .unique()
         .tolist()
     )
-    verified = simplified_verification[simplified_verification["Systematic ID"].isin(outliers)]
+    verified = verification[verification["Systematic ID"].isin(outliers)]
     verified_genes = set(verified["Systematic ID"])
     missing = [g for g in outliers if g not in verified_genes]
 
@@ -499,7 +472,13 @@ def prepare_verification_data(
 
     detail_frames = []
     for bucket, genes in buckets.items():
-        sub = final_merged[final_merged["Systematic ID"].isin(genes)].copy()
+        # Verified buckets come from the verification join. The unverified bucket
+        # has no wet-lab record to join to, so its rows come from the gene-level
+        # table and carry NaN for every verification column — otherwise the
+        # figure advertises "Not verified (n=7)" and the review TSV has no such
+        # rows to look at.
+        source = merged if bucket == NOT_VERIFIED_BUCKET else final_merged
+        sub = source[source["Systematic ID"].isin(genes)].copy()
         sub[BUCKET_COLUMN] = bucket
         detail_frames.append(sub)
     detail = pd.concat(detail_frames, ignore_index=True) if detail_frames else final_merged.iloc[0:0].copy()
@@ -508,12 +487,12 @@ def prepare_verification_data(
 
 
 def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
-    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see _CRITICAL_GROUPS).
+    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see CRITICAL_GROUPS).
 
     Shared by the boxplot builder (review TSVs) and the depletion-curve builder
     (which genes to plot), so both cover exactly the same gene set.
     """
-    spec = _CRITICAL_GROUPS[group]
+    spec = CRITICAL_GROUPS[group]
     return (
         merged.query(spec["filter"], engine="python")
         .sort_values("DR", ascending=spec["sort"] == "asc")["Systematic ID"]
@@ -522,21 +501,15 @@ def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
     )
 
 
-def basic_category_boxplot_data(merged: pd.DataFrame) -> dict[str, list[float]]:
-    """DR values per Category_with_essentiality, restricted to the canonical single-phenotype labels."""
-    basic = merged[merged["Category"].isin(BASIC_BOXPLOT_CATEGORIES)]
-    return basic.groupby("Category_with_essentiality")["DR"].apply(list).to_dict()
-
-
 def critical_group_boxplot_data(
     merged: pd.DataFrame,
     final_merged: pd.DataFrame,
-    simplified_verification: pd.DataFrame,
+    verification: pd.DataFrame,
     group: str,
 ) -> tuple[dict[str, list[float]], pd.DataFrame]:
-    """``prepare_verification_data`` for one named critical group (see _CRITICAL_GROUPS)."""
-    spec = _CRITICAL_GROUPS[group]
+    """``prepare_verification_data`` for one named critical group (see CRITICAL_GROUPS)."""
+    spec = CRITICAL_GROUPS[group]
     return prepare_verification_data(
-        merged, final_merged, simplified_verification,
+        merged, final_merged, verification,
         outlier_filter=spec["filter"], sort=spec["sort"],
     )

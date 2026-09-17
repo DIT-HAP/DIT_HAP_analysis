@@ -3,8 +3,8 @@
 # =============================================================================
 #
 # Split into 4 rules so each analysis step is independently re-runnable:
-#   prepare_verification_table  -> merged / final_merged / simplified_verification
-#                                  parquet intermediates (the single fan-out point)
+#   prepare_verification_table  -> merged / verification parquet intermediates
+#                                  (the single fan-out point)
 #   verification_category_summary -> stats TSV + deletion-library comparison figure
 #   verification_boxplots         -> category box plot + one figure and one review
 #                                    TSV per critical-gene group
@@ -46,8 +46,7 @@ rule prepare_verification_table:
         essentiality_verification="resources/curated/essentiality_verification.csv",
     output:
         merged=f"{_VWORK}/merged.parquet",
-        final_merged=f"{_VWORK}/final_merged.parquet",
-        simplified_verification=f"{_VWORK}/simplified_verification.parquet",
+        verification=f"{_VWORK}/verification.parquet",
     log:
         "logs/verification/prepare_verification_table_{dataset}.log",
     conda:
@@ -61,15 +60,14 @@ rule prepare_verification_table:
             --deletion-library {input.deletion_library} \
             --essentiality-verification {input.essentiality_verification} \
             --output-merged {output.merged} \
-            --output-final-merged {output.final_merged} \
-            --output-simplified-verification {output.simplified_verification} &> {log}
+            --output-verification {output.verification} &> {log}
         """
 
 
 rule verification_category_summary:
     input:
         merged=f"{_VWORK}/merged.parquet",
-        simplified_verification=f"{_VWORK}/simplified_verification.parquet",
+        verification=f"{_VWORK}/verification.parquet",
     output:
         stats="results/verification/{dataset}/verification_stats.tsv",
         figure="results/verification/{dataset}/deletion_library_comparison.pdf",
@@ -83,7 +81,7 @@ rule verification_category_summary:
         """
         python workflow/scripts/verification/verification_category_summary.py \
             --merged {input.merged} \
-            --simplified-verification {input.simplified_verification} \
+            --verification {input.verification} \
             --output-stats {output.stats} \
             --output-figure results/verification/{wildcards.dataset}/deletion_library_comparison &> {log}
         """
@@ -92,8 +90,7 @@ rule verification_category_summary:
 rule verification_boxplots:
     input:
         merged=f"{_VWORK}/merged.parquet",
-        final_merged=f"{_VWORK}/final_merged.parquet",
-        simplified_verification=f"{_VWORK}/simplified_verification.parquet",
+        verification=f"{_VWORK}/verification.parquet",
     output:
         category_boxplot="results/verification/{dataset}/verification_category_boxplot.pdf",
         critical_genes_dir=directory("results/verification/{dataset}/critical_genes"),
@@ -107,8 +104,7 @@ rule verification_boxplots:
         """
         python workflow/scripts/verification/verification_boxplots.py \
             --merged {input.merged} \
-            --final-merged {input.final_merged} \
-            --simplified-verification {input.simplified_verification} \
+            --verification {input.verification} \
             --output-figure results/verification/{wildcards.dataset}/verification_category_boxplot \
             --output-critical-genes-dir results/verification/{wildcards.dataset}/critical_genes &> {log}
         """
