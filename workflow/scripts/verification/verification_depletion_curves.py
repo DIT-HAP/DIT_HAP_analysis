@@ -36,9 +36,9 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet  # noqa: E402
 from figure_render.verification import render_depletion_curves_figure  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import read_gene_level  # noqa: E402
 from verification.core import (  # noqa: E402
     CRITICAL_GROUPS,
-    load_gene_level,
     load_grna_timepoints,
     select_group_outliers,
 )
@@ -74,7 +74,7 @@ def run(config: DepletionCurveConfig) -> None:
     config.validate()
 
     merged = read_parquet(config.merged)
-    gene_timepoints = load_gene_level(config.gene_timepoints).set_index("Systematic ID")
+    gene_timepoints = read_gene_level(config.gene_timepoints).set_index("Systematic ID")
     grna_timepoints = load_grna_timepoints(config.grna_timepoints)
 
     for group in CRITICAL_GROUPS:

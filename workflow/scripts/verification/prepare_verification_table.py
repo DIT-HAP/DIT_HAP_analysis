@@ -38,11 +38,11 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import read_gene_level  # noqa: E402
 from verification.core import (  # noqa: E402
     CATEGORY_WITH_ESSENTIALITY_COLUMN,
     apply_category_with_essentiality,
     load_deletion_library,
-    load_gene_level,
     load_verification,
     merge_deletion_library,
 )
@@ -78,7 +78,7 @@ def run(config: PrepareConfig) -> None:
     config.validate()
 
     merged = merge_deletion_library(
-        load_gene_level(config.fitting_results),
+        read_gene_level(config.fitting_results),
         load_deletion_library(config.deletion_library),
     )
     merged[CATEGORY_WITH_ESSENTIALITY_COLUMN] = merged.apply(apply_category_with_essentiality, axis=1)

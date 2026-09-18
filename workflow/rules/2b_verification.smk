@@ -48,7 +48,7 @@ rule prepare_verification_table:
         merged=f"{_VWORK}/merged.parquet",
         verification=f"{_VWORK}/verification.parquet",
     log:
-        "logs/verification/prepare_verification_table_{dataset}.log",
+        "logs/2b_verification/prepare_verification_table_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -72,7 +72,7 @@ rule verification_category_summary:
         stats="results/2b_verification/{dataset}/verification_stats.tsv",
         figure="results/2b_verification/{dataset}/deletion_library_comparison.pdf",
     log:
-        "logs/verification/verification_category_summary_{dataset}.log",
+        "logs/2b_verification/verification_category_summary_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -95,7 +95,7 @@ rule verification_boxplots:
         category_boxplot="results/2b_verification/{dataset}/verification_category_boxplot.pdf",
         critical_genes_dir=directory("results/2b_verification/{dataset}/critical_genes"),
     log:
-        "logs/verification/verification_boxplots_{dataset}.log",
+        "logs/2b_verification/verification_boxplots_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -126,7 +126,7 @@ rule verification_depletion_curves:
             if wc.dataset in _GRNA_TIMEPOINT_DATA else ""
         ),
     log:
-        "logs/verification/verification_depletion_curves_{dataset}.log",
+        "logs/2b_verification/verification_depletion_curves_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
