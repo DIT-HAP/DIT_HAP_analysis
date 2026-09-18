@@ -37,9 +37,9 @@ Input
 Usage
 -----
     from coverage.core import (
-        load_gene_level, load_insertion_level, resolve_duplicate_annotations,
+        load_insertion_level, resolve_duplicate_annotations,
         compute_insertion_coverage, compute_gene_coverage,
-        compute_essentiality_coverage, compute_per_chromosome_insertion_coverage,
+        compute_per_chromosome_insertion_coverage,
         compute_category_coverage,
         build_stats_table, coverage_dicts_from_stats_table,
         composition_frame, dimension_coverage_frame, insertion_placement_frame,
@@ -61,22 +61,13 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+# 4. Local Imports
+from release_schema import IN_GENE_FILTER, read_gene_level
+
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Byte-faithful to the source notebook's Config.in_gene_filter: an insertion
-# counts as "in a gene" only if it's annotated as non-intergenic AND at least
-# 5bp upstream of the stop codon (the >4 threshold, not >=5, is the notebook's
-# own quirk — kept verbatim).
-IN_GENE_FILTER = "Type != 'Intergenic region' and Distance_to_stop_codon > 4"
-
-# Legacy -> current metric column names (same quirk as
-# workflow/src/clustering/candidates.py's _LEGACY_METRIC_RENAME): some
-# datasets' gene-level fitting_results.tsv still ship the pre-rename um/lam
-# headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
-
 # DR/DL histogram bin edges, byte-faithful to the notebook's "DR DL Histogram"
 # cell. Passed to the histogram renderer as explicit edges, so they also set
 # each panel's x range (the notebook's own xlim).
@@ -137,20 +128,6 @@ INTERGENIC_LABEL = "Intergenic"
 # =============================================================================
 # LOADERS
 # =============================================================================
-def load_gene_level(gene_level_path: Path) -> pd.DataFrame:
-    """Load gene-level fitting statistics, normalizing legacy um/lam -> DR/DL columns."""
-    gene_result = pd.read_csv(gene_level_path, sep="\t")
-    rename = {
-        old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
-        if old in gene_result.columns and new not in gene_result.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        gene_result = gene_result.rename(columns=rename)
-    return gene_result
-
-
 def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
     """Collapse duplicate-indexed annotation rows to one row per index value.
 
@@ -202,8 +179,6 @@ def coverage_dicts_from_stats_table(
     stats: pd.DataFrame,
 ) -> tuple[
     dict[str, int],
-    dict[str, int],
-    dict[str, dict[str, int]],
     pd.DataFrame,
     dict[str, dict[str, dict[str, int]]],
 ]:
@@ -212,9 +187,8 @@ def coverage_dicts_from_stats_table(
     Inverse of build_stats_table: lets plot_coverage_figures render donuts from the
     exact numbers compute_coverage_stats wrote, instead of recomputing them from the
     gene_result parquet (which risks figure/table drift if the two paths ever diverge).
-    Returns (insertion_coverage, gene_coverage, essentiality_coverage, per_chromosome,
-    dimension_coverage). The insertion dict re-exposes covered/not_covered as
-    in_gene/intergenic; dimension_coverage maps each column in DIMENSION_LABELS to its
+    Returns (gene_coverage, per_chromosome, dimension_coverage), the three things the
+    figures need; dimension_coverage maps each column in DIMENSION_LABELS to its
     {value: counts} breakdown, recovered from the `<column>_` row prefix.
     """
     def _row(metric: str, category: str) -> pd.Series:
@@ -223,17 +197,8 @@ def coverage_dicts_from_stats_table(
             raise ValueError(f"coverage_stats table missing required row: metric={metric!r}, category={category!r}")
         return hit.iloc[0]
 
-    ins = _row("insertion", "all")
-    insertion_coverage = {"total": int(ins["total"]), "in_gene": int(ins["covered"]), "intergenic": int(ins["not_covered"])}
-
     gene = _row("gene", "all")
     gene_coverage = {"total": int(gene["total"]), "covered": int(gene["covered"]), "not_covered": int(gene["not_covered"])}
-
-    def _gene_cov(category: str) -> dict[str, int]:
-        r = _row("gene", category)
-        return {"total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])}
-
-    essentiality_coverage = {"essential": _gene_cov("essential"), "non_essential": _gene_cov("non_essential")}
 
     # Per-chromosome insertion rows: any insertion row that isn't the "all" summary.
     per_chr_rows = stats[(stats["metric"] == "insertion") & (stats["category"] != "all")]
@@ -256,9 +221,7 @@ def coverage_dicts_from_stats_table(
     dimension_coverage = {column: _dimension_coverage(column) for column in DIMENSION_LABELS}
 
     return (
-        insertion_coverage,
         gene_coverage,
-        essentiality_coverage,
         per_chromosome,
         dimension_coverage,
     )
@@ -279,23 +242,6 @@ def compute_gene_coverage(gene_result: pd.DataFrame) -> dict[str, int]:
     total = len(gene_result)
     covered = len(gene_result.query("DR.notna()"))
     return {"total": total, "covered": covered, "not_covered": total - covered}
-
-
-def compute_essentiality_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by deletion_essentiality == 'E' vs == 'V'.
-
-    Byte-faithful to the source notebook, which only ever tested
-    `== 'E'` / `== 'V'` (never `!= 'E'`). Genes with deletion_essentiality ==
-    `Not_determined` (no deletion_library_categories.xlsx call for that gene)
-    are EXCLUDED from both buckets here — the two-bucket summary that
-    compute_category_coverage's full per-value breakdown deliberately is not.
-    """
-    essential = gene_result[gene_result["deletion_essentiality"] == "E"]
-    non_essential = gene_result[gene_result["deletion_essentiality"] == "V"]
-    return {
-        "essential": compute_gene_coverage(essential),
-        "non_essential": compute_gene_coverage(non_essential),
-    }
 
 
 def compute_per_chromosome_insertion_coverage(annotation: pd.DataFrame) -> pd.DataFrame:
@@ -437,7 +383,6 @@ def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -
 def build_stats_table(
     insertion_coverage: dict[str, int],
     gene_coverage: dict[str, int],
-    essentiality_coverage: dict[str, dict[str, int]],
     per_chromosome: pd.DataFrame,
     dimension_coverage: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
 ) -> pd.DataFrame:
@@ -446,19 +391,14 @@ def build_stats_table(
     `dimension_coverage` maps each column in DIMENSION_LABELS to its
     {value: counts} breakdown; every row is labeled `<column>_<value>`, which is
     both self-describing in the TSV and exactly the key
-    coverage_dicts_from_stats_table strips back off.
+    coverage_dicts_from_stats_table strips back off. The E/V split lives in there
+    as `deletion_essentiality_E` / `_V`, so it is not repeated as its own rows.
     """
     rows = [
         {"metric": "insertion", "category": "all", "total": insertion_coverage["total"],
          "covered": insertion_coverage["in_gene"], "not_covered": insertion_coverage["intergenic"]},
         {"metric": "gene", "category": "all", "total": gene_coverage["total"],
          "covered": gene_coverage["covered"], "not_covered": gene_coverage["not_covered"]},
-        {"metric": "gene", "category": "essential", "total": essentiality_coverage["essential"]["total"],
-         "covered": essentiality_coverage["essential"]["covered"],
-         "not_covered": essentiality_coverage["essential"]["not_covered"]},
-        {"metric": "gene", "category": "non_essential", "total": essentiality_coverage["non_essential"]["total"],
-         "covered": essentiality_coverage["non_essential"]["covered"],
-         "not_covered": essentiality_coverage["non_essential"]["not_covered"]},
     ]
     for _, row in per_chromosome.iterrows():
         # Some chromosome names already start with "chr_" (e.g.
@@ -472,8 +412,7 @@ def build_stats_table(
 
     # Per-category coverage rows, one per value of each annotation dimension
     # (characterisation_status's categories, FYPOviability's 4, deletion_essentiality's
-    # 3 — the full breakdown, unlike essentiality_coverage's essential/non_essential
-    # rows above which exclude Not_determined).
+    # 3 — the full breakdown, Not_determined included).
     for column, coverage in (dimension_coverage or {}).items():
         for category, counts in coverage.items():
             rows.append({
