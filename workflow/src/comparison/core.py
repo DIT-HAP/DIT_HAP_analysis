@@ -45,6 +45,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
+from release_schema import GRNA_METRIC_SIGN, LEGACY_METRIC_RENAME  # noqa: E402
 # Single-panel figure size and the categorical colour cycle, as matplotlib defines
 # them at import — the house style is applied later, inside run(), so these are the
 # stock values the retired plotting.style constants of the same name also captured.
@@ -66,11 +67,6 @@ DENSITY_COLUMNS = [
     "uipkm",
 ]
 
-# Legacy -> current metric column names, same quirk as 2a_coverage.smk /
-# verification / noncoding_rna: some curated final_clusters.tsv releases still
-# ship the pre-rename `um`/`lam` headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
-
 # The other large-scale study fitness/depletion columns to correlate against,
 # byte-faithful to the notebook's fitness_data column list. These live on the
 # protein-features table; the DIT-HAP metric (DR) and gRNA metric (um_gRNA) are
@@ -91,13 +87,6 @@ STUDY_FITNESS_COLUMNS = [
 DIT_HAP_FITNESS_COLUMN = "um_DIT_HAP"
 GRNA_FITNESS_COLUMN = "um_gRNA"
 
-# The curated gRNA table (resources/curated/*_gRNA_HDdata_fitted_parameters.tsv) is
-# frozen at the pre-2026-09-17 sign convention — positive = depleted — while
-# upstream flipped DIT-HAP so negative DR is now the depleted end. Flip the gRNA
-# metric on the way in so both fitness columns point the same way. Without this
-# the stage reports a strong ANTI-correlation: measured r = -0.92 where the two
-# studies actually agree at r = +0.92 (n = 4,465).
-GRNA_METRIC_SIGN = -1.0
 
 # A Pearson correlation needs at least this many complete (non-NaN) pairs to be
 # meaningful; pairs below this are skipped (logged) rather than emitting a
@@ -113,7 +102,7 @@ def load_final_clusters(final_clusters_path: Path) -> pd.DataFrame:
     clusters = pd.read_csv(final_clusters_path, sep="\t")
     rename = {
         old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
+        for old, new in LEGACY_METRIC_RENAME.items()
         if old in clusters.columns and new not in clusters.columns
     }
     if rename:

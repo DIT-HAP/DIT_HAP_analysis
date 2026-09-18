@@ -92,8 +92,8 @@ def test_merge_all_features_fills_new_deletion_library_columns(tmp_path):
     assert merged["Growth_tier"].dtype == int
 
 
-def test_merge_config_rejects_missing_level_pickle(tmp_path):
-    """MergeConfig.validate raises when a per-level pickle input is absent."""
+def test_merge_config_rejects_missing_level_parquet(tmp_path):
+    """MergeConfig.validate raises when a per-level parquet input is absent."""
     real = tmp_path / "real"
     real.mkdir()
     (real / "dna.parquet").write_bytes(b"")

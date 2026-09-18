@@ -17,10 +17,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from workflow.src.release_schema import normalize_legacy_metrics
 from workflow.src.domain_differences.core import (
     DR_THRESHOLD,
     IN_GENE_FILTER,
-    _normalize_legacy_metrics,
     compute_insertion_fraction,
     filter_depleted_genes,
     compute_domain_candidate_stats,
@@ -211,7 +211,7 @@ def test_resolve_duplicate_annotations_noop_without_duplicates():
 def test_normalize_legacy_metrics_renames_um_lam():
     """Legacy um/lam headers are renamed to DR/DL on load."""
     df = pd.DataFrame({"Systematic ID": ["g1"], "um": [0.5], "lam": [3.0]})
-    out = _normalize_legacy_metrics(df)
+    out = normalize_legacy_metrics(df)
     assert "DR" in out.columns and "DL" in out.columns
     assert "um" not in out.columns and "lam" not in out.columns
     assert out["DR"].iloc[0] == 0.5
@@ -220,5 +220,5 @@ def test_normalize_legacy_metrics_renames_um_lam():
 def test_normalize_legacy_metrics_idempotent_when_already_dr_dl():
     """Files already shipping DR/DL are left unchanged (no clobber)."""
     df = pd.DataFrame({"Systematic ID": ["g1"], "DR": [0.5], "DL": [3.0]})
-    out = _normalize_legacy_metrics(df)
+    out = normalize_legacy_metrics(df)
     assert out["DR"].iloc[0] == 0.5 and out["DL"].iloc[0] == 3.0

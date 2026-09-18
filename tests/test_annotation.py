@@ -22,6 +22,7 @@ from workflow.src.annotation.core import (
     build_pombase_metadata_block,
     build_sc_essentiality,
     build_sc_ortholog_block,
+    build_verification_block,
     parse_ortholog_field,
     read_sgd_phenotype_data,
     summarise_match,
@@ -477,6 +478,15 @@ def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
 
     assert block.loc["SPAC1002.01", "deletion_essentiality"] == "E"
     assert block.loc["SPAC1002.02", "deletion_essentiality"] == "Not_determined"
+
+
+def test_verification_block_raises_when_a_depended_on_column_is_absent(tmp_path):
+    """A curated source missing a column we depend on means the wrong file, so it raises."""
+    path = tmp_path / "essentiality_verification.csv"
+    pd.DataFrame({"systematic_id": ["SPAC1002.01"], "wrong_column": ["E"]}).to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="missing required column"):
+        build_verification_block(path)
 
 
 # =============================================================================

@@ -13,15 +13,14 @@ from workflow.src.coverage.core import (
     compute_insertion_coverage,
     compute_gene_coverage,
     compute_category_coverage,
-    compute_essentiality_coverage,
     coverage_dicts_from_stats_table,
     build_stats_table,
     build_detailed_gene_table,
     dr_dl_histogram_frame,
-    load_gene_level,
     resolve_duplicate_annotations,
     write_detailed_gene_excel,
 )
+from workflow.src.release_schema import read_gene_level
 
 
 # Real S. pombe systematic IDs (from results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet),
@@ -83,43 +82,7 @@ def test_compute_gene_coverage_counts():
     assert result["not_covered"] == 2
 
 
-def test_compute_essentiality_coverage_excludes_not_determined():
-    """Genes with deletion_essentiality 'Not_determined' land in neither essential nor non_essential.
-
-    Real releases (e.g. HD_DIT_HAP) carry a third deletion_essentiality value
-    besides 'E'/'V'. Splitting on `== 'E'` vs `== 'V'` (matching the source
-    notebook) means such genes are excluded from both buckets,
-    so essential.total + non_essential.total < len(gene_result).
-    """
-    gene_result = pd.DataFrame({
-        "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
-        "DR": [0.733, -0.007, 0.001, None, 0.656],
-        "deletion_essentiality": ["E", "V", "Not_determined", "Not_determined", "E"],
-    })
-    result = compute_essentiality_coverage(gene_result)
-    assert result["essential"]["total"] == 2
-    assert result["non_essential"]["total"] == 1
-    # 2 (essential) + 1 (non_essential) + 2 (Not_determined) == 5 total genes
-    assert result["essential"]["total"] + result["non_essential"]["total"] < len(gene_result)
-
-
-def test_compute_essentiality_coverage_essential():
-    """Essential (E) gene coverage split is correct."""
-    # 3 essential genes with 2 covered (DR not-NaN), 3 non-essential genes
-    # with 2 covered.
-    gene_result = pd.DataFrame({
-        "Systematic ID": ["SPAC1002.04c", "SPAC1006.02", "SPAC1002.08c", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.01"],
-        "DR": [0.733, None, 0.656, -0.007, 0.024, None],
-        "deletion_essentiality": ["E", "E", "E", "V", "V", "V"],
-    })
-    result = compute_essentiality_coverage(gene_result)
-    assert result["essential"]["total"] == 3
-    assert result["essential"]["covered"] == 2
-    assert result["non_essential"]["total"] == 3
-    assert result["non_essential"]["covered"] == 2
-
-
-def test_load_gene_level_renames_legacy_um_lam(tmp_path):
+def test_read_gene_level_renames_legacy_um_lam(tmp_path):
     """Legacy um/lam headers are renamed to DR/DL."""
     legacy_tsv = tmp_path / "fitting_results.tsv"
     pd.DataFrame({
@@ -129,7 +92,7 @@ def test_load_gene_level_renames_legacy_um_lam(tmp_path):
         "essentiality": ["E", "V"],
     }).to_csv(legacy_tsv, sep="\t", index=False)
 
-    result = load_gene_level(legacy_tsv)
+    result = read_gene_level(legacy_tsv)
     assert "DR" in result.columns
     assert "DL" in result.columns
     assert "um" not in result.columns
@@ -138,7 +101,7 @@ def test_load_gene_level_renames_legacy_um_lam(tmp_path):
     assert list(result["DL"]) == [1.0, 2.0]
 
 
-def test_load_gene_level_is_idempotent_when_dr_dl_already_present(tmp_path):
+def test_read_gene_level_is_idempotent_when_dr_dl_already_present(tmp_path):
     """Rename only triggers when DR/DL aren't already present — a no-op on current-schema files."""
     current_tsv = tmp_path / "fitting_results.tsv"
     pd.DataFrame({
@@ -148,7 +111,7 @@ def test_load_gene_level_is_idempotent_when_dr_dl_already_present(tmp_path):
         "essentiality": ["E", "V"],
     }).to_csv(current_tsv, sep="\t", index=False)
 
-    result = load_gene_level(current_tsv)
+    result = read_gene_level(current_tsv)
     assert list(result.columns) == ["Systematic ID", "DR", "DL", "essentiality"]
     assert list(result["DR"]) == [0.5, 0.6]
     assert list(result["DL"]) == [1.0, 2.0]
@@ -297,7 +260,7 @@ def test_compute_category_coverage_splits_by_fypoviability():
 
 
 def test_compute_category_coverage_includes_not_determined():
-    """Unlike compute_essentiality_coverage, every deletion_essentiality value gets its own bucket."""
+    """Every deletion_essentiality value gets its own bucket, Not_determined included."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.04c", "SPAC1002.02", "SPAC1071.13", "SPAC1093.07", "SPAC1002.08c"],
         "DR": [0.733, -0.007, 0.001, None, 0.656],
@@ -312,7 +275,8 @@ def test_compute_category_coverage_includes_not_determined():
     assert result["V"]["covered"] == 1
     assert result["Not_determined"]["total"] == 2
     assert result["Not_determined"]["covered"] == 1
-    # Every gene lands in exactly one bucket (no exclusion, unlike compute_essentiality_coverage).
+    # Every gene lands in exactly one bucket. There is no separate E/V-only summary:
+    # these two buckets ARE that summary, plus Not_determined.
     assert sum(v["total"] for v in result.values()) == len(gene_result)
 
 
@@ -346,10 +310,6 @@ def test_coverage_dicts_from_stats_table_roundtrips_build_stats_table():
     """coverage_dicts_from_stats_table is the inverse of build_stats_table."""
     insertion_coverage = {"total": 180, "in_gene": 70, "intergenic": 110}
     gene_coverage = {"total": 50, "covered": 40, "not_covered": 10}
-    essentiality_coverage = {
-        "essential": {"total": 20, "covered": 15, "not_covered": 5},
-        "non_essential": {"total": 25, "covered": 20, "not_covered": 5},
-    }
     per_chromosome = _make_per_chromosome()
     dimension_coverage = {
         "characterisation_status": {
@@ -368,14 +328,12 @@ def test_coverage_dicts_from_stats_table_roundtrips_build_stats_table():
     }
 
     stats = build_stats_table(
-        insertion_coverage, gene_coverage, essentiality_coverage,
+        insertion_coverage, gene_coverage,
         per_chromosome, dimension_coverage=dimension_coverage,
     )
-    ins, gene, ess, per_chr, recovered = coverage_dicts_from_stats_table(stats)
+    gene, per_chr, recovered = coverage_dicts_from_stats_table(stats)
 
-    assert ins == insertion_coverage
     assert gene == gene_coverage
-    assert ess == essentiality_coverage
     assert recovered == dimension_coverage
     # Per-chromosome: Chr labels recovered without the chr_ prefix build_stats_table added.
     assert list(per_chr["Chr"]) == ["I", "II"]
@@ -387,12 +345,12 @@ def test_coverage_dicts_from_stats_table_roundtrips_build_stats_table():
 
 
 def test_coverage_dicts_from_stats_table_missing_row_raises():
-    """A stats table missing a required summary row raises a clear error."""
+    """A stats table without the gene|all summary row raises a clear error."""
     import pytest
 
-    # Only a gene|all row — insertion|all is absent.
+    # Only an insertion row — gene|all is absent.
     stats = pd.DataFrame([
-        {"metric": "gene", "category": "all", "total": 10, "covered": 8, "not_covered": 2},
+        {"metric": "insertion", "category": "all", "total": 10, "covered": 4, "not_covered": 6},
     ])
     with pytest.raises(ValueError, match="missing required row"):
         coverage_dicts_from_stats_table(stats)
@@ -402,14 +360,8 @@ def test_coverage_dicts_from_stats_table_no_dimension_rows():
     """Stats table without any per-category rows yields one empty dict per dimension."""
     insertion_coverage = {"total": 10, "in_gene": 4, "intergenic": 6}
     gene_coverage = {"total": 5, "covered": 3, "not_covered": 2}
-    essentiality_coverage = {
-        "essential": {"total": 2, "covered": 1, "not_covered": 1},
-        "non_essential": {"total": 3, "covered": 2, "not_covered": 1},
-    }
-    stats = build_stats_table(
-        insertion_coverage, gene_coverage, essentiality_coverage, _make_per_chromosome()
-    )
-    _ins, _gene, _ess, _per_chr, dimension_coverage = coverage_dicts_from_stats_table(stats)
+    stats = build_stats_table(insertion_coverage, gene_coverage, _make_per_chromosome())
+    _gene, _per_chr, dimension_coverage = coverage_dicts_from_stats_table(stats)
     assert set(dimension_coverage) == set(DIMENSION_LABELS)
     assert all(coverage == {} for coverage in dimension_coverage.values())
 
@@ -418,12 +370,12 @@ def test_build_stats_table_percent_columns():
     """covered_pct / not_covered_pct are covered/not_covered over total, rounded to 1 decimal."""
     insertion_coverage = {"total": 200, "in_gene": 70, "intergenic": 130}
     gene_coverage = {"total": 50, "covered": 40, "not_covered": 10}
-    essentiality_coverage = {
-        "essential": {"total": 3, "covered": 1, "not_covered": 2},
-        "non_essential": {"total": 25, "covered": 20, "not_covered": 5},
+    dimension_coverage = {
+        "deletion_essentiality": {"E": {"total": 3, "covered": 1, "not_covered": 2}},
     }
     stats = build_stats_table(
-        insertion_coverage, gene_coverage, essentiality_coverage, _make_per_chromosome()
+        insertion_coverage, gene_coverage, _make_per_chromosome(),
+        dimension_coverage=dimension_coverage,
     )
     assert "covered_pct" in stats.columns
     assert "not_covered_pct" in stats.columns
@@ -437,7 +389,7 @@ def test_build_stats_table_percent_columns():
     assert ins_all["not_covered_pct"] == 65.0
 
     # 1/3 -> 33.3, 2/3 -> 66.7 (rounding check)
-    essential = stats[(stats["metric"] == "gene") & (stats["category"] == "essential")].iloc[0]
+    essential = stats[(stats["metric"] == "gene") & (stats["category"] == "deletion_essentiality_E")].iloc[0]
     assert essential["covered_pct"] == 33.3
     assert essential["not_covered_pct"] == 66.7
 
@@ -448,14 +400,14 @@ def test_build_stats_table_percent_handles_zero_total():
 
     insertion_coverage = {"total": 10, "in_gene": 4, "intergenic": 6}
     gene_coverage = {"total": 5, "covered": 3, "not_covered": 2}
-    essentiality_coverage = {
-        "essential": {"total": 0, "covered": 0, "not_covered": 0},
-        "non_essential": {"total": 3, "covered": 2, "not_covered": 1},
+    dimension_coverage = {
+        "deletion_essentiality": {"E": {"total": 0, "covered": 0, "not_covered": 0}},
     }
     stats = build_stats_table(
-        insertion_coverage, gene_coverage, essentiality_coverage, _make_per_chromosome()
+        insertion_coverage, gene_coverage, _make_per_chromosome(),
+        dimension_coverage=dimension_coverage,
     )
-    essential = stats[(stats["metric"] == "gene") & (stats["category"] == "essential")].iloc[0]
+    essential = stats[(stats["metric"] == "gene") & (stats["category"] == "deletion_essentiality_E")].iloc[0]
     assert np.isnan(essential["covered_pct"])
     assert np.isnan(essential["not_covered_pct"])
 

@@ -53,7 +53,7 @@ Input
 Usage
 -----
     from domain_differences.core import (
-        load_gene_level, load_insertion_annotations, filter_depleted_genes,
+        load_insertion_annotations, filter_depleted_genes,
         compute_insertion_fraction, compute_domain_candidate_stats,
     )
 """
@@ -71,6 +71,9 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+# 4. Local Imports
+from release_schema import IN_GENE_FILTER, normalize_legacy_metrics, read_gene_level
+
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
@@ -84,37 +87,9 @@ DR_THRESHOLD = -0.15
 # workflow/scripts/coverage/compute_coverage_stats.py): an insertion counts as
 # in-gene only if annotated non-intergenic AND at least 5bp upstream of the stop
 # codon (the >4 threshold, not >=5, is the notebook's own quirk — kept verbatim).
-IN_GENE_FILTER = "Type != 'Intergenic region' and Distance_to_stop_codon > 4"
-
-# Legacy -> current metric column names (same quirk as
-# workflow/scripts/utr/classify_utr_insertions.py and
-# workflow/scripts/coverage/compute_coverage_stats.py): some datasets'
-# fitting_results.tsv still ship the pre-rename um/lam headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
-
-
 # =============================================================================
 # HELPERS
 # =============================================================================
-def _normalize_legacy_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename legacy um/lam metric columns to DR/DL when the new names are absent."""
-    rename = {
-        old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
-        if old in df.columns and new not in df.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        df = df.rename(columns=rename)
-    return df
-
-
-def load_gene_level(gene_level_path: Path) -> pd.DataFrame:
-    """Load gene-level fitting statistics, normalizing legacy um/lam -> DR/DL columns."""
-    gene_result = pd.read_csv(gene_level_path, sep="\t")
-    return _normalize_legacy_metrics(gene_result)
-
-
 def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
     """Collapse duplicate-indexed annotation rows to one row per index value.
 

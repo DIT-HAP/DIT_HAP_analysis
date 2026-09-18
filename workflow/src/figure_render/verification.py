@@ -78,6 +78,7 @@ from verification.core import (  # noqa: E402
     GRNA_FITTED_COLS,
     GRNA_RATE_COLUMN,
     GRNA_VALUE_COLS,
+    order_labels_present,
     UNVERIFIED_FAMILY,
     category_family,
     order_categories,
@@ -263,18 +264,6 @@ def _paint_legend(ax: Axes) -> None:
                 handle.set_color(color)
 
 
-def present_in_order(order: Sequence[str], values: Sequence[str] | pd.Series) -> list[str]:
-    """Return the labels present in ``values``, ordered by ``order``.
-
-    Anything present but not listed in ``order`` is appended rather than
-    dropped: "Not verified" is a bucket of its own but no phenotype, so it has
-    no place in the severity order and would otherwise vanish from every panel
-    of a critical-group figure.
-    """
-    present = set(values)
-    return [label for label in order if label in present] + sorted(present - set(order))
-
-
 def parse_generations(value: str) -> list[float]:
     """Parse one ``time_points`` cell (comma-separated generations) into floats."""
     return [float(point) for point in str(value).split(",")]
@@ -351,6 +340,20 @@ def render_gene_depletion_curve_panel(
     ax.legend()
 
 
+def _label_category_rows(ax: Axes, labels: Sequence[str], sizes: pd.Series) -> None:
+    """Write "label  (n=NN)" on each category row, most severe at the top.
+
+    Counts are written here rather than through cnsplots' add_count, which formats
+    them into the tick labels: this overwrites that, and group size is the one
+    annotation a reader needs to judge a distribution. Severity descends down the
+    panel, matching the donut's legend order, so the two panels read row by row.
+    """
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels([f"{label}  (n={int(sizes.get(label, 0)):,})" for label in labels])
+    ax.set_ylim(-0.7, len(labels) - 0.3)
+    ax.invert_yaxis()
+
+
 def render_dr_boxplot_panel(
     ax: Axes,
     data: pd.DataFrame,
@@ -387,16 +390,21 @@ def render_dr_boxplot_panel(
     # keep their own colour.
     _paint(list(ax.collections), colors_for_labels(order), what="violins")
     _narrow_embedded_box(ax)
-    # Counts are written here rather than via cns.violinplot's add_count, which
-    # formats into the tick labels: this overwrites them, and group size is the
-    # one annotation a reader needs to judge a distribution.
     sizes = data[category_column].value_counts()
-    ax.set_yticks(range(len(order)))
-    ax.set_yticklabels([f"{label}  (n={int(sizes.get(label, 0)):,})" for label in order])
-    ax.set_ylim(-0.7, len(order) - 0.3)
-    # Severity descends down the panel, matching the donut's legend order.
-    ax.invert_yaxis()
+    _label_category_rows(ax, order, sizes)
     ax.set(xlabel=xlabel, ylabel="", title=title)
+
+
+def _donut_panel(panels, label: str) -> Axes:
+    """Add the phenotype donut's multipanel slot: house label padding, room for a bottom legend."""
+    return panels.panel(
+        label=label,
+        width=DONUT_PANEL_PX,
+        height=DONUT_PANEL_PX,
+        pad_left=PANEL_LABEL_PAD_PX,
+        pad_top=PANEL_LABEL_PAD_PX,
+        margin_bottom=DONUT_LEGEND_HEIGHT_PX,
+    )
 
 
 def render_composition_donut_panel(
@@ -445,7 +453,7 @@ def render_dr_scatter_panel(
     row labels carry the category, so the panel needs no legend of its own —
     the shared donut legend already maps each category to its colour.
     """
-    labels = present_in_order(order, set(data[category_column].dropna()))
+    labels = order_labels_present(order, data[category_column].dropna())
     sizes = data.groupby(category_column, observed=True).size()
 
     rng = np.random.default_rng(42)
@@ -460,12 +468,7 @@ def render_dr_scatter_panel(
             color=colors_for_labels([label])[0],
         )
 
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels([f"{label}  (n={int(sizes.get(label, 0)):,})" for label in labels])
-    ax.set_ylim(-0.7, len(labels) - 0.3)
-    # Severity descends down the panel, matching the donut legend's order, so a
-    # reader can compare the two panels row by row.
-    ax.invert_yaxis()
+    _label_category_rows(ax, labels, sizes)
     ax.set(xlabel=xlabel, ylabel="", title=title)
 
 
@@ -494,14 +497,7 @@ def render_category_summary_figure(
     cns.figure(width=FIGURE_WIDTH_PX, height=strip_height_px + FIGURE_DECORATION_PX)
     panels = cns.multipanel(max_width=FIGURE_WIDTH_PX)
 
-    ax_donut = panels.panel(
-        label="A",
-        width=DONUT_PANEL_PX,
-        height=DONUT_PANEL_PX,
-        pad_left=PANEL_LABEL_PAD_PX,
-        pad_top=PANEL_LABEL_PAD_PX,
-        margin_bottom=DONUT_LEGEND_HEIGHT_PX,
-    )
+    ax_donut = _donut_panel(panels, "A")
     render_composition_donut_panel(
         ax_donut, merged,
         category_column=CATEGORY_COLUMN,
@@ -581,7 +577,7 @@ def render_critical_group_figure(
         [(bucket, value) for bucket, values in dr_by_bucket.items() for value in values],
         columns=[BUCKET_COLUMN, DR_COLUMN],
     )
-    present = present_in_order(order, long[BUCKET_COLUMN])
+    present = order_labels_present(order, long[BUCKET_COLUMN])
     height_px = max(len(present) * VIOLIN_ROW_HEIGHT_PX, DONUT_PANEL_PX)
 
     cns.figure(width=FIGURE_WIDTH_PX, height=height_px + FIGURE_DECORATION_PX)
@@ -598,14 +594,7 @@ def render_critical_group_figure(
         title=f"{group} — DR by verification result",
     )
 
-    ax_donut = panels.panel(
-        label="B",
-        width=DONUT_PANEL_PX,
-        height=DONUT_PANEL_PX,
-        pad_left=PANEL_LABEL_PAD_PX,
-        pad_top=PANEL_LABEL_PAD_PX,
-        margin_bottom=DONUT_LEGEND_HEIGHT_PX,
-    )
+    ax_donut = _donut_panel(panels, "B")
     render_composition_donut_panel(
         ax_donut, long,
         category_column=BUCKET_COLUMN,

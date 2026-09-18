@@ -21,7 +21,7 @@ only produces the deterministic per-insertion table.
 Usage
 -----
     from utr.core import (
-        load_gene_level, load_insertion_level,
+        load_insertion_level,
         filter_intergenic_near_gene, assign_UTR_type, resolve_parental_gene,
         classify_utr_insertions,
     )
@@ -40,6 +40,9 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+# 4. Local Imports
+from release_schema import normalize_legacy_metrics
+
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
@@ -48,12 +51,6 @@ from loguru import logger
 # Config.distance_threshold.
 UTR_DISTANCE_THRESHOLD = 400
 
-# Legacy -> current metric column names (same quirk as
-# workflow/scripts/coverage/compute_coverage_stats.py and
-# workflow/src/clustering/candidates.py): some datasets' fitting_results.tsv
-# still ship the pre-rename um/lam headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
-
 # The intergenic-region label used by the annotations table's Type column.
 _INTERGENIC = "Intergenic region"
 
@@ -61,28 +58,6 @@ _INTERGENIC = "Intergenic region"
 # =============================================================================
 # HELPERS
 # =============================================================================
-def _normalize_legacy_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename legacy um/lam metric columns to DR/DL when the new names are absent."""
-    rename = {
-        old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
-        if old in df.columns and new not in df.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        df = df.rename(columns=rename)
-    return df
-
-
-# =============================================================================
-# LOADERS
-# =============================================================================
-def load_gene_level(gene_level_path: Path) -> pd.DataFrame:
-    """Load gene-level fitting statistics, normalizing legacy um/lam -> DR/DL columns."""
-    gene_result = pd.read_csv(gene_level_path, sep="\t")
-    return _normalize_legacy_metrics(gene_result)
-
-
 def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate, Strand, Target].
 
@@ -93,7 +68,7 @@ def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> 
     per-insertion A/DR joined in downstream.
     """
     fitting_results = pd.read_csv(fitting_results_path, sep="\t", index_col=[0, 1, 2, 3])
-    fitting_results = _normalize_legacy_metrics(fitting_results)
+    fitting_results = normalize_legacy_metrics(fitting_results)
     annotations = pd.read_csv(annotations_path, sep="\t", index_col=[0, 1, 2, 3])
     return fitting_results, annotations
 

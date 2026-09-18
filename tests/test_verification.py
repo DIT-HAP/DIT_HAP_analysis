@@ -1,6 +1,5 @@
 """Tests for deletion library verification logic."""
 
-import re
 import sys
 from pathlib import Path
 
@@ -13,6 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 
 from workflow.src.verification.core import (
     CATEGORY_FAMILIES,
@@ -27,6 +27,7 @@ from workflow.src.verification.core import (
     build_final_merged,
     category_family,
     count_by,
+    load_deletion_library,
     load_grna_timepoints,
     merge_deletion_library,
     order_categories,
@@ -48,7 +49,7 @@ def _make_gene_results():
 
 def _make_deletion_library():
     return pd.DataFrame({
-        "Updated_Systematic_ID": ["g1", "g2", "g3", "g4", "g5"],
+        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
         "Category": ["spores", "WT", "germinated", "small colonies", "E"],
     })
 
@@ -127,24 +128,34 @@ def test_load_grna_timepoints_none_returns_none():
 
 
 def test_grna_sign_constant_matches_comparison():
-    """verification and comparison must agree on the curated gRNA table's sign convention.
+    """verification and comparison must agree on the curated gRNA table's sign convention."""
+    from workflow.src.comparison.core import GRNA_METRIC_SIGN as COMPARISON_SIGN
 
-    The constant is duplicated rather than imported so the flat (script) and
-    package (test) import paths both work; this is what stops the two drifting.
-    comparison/core.py cannot be imported to compare against (it still imports
-    the retired plotting.style), so the value is read off its source.
-    """
-    source = (Path(__file__).resolve().parents[1] / "workflow/src/comparison/core.py").read_text()
-    match = re.search(r"^GRNA_METRIC_SIGN\s*=\s*([-\d.]+)", source, re.MULTILINE)
-    assert match is not None, "GRNA_METRIC_SIGN not found in comparison/core.py"
-    assert float(match.group(1)) == GRNA_METRIC_SIGN
+    assert COMPARISON_SIGN == GRNA_METRIC_SIGN
+
+
+def test_load_deletion_library_normalizes_the_legacy_id_column(tmp_path):
+    """The pre-2026-07 schema spelled the id column Updated_Systematic_ID; the loader renames it."""
+    # This module only imports under the cnsplots env (figure_render pulls cnsplots in),
+    # which has no openpyxl — hence the guard around the xlsx fixture.
+    pytest.importorskip("openpyxl")
+    path = tmp_path / "deletion_library_categories.xlsx"
+    pd.DataFrame({
+        "Updated_Systematic_ID": ["g1", "g2"],
+        "Category": ["spores", "WT"],
+    }).to_excel(path, index=False)
+
+    loaded = load_deletion_library(path)
+
+    assert list(loaded.columns) == ["Systematic ID", "Category"]
+    assert list(loaded["Systematic ID"]) == ["g1", "g2"]
 
 
 # =============================================================================
 # MERGE + STATS
 # =============================================================================
 def test_merge_deletion_library_joins_on_systematic_id():
-    """merge_deletion_library joins on Systematic ID / Updated_Systematic_ID."""
+    """merge_deletion_library joins on Systematic ID."""
     gene = _make_gene_results()
     dl = _make_deletion_library()
     merged = merge_deletion_library(gene, dl)

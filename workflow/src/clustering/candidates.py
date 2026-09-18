@@ -44,6 +44,9 @@ import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 4. Local Imports
+from release_schema import LEGACY_METRIC_RENAME, normalize_legacy_metrics
 from scipy.cluster.hierarchy import fcluster, linkage
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
@@ -78,19 +81,11 @@ BEST_METHOD = "kmeans"
 # =============================================================================
 # PREPROCESSING (the "spine")
 # =============================================================================
-# Legacy -> current metric column names. Commit 573aafd renamed the clustering
-# feature columns um->DR (max depletion rate) and lam->DL (lag) in code, but some
-# upstream fitting_results.tsv exports still carry the old um/lam headers. Rename
-# on load so the pipeline speaks DR/DL consistently; a no-op once upstream ships
-# DR/DL directly (the two are the same metrics, only renamed).
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
-
-
 @logger.catch
 def load_and_annotate(fitting_results: Path, essentiality_verification_csv: Path) -> pd.DataFrame:
     """Load fitting statistics, normalize legacy um/lam -> DR/DL, and inject RevisedDeletion_essentiality at position 3."""
     data_df = read_file(fitting_results, index_col=[0])
-    rename = {old: new for old, new in _LEGACY_METRIC_RENAME.items() if old in data_df.columns and new not in data_df.columns}
+    rename = {old: new for old, new in LEGACY_METRIC_RENAME.items() if old in data_df.columns and new not in data_df.columns}
     if rename:
         logger.info(f"Normalizing legacy metric columns: {rename}")
         data_df = data_df.rename(columns=rename)

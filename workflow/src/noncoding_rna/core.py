@@ -42,6 +42,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
+from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
 # Single-panel figure size and the categorical colour cycle, as matplotlib defines
 # them at import — the house style is applied later, inside run(), so these are the
 # stock values the retired plotting.style constants of the same name also captured.
@@ -57,11 +58,6 @@ COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 # are "chrI/chrII/chrIII" but the ncRNA bed uses bare "I/II/III", so the
 # GtRNAdb chr column is normalized before the positional merge.
 _CHROMOSOME_NAME_MAP = {"chrI": "I", "chrII": "II", "chrIII": "III"}
-
-# Legacy -> current metric column names, same quirk as 2a_coverage.smk /
-# verification: the non-coding-gene fitting_results.tsv still ships the
-# pre-rename um/lam headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
 # Headerless GtRNAdb BED column names (standard 12-column BED); only the first
 # 6 are used downstream (GtRNAdb_Name carries the amino-acid/anticodon label).
@@ -86,7 +82,7 @@ def load_ncrna_fitting(ncrna_fitting_path: Path) -> pd.DataFrame:
     fitting = pd.read_csv(ncrna_fitting_path, sep="\t")
     rename = {
         old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
+        for old, new in LEGACY_METRIC_RENAME.items()
         if old in fitting.columns and new not in fitting.columns
     }
     if rename:
