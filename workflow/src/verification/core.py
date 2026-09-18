@@ -30,7 +30,7 @@ never for display text or grouping.
 Usage
 -----
     from verification.core import (
-        load_gene_level, load_deletion_library, load_verification,
+        load_deletion_library, load_verification,
         merge_deletion_library, build_final_merged, select_group_outliers,
     )
 """
@@ -39,6 +39,7 @@ Usage
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
+from collections.abc import Iterable
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -46,6 +47,9 @@ import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 4. Local Imports
+from release_schema import GRNA_METRIC_SIGN, read_gene_level
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -81,12 +85,6 @@ _CATEGORY_ORDER = [
     "small colonies",
     "WT-like",
 ]
-
-# Legacy -> current metric column names, same quirk as 2a_coverage.smk's
-# compute_coverage_stats.load_gene_level / clustering's candidates.load_and_annotate:
-# some releases' gene-level fitting_results.tsv still ship the pre-rename um/lam
-# headers instead of DR/DL.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
 # Phenotype families, most-arrested first. Every raw curated label and every
 # verification-result bucket resolves to exactly one of these (or to
@@ -199,9 +197,6 @@ GRNA_LAG_COLUMN = "lam"
 # LFC values negated.
 #
 # ``lam`` is a lag in generations, not a signed magnitude, and is left alone.
-# comparison/core.py applies the same rate flip to the same file for the fitness
-# correlation, and pins the two constants equal in tests/test_verification.py.
-GRNA_METRIC_SIGN = -1.0
 GRNA_SIGN_FLIP_COLS = [GRNA_AMPLITUDE_COLUMN, GRNA_RATE_COLUMN, *GRNA_VALUE_COLS, *GRNA_FITTED_COLS]
 
 
@@ -218,49 +213,43 @@ def category_family(label: str | None) -> str:
     return CATEGORY_FAMILY.get(str(label), str(label))
 
 
-def _order_by(known_order: list[str], labels: pd.Series) -> list[str]:
-    """Order the labels present in ``labels`` by ``known_order``, appending unlisted ones after it."""
-    present = set(labels.dropna().unique())
-    ordered = [label for label in known_order if label in present]
-    return ordered + sorted(label for label in present if label not in known_order)
+def order_labels_present(known_order: list[str], values: Iterable[str]) -> list[str]:
+    """Return the labels present in `values`, ordered by `known_order`, unlisted ones appended.
+
+    Anything present but unlisted is appended rather than dropped: "Not verified" is a
+    bucket of its own but no phenotype, so it has no place in the severity order and
+    would otherwise vanish from every panel of a critical-group figure.
+
+    `values` may be a Series, array or set — the renderer passes whichever it has.
+    """
+    present = {v for v in pd.Series(list(values)).dropna()}
+    return [label for label in known_order if label in present] + sorted(present - set(known_order))
 
 
 def order_categories(labels: pd.Series) -> list[str]:
     """Order raw curated Category labels by phenotype severity (see _CATEGORY_ORDER)."""
-    return _order_by(_CATEGORY_ORDER, labels)
+    return order_labels_present(_CATEGORY_ORDER, labels)
 
 
 def order_verification_buckets(labels: pd.Series) -> list[str]:
     """Order verification-result buckets from most-arrested to healthiest (see _VERIFICATION_BUCKET_ORDER)."""
-    return _order_by(_VERIFICATION_BUCKET_ORDER, labels)
+    return order_labels_present(_VERIFICATION_BUCKET_ORDER, labels)
 
 
 # =============================================================================
 # LOADERS
 # =============================================================================
-def load_gene_level(gene_level_path: Path) -> pd.DataFrame:
-    """Load gene-level fitting statistics, normalizing legacy um/lam -> DR/DL columns."""
-    gene_result = pd.read_csv(gene_level_path, sep="\t")
-    rename = {
-        old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
-        if old in gene_result.columns and new not in gene_result.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        gene_result = gene_result.rename(columns=rename)
-    return gene_result
-
-
 def load_deletion_library(deletion_library_path: Path) -> pd.DataFrame:
     """Load the curated deletion library xlsx, keeping just the ID + Category columns.
 
-    Handles both schemas: the old file's `Updated_Systematic_ID` key (also used
-    by the unit test fixture) and the current file's `Systematic ID` key.
+    The pre-2026-07 schema spelled the id column `Updated_Systematic_ID`; it is renamed
+    here so every consumer sees one column name (this is the only place the two schemas
+    are told apart).
     """
     deletion_library = pd.read_excel(deletion_library_path)
-    id_col = "Updated_Systematic_ID" if "Updated_Systematic_ID" in deletion_library.columns else "Systematic ID"
-    return deletion_library[[id_col, "Category"]]
+    if "Updated_Systematic_ID" in deletion_library.columns:
+        deletion_library = deletion_library.rename(columns={"Updated_Systematic_ID": "Systematic ID"})
+    return deletion_library[["Systematic ID", "Category"]]
 
 
 def load_verification(essentiality_verification_path: Path) -> pd.DataFrame:
@@ -341,21 +330,10 @@ def load_grna_timepoints(grna_path: Path | None) -> tuple[pd.DataFrame, list[flo
 def merge_deletion_library(gene_result: pd.DataFrame, deletion_library: pd.DataFrame) -> pd.DataFrame:
     """Left-merge gene-level results with deletion library categories on Systematic ID.
 
-    Accepts either the old schema (`Updated_Systematic_ID` key) or the current
-    schema (`Systematic ID` key) for `deletion_library`.
+    `deletion_library` is expected to come from load_deletion_library, which normalizes
+    the legacy `Updated_Systematic_ID` spelling.
     """
-    if "Updated_Systematic_ID" in deletion_library.columns:
-        return gene_result.merge(
-            deletion_library,
-            left_on="Systematic ID",
-            right_on="Updated_Systematic_ID",
-            how="left",
-        ).drop(columns=["Updated_Systematic_ID"])
-    if "Systematic ID" in deletion_library.columns:
-        return gene_result.merge(deletion_library, on="Systematic ID", how="left")
-    raise KeyError(
-        "deletion_library must contain a 'Systematic ID' or 'Updated_Systematic_ID' column"
-    )
+    return gene_result.merge(deletion_library, on="Systematic ID", how="left")
 
 
 def apply_category_with_essentiality(row: pd.Series) -> str:
@@ -446,13 +424,7 @@ def prepare_verification_data(
     bucket size drives the donut. Second return is the per-gene detail frame
     (from final_merged) tagged with its bucket, for the review TSV.
     """
-    ascending = sort == "asc"
-    outliers = (
-        merged.query(outlier_filter, engine="python")
-        .sort_values("DR", ascending=ascending)["Systematic ID"]
-        .unique()
-        .tolist()
-    )
+    outliers = _sorted_unique_ids(merged, outlier_filter, sort == "asc")
     verified = verification[verification["Systematic ID"].isin(outliers)]
     verified_genes = set(verified["Systematic ID"])
     missing = [g for g in outliers if g not in verified_genes]
@@ -486,19 +458,25 @@ def prepare_verification_data(
     return dr_dict, detail
 
 
-def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
-    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see CRITICAL_GROUPS).
+def _sorted_unique_ids(merged: pd.DataFrame, filter_expr: str, ascending: bool) -> list[str]:
+    """The DR-sorted, deduped Systematic IDs matching `filter_expr`.
 
-    Shared by the boxplot builder (review TSVs) and the depletion-curve builder
-    (which genes to plot), so both cover exactly the same gene set.
+    One implementation because the boxplot builder (review TSVs) and the depletion-curve
+    builder (which genes to plot) must cover exactly the same gene set, and they used to
+    hold a copy each — one edit to either filter silently desynchronised them.
     """
-    spec = CRITICAL_GROUPS[group]
     return (
-        merged.query(spec["filter"], engine="python")
-        .sort_values("DR", ascending=spec["sort"] == "asc")["Systematic ID"]
+        merged.query(filter_expr, engine="python")
+        .sort_values("DR", ascending=ascending)["Systematic ID"]
         .unique()
         .tolist()
     )
+
+
+def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
+    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see CRITICAL_GROUPS)."""
+    spec = CRITICAL_GROUPS[group]
+    return _sorted_unique_ids(merged, spec["filter"], spec["sort"] == "asc")
 
 
 def critical_group_boxplot_data(
