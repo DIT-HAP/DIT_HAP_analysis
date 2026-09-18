@@ -1,23 +1,32 @@
 """Tests for workflow/src/annotation/core.py gene annotation assembly."""
 
+import sys
+from pathlib import Path
+
+# core.py imports its sibling src modules by bare name (as every src module does),
+# so src/ has to be importable — same path the scripts append.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
+
 import pandas as pd
 
 import pytest
 
 from workflow.src.annotation.core import (
     annotate_table,
-    assemble_annotation_reference,
+    assemble_annotation_reference_split,
     build_complex_block,
+    build_deletion_library_block,
     build_go_slim_block,
     build_grna_block,
     build_hs_ortholog_block,
-    build_pombe_block,
+    build_pombase_metadata_block,
     build_sc_essentiality,
     build_sc_ortholog_block,
     parse_ortholog_field,
     read_sgd_phenotype_data,
     summarise_match,
 )
+from workflow.src.io_table import write_parquet
 
 
 def _sgd_phenotype_frame(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
@@ -356,13 +365,6 @@ def test_ortholog_without_standard_name_falls_back_to_systematic_id(sc_gene_info
     assert result.loc["SPAC0001.01", "Sc_ortholog_name"] == "YBR265W"
 
 
-def test_ortholog_block_carries_orf_qualifier(sc_gene_info, sc_essentiality):
-    """A Dubious ORF makes the ortholog relation weak evidence, so the qualifier is surfaced."""
-    orthologs = _ortholog_frame([("SPAC0001.01", "YBR265W")])
-    result = build_sc_ortholog_block(orthologs, sc_gene_info, sc_essentiality)
-    assert result.loc["SPAC0001.01", "Sc_ortholog_qualifier"] == "Dubious"
-
-
 def test_multiple_orthologs_stay_positionally_aligned(sc_gene_info, sc_essentiality):
     """Per-ortholog columns are pipe-joined in the same order so position i refers to one gene."""
     orthologs = _ortholog_frame([("SPAC0002.01", "YCL030C|YDR027C")])
@@ -370,7 +372,6 @@ def test_multiple_orthologs_stay_positionally_aligned(sc_gene_info, sc_essential
     row = result.loc["SPAC0002.01"]
     assert row["Sc_ortholog_id"] == "YCL030C|YDR027C"
     assert row["Sc_ortholog_name"] == "HIS4|VPS54"
-    assert row["Sc_ortholog_qualifier"] == "Verified|Verified"
     assert row["Sc_essentiality"] == "inviable|viable"
 
 
@@ -394,13 +395,6 @@ def test_fusion_ortholog_reports_both_fragment_names(sc_gene_info, sc_essentiali
     orthologs = _ortholog_frame([("SPCC1450.15", "YBR265W(N)+YCL030C(C)")])
     result = build_sc_ortholog_block(orthologs, sc_gene_info, sc_essentiality)
     assert result.loc["SPCC1450.15", "Sc_ortholog_name"] == "YBR265W+HIS4"
-
-
-def test_raw_ortholog_field_is_preserved(sc_gene_info, sc_essentiality):
-    """The original string keeps the (N)/(C) terminus information that parsing strips."""
-    orthologs = _ortholog_frame([("SPCC1450.15", "YBR265W(N)+YCL030C(C)")])
-    result = build_sc_ortholog_block(orthologs, sc_gene_info, sc_essentiality)
-    assert result.loc["SPCC1450.15", "Sc_ortholog_raw"] == "YBR265W(N)+YCL030C(C)"
 
 
 def test_ortholog_lacking_essentiality_record_is_blank_not_dropped(sc_gene_info, sc_essentiality):
@@ -433,94 +427,56 @@ def test_human_ortholog_block_gives_symbols_and_count():
 
 
 # =============================================================================
-# POMBE-SIDE BLOCK (identity + two independent essentiality sources)
+# POMBE-SIDE & EXPERIMENTAL BLOCKS (one source file each, keyed by systematic_id)
 # =============================================================================
-def test_pombe_block_uses_gene_name_and_product():
-    """Gene name and product description come from PomBase gene metadata."""
-    gene_meta = pd.DataFrame(
-        {
-            "gene_systematic_id": ["SPAC1002.01"],
-            "gene_name": ["mrx11"],
-            "gene_product": ["MIOREX component Mrx11"],
-            "synonyms": ["SPAC1610.05"],
-        }
-    )
-    result = build_pombe_block(gene_meta, pd.Series(dtype=str), pd.DataFrame())
-    assert result.loc["SPAC1002.01", "gene_name"] == "mrx11"
-    assert result.loc["SPAC1002.01", "gene_product"] == "MIOREX component Mrx11"
-    assert result.loc["SPAC1002.01", "synonyms"] == "SPAC1610.05"
+def _pombase_metadata_frame() -> pd.DataFrame:
+    """Minimal gene_ids_and_details.parquet stand-in: two protein genes + one lncRNA."""
+    return pd.DataFrame({
+        "systematic_id": ["SPAC1002.01", "SPAC1002.02", "SPNCRNA.01"],
+        "name": ["mrx11", None, "nc1"],
+        "gene_product": ["MIOREX component Mrx11", "conserved protein", "lncRNA"],
+        "product": ["p1", "p2", "p3"],
+        "feature_type": ["protein", "protein", "lncRNA gene"],
+        "characterisation_status": ["biological role published"] * 3,
+        "taxonomic_distribution": ["fungi only"] * 3,
+        "deletion_viability": ["viable", "inviable", "unknown"],
+    })
 
 
-def test_unnamed_pombe_gene_falls_back_to_systematic_id():
-    """An unnamed gene shows its systematic id so the column is never blank."""
-    gene_meta = pd.DataFrame(
-        {
-            "gene_systematic_id": ["SPAC1002.02"],
-            "gene_name": [None],
-            "gene_product": ["conserved protein"],
-            "synonyms": [None],
-        }
-    )
-    result = build_pombe_block(gene_meta, pd.Series(dtype=str), pd.DataFrame())
-    assert result.loc["SPAC1002.02", "gene_name"] == "SPAC1002.02"
+def test_pombase_metadata_block_filters_gene_type_and_keeps_reference_column_names(tmp_path):
+    """gene_type selects feature_types; the viability column keeps the reference's own name."""
+    path = tmp_path / "gene_ids_and_details.parquet"
+    write_parquet(_pombase_metadata_frame(), path)
+
+    block = build_pombase_metadata_block(path, "protein")
+
+    assert list(block.index) == ["SPAC1002.01", "SPAC1002.02"]
+    assert block.loc["SPAC1002.01", "FYPOviability"] == "viable"
 
 
-def test_pombe_block_carries_fypo_viability():
-    """FYPO viability is genome-wide but mostly 'unknown', so it is kept as its own column."""
-    gene_meta = pd.DataFrame(
-        {
-            "gene_systematic_id": ["SPAC1002.04c"],
-            "gene_name": ["abc1"],
-            "gene_product": ["p"],
-            "synonyms": [None],
-        }
-    )
-    viability = pd.Series({"SPAC1002.04c": "inviable"})
-    result = build_pombe_block(gene_meta, viability, pd.DataFrame())
-    assert result.loc["SPAC1002.04c", "Sp_FYPO_viability"] == "inviable"
+def test_pombase_metadata_block_fills_missing_name_with_systematic_id(tmp_path):
+    """An unnamed gene shows its systematic id, so the name column is never blank."""
+    path = tmp_path / "gene_ids_and_details.parquet"
+    write_parquet(_pombase_metadata_frame(), path)
+
+    block = build_pombase_metadata_block(path, "all")
+
+    assert block.loc["SPAC1002.02", "gene_name"] == "SPAC1002.02"
+    assert len(block) == 3  # "all" applies no feature_type filter
 
 
-def test_pombe_block_carries_deletion_library_columns():
-    """The Hayles deletion library is a separate measured source from FYPO, so both are kept."""
-    gene_meta = pd.DataFrame(
-        {
-            "gene_systematic_id": ["SPAC1002.04c"],
-            "gene_name": ["abc1"],
-            "gene_product": ["p"],
-            "synonyms": [None],
-        }
-    )
-    deletion = pd.DataFrame(
-        {
-            "Systematic ID": ["SPAC1002.04c"],
-            "Gene dispensability. This study": ["E"],
-            "Phenotypic classification used for analysis": ["misshapen essential"],
-            "Category": ["microcolonies"],
-        }
-    )
-    result = build_pombe_block(gene_meta, pd.Series(dtype=str), deletion)
-    row = result.loc["SPAC1002.04c"]
-    assert row["Sp_deletion_essentiality"] == "E"
-    assert row["Sp_deletion_phenotype"] == "misshapen essential"
-    assert row["Sp_growth_category"] == "microcolonies"
+def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
+    """A gene in the xlsx with no dispensability call becomes Not_determined, not NaN."""
+    path = tmp_path / "deletion_library_categories.xlsx"
+    pd.DataFrame({
+        "Systematic ID": ["SPAC1002.01", "SPAC1002.02"],
+        "Gene dispensability. This study": ["E", None],
+    }).to_excel(path, index=False)
 
+    block = build_deletion_library_block(path)
 
-def test_gene_absent_from_deletion_library_keeps_other_columns():
-    """The deletion library covers only 4843 genes; the rest keep identity/FYPO columns."""
-    gene_meta = pd.DataFrame(
-        {
-            "gene_systematic_id": ["SPAC1002.05c"],
-            "gene_name": ["xyz1"],
-            "gene_product": ["p"],
-            "synonyms": [None],
-        }
-    )
-    result = build_pombe_block(
-        gene_meta, pd.Series({"SPAC1002.05c": "viable"}), pd.DataFrame()
-    )
-    assert result.loc["SPAC1002.05c", "gene_name"] == "xyz1"
-    assert result.loc["SPAC1002.05c", "Sp_FYPO_viability"] == "viable"
-    assert pd.isna(result.loc["SPAC1002.05c", "Sp_deletion_essentiality"])
+    assert block.loc["SPAC1002.01", "deletion_essentiality"] == "E"
+    assert block.loc["SPAC1002.02", "deletion_essentiality"] == "Not_determined"
 
 
 # =============================================================================
@@ -631,19 +587,28 @@ def test_assembly_is_keyed_on_the_pombe_gene_set():
         {"Sc_ortholog_id": ["YAL001C"]},
         index=pd.Index(["SPAC0001.01"], name="gene_systematic_id"),
     )
-    result = assemble_annotation_reference(pombe, [sc])
+    result = assemble_annotation_reference_split(pombe, [], [sc])
     assert list(result.index) == ["SPAC0001.01", "SPAC0002.01"]
 
 
-def test_blocks_covering_extra_genes_do_not_add_rows():
-    """An ortholog file listing a gene absent from the pombe gene set must not introduce it."""
+def test_annotation_blocks_do_not_add_rows_but_experimental_blocks_do():
+    """The two join strategies are the point of the split: left for annotation, outer for experimental.
+
+    An ortholog file must never introduce a gene PomBase no longer has, while an
+    experimental source (deletion library, DR/DL, gRNA) legitimately covers genes
+    outside the filtered pombe set — those rows are kept.
+    """
     pombe = _pombe_block(["SPAC0001.01"])
-    sc = pd.DataFrame(
-        {"Sc_ortholog_id": ["YAL001C", "YAL002W"]},
-        index=pd.Index(["SPAC0001.01", "SPAC_RETIRED.01"], name="gene_systematic_id"),
-    )
-    result = assemble_annotation_reference(pombe, [sc])
-    assert list(result.index) == ["SPAC0001.01"]
+    extra = ["SPAC_RETIRED.01"]
+    index = pd.Index(["SPAC0001.01", *extra], name="gene_systematic_id")
+
+    annotation_block = pd.DataFrame({"Sc_ortholog_id": ["YAL001C", "YAL002W"]}, index=index)
+    assert list(assemble_annotation_reference_split(pombe, [], [annotation_block]).index) == ["SPAC0001.01"]
+
+    experimental_block = pd.DataFrame({"deletion_essentiality": ["E", "V"]}, index=index)
+    assert list(assemble_annotation_reference_split(pombe, [experimental_block], []).index) == [
+        "SPAC0001.01", "SPAC_RETIRED.01",
+    ]
 
 
 def test_genes_missing_from_a_block_get_empty_values():
@@ -653,7 +618,7 @@ def test_genes_missing_from_a_block_get_empty_values():
         {"Sc_ortholog_id": ["YAL001C"]},
         index=pd.Index(["SPAC0001.01"], name="gene_systematic_id"),
     )
-    result = assemble_annotation_reference(pombe, [sc])
+    result = assemble_annotation_reference_split(pombe, [], [sc])
     assert pd.isna(result.loc["SPAC0002.01", "Sc_ortholog_id"])
 
 
@@ -668,7 +633,7 @@ def test_all_block_columns_are_present_after_assembly():
         {"complex": ["enolase complex"]},
         index=pd.Index(["SPAC0001.01"], name="gene_systematic_id"),
     )
-    result = assemble_annotation_reference(pombe, [block_a, block_b])
+    result = assemble_annotation_reference_split(pombe, [], [block_a, block_b])
     assert list(result.columns) == ["gene_name", "Sc_ortholog_id", "complex"]
 
 
@@ -737,7 +702,7 @@ def test_count_columns_stay_integer_after_joining_partial_blocks():
         {"Sc_ortholog_count": [1]},
         index=pd.Index(["SPAC0001.01"], name="gene_systematic_id"),
     )
-    result = assemble_annotation_reference(pombe, [sc])
+    result = assemble_annotation_reference_split(pombe, [], [sc])
     assert result.loc["SPAC0001.01", "Sc_ortholog_count"] == 1
     assert str(result["Sc_ortholog_count"].dtype) == "Int64"
     assert pd.isna(result.loc["SPAC0002.01", "Sc_ortholog_count"])
@@ -751,4 +716,6 @@ def test_duplicate_index_in_a_block_raises():
         index=pd.Index(["SPAC0001.01", "SPAC0001.01"], name="gene_systematic_id"),
     )
     with pytest.raises(ValueError, match="duplicate"):
-        assemble_annotation_reference(pombe, [bad_block])
+        assemble_annotation_reference_split(pombe, [], [bad_block])
+    with pytest.raises(ValueError, match="duplicate"):
+        assemble_annotation_reference_split(pombe, [bad_block], [])

@@ -333,18 +333,6 @@ def compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[st
     return result
 
 
-def compute_non_name_genes_coverage(gene_result: pd.DataFrame) -> dict[str, dict[str, int]]:
-    """Split compute_gene_coverage by whether the gene has a common name.
-
-    Name always comes from the annotation reference, where a gene with no common
-    name falls back to its systematic ID — so "Name == Systematic ID" is exactly
-    "this gene has no common name" (775 of 5,126 for pombe). Returns a dict mapping
-    each category (has_name / no_name) to its coverage stats (total/covered/not_covered).
-    """
-    gene_result["has_name"] = (gene_result["Systematic ID"] != gene_result["Name"]).map({True: "has_name", False: "no_name"})
-    return compute_category_coverage(gene_result, "has_name")
-
-
 def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
     """Build a detailed gene-level table with DIT-HAP data + annotation for all protein-coding genes.
 
@@ -452,7 +440,6 @@ def build_stats_table(
     essentiality_coverage: dict[str, dict[str, int]],
     per_chromosome: pd.DataFrame,
     dimension_coverage: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
-    non_name_genes_coverage: dict[str, dict[str, int]] | None = None,
 ) -> pd.DataFrame:
     """Flatten all coverage dicts into one long-form stats table.
 
@@ -473,13 +460,6 @@ def build_stats_table(
          "covered": essentiality_coverage["non_essential"]["covered"],
          "not_covered": essentiality_coverage["non_essential"]["not_covered"]},
     ]
-    if non_name_genes_coverage:
-        rows.append({"metric": "gene", "category": "has_name", "total": non_name_genes_coverage["has_name"]["total"],
-                     "covered": non_name_genes_coverage["has_name"]["covered"],
-                     "not_covered": non_name_genes_coverage["has_name"]["not_covered"]})
-        rows.append({"metric": "gene", "category": "no_name", "total": non_name_genes_coverage["no_name"]["total"],
-                     "covered": non_name_genes_coverage["no_name"]["covered"],
-                     "not_covered": non_name_genes_coverage["no_name"]["not_covered"]})
     for _, row in per_chromosome.iterrows():
         # Some chromosome names already start with "chr_" (e.g.
         # "chr_II_telomeric_gap") — avoid doubling the prefix into

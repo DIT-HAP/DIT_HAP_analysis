@@ -7,8 +7,8 @@ Prepare Spike-In Data
 
 Stage 1 of the spike-in split: load the filtered raw-reads insertion table,
 extract the known spike-in sites, and assign each sample its dilution ratio
-by read-count rank, writing the long-form stats table as a parquet
-intermediate consumed by the compute-stats / plot-correlation rules.
+by read-count rank. Writes the long-form stats table twice from one pass: the
+parquet intermediate panel (d) is rendered from, and the human-facing TSV.
 
 Input
 -----
@@ -20,13 +20,15 @@ Input
 Output
 ------
 - spike_in_stats.parquet: long-form per-site/per-sample table (Reads, Ratio,
-  Relative_Read_Ratio, Relative_Dilution_Ratio).
+  Relative_Read_Ratio, Relative_Dilution_Ratio), one column per index level.
+- spike_in_stats.tsv: the same table, for reading.
 
 Usage
 -----
     python prepare_spikein_data.py \\
         --raw-reads .../Spikein/results/13_filtered/raw_reads.filtered.tsv \\
         --output-spike-in-stats results/1a_pcr_qc/_work/spike_in_stats.parquet \\
+        --output-stats results/1a_pcr_qc/spike_in_stats.tsv \\
         --spike-in-sites-json '{"DY215": {"chr": "I", "coord": 3749394, "strand": "-"}, ...}'
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -63,16 +65,18 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
-    """Input raw-reads table, spike-in site coordinates, and the parquet output."""
+    """Input raw-reads table, spike-in site coordinates, and the parquet + TSV outputs."""
     raw_reads: Path
     output_spike_in_stats: Path
+    output_stats: Path
     spike_in_sites: dict[str, dict]
 
     def validate(self) -> None:
-        """Raise ValueError if the input is missing, then ensure the output dir exists."""
+        """Raise ValueError if the input is missing, then ensure the output dirs exist."""
         if not self.raw_reads.exists():
             raise ValueError(f"Required input not found: {self.raw_reads}")
-        self.output_spike_in_stats.parent.mkdir(parents=True, exist_ok=True)
+        for out in (self.output_spike_in_stats, self.output_stats):
+            out.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -80,13 +84,16 @@ class PrepareConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Load raw reads -> extract spike-in sites -> assign ratios -> write parquet."""
+    """Load raw reads -> extract spike-in sites -> assign ratios -> write parquet + TSV."""
     config.validate()
 
     raw_reads = pd.read_csv(config.raw_reads, sep="\t", header=[0, 1], index_col=[0, 1, 2, 3])
-    spike_in_stats = build_spike_in_stats(raw_reads, config.spike_in_sites)
+    # Flatten the [Chr, Coordinate, Strand, Name, Strain, Sample] index into columns, so
+    # both consumers (the parquet panel (d) reads, the TSV a human reads) see one shape.
+    spike_in_stats = build_spike_in_stats(raw_reads, config.spike_in_sites).reset_index()
 
     write_parquet(spike_in_stats, config.output_spike_in_stats)
+    spike_in_stats.to_csv(config.output_stats, sep="\t", index=False)
 
     logger.success(f"Prepared spike-in stats: {len(spike_in_stats):,} site x sample rows")
 
@@ -99,6 +106,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare spike-in stats parquet intermediate")
     parser.add_argument("--raw-reads", type=Path, required=True, help="Filtered raw-reads insertion table (tsv)")
     parser.add_argument("--output-spike-in-stats", type=Path, required=True, help="Output spike_in_stats.parquet")
+    parser.add_argument("--output-stats", type=Path, required=True, help="Output spike_in_stats.tsv")
     parser.add_argument(
         "--spike-in-sites-json", type=str, default=None,
         help="JSON dict of {strain: {chr, coord, strand}} (default: the 5 hardcoded DY sites)",
@@ -118,6 +126,7 @@ def main() -> int:
         config = PrepareConfig(
             raw_reads=args.raw_reads,
             output_spike_in_stats=args.output_spike_in_stats,
+            output_stats=args.output_stats,
             spike_in_sites=spike_in_sites,
         )
         run(config)

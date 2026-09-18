@@ -43,7 +43,6 @@ from coverage.core import (  # noqa: E402
     compute_insertion_coverage,
     compute_per_chromosome_insertion_coverage,
     write_detailed_gene_excel,
-    compute_non_name_genes_coverage
 )
 
 
@@ -87,7 +86,6 @@ def run(config: ComputeStatsConfig) -> None:
     dimension_coverage = {
         column: compute_category_coverage(gene_result, column) for column in DIMENSION_LABELS
     }
-    non_name_genes_coverage = compute_non_name_genes_coverage(gene_result)
 
     stats_table = build_stats_table(
         insertion_coverage,
@@ -95,7 +93,6 @@ def run(config: ComputeStatsConfig) -> None:
         essentiality_coverage,
         per_chromosome,
         dimension_coverage=dimension_coverage,
-        non_name_genes_coverage=non_name_genes_coverage,
     )
     stats_table.to_csv(config.output_stats, sep="\t", index=False)
 
@@ -110,8 +107,6 @@ def run(config: ComputeStatsConfig) -> None:
     )
     for column, coverage in dimension_coverage.items():
         logger.info(f"Computed coverage for {len(coverage)} {column} categories")
-    if non_name_genes_coverage:
-        logger.info(f"Computed coverage for {len(non_name_genes_coverage)} non_name_genes categories")
 
 
 # =============================================================================

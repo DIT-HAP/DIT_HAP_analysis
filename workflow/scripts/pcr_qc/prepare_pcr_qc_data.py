@@ -5,14 +5,16 @@
 Prepare PCR QC Data
 ====================
 
-Stage 1 of the PCR / library-prep QC split: load the 6 raw merged-reads /
-spike-in inputs, merge the technical- and biological-replicate pairs, then
-write 4 parquet intermediates consumed by the figure-rendering rule:
+Stage 1 of the PCR / library-prep QC split: load the 5 raw merged-reads
+inputs, merge the technical- and biological-replicate pairs, then write 3
+parquet intermediates consumed by the figure-rendering rule:
 
 - pbl_pbr.parquet: panel (a) PBL vs PBR reads of one library.
 - tech.parquet: panel (b) technical replicate, merged on (Chr, Coordinate, Strand).
 - bio.parquet: panel (c) biological replicate, merged on (Chr, Coordinate, Strand).
-- spikein.parquet: panel (d) spike-in dilution table (1a_pcr_qc.smk's spike_in_stats.tsv).
+
+Panel (d) is not prepared here: spike-in linearity is its own upstream half
+(prepare_spikein_data) and the figure reads its parquet directly.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
@@ -49,23 +51,22 @@ from logging_setup import setup_logger  # noqa: E402
 class PCRQCConfig:
     """Resolved input/output paths for the PCR QC data preparation.
 
-    `output` doubles as the pbl_pbr.parquet output path: it and the other three
-    parquet outputs (tech/bio/spikein, passed separately to run()) all land
-    under the same results/1a_pcr_qc/_work/ directory, so mkdir'ing its parent
-    covers all four.
+    `output` doubles as the pbl_pbr.parquet output path: it and the other two
+    parquet outputs (tech/bio, passed separately to run()) all land under the
+    same results/1a_pcr_qc/_work/ directory, so mkdir'ing its parent covers all
+    three.
     """
     pbl_pbr: Path
     tech_rep_1: Path
     tech_rep_2: Path
     bio_rep_1: Path
     bio_rep_2: Path
-    spikein: Path
     output: Path
 
     def validate(self) -> None:
         """Raise ValueError if any input is missing, then ensure the output dir exists."""
         for path in [self.pbl_pbr, self.tech_rep_1, self.tech_rep_2,
-                     self.bio_rep_1, self.bio_rep_2, self.spikein]:
+                     self.bio_rep_1, self.bio_rep_2]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -75,8 +76,8 @@ class PCRQCConfig:
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def run(config: PCRQCConfig, *, output_pbl_pbr: Path, output_tech: Path, output_bio: Path, output_spikein: Path) -> None:
-    """Load -> merge -> write the four parquet intermediates."""
+def run(config: PCRQCConfig, *, output_pbl_pbr: Path, output_tech: Path, output_bio: Path) -> None:
+    """Load -> merge -> write the three parquet intermediates."""
     config.validate()
 
     # Panel (a): PBL vs PBR of a single library.
@@ -94,17 +95,13 @@ def run(config: PCRQCConfig, *, output_pbl_pbr: Path, output_tech: Path, output_
         left_index=True, right_index=True, suffixes=("_1", "_2"),
     )
 
-    # Panel (d): spike-in linearity.
-    spikein = pd.read_csv(config.spikein, sep="\t")
-
     write_parquet(pbl_pbr, output_pbl_pbr)
     write_parquet(tech, output_tech)
     write_parquet(bio, output_bio)
-    write_parquet(spikein, output_spikein)
 
     logger.success(
         f"Prepared PCR QC tables: {len(pbl_pbr):,} pbl_pbr rows, "
-        f"{len(tech):,} tech rows, {len(bio):,} bio rows, {len(spikein):,} spikein rows"
+        f"{len(tech):,} tech rows, {len(bio):,} bio rows"
     )
 
 
@@ -119,11 +116,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tech-rep-2", type=Path, required=True, help="Panel (b): technical replicate 2 merged reads TSV")
     parser.add_argument("--bio-rep-1", type=Path, required=True, help="Panel (c): biological replicate 1 merged reads TSV")
     parser.add_argument("--bio-rep-2", type=Path, required=True, help="Panel (c): biological replicate 2 merged reads TSV")
-    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spike-in results TSV")
     parser.add_argument("--output-pbl-pbr", type=Path, required=True, help="Output pbl_pbr.parquet")
     parser.add_argument("--output-tech", type=Path, required=True, help="Output tech.parquet")
     parser.add_argument("--output-bio", type=Path, required=True, help="Output bio.parquet")
-    parser.add_argument("--output-spikein", type=Path, required=True, help="Output spikein.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -139,7 +134,6 @@ def main() -> int:
             tech_rep_2=args.tech_rep_2,
             bio_rep_1=args.bio_rep_1,
             bio_rep_2=args.bio_rep_2,
-            spikein=args.spikein,
             output=args.output_pbl_pbr,
         )
         run(
@@ -147,7 +141,6 @@ def main() -> int:
             output_pbl_pbr=args.output_pbl_pbr,
             output_tech=args.output_tech,
             output_bio=args.output_bio,
-            output_spikein=args.output_spikein,
         )
     except ValueError as e:
         logger.error(f"Error: {e}")

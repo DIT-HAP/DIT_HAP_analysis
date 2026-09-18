@@ -22,7 +22,7 @@ Input
 - pbl_pbr.parquet: panel (a), columns PBL, PBR, Reads.
 - tech.parquet: panel (b), pre-merged technical replicate pair (Reads_1/Reads_2).
 - bio.parquet: panel (c), pre-merged biological replicate pair (Reads_1/Reads_2).
-- spikein.parquet: panel (d) spike-in dilution table.
+- spike_in_stats.parquet: panel (d) spike-in dilution table (prepare_spikein_data).
 
 Output
 ------
@@ -34,7 +34,7 @@ Usage
         --pbl-pbr results/1a_pcr_qc/_work/pbl_pbr.parquet \\
         --tech results/1a_pcr_qc/_work/tech.parquet \\
         --bio results/1a_pcr_qc/_work/bio.parquet \\
-        --spikein results/1a_pcr_qc/_work/spikein.parquet \\
+        --spikein results/1a_pcr_qc/_work/spike_in_stats.parquet \\
         --output results/1a_pcr_qc/PCR_quality_control.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -174,7 +174,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pbl-pbr", type=Path, required=True, help="Panel (a): pbl_pbr.parquet")
     parser.add_argument("--tech", type=Path, required=True, help="Panel (b): tech.parquet (merged technical replicate pair)")
     parser.add_argument("--bio", type=Path, required=True, help="Panel (c): bio.parquet (merged biological replicate pair)")
-    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spikein.parquet")
+    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spike_in_stats.parquet")
     parser.add_argument("--output", type=Path, required=True, help="Output figure PDF")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

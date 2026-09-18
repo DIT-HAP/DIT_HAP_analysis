@@ -17,11 +17,17 @@ Input
 -----
 - PomBase version directory (curated_orthologs, Gene_metadata, ontologies, Protein_features)
 - SGD `SGD_features.tab` and `phenotype_data.tab`
-- Curated deletion-library categories xlsx
+- Curated deletion-library categories xlsx and essentiality-verification csv
+- A dataset's gene-level fitting results (DR/DL) and the curated gRNA parameters
 
 Output
 ------
 - A DataFrame indexed by pombe systematic ID, one column per annotation field
+
+Every annotation source is parsed by a `build_*_block` here — one builder per
+source, all returning a block indexed by systematic_id — so the drivers
+(build_annotation_reference.py, annotate_pombe_genes.py, build_annotated_workbook.py)
+only choose which blocks to assemble and where to write them.
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
 Date:     2026-08-11
@@ -37,9 +43,32 @@ from pathlib import Path
 # 2. Data Processing Imports
 import pandas as pd
 
+# 3. Third-party Imports
+from loguru import logger
+
+# 4. Local Imports
+from data_config import load_dataset_config
+from io_table import read_file, read_parquet
+
+
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
+# feature_type values (as spelled in PomBase's gene_ids_and_details.parquet) that
+# each gene_type selects; "all" means no filter. The domain of
+# build_pombase_metadata_block's gene_type argument.
+VALID_GENE_TYPES = {
+    "all": None,  # No filtering
+    "protein": ["protein"],
+    "lncRNA": ["lncRNA gene"],
+    "tRNA": ["tRNA gene"],
+    "rRNA": ["rRNA gene"],
+    "snoRNA": ["snoRNA gene"],
+    "sncRNA": ["sncRNA gene"],
+    "snRNA": ["snRNA gene"],
+    "noncoding": ["lncRNA gene", "tRNA gene", "rRNA gene", "snoRNA gene", "sncRNA gene", "snRNA gene"],
+}
+
 # PomBase's sentinel for "this gene has no ortholog in the target species".
 _NO_ORTHOLOG = "NONE"
 
@@ -65,16 +94,6 @@ _SGD_PHENOTYPE_COLUMNS = [
     "experiment_type", "mutant_type", "allele", "strain_background", "phenotype",
     "chemical", "condition", "details", "reporter",
 ]
-
-# Annotation column -> source column in resources/curated/deletion_library_categories.xlsx.
-_DELETION_LIBRARY_COLUMNS = {
-    "Sp_deletion_essentiality": "Gene dispensability. This study",
-    "Sp_deletion_phenotype": "Phenotypic classification used for analysis",
-    "Sp_growth_category": "Category",
-}
-
-# protein_families_and_domains.tsv mixes PFAM with PANTHER/PROSITE/etc.
-_PFAM_DATABASE = "PFAM"
 
 # goatools namespace -> annotation column. GO slim (not full GO) because a gene
 # carries a dozen full-GO terms but only a handful of readable slim labels.
@@ -177,18 +196,6 @@ def read_ortholog_file(ortholog_file: Path) -> pd.DataFrame:
         names=["gene_systematic_id", "orthologs"],
         dtype=str,
     )
-
-
-def read_gene_viability(viability_file: Path) -> pd.Series:
-    """Read PomBase gene_viability.tsv into a systematic-id -> viability Series."""
-    viability = pd.read_csv(
-        viability_file,
-        sep="\t",
-        header=None,
-        names=["gene_systematic_id", "viability"],
-        dtype=str,
-    )
-    return viability.set_index("gene_systematic_id")["viability"]
 
 
 def read_sgd_phenotype_data(phenotype_file: Path) -> pd.DataFrame:
@@ -301,11 +308,6 @@ def _lookup_standard_name(orf: str, sc_gene_info: pd.DataFrame) -> str:
     return orf if pd.isna(name) else str(name)
 
 
-def _lookup_qualifier(orf: str, sc_gene_info: pd.DataFrame) -> str:
-    """Return an ORF's SGD qualifier (Verified / Dubious / Uncharacterized)."""
-    return _lookup_field(orf, sc_gene_info, "qualifier")
-
-
 def _lookup_description(orf: str, sc_gene_info: pd.DataFrame) -> str:
     """Return an ORF's SGD functional description."""
     return _lookup_field(orf, sc_gene_info, "description")
@@ -314,11 +316,6 @@ def _lookup_description(orf: str, sc_gene_info: pd.DataFrame) -> str:
 def _lookup_essentiality(orf: str, sc_essentiality: pd.DataFrame) -> str:
     """Return an ORF's null-mutant essentiality call, or empty when SGD has no viability record."""
     return _lookup_field(orf, sc_essentiality, "essentiality")
-
-
-def _lookup_essentiality_evidence(orf: str, sc_essentiality: pd.DataFrame) -> str:
-    """Return the per-label record counts backing an ORF's essentiality call."""
-    return _lookup_field(orf, sc_essentiality, "essentiality_evidence")
 
 
 def _lookup_field(key: str, table: pd.DataFrame, column: str) -> str:
@@ -330,34 +327,173 @@ def _lookup_field(key: str, table: pd.DataFrame, column: str) -> str:
 
 
 # =============================================================================
-# POMBE-SIDE BLOCK
+# POMBE-SIDE & EXPERIMENTAL BLOCKS
 # =============================================================================
-def build_pombe_block(
-    gene_meta: pd.DataFrame,
-    fypo_viability: pd.Series,
-    deletion_library: pd.DataFrame,
-) -> pd.DataFrame:
-    """Assemble pombe identity columns plus both essentiality sources (FYPO and deletion library).
+# Each builder turns one source file into one block indexed by systematic_id; the
+# driver (workflow/scripts/annotate/build_annotation_reference.py) only decides
+# which blocks exist and how they join. The block number in each docstring is the
+# order the driver assembles them in.
+@logger.catch(reraise=True)
+def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.DataFrame:
+    """Build block 1: PomBase gene metadata from gene_ids_and_details.parquet.
 
-    FYPO viability and the Hayles deletion library are kept as separate columns rather
-    than merged: FYPO spans the whole genome but is ~61% "unknown", while the deletion
-    library covers only ~4843 genes yet has a call for every one of them.
+    Extracts: systematic_id, name, gene_product, product, feature_type,
+    characterisation_status, taxonomic_distribution, deletion_viability (renamed to FYPOviability).
     """
-    block = gene_meta.set_index("gene_systematic_id")[
-        ["gene_name", "gene_product", "synonyms"]
-    ].copy()
-    block["gene_name"] = block["gene_name"].fillna(pd.Series(block.index, index=block.index))
-    block["Sp_FYPO_viability"] = fypo_viability.reindex(block.index)
+    logger.info("Reading PomBase gene metadata from parquet")
+    gene_meta = read_parquet(gene_ids_parquet)
 
-    for column, source in _DELETION_LIBRARY_COLUMNS.items():
-        block[column] = (
-            deletion_library.set_index("Systematic ID")[source].reindex(block.index)
-            if source in deletion_library.columns
-            else pd.NA
-        )
+    # Select and rename columns - feature_type goes after product
+    columns_map = {
+        "systematic_id": "systematic_id",
+        "name": "gene_name",
+        "gene_product": "gene_product",
+        "product": "product",
+        "feature_type": "feature_type",
+        "characterisation_status": "characterisation_status",
+        "taxonomic_distribution": "taxonomic_distribution",
+        "deletion_viability": "FYPOviability",
+    }
 
-    block.index.name = "gene_systematic_id"
+    available_columns = [col for col in columns_map.keys() if col in gene_meta.columns]
+    block = gene_meta[available_columns].copy()
+    block = block.rename(columns={k: v for k, v in columns_map.items() if k in available_columns})
+
+    # Apply gene type filter
+    feature_types = VALID_GENE_TYPES.get(gene_type)
+    if feature_types is not None and "feature_type" in block.columns:
+        before_count = len(block)
+        block = block[block["feature_type"].isin(feature_types)]
+        logger.info(f"  Filtered {before_count:,} genes to {len(block):,} {gene_type} genes")
+
+    # Set systematic_id as index
+    if "systematic_id" in block.columns:
+        block = block.set_index("systematic_id")
+
+    # Fill missing gene names with systematic_id
+    if "gene_name" in block.columns:
+        block["gene_name"] = block["gene_name"].fillna(pd.Series(block.index, index=block.index))
+
+    logger.info(f"  {len(block):,} pombe genes in metadata block")
     return block
+
+
+@logger.catch(reraise=True)
+def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
+    """Build block 2: Deletion library categories.
+
+    Extracts: Systematic ID, Gene dispensability. This study (renamed to deletion_essentiality),
+    Category, Sub_category.
+    """
+    logger.info("Reading deletion library categories")
+    deletion_lib = read_file(deletion_library_xlsx)
+
+    columns_map = {
+        "Systematic ID": "systematic_id",
+        "Gene dispensability. This study": "deletion_essentiality",
+        "Category": "Category",
+        "Sub_category": "Sub_category",
+    }
+
+    available_columns = [col for col in columns_map.keys() if col in deletion_lib.columns]
+    block = deletion_lib[available_columns].copy()
+    block = block.rename(columns={k: v for k, v in columns_map.items() if k in available_columns})
+
+    if "systematic_id" in block.columns:
+        block = block.set_index("systematic_id")
+
+    if "deletion_essentiality" in block.columns:
+        block["deletion_essentiality"] = block["deletion_essentiality"].fillna("Not_determined")
+
+    logger.info(f"  {len(block):,} genes in deletion library")
+    return block
+
+
+@logger.catch(reraise=True)
+def build_verification_block(verification_csv: Path) -> pd.DataFrame:
+    """Build block 2b: Essentiality verification phenotype (systematic_id, verification_phenotype)."""
+    logger.info("Reading essentiality verification data")
+    verification = read_file(verification_csv)
+
+    required_cols = ["systematic_id", "verification_phenotype"]
+    missing = [col for col in required_cols if col not in verification.columns]
+    if missing:
+        raise ValueError(f"Verification CSV missing columns: {missing}")
+
+    block = verification[required_cols].copy()
+    block = block.set_index("systematic_id")
+
+    logger.info(f"  {len(block):,} genes with verification phenotype")
+    return block
+
+
+@logger.catch(reraise=True)
+def build_gene_level_depletion_block(dataset_name: str) -> pd.DataFrame:
+    """Build block 3: gene-level DR/DL from the given dataset's gene-level fitting results."""
+    logger.info(f"Reading gene-level depletion from {dataset_name}")
+    dataset_config = load_dataset_config(dataset_name)
+
+    if dataset_config.gene_level is None:
+        raise ValueError(f"Dataset {dataset_name} has no gene-level data (has_time_points=False)")
+
+    fitting_results = read_file(dataset_config.gene_level.fitting_results)
+
+    # The column is "Systematic ID" (with space), not "gene_systematic_id"
+    required_cols = ["Systematic ID", "DR", "DL"]
+    missing = [col for col in required_cols if col not in fitting_results.columns]
+    if missing:
+        raise ValueError(f"Gene-level fitting results missing columns: {missing}")
+
+    block = fitting_results[required_cols].copy()
+    block = block.rename(columns={"Systematic ID": "systematic_id"})
+    block = block.set_index("systematic_id")
+
+    logger.info(f"  {len(block):,} genes with gene-level DR/DL")
+    return block
+
+
+def add_gene_status_column(gene_ids: pd.Index, gene_ids_parquet: Path) -> pd.Series:
+    """Build the gene_status column: each gene's presence and type in the CURRENT PomBase.
+
+    Uses the FULL gene_ids_and_details.parquet (not filtered), so it correctly
+    identifies genes of all types. Values are the gene's feature_type, or
+    "not_in_pombase" when the gene has no record at all.
+    """
+    full_gene_meta = read_parquet(gene_ids_parquet)
+    full_gene_meta = full_gene_meta.set_index("systematic_id")
+
+    status = []
+    for gene_id in gene_ids:
+        if gene_id not in full_gene_meta.index:
+            status.append("not_in_pombase")
+        else:
+            status.append(full_gene_meta.loc[gene_id, "feature_type"])
+
+    return pd.Series(status, index=gene_ids, name="gene_status")
+
+
+def report_gene_status_summary(reference: pd.DataFrame, filter_type: str) -> None:
+    """Log the gene_status distribution, warning about genes the type filter did not expect."""
+    status_counts = reference["gene_status"].value_counts()
+
+    logger.info("Gene status summary:")
+    for status, count in status_counts.items():
+        logger.info(f"  {status}: {count:,} genes")
+
+    # Highlight unexpected cases when filtering for specific type
+    if filter_type != "all":
+        not_in_pombase = (reference["gene_status"] == "not_in_pombase").sum()
+        wrong_type = (
+            (reference["gene_status"] != "not_in_pombase") &
+            (reference["gene_status"] != filter_type)
+        ).sum()
+
+        if not_in_pombase > 0:
+            logger.warning(f"  {not_in_pombase:,} genes not in current PomBase version")
+        if wrong_type > 0:
+            logger.warning(
+                f"  {wrong_type:,} genes have different type than expected '{filter_type}'"
+            )
 
 
 # =============================================================================
@@ -444,30 +580,6 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 # ASSEMBLING THE FULL REFERENCE
 # =============================================================================
-def assemble_annotation_reference(
-    pombe_block: pd.DataFrame, annotation_blocks: list[pd.DataFrame]
-) -> pd.DataFrame:
-    """Left-join annotation blocks onto the pombe gene set, which alone defines the row set."""
-    reference = pombe_block.copy()
-    for block in annotation_blocks:
-        if block.index.has_duplicates:
-            duplicates = block.index[block.index.duplicated()].unique().tolist()
-            raise ValueError(
-                f"Annotation block has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
-            )
-        reference = reference.join(block, how="outer")
-
-    # Genes missing from a block introduce NaN, which promotes int count columns to
-    # float and renders as "1.0" in the exported table. Nullable Int64 keeps them
-    # integral while still allowing a blank.
-    for column in reference.columns:
-        if column.endswith(_COUNT_COLUMN_SUFFIX):
-            reference[column] = reference[column].astype("Int64")
-
-    reference.index.name = "gene_systematic_id"
-    return reference
-
-
 def assemble_annotation_reference_split(
     pombe_block: pd.DataFrame,
     experimental_blocks: list[pd.DataFrame],

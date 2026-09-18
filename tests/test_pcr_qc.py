@@ -62,7 +62,7 @@ def _write_merged(path: Path) -> None:
 
 def _make_config(tmp_path: Path, *, missing: bool = False) -> PCRQCConfig:
     inputs = {}
-    for key in ["pbl_pbr", "tech_rep_1", "tech_rep_2", "bio_rep_1", "bio_rep_2", "spikein"]:
+    for key in ["pbl_pbr", "tech_rep_1", "tech_rep_2", "bio_rep_1", "bio_rep_2"]:
         p = tmp_path / f"{key}.tsv"
         if not missing:
             _write_merged(p)
