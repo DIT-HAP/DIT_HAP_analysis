@@ -13,8 +13,8 @@
 #
 # The figure renders the spike-in stats itself (figure_render/spikein.py, panel
 # d), so the former standalone plot_spikein_correlation rule is retired: one
-# figure, not two. Code, results/ and logs/ all live under pcr_qc/ — the old
-# spikein.smk / workflow/src/spikein/ / results/spikein/ names are gone.
+# figure, not two. Code, results/ and logs/ all live under the 1a_pcr_qc stage — the
+# old spikein.smk / workflow/src/spikein/ / results/spikein/ names are gone.
 #
 # NO dataset wildcard: this QC compares a few specifically-named libraries
 # against each other (LD1328-7 processed twice, LD1328-4 vs LD1328-8) plus the
@@ -60,7 +60,7 @@ rule prepare_spikein_data:
     params:
         spike_in_sites_json=json.dumps(config.get("spikein", {}).get("coordinates", {})),
     log:
-        "logs/pcr_qc/prepare_spikein_data.log",
+        "logs/1a_pcr_qc/prepare_spikein_data.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -93,7 +93,7 @@ rule prepare_pcr_qc_data:
         tech=f"{_PCRWORK}/tech.parquet",
         bio=f"{_PCRWORK}/bio.parquet",
     log:
-        "logs/pcr_qc/prepare_pcr_qc_data.log",
+        "logs/1a_pcr_qc/prepare_pcr_qc_data.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -122,7 +122,7 @@ rule plot_pcr_qc:
     output:
         "results/1a_pcr_qc/PCR_quality_control.pdf",
     log:
-        "logs/pcr_qc/plot_pcr_qc.log",
+        "logs/1a_pcr_qc/plot_pcr_qc.log",
     conda:
         "../envs/cnsplots.yml"
     message:
