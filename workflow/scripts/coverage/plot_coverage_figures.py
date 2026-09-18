@@ -130,13 +130,7 @@ def run(config: PlotFiguresConfig) -> None:
     gene_result = read_parquet(config.gene_result)
     stems = figure_stems(config.output_dir)
 
-    (
-        _insertion_coverage,
-        gene_coverage,
-        _essentiality_coverage,
-        per_chromosome,
-        dimension_coverage,
-    ) = coverage_dicts_from_stats_table(stats)
+    gene_coverage, per_chromosome, dimension_coverage = coverage_dicts_from_stats_table(stats)
 
     for column in DIMENSION_LABELS:
         ylabel, title = DIMENSION_AXES.get(column, (column, f"Gene coverage by {column}"))

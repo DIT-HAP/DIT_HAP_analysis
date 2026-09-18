@@ -51,7 +51,7 @@ rule prepare_coverage_data:
         annotations=f"{_COVWORK}/annotations.parquet",
         gene_result=f"{_COVWORK}/gene_result.parquet",
     log:
-        "logs/coverage/prepare_coverage_data_{dataset}.log",
+        "logs/2a_coverage/prepare_coverage_data_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -76,7 +76,7 @@ rule compute_coverage_stats:
         stats="results/2a_coverage/{dataset}/coverage_stats.tsv",
         detailed_genes_xlsx="results/2a_coverage/{dataset}/detailed_genes.xlsx",
     log:
-        "logs/coverage/compute_coverage_stats_{dataset}.log",
+        "logs/2a_coverage/compute_coverage_stats_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -93,7 +93,7 @@ rule compute_coverage_stats:
 
 
 # -----------------------------------------------------------------------------
-# Stage 2b: Plot figures
+# Plot figures (the second half of this stage)
 # -----------------------------------------------------------------------------
 # Reads coverage_stats.tsv + gene_result.parquet -> ten cnsplots figures: one
 # coverage composition + a DR and a DL distribution figure for EACH annotation
@@ -122,7 +122,7 @@ rule plot_coverage_figures:
         dr_essentiality="results/2a_coverage/{dataset}/coverage_dr_by_deletion_essentiality.pdf",
         dl_essentiality="results/2a_coverage/{dataset}/coverage_dl_by_deletion_essentiality.pdf",
     log:
-        "logs/coverage/plot_coverage_figures_{dataset}.log",
+        "logs/2a_coverage/plot_coverage_figures_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:

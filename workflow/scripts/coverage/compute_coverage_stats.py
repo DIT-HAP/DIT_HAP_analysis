@@ -6,9 +6,10 @@ Compute Coverage Stats
 ========================
 
 Stage 2a of the coverage split: read the prepared annotations /
-gene_result parquet intermediates and emit the coverage_stats.tsv (insertion
-+ gene + essential + non_essential + per-chromosome coverage). Depends only
-on prepare_coverage_data's output, so it re-runs independently of the figures
+gene_result parquet intermediates and emit the coverage_stats.tsv (insertion,
+gene, one breakdown per annotation dimension in DIMENSION_LABELS, and
+per-chromosome coverage) plus the detailed per-gene Excel. Depends only on
+prepare_coverage_data's output, so it re-runs independently of the figures
 rule.
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -38,7 +39,6 @@ from coverage.core import (  # noqa: E402
     build_detailed_gene_table,
     build_stats_table,
     compute_category_coverage,
-    compute_essentiality_coverage,
     compute_gene_coverage,
     compute_insertion_coverage,
     compute_per_chromosome_insertion_coverage,
@@ -79,7 +79,6 @@ def run(config: ComputeStatsConfig) -> None:
 
     insertion_coverage = compute_insertion_coverage(annotations)
     gene_coverage = compute_gene_coverage(gene_result)
-    essentiality_coverage = compute_essentiality_coverage(gene_result)
     per_chromosome = compute_per_chromosome_insertion_coverage(annotations)
     # One breakdown per column in DIMENSION_LABELS — the same three the figures
     # render, so no dimension is computed or reported differently from the others.
@@ -90,7 +89,6 @@ def run(config: ComputeStatsConfig) -> None:
     stats_table = build_stats_table(
         insertion_coverage,
         gene_coverage,
-        essentiality_coverage,
         per_chromosome,
         dimension_coverage=dimension_coverage,
     )
@@ -100,10 +98,11 @@ def run(config: ComputeStatsConfig) -> None:
     detailed_genes = build_detailed_gene_table(gene_result)
     write_detailed_gene_excel(detailed_genes, config.output_detailed_genes_xlsx)
 
+    essential = dimension_coverage["deletion_essentiality"]["E"]
     logger.success(
         f"Coverage: {insertion_coverage['in_gene']:,}/{insertion_coverage['total']:,} insertions in-gene, "
         f"{gene_coverage['covered']:,}/{gene_coverage['total']:,} genes covered "
-        f"({essentiality_coverage['essential']['covered']:,}/{essentiality_coverage['essential']['total']:,} essential)"
+        f"({essential['covered']:,}/{essential['total']:,} essential)"
     )
     for column, coverage in dimension_coverage.items():
         logger.info(f"Computed coverage for {len(coverage)} {column} categories")

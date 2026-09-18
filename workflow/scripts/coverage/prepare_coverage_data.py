@@ -39,7 +39,8 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet, write_parquet  # noqa: E402
-from coverage.core import load_gene_level, load_insertion_level  # noqa: E402
+from coverage.core import load_insertion_level  # noqa: E402
+from release_schema import read_gene_level  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -73,7 +74,7 @@ def run(config: PrepareConfig) -> None:
     """Load -> build full gene universe from metadata -> left join fitting results -> write parquet intermediates."""
     config.validate()
 
-    gene_result = load_gene_level(config.gene_level)
+    gene_result = read_gene_level(config.gene_level)
     _fitting_results, annotations = load_insertion_level(config.fitting_results, config.annotations)
 
     # gene_level's fitting_results.tsv carries FYPOviability + DeletionLibrary_essentiality,
