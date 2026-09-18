@@ -72,7 +72,7 @@ SELECTED_PEPTIDE_FEATURE_COLUMNS = [
 # =============================================================================
 # SHARED HELPERS
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_gene_meta(gene_meta_file: Path) -> tuple[pd.DataFrame, dict]:
     """Load gene metadata and build a uniprot_id -> gene_systematic_id map."""
     gene_meta = pd.read_csv(gene_meta_file, sep="\t")
@@ -87,7 +87,7 @@ def load_gene_meta(gene_meta_file: Path) -> tuple[pd.DataFrame, dict]:
     return gene_meta, uniprot2id
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def get_ortholog_counts(ortholog_file: Path) -> pd.Series:
     """Count pipe-separated orthologs per gene from a PomBase curated_orthologs file."""
     ortholog_df = pd.read_csv(
@@ -98,13 +98,13 @@ def get_ortholog_counts(ortholog_file: Path) -> pd.Series:
     return ortholog_df["orthologs"].str.split("|").apply(lambda x: len(x) if isinstance(x, list) else 0)
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def read_coding_genes(dna_parquet: Path) -> list[str]:
     """Recover the coding-gene set (unique Gene_id) from the DNA-level parquet."""
     return read_parquet(dna_parquet)["Gene_id"].unique().tolist()
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def load_phyloP_and_divergence(literature_dir: Path, gene_meta_file: Path) -> pd.DataFrame:
     """Load the Grech 2019 phyloP/divergence table (shared by evolutionary + phenotype levels)."""
     phyloP_and_divergence = pd.read_excel(
@@ -116,7 +116,7 @@ def load_phyloP_and_divergence(literature_dir: Path, gene_meta_file: Path) -> pd
 # =============================================================================
 # DNA LEVEL (the "spine" — enumerates coding genes)
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_dna_level_features(db: gffutils.FeatureDB, genome_cfg: PombaseGenomeConfig) -> tuple[pd.DataFrame, list[str]]:
     """Compute DNA-level features for every mRNA, and return the list of coding gene IDs."""
     mRNAs = list(db.features_of_type("mRNA"))
@@ -132,7 +132,7 @@ def collect_dna_level_features(db: gffutils.FeatureDB, genome_cfg: PombaseGenome
 # =============================================================================
 # RNA LEVEL
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_rna_level_features(literature_dir: Path, gene_meta_file: Path, coding_genes: list[str]) -> pd.DataFrame:
     """Assemble mRNA abundance (Marguerat 2012) and mRNA kinetics (Harigaya 2016) features."""
     abundance = pd.read_excel(
@@ -180,7 +180,7 @@ def collect_rna_level_features(literature_dir: Path, gene_meta_file: Path, codin
 # =============================================================================
 # PROTEIN LEVEL
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_protein_level_features(
     pombase_dir: Path,
     alphafold_dir: Path,
@@ -241,7 +241,7 @@ def collect_protein_level_features(
 # =============================================================================
 # EVOLUTIONARY LEVEL
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_evolutionary_level_features(
     pombase_dir: Path,
     ensembl_paralogs_tsv: Path,
@@ -300,7 +300,7 @@ def collect_evolutionary_level_features(
 # =============================================================================
 # NETWORK LEVEL
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_network_level_features(
     pombase_dir: Path,
     biogrid_tsv: Path,
@@ -340,7 +340,7 @@ def collect_network_level_features(
 # =============================================================================
 # PHENOTYPE LEVEL
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def collect_phenotype_level_features(
     pombase_dir: Path,
     deletion_library_xlsx: Path,
@@ -416,7 +416,7 @@ def collect_phenotype_level_features(
 # =============================================================================
 # MERGE
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def merge_all_features(
     dna_df: pd.DataFrame,
     rna_df: pd.DataFrame,

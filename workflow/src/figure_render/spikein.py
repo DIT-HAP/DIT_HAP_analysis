@@ -27,7 +27,7 @@ REFERENCE_SAMPLE = "Spikein0"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def render_spikein_panel(
     ax: plt.Axes,
     spikein: pd.DataFrame,

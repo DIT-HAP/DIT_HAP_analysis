@@ -42,8 +42,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from plotting.generic import donut_chart  # noqa: E402
-from plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
+# Single-panel figure size and the categorical colour cycle, as matplotlib defines
+# them at import — the house style is applied later, inside run(), so these are the
+# stock values the retired plotting.style constants of the same name also captured.
+# Kept local rather than imported from figures.py: that module imports cnsplots,
+# which not every rule that uses these runs with.
+AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
+COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -217,12 +222,46 @@ def select_nuclear_tRNAs(combined: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 # PLOTTING
 # =============================================================================
+def _donut_chart(
+    values: list[int],
+    labels: list[str],
+    colors: list[str],
+    center_text: str = "",
+    ax: plt.Axes | None = None,
+) -> plt.Axes | plt.Figure:
+    """Donut (ring) chart with per-wedge percent+count labels and centered text.
+
+    Verbatim from the retired plotting/generic.donut_chart — that module is now
+    plotting/generic.deprecated.py, and everything drawn through figure_render is
+    cnsplots-based, which this module must not import: prepare_ncrna_table and
+    compute_ncrna_stats run it in the statistics env (no cnsplots).
+    """
+    return_ax = True
+    if ax is None:
+        fig, ax = plt.subplots()
+        return_ax = False
+
+    ax.pie(
+        values,
+        colors=colors,
+        autopct=lambda pct: f"{pct:.1f}%\n({int(round(pct / 100 * sum(values))):,})",
+        startangle=90,
+        pctdistance=0.75,
+        wedgeprops=dict(width=0.5, edgecolor="white"),
+        textprops={"fontsize": 22, "weight": "bold"},
+    )
+    ax.text(0, 0, center_text, ha="center", va="center", fontsize=26, fontweight="bold")
+    ax.axis("equal")
+
+    return ax if return_ax else fig
+
+
 def plot_feature_type_donut(combined: pd.DataFrame) -> plt.Figure:
     """Donut chart of annotated ncRNA genes per Feature type (tRNA, lncRNA, ...)."""
     counts = combined["Feature"].dropna().value_counts()
     palette = (COLORS * (len(counts) // len(COLORS) + 1))[: len(counts)]
     fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
-    donut_chart(
+    _donut_chart(
         values=list(counts.values),
         labels=list(counts.index),
         colors=palette,

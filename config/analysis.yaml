@@ -132,6 +132,9 @@ coherence:
   # shared subunits, paralog buffering, ...). Physical complexes only by default.
   attribution_sources: [go_macrocomplex]  # sources to attribute (major/minor & shared-subunit are meaningful for physical complexes)
   attribution_z_threshold: 0.0       # z_score above this = incoherent
+  attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
+  attribution_shared_frac_threshold: 0.5   # shared_fraction >= this -> shared-subunit label
+  attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label
 
 # --- Per-gene annotation reference + annotated tables (1c_annotate.smk) ---
 annotate:
@@ -151,6 +154,3 @@ annotate:
     final_clusters:
       input: "results/clustering/{dataset}/{variant}/final_clusters.tsv"
       gene_column: "Systematic ID"
-  attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
-  attribution_shared_frac_threshold: 0.5   # shared_fraction >= this -> shared-subunit label
-  attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label

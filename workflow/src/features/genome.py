@@ -112,7 +112,7 @@ class PombaseGenomeConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def determine_primary_candidate(gene_id: str, mRNA_id: str, peptide_length: int, primary_peptide_length: int) -> bool:
     """Determine if the mRNA is the primary transcript, with hardcoded exceptions for known mis-annotated loci."""
     # Known mis-annotated loci whose ".1" isoform is primary regardless of peptide length.
@@ -229,7 +229,7 @@ class DNA_level_features:
         )
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def calculate_anticodon_usage_matrix(db: gffutils.FeatureDB, cfg: PombaseGenomeConfig) -> pd.DataFrame:
     """Compute a gene x anti-codon count matrix across all coding genes' concatenated CDS sequence."""
     from collections import Counter

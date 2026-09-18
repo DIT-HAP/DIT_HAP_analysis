@@ -107,8 +107,9 @@ _GO_SLIM_NAMESPACES = {
 _COUNT_COLUMN_SUFFIX = "_count"
 
 # The curated gRNA fitted-parameters table names depletion rate/lag with upstream's
-# legacy um/lam; accept DR/DL too in case upstream renames them. Output is prefixed
-# gRNA_ to keep it distinct from the gene-level DR/DL in clustering tables.
+# legacy um/lam; accept DR/DL too in case upstream renames them. The two spellings
+# carry different sign conventions — see GRNA_DR_SIGN and build_grna_block. Output is
+# prefixed gRNA_ to keep it distinct from the gene-level DR/DL in clustering tables.
 _GRNA_GENE_COLUMN = "Systematic ID"
 _GRNA_DEPLETION_COLUMNS = {
     "um": "gRNA_DR",
@@ -549,8 +550,9 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
     clustering tables carry: they come from a single representative gRNA fit rather
     than a gene-level aggregate fit, and the two disagree substantially (DR
     correlates ~0.92 but DL only ~0.55 across ~4.5k shared genes). gRNA_DR is
-    sign-flipped on the way in (see GRNA_DR_SIGN) so it matches the DIT-HAP DR
-    convention that upstream flipped on 2026-09-17.
+    sign-flipped on the way in WHEN the source still uses the legacy um/lam
+    spelling (see GRNA_DR_SIGN), so it matches the DIT-HAP DR convention that
+    upstream flipped on 2026-09-17.
     """
     available = {
         source: target
@@ -572,7 +574,12 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
 
     block = grna_parameters.set_index(_GRNA_GENE_COLUMN)[list(available)].rename(columns=available)
     block = block[_GRNA_TARGET_COLUMNS]
-    block["gRNA_DR"] = block["gRNA_DR"] * GRNA_DR_SIGN
+    # Flip only the legacy um/lam spelling: that table is frozen at the pre-2026-09-17
+    # convention (positive = depleted). A table shipping DR/DL comes from the post-flip
+    # upstream, whose sign already matches, and flipping it again would silently invert
+    # every value. See GRNA_DR_SIGN.
+    if "um" in available:
+        block["gRNA_DR"] = block["gRNA_DR"] * GRNA_DR_SIGN
     block.index.name = "gene_systematic_id"
     return block
 

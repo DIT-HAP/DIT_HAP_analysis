@@ -37,7 +37,12 @@ from scipy import stats
 from scipy.stats import gaussian_kde
 
 # 4. Local Imports
-from plotting.style import AX_HEIGHT, AX_WIDTH
+# Single-panel figure size, as matplotlib defines it at import — the house style
+# is applied later, inside run(), so this is the stock value the retired
+# plotting.style constant of the same name also captured. Kept local rather than
+# imported from figures.py: that module imports cnsplots, which not every rule
+# that uses it runs with.
+AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 
 # =============================================================================
 # GLOBAL CONSTANTS

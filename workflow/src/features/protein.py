@@ -55,7 +55,7 @@ from tqdm import tqdm
 # =============================================================================
 # CORE LOGIC — peptide-sequence features
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def calculate_aliphatic_index_biopython(protein_sequence: str) -> float:
     """Calculate the aliphatic index (Ikai 1980) of a protein sequence."""
     analysis = ProteinAnalysis(protein_sequence)
@@ -68,7 +68,7 @@ def calculate_aliphatic_index_biopython(protein_sequence: str) -> float:
     return round(aliphatic_index, 3)
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def extract_protein_features_from_peptide_sequence(peptide_fasta_file: Path, return_redundant_meta: bool = False) -> pd.DataFrame:
     """Extract per-gene protein features (aromaticity, aliphatic index, AA composition, ...) from a peptide FASTA."""
     records = []
@@ -120,7 +120,7 @@ def extract_protein_features_from_peptide_sequence(peptide_fasta_file: Path, ret
 # =============================================================================
 # CORE LOGIC — AlphaFold pLDDT statistics
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def extract_pLDDT(structure_file: Path | str) -> list[float]:
     """Extract per-residue pLDDT scores from a PDB or mmCIF file, compressed or not."""
     if isinstance(structure_file, str):
@@ -142,7 +142,7 @@ def extract_pLDDT(structure_file: Path | str) -> list[float]:
     return pLDDT
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def extract_pLDDT_pdb_gz(structure_file: Path | str) -> list[float]:
     """Extract per-residue pLDDT scores from a .pdb.gz file."""
     if isinstance(structure_file, str):
@@ -155,7 +155,7 @@ def extract_pLDDT_pdb_gz(structure_file: Path | str) -> list[float]:
     return pLDDT
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def extract_pLDDT_pdb(structure_file: Path | str) -> list[float]:
     """Extract per-residue pLDDT scores from an uncompressed PDB file."""
     if isinstance(structure_file, str):
@@ -165,7 +165,7 @@ def extract_pLDDT_pdb(structure_file: Path | str) -> list[float]:
     return [residue["CA"].bfactor for residue in structure.get_residues()]
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def extract_protein_seq_pdb_gz(structure_file: Path | str) -> str:
     """Extract the residue sequence from a .pdb.gz file."""
     if isinstance(structure_file, str):
@@ -179,7 +179,7 @@ def extract_protein_seq_pdb_gz(structure_file: Path | str) -> str:
     return seq
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def pLDDT_statistics_report(
     structure_dir: Path,
     structure_format: Literal["pdb", "pdb.gz", "cif", "cif.gz", "mixed"] = "pdb.gz",

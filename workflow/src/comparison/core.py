@@ -45,7 +45,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
-from plotting.style import AX_HEIGHT, AX_WIDTH, COLORS  # noqa: E402
+# Single-panel figure size and the categorical colour cycle, as matplotlib defines
+# them at import — the house style is applied later, inside run(), so these are the
+# stock values the retired plotting.style constants of the same name also captured.
+# Kept local rather than imported from figures.py: that module imports cnsplots,
+# which not every rule that uses these runs with.
+AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
+COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 # =============================================================================
 # GLOBAL CONSTANTS

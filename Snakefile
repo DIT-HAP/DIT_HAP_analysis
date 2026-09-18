@@ -108,8 +108,10 @@ rule all:
         # f"results/2a_coverage/{_DATASET}/coverage_dl_by_deletion_essentiality.pdf",
         # f"results/2a_coverage/{_DATASET}/coverage_dr_by_characterisation_status.pdf",
         # f"results/2b_verification/{_DATASET}/verification_stats.tsv",
-        # f"results/2b_verification/{_DATASET}/verification_boxplots.pdf",
-        # f"results/2b_verification/{_DATASET}/verification_depletion_curves.pdf",
+        # f"results/2b_verification/{_DATASET}/deletion_library_comparison.pdf",
+        # f"results/2b_verification/{_DATASET}/verification_category_boxplot.pdf",
+        # f"results/2b_verification/{_DATASET}/critical_genes",
+        # f"results/2b_verification/{_DATASET}/depletion_curves",
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",

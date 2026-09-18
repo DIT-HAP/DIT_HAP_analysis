@@ -66,7 +66,12 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-from plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+# Single-panel figure size, as matplotlib defines it at import — the house style
+# is applied later, inside run(), so this is the stock value the retired
+# plotting.style constant of the same name also captured. Kept local rather than
+# imported from figures.py: that module imports cnsplots, which not every rule
+# that uses it runs with.
+AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 
 
 # =============================================================================

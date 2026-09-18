@@ -673,11 +673,11 @@ def test_grna_columns_are_prefixed_to_avoid_colliding_with_gene_level_dr_dl():
     assert "DL" not in result.columns
 
 
-def test_grna_block_accepts_a_table_already_using_dr_dl_names():
-    """If upstream ever ships DR/DL directly, the same loader must keep working (and flip)."""
+def test_grna_block_leaves_a_table_already_using_dr_dl_names_unflipped():
+    """A table shipping DR/DL comes from post-flip upstream, whose sign already matches."""
     grna = pd.DataFrame({"Systematic ID": ["SPAC3A12.11c"], "DR": [1.048], "DL": [1.103]})
     result = build_grna_block(grna)
-    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == -1.048   # sign-flipped to the DIT-HAP convention
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == 1.048
     assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
 
 

@@ -78,28 +78,34 @@ def truncate_sheet_name(name: str, used_names: set[str]) -> str:
 
 
 def make_sheet_name_with_count(base_name: str, row_count: int, used_names: set[str]) -> str:
-    """Append row count to sheet name and truncate if needed to fit Excel's 31-char limit."""
-    name_with_count = f"{base_name} ({row_count})"
-    return truncate_sheet_name(name_with_count, used_names)
+    """Append row count to sheet name, keeping the count inside Excel's 31-char limit.
+
+    The base is trimmed first, so an over-long sheet name loses its tail instead of
+    its row count — the count is the part the name exists to convey, and truncating
+    from the right turned "essentiality_not_determined (287)" into "(28".
+    """
+    suffix = f" ({row_count})"
+    trimmed_base = base_name[:EXCEL_SHEET_NAME_MAX_LENGTH - len(suffix)]
+    return truncate_sheet_name(f"{trimmed_base}{suffix}", used_names)
 
 
-def annotate_with_suffix_on_collision(
+def annotate_with_reference(
     table: pd.DataFrame,
     reference: pd.DataFrame,
     gene_column: str = "Systematic ID",
 ) -> pd.DataFrame:
-    """Annotate a table, adding _annotation suffix to annotation columns that collide with existing ones.
+    """Append the reference's columns that `table` does not already carry.
+
+    Anything the table already has came from this same reference — coverage's detailed
+    table is built out of it — so re-attaching it would only add identical duplicates,
+    and for DR/DL a silently WRONG one: the reference's DR/DL are HD_DIT_HAP's own
+    gene-level fits, while a coverage table's belong to the dataset it came from.
 
     Places gRNA_DR and gRNA_DL immediately after the input table columns for visibility.
     """
     annotation = reference.loc[table[gene_column], :]
+    annotation = annotation.drop(columns=[c for c in table.columns if c in annotation.columns])
     annotation = annotation.reset_index(drop=True)
-
-    # Detect column collisions
-    collisions = set(table.columns) & set(annotation.columns)
-    if collisions:
-        rename_map = {col: f"{col}_annotation" for col in collisions}
-        annotation = annotation.rename(columns=rename_map)
 
     # Move gRNA columns to front of annotation block for visibility
     grna_cols = [c for c in annotation.columns if c in ["gRNA_DR", "gRNA_DL"]]
@@ -135,7 +141,7 @@ def build_workbook(
     # Process detailed_genes sheets (16 sheets)
     for sheet_name in sheet_names:
         df = excel_file.parse(sheet_name)
-        annotated = annotate_with_suffix_on_collision(df, annotation_reference)
+        annotated = annotate_with_reference(df, annotation_reference)
 
         output_name = make_sheet_name_with_count(sheet_name, len(df), used_names)
         used_names.add(output_name)
@@ -145,7 +151,7 @@ def build_workbook(
     # Process critical_genes files (4 files)
     for tsv_file in critical_files:
         df = pd.read_csv(tsv_file, sep="\t")
-        annotated = annotate_with_suffix_on_collision(df, annotation_reference)
+        annotated = annotate_with_reference(df, annotation_reference)
 
         # Use stem as sheet name (e.g., "critical_genes_E2V")
         sheet_name = tsv_file.stem

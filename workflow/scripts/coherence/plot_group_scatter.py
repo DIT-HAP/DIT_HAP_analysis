@@ -72,7 +72,12 @@ from loguru import logger  # noqa: E402
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from plotting.gene_level import plot_given_genes_on_feature_space  # noqa: E402
-from plotting.style import AX_HEIGHT, AX_WIDTH  # noqa: E402
+# Single-panel figure size, as matplotlib defines it at import — the house style
+# is applied later, inside run(), so this is the stock value the retired
+# plotting.style constant of the same name also captured. Kept local rather than
+# imported from figures.py: that module imports cnsplots, which not every rule
+# that uses it runs with.
+AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 from logging_setup import setup_logger  # noqa: E402
 
 
