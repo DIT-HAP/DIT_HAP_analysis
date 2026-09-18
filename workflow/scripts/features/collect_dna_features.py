@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect DNA-level pombe features (spine stage)")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--genome-landmarks", type=Path, required=True, help="Genome-landmarks YAML (telomere/centromere coordinates)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_dna", help="Output DNA-level features pickle")
+    parser.add_argument("--output", type=Path, required=True, dest="output_dna", help="Output DNA-level features parquet")
     parser.add_argument("--codon-usage-output", type=Path, required=True, dest="output_codon_usage", help="Output codon usage matrix path")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

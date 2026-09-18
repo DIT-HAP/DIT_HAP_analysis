@@ -7,11 +7,11 @@ Phenotype-Level Feature Collection
 
 Assembles FYPO viability, deletion-library essentiality, bar-seq fitness,
 transposon insertion density, and CRISPRi growth phenotypes per coding gene.
-Reads the coding-gene set from the DNA-level pickle.
+Reads the coding-gene set from the DNA-level parquet.
 
 NOTE: this level intentionally produces a DUPLICATE `DeletionLibrary_essentiality`
 column (byte-faithful quirk carried through to the final matrix). The output is
-pickled rather than TSV'd so the duplicate column name survives round-trip.
+written as parquet rather than TSV so the duplicate column name survives round-trip.
 
 Input
 -----
@@ -124,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion library categories xlsx")
     parser.add_argument("--essentiality-verification-csv", type=Path, required=True, help="Curated essentiality verification csv")
     parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_phenotype", help="Output phenotype-level features pickle")
+    parser.add_argument("--output", type=Path, required=True, dest="output_phenotype", help="Output phenotype-level features parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 

@@ -7,7 +7,7 @@ Protein-Level Feature Collection
 
 Assembles peptide-sequence features, protein abundance/turnover, AlphaFold
 pLDDT statistics, and PFAM-domain counts per coding gene. Reads the
-coding-gene set from the DNA-level pickle. This is the slowest level (it walks
+coding-gene set from the DNA-level parquet. This is the slowest level (it walks
 the AlphaFold structure directory), so it is its own Snakemake rule.
 
 Input
@@ -116,7 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alphafold-dir", type=Path, required=True, help="AlphaFold structure directory (.pdb.gz files)")
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
     parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_protein", help="Output protein-level features pickle")
+    parser.add_argument("--output", type=Path, required=True, dest="output_protein", help="Output protein-level features parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 

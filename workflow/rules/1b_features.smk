@@ -4,12 +4,12 @@
 #
 # Split by biological level: the DNA level is the "spine" (it builds the
 # gffutils DB and enumerates the coding-gene set), and the other five levels
-# read the DNA pickle to recover that set before assembling independently. A
-# final merge rule joins the six per-level pickles into the feature matrix.
+# read the DNA-level parquet to recover that set before assembling independently. A
+# final merge rule joins the six per-level parquets into the feature matrix.
 #
 # Depends only on the reference PomBase version, not on any DIT-HAP sequencing
 # project — no `dataset` wildcard (design doc §8). Per-level intermediates are
-# pickles (not TSV) so bool/int dtypes and the intentional duplicate
+# parquets (not TSV) so bool/int dtypes and the intentional duplicate
 # DeletionLibrary_essentiality column survive round-trip; only the final matrix
 # is a TSV.
 
@@ -25,7 +25,7 @@ rule collect_dna_features:
         dna=f"{_LEVELS}/dna_features.parquet",
         codon_usage="results/1b_features/{pombase_version}/codon_usage_matrix.tsv",
     log:
-        "logs/features/collect_dna_features_{pombase_version}.log",
+        "logs/1b_features/collect_dna_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -49,7 +49,7 @@ rule collect_rna_features:
     output:
         rna=f"{_LEVELS}/rna_features.parquet",
     log:
-        "logs/features/collect_rna_features_{pombase_version}.log",
+        "logs/1b_features/collect_rna_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -74,7 +74,7 @@ rule collect_protein_features:
     output:
         protein=f"{_LEVELS}/protein_features.parquet",
     log:
-        "logs/features/collect_protein_features_{pombase_version}.log",
+        "logs/1b_features/collect_protein_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -100,7 +100,7 @@ rule collect_evolutionary_features:
     output:
         evolutionary=f"{_LEVELS}/evolutionary_features.parquet",
     log:
-        "logs/features/collect_evolutionary_features_{pombase_version}.log",
+        "logs/1b_features/collect_evolutionary_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -125,7 +125,7 @@ rule collect_network_features:
     output:
         network=f"{_LEVELS}/network_features.parquet",
     log:
-        "logs/features/collect_network_features_{pombase_version}.log",
+        "logs/1b_features/collect_network_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -151,7 +151,7 @@ rule collect_phenotype_features:
     output:
         phenotype=f"{_LEVELS}/phenotype_features.parquet",
     log:
-        "logs/features/collect_phenotype_features_{pombase_version}.log",
+        "logs/1b_features/collect_phenotype_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -168,7 +168,7 @@ rule collect_phenotype_features:
         """
 
 
-# --- Merge (outer-join the six per-level pickles into the final matrix) ---
+# --- Merge (outer-join the six per-level parquets into the final matrix) ---
 rule merge_pombe_features:
     input:
         pombase_dir="resources/external/pombase/{pombase_version}",
@@ -181,7 +181,7 @@ rule merge_pombe_features:
     output:
         features="results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv",
     log:
-        "logs/features/merge_pombe_features_{pombase_version}.log",
+        "logs/1b_features/merge_pombe_features_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:

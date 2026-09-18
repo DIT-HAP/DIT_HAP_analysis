@@ -5,7 +5,7 @@
 Feature Matrix Merge
 ======================
 
-Outer-joins the six per-level feature pickles (DNA / RNA / protein /
+Outer-joins the six per-level feature parquets (DNA / RNA / protein /
 evolutionary / network / phenotype) into the final per-coding-gene feature
 matrix, matching the former monolithic collect_pombe_features.py output
 byte-for-byte (including the intentional duplicate DeletionLibrary_essentiality
@@ -13,7 +13,7 @@ column, preserved via the parquet intermediates).
 
 Input
 -----
-- The six per-level feature pickles
+- The six per-level feature parquets
 - A PomBase version directory (gene metadata for the gene_name column)
 
 Output
@@ -65,7 +65,7 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class MergeConfig:
-    """The six per-level pickles, gene metadata, and the final output path."""
+    """The six per-level parquets, gene metadata, and the final output path."""
     pombase_dir: Path
     dna_features: Path
     rna_features: Path
@@ -99,7 +99,7 @@ class MergeConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: MergeConfig) -> None:
-    """Load the six per-level pickles, merge them, and write the final feature matrix."""
+    """Load the six per-level parquets, merge them, and write the final feature matrix."""
     gene_meta, _ = load_gene_meta(config.gene_meta_file)
 
     dna_df = read_parquet(config.dna_features)
@@ -121,14 +121,14 @@ def run(config: MergeConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Merge per-level pombe feature pickles into the final matrix")
+    parser = argparse.ArgumentParser(description="Merge per-level pombe feature parquets into the final matrix")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features pickle")
-    parser.add_argument("--rna-features", type=Path, required=True, help="RNA-level features pickle")
-    parser.add_argument("--protein-features", type=Path, required=True, help="Protein-level features pickle")
-    parser.add_argument("--evolutionary-features", type=Path, required=True, help="Evolutionary-level features pickle")
-    parser.add_argument("--network-features", type=Path, required=True, help="Network-level features pickle")
-    parser.add_argument("--phenotype-features", type=Path, required=True, help="Phenotype-level features pickle")
+    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet")
+    parser.add_argument("--rna-features", type=Path, required=True, help="RNA-level features parquet")
+    parser.add_argument("--protein-features", type=Path, required=True, help="Protein-level features parquet")
+    parser.add_argument("--evolutionary-features", type=Path, required=True, help="Evolutionary-level features parquet")
+    parser.add_argument("--network-features", type=Path, required=True, help="Network-level features parquet")
+    parser.add_argument("--phenotype-features", type=Path, required=True, help="Phenotype-level features parquet")
     parser.add_argument("--output", type=Path, required=True, dest="output_features", help="Output feature matrix path")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()

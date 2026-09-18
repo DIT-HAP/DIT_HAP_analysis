@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--biogrid-tsv", type=Path, required=True, help="BioGrid interaction table")
     parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_network", help="Output network-level features pickle")
+    parser.add_argument("--output", type=Path, required=True, dest="output_network", help="Output network-level features parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 

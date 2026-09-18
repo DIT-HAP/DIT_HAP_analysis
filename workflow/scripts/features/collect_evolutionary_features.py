@@ -6,7 +6,7 @@ Evolutionary-Level Feature Collection
 =======================================
 
 Assembles ortholog/paralog counts, evolutionary rate, and phyloP/divergence
-scores per coding gene. Reads the coding-gene set from the DNA-level pickle.
+scores per coding gene. Reads the coding-gene set from the DNA-level parquet.
 
 Input
 -----
@@ -113,7 +113,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
     parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table")
     parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_evolutionary", help="Output evolutionary-level features pickle")
+    parser.add_argument("--output", type=Path, required=True, dest="output_evolutionary", help="Output evolutionary-level features parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
