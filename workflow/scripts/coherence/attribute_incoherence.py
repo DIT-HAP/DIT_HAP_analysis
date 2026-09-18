@@ -99,13 +99,12 @@ from coherence.attribution import (  # noqa: E402
 # that uses it runs with.
 AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
 
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Byte-faithful to compute_coherence.py: legacy um/lam -> DR/DL, DL normalized /10.
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 _DR_NORM, _DL_NORM = 1.0, 10.0
 
 
@@ -153,7 +152,7 @@ def load_member_points(fitting_results: Path) -> dict[str, tuple[float, float]]:
     fitting = pd.read_csv(fitting_results, sep="\t", index_col=0).reset_index()
     if "Systematic ID" not in fitting.columns:
         fitting = fitting.rename(columns={fitting.columns[0]: "Systematic ID"})
-    rename = {o: n for o, n in _LEGACY_METRIC_RENAME.items()
+    rename = {o: n for o, n in LEGACY_METRIC_RENAME.items()
               if o in fitting.columns and n not in fitting.columns}
     fitting = fitting.rename(columns=rename)
     for req in ["Systematic ID", "DR", "DL"]:

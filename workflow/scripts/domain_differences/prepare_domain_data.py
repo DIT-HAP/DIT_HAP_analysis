@@ -39,8 +39,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import read_gene_level  # noqa: E402
 from domain_differences.core import (  # noqa: E402
-    load_gene_level,
     load_insertion_annotations,
 )
 
@@ -74,7 +74,7 @@ def run(config: PrepareConfig) -> None:
     """Load -> reindex -> write the two parquet intermediates."""
     config.validate()
 
-    gene_result = load_gene_level(config.gene_level)
+    gene_result = read_gene_level(config.gene_level)
     annotations = load_insertion_annotations(config.fitting_results, config.annotations)
 
     write_parquet(gene_result, config.output_gene_result)

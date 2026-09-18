@@ -76,13 +76,12 @@ from coherence.metrics import (  # noqa: E402
 )
 from io_table import write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
 
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Legacy -> current metric column names
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
 # Min-max normalization ranges for the DIT-HAP fitness "points". Stored as a plain
 # value/divisor pair, so these are an affine reshape of (DR, DL/10), not a fitted
@@ -155,7 +154,7 @@ def load_fitting_results(fitting_results_path: Path, dr_threshold: float) -> pd.
 
     rename = {
         old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
+        for old, new in LEGACY_METRIC_RENAME.items()
         if old in fitting.columns and new not in fitting.columns
     }
     if rename:

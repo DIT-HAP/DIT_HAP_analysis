@@ -38,7 +38,8 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import write_parquet  # noqa: E402
-from utr.core import load_gene_level, load_insertion_level  # noqa: E402
+from utr.core import load_insertion_level  # noqa: E402
+from release_schema import read_gene_level  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -73,7 +74,7 @@ def run(config: PrepareConfig) -> None:
     config.validate()
 
     fitting_results, annotations = load_insertion_level(config.fitting_results, config.annotations)
-    gene_result = load_gene_level(config.gene_level)
+    gene_result = read_gene_level(config.gene_level)
 
     write_parquet(fitting_results, config.output_fitting_results)
     write_parquet(annotations, config.output_annotations)

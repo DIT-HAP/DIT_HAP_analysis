@@ -79,14 +79,12 @@ from plotting.gene_level import plot_given_genes_on_feature_space  # noqa: E402
 # that uses it runs with.
 AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 from logging_setup import setup_logger  # noqa: E402
+from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
 
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Legacy -> current metric column names (same quirk as
-# workflow/src/clustering/candidates.py's _LEGACY_METRIC_RENAME).
-_LEGACY_METRIC_RENAME = {"um": "DR", "lam": "DL"}
 
 
 # =============================================================================
@@ -140,7 +138,7 @@ def load_fitting_results(fitting_results_path: Path) -> pd.DataFrame:
 
     rename = {
         old: new
-        for old, new in _LEGACY_METRIC_RENAME.items()
+        for old, new in LEGACY_METRIC_RENAME.items()
         if old in fitting.columns and new not in fitting.columns
     }
     if rename:
