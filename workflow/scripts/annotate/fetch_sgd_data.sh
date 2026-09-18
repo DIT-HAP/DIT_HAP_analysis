@@ -57,4 +57,4 @@ fetch "${SGD_BASE_URL}/chromosomal_feature/SGD_features.tab" "${TARGET_DIR}/SGD_
 fetch "${SGD_BASE_URL}/literature/phenotype_data.tab" "${TARGET_DIR}/phenotype_data.tab"
 
 echo "Done. Build the annotation reference with:"
-echo "  snakemake --use-conda --cores 4 results/1c_annotation/2026-06-01/${VERSION}/gene_annotation_reference.parquet"
+echo "  snakemake --use-conda --cores 4 results/1c_annotation/2026-06-01/${VERSION}/gene_annotation_reference.protein.parquet"

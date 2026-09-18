@@ -2,7 +2,7 @@
 # 1c_annotate.smk — Per-gene annotation reference + annotated tables
 # =============================================================================
 #
-# Parses PomBase + SGD sources once into a single wide annotation table (24
+# Parses PomBase + SGD sources once into a single wide annotation table (26
 # columns) keyed by pombe systematic ID, then joins it onto tables that need it.
 # The reference is dataset-independent (like 1b_features.smk): it depends only on a
 # PomBase version and an SGD snapshot, not on any DIT-HAP sequencing project.
@@ -58,7 +58,7 @@ rule fetch_sgd_data:
         sgd_dir=directory("resources/external/sgd/{sgd_version}"),
     retries: 2
     log:
-        "logs/annotate/fetch_sgd_data_{sgd_version}.log",
+        "logs/1c_annotation/fetch_sgd_data_{sgd_version}.log",
     message:
         "*** [annotate] Fetching SGD tables for snapshot {wildcards.sgd_version} (network)..."
     shell:
@@ -82,7 +82,7 @@ rule build_annotation_reference:
     params:
         hd_dithap_dataset="HD_DIT_HAP",
     log:
-        "logs/annotate/build_annotation_reference_{pombase_version}_{sgd_version}_{gene_type}.log",
+        "logs/1c_annotation/build_annotation_reference_{pombase_version}_{sgd_version}_{gene_type}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -133,7 +133,7 @@ rule annotate_table:
             "--drop-unmatched" if _ANNOT_TABLES[wc.name].get("drop_unmatched", False) else ""
         ),
     log:
-        "logs/annotate/annotate_table_{dataset}_{variant}_{name}.log",
+        "logs/1c_annotation/annotate_table_{dataset}_{variant}_{name}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -170,7 +170,7 @@ rule build_annotated_workbook:
     output:
         workbook="results/1c_annotation/{dataset}/{dataset}_annotated.xlsx",
     log:
-        "logs/annotate/build_annotated_workbook_{dataset}.log",
+        "logs/1c_annotation/build_annotated_workbook_{dataset}.log",
     conda:
         "../envs/biopython.yml"
     message:

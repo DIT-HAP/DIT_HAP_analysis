@@ -334,6 +334,24 @@ def _lookup_field(key: str, table: pd.DataFrame, column: str) -> str:
 # driver (workflow/scripts/annotate/build_annotation_reference.py) only decides
 # which blocks exist and how they join. The block number in each docstring is the
 # order the driver assembles them in.
+def _build_block(
+    table: pd.DataFrame, columns_map: dict[str, str], *, required: bool = False
+) -> pd.DataFrame:
+    """Select `columns_map`'s source columns, rename them, and index on systematic_id.
+
+    Two kinds of source, told apart by `required`: in a PomBase export a column can
+    legitimately be absent, so the block carries whatever exists (the column set has
+    moved between releases); in a curated table we depend on, an absent column means
+    the wrong file was passed, so it raises instead.
+    """
+    missing = [source for source in columns_map if source not in table.columns]
+    if required and missing:
+        raise ValueError(f"Source table is missing required column(s): {missing}")
+
+    available = {source: target for source, target in columns_map.items() if source in table.columns}
+    return table[list(available)].rename(columns=available).set_index("systematic_id")
+
+
 @logger.catch(reraise=True)
 def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.DataFrame:
     """Build block 1: PomBase gene metadata from gene_ids_and_details.parquet.
@@ -342,10 +360,7 @@ def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.D
     characterisation_status, taxonomic_distribution, deletion_viability (renamed to FYPOviability).
     """
     logger.info("Reading PomBase gene metadata from parquet")
-    gene_meta = read_parquet(gene_ids_parquet)
-
-    # Select and rename columns - feature_type goes after product
-    columns_map = {
+    block = _build_block(read_parquet(gene_ids_parquet), {
         "systematic_id": "systematic_id",
         "name": "gene_name",
         "gene_product": "gene_product",
@@ -354,11 +369,7 @@ def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.D
         "characterisation_status": "characterisation_status",
         "taxonomic_distribution": "taxonomic_distribution",
         "deletion_viability": "FYPOviability",
-    }
-
-    available_columns = [col for col in columns_map.keys() if col in gene_meta.columns]
-    block = gene_meta[available_columns].copy()
-    block = block.rename(columns={k: v for k, v in columns_map.items() if k in available_columns})
+    })
 
     # Apply gene type filter
     feature_types = VALID_GENE_TYPES.get(gene_type)
@@ -366,10 +377,6 @@ def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.D
         before_count = len(block)
         block = block[block["feature_type"].isin(feature_types)]
         logger.info(f"  Filtered {before_count:,} genes to {len(block):,} {gene_type} genes")
-
-    # Set systematic_id as index
-    if "systematic_id" in block.columns:
-        block = block.set_index("systematic_id")
 
     # Fill missing gene names with systematic_id
     if "gene_name" in block.columns:
@@ -387,21 +394,12 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
     Category, Sub_category.
     """
     logger.info("Reading deletion library categories")
-    deletion_lib = read_file(deletion_library_xlsx)
-
-    columns_map = {
+    block = _build_block(read_file(deletion_library_xlsx), {
         "Systematic ID": "systematic_id",
         "Gene dispensability. This study": "deletion_essentiality",
         "Category": "Category",
         "Sub_category": "Sub_category",
-    }
-
-    available_columns = [col for col in columns_map.keys() if col in deletion_lib.columns]
-    block = deletion_lib[available_columns].copy()
-    block = block.rename(columns={k: v for k, v in columns_map.items() if k in available_columns})
-
-    if "systematic_id" in block.columns:
-        block = block.set_index("systematic_id")
+    })
 
     if "deletion_essentiality" in block.columns:
         block["deletion_essentiality"] = block["deletion_essentiality"].fillna("Not_determined")
@@ -414,15 +412,11 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
 def build_verification_block(verification_csv: Path) -> pd.DataFrame:
     """Build block 2b: Essentiality verification phenotype (systematic_id, verification_phenotype)."""
     logger.info("Reading essentiality verification data")
-    verification = read_file(verification_csv)
-
-    required_cols = ["systematic_id", "verification_phenotype"]
-    missing = [col for col in required_cols if col not in verification.columns]
-    if missing:
-        raise ValueError(f"Verification CSV missing columns: {missing}")
-
-    block = verification[required_cols].copy()
-    block = block.set_index("systematic_id")
+    block = _build_block(
+        read_file(verification_csv),
+        {"systematic_id": "systematic_id", "verification_phenotype": "verification_phenotype"},
+        required=True,
+    )
 
     logger.info(f"  {len(block):,} genes with verification phenotype")
     return block
@@ -437,17 +431,12 @@ def build_gene_level_depletion_block(dataset_name: str) -> pd.DataFrame:
     if dataset_config.gene_level is None:
         raise ValueError(f"Dataset {dataset_name} has no gene-level data (has_time_points=False)")
 
-    fitting_results = read_file(dataset_config.gene_level.fitting_results)
-
-    # The column is "Systematic ID" (with space), not "gene_systematic_id"
-    required_cols = ["Systematic ID", "DR", "DL"]
-    missing = [col for col in required_cols if col not in fitting_results.columns]
-    if missing:
-        raise ValueError(f"Gene-level fitting results missing columns: {missing}")
-
-    block = fitting_results[required_cols].copy()
-    block = block.rename(columns={"Systematic ID": "systematic_id"})
-    block = block.set_index("systematic_id")
+    # The gene column is "Systematic ID" (with space), not "systematic_id".
+    block = _build_block(
+        read_file(dataset_config.gene_level.fitting_results),
+        {"Systematic ID": "systematic_id", "DR": "DR", "DL": "DL"},
+        required=True,
+    )
 
     logger.info(f"  {len(block):,} genes with gene-level DR/DL")
     return block

@@ -15,7 +15,7 @@ Input
 -----
 - results/2a_coverage/{dataset}/detailed_genes.xlsx
 - results/2b_verification/{dataset}/critical_genes/*.tsv
-- gene_annotation_reference.parquet
+- results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
 
 Output
 ------
@@ -26,7 +26,7 @@ Usage
     python build_annotated_workbook.py \\
         --detailed-xlsx results/2a_coverage/HD_DIT_HAP/detailed_genes.xlsx \\
         --critical-dir results/2b_verification/HD_DIT_HAP/critical_genes \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.parquet \\
+        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output results/1c_annotation/HD_DIT_HAP/HD_DIT_HAP_annotated.xlsx
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
@@ -46,6 +46,7 @@ from loguru import logger
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from annotation.core import annotate_table  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -101,18 +102,20 @@ def annotate_with_reference(
     and for DR/DL a silently WRONG one: the reference's DR/DL are HD_DIT_HAP's own
     gene-level fits, while a coverage table's belong to the dataset it came from.
 
+    The join itself is annotation.core.annotate_table (one implementation, shared with
+    annotate_pombe_genes); genes the reference lacks keep their row with a blank
+    annotation rather than raising.
+
     Places gRNA_DR and gRNA_DL immediately after the input table columns for visibility.
     """
-    annotation = reference.loc[table[gene_column], :]
-    annotation = annotation.drop(columns=[c for c in table.columns if c in annotation.columns])
-    annotation = annotation.reset_index(drop=True)
+    missing = [c for c in reference.columns if c not in table.columns]
+    merged = annotate_table(table, reference, gene_column=gene_column, columns=missing)
 
     # Move gRNA columns to front of annotation block for visibility
-    grna_cols = [c for c in annotation.columns if c in ["gRNA_DR", "gRNA_DL"]]
-    other_cols = [c for c in annotation.columns if c not in grna_cols]
-    annotation = annotation[grna_cols + other_cols]
-
-    return pd.concat([table.reset_index(drop=True), annotation], axis=1)
+    grna_cols = [c for c in merged.columns if c in ["gRNA_DR", "gRNA_DL"]]
+    head = [c for c in merged.columns if c in table.columns]
+    tail = [c for c in merged.columns if c not in head and c not in grna_cols]
+    return merged[head + grna_cols + tail]
 
 
 # =============================================================================

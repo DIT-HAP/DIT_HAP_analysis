@@ -8,7 +8,8 @@ Pombe Gene Table Annotation
 Appends annotation columns to any table that carries a column of pombe
 systematic IDs, to help judge what a gene does and whether it is essential:
 budding yeast ortholog name and null-mutant essentiality, pombe FYPO and
-deletion-library essentiality, GO-slim terms, complex membership, PFAM domains.
+deletion-library essentiality, GO-slim terms, complex membership, and the SGD
+ortholog's functional description.
 
 Gene IDs are matched verbatim against the annotation reference — no synonym
 resolution is attempted, so the input is expected to carry current systematic
@@ -19,7 +20,7 @@ no annotations.
 Input
 -----
 - Any tsv/csv/xlsx table with a column of pombe systematic IDs
-- gene_annotation_reference.parquet (built by build_annotation_reference.py)
+- results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet (built by build_annotation_reference.py)
 
 Output
 ------
@@ -30,12 +31,14 @@ Usage
     python annotate_pombe_genes.py \\
         --input my_gene_list.tsv \\
         --gene-column gene_systematic_id \\
+        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output my_gene_list.annotated.tsv
 
     # only some annotation columns, and drop rows that have no annotation
     python annotate_pombe_genes.py \\
-        --input results/clustering/HD_DIT_HAP/direct/final_clusters.tsv \\
+        --input results/clustering/HD_DIT_HAP/kmeans_direct9/final_clusters.tsv \\
         --gene-column Gene_id \\
+        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --columns gene_name Sc_ortholog_name Sc_essentiality \\
         --drop-unmatched \\
         --output annotated_clusters.tsv

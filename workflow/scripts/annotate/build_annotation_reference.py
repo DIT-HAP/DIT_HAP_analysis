@@ -39,6 +39,7 @@ Usage
         --pombase-dir resources/external/pombase/2026-06-01 \\
         --sgd-dir resources/external/sgd/2026-08-11 \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
+        --verification-csv resources/curated/essentiality_verification.csv \\
         --hd-dithap-dataset HD_DIT_HAP \\
         --grna-parameters-tsv resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
         --gene-type protein \\
