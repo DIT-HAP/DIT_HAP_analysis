@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>连贯性术语去重（deduplicate_coherence_terms）原理图解</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --ink:#1c1c1a; --mute:#6b6b66; --line:#e2e1dc;
+    --a:#0072B2; --a-fill:#cfe6f5;
+    --b:#D55E00; --b-fill:#fadfc9;
+    --ok:#009E73; --no:#b9b7b0;
+    --rep:#7a3fa0; --hl:#fdf3d0;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,Segoe UI,Noto Sans CJK SC,PingFang SC,Microsoft YaHei,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.65;-webkit-font-smoothing:antialiased;font-size:16px}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 120px}
+
+  section{margin:64px 0;padding-top:8px}
+  h1{font-size:30px;line-height:1.3;margin:0 0 8px;letter-spacing:-.01em}
+  h2{font-size:21px;margin:0 0 4px;letter-spacing:-.01em;
+     display:flex;align-items:baseline;gap:10px}
+  h2 .num{font-family:var(--mono);font-size:13px;color:var(--b);
+          border:1px solid var(--b);border-radius:20px;padding:1px 9px;flex:none}
+  h3{font-size:15px;margin:26px 0 8px;color:var(--mute);font-weight:600;
+     text-transform:uppercase;letter-spacing:.06em}
+  p{margin:10px 0}
+  .lede{font-size:17px;color:var(--mute);margin:0 0 6px}
+  code{font-family:var(--mono);font-size:.88em;background:#f2f1ec;
+       padding:1px 5px;border-radius:4px;border:1px solid var(--line)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:22px 24px;margin:18px 0}
+  .note{border-left:3px solid var(--b);background:#fff8f2;padding:12px 16px;
+        border-radius:0 8px 8px 0;margin:16px 0;font-size:14.5px}
+  .note.good{border-color:var(--ok);background:#f1faf6}
+  .note::before{content:"注意";font-family:var(--mono);font-size:11px;
+        color:var(--b);letter-spacing:.1em;margin-right:10px}
+  .note.good::before{content:"结论";color:var(--ok)}
+  .small{font-size:13.5px;color:var(--mute)}
+
+  /* 渐进增强：默认可见；只有 JS 确认能观察时才从 opacity:0 开始入场。
+     否则 JS 慢一步 / 被禁用 / 打印，整页就是空白。 */
+  html.js-on .rv{opacity:0;transform:translateY(14px);
+      transition:opacity .6s ease,transform .6s cubic-bezier(.2,.7,.3,1)}
+  html.js-on .rv.in{opacity:1;transform:none}
+
+  header{padding:72px 0 8px;border-bottom:1px solid var(--line)}
+  .big{display:flex;gap:28px;align-items:baseline;margin:26px 0 6px;flex-wrap:wrap}
+  .big .v{font-family:var(--mono);font-size:38px;font-weight:600;letter-spacing:-.02em}
+  .big .v small{font-size:14px;font-weight:400;color:var(--mute);display:block;
+                letter-spacing:0;font-family:var(--sans)}
+  .arrow{font-size:26px;color:var(--b);align-self:center}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 0}
+  .toc a{font-size:13px;text-decoration:none;color:var(--mute);border:1px solid var(--line);
+         background:var(--panel);padding:4px 11px;border-radius:20px;transition:.18s}
+  .toc a:hover{color:var(--ink);border-color:var(--ink)}
+
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th{text-align:left;font-weight:600;color:var(--mute);font-size:12px;
+     text-transform:uppercase;letter-spacing:.05em;padding:6px 10px;
+     border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid #f0efea;vertical-align:top}
+  td.num{font-family:var(--mono);text-align:right;white-space:nowrap;font-size:13px}
+  tr.rep td{background:var(--hl)}
+  tr.rep td:first-child{box-shadow:inset 3px 0 0 var(--rep)}
+  .tag{font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:4px;
+       border:1px solid currentColor;white-space:nowrap}
+  .tag.cc{color:var(--a)} .tag.bp{color:var(--b)} .tag.mc{color:var(--ok)}
+
+  svg{display:block;max-width:100%;overflow:visible}
+  .node circle{transition:fill .5s ease,stroke .5s ease}
+  .node text{font-family:var(--mono);font-size:11px;fill:var(--ink);pointer-events:none}
+  .node .sub{font-family:var(--sans);font-size:10.5px;fill:var(--mute)}
+  .edge{stroke:var(--ok);stroke-width:2;fill:none;transition:.45s ease}
+  .edge.off{stroke:var(--no);stroke-dasharray:4 4;stroke-width:1.5;opacity:.45}
+  .elabel{font-family:var(--mono);font-size:10px;fill:var(--ok);
+          transition:fill .45s ease,opacity .45s ease}
+  .elabel.off{fill:var(--no)}
+
+  .ctl{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 0 4px;
+       padding:14px 16px;background:#f7f6f2;border-radius:10px;border:1px solid var(--line)}
+  .ctl label{font-size:13px;color:var(--mute);font-family:var(--mono)}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;
+       background:linear-gradient(90deg,var(--ok) 0,var(--ok) var(--p,50%),var(--line) var(--p,50%),var(--line) 100%);
+       outline:none;width:230px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;
+       border-radius:50%;background:var(--ink);cursor:grab;border:3px solid #fff;
+       box-shadow:0 1px 4px rgba(0,0,0,.28)}
+  input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;
+       background:var(--ink);cursor:grab;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.28)}
+  .readout{font-family:var(--mono);font-size:20px;font-weight:600;min-width:62px}
+  .stat{display:flex;gap:26px;flex-wrap:wrap;margin-top:6px}
+  .stat div{font-size:13px;color:var(--mute)}
+  .stat b{font-family:var(--mono);font-size:19px;color:var(--ink);display:block;
+          font-weight:600;line-height:1.25}
+
+  .formula{font-family:var(--mono);font-size:15px;background:#f7f6f2;border:1px solid var(--line);
+           border-radius:8px;padding:10px 14px;display:inline-block;margin:8px 0}
+  .formula .hit{background:var(--hl);border-radius:3px;padding:0 4px}
+
+  .sets{display:flex;gap:32px;flex-wrap:wrap;align-items:center}
+  .venn{position:relative;width:300px;height:172px;flex:none}
+  .venn .blob{position:absolute;border-radius:50%;
+              transition:.55s cubic-bezier(.2,.7,.3,1);mix-blend-mode:multiply}
+  .venn .l{background:var(--a-fill);border:2px solid var(--a)}
+  .venn .r{background:var(--b-fill);border:2px solid var(--b)}
+  .venn .cap{position:absolute;bottom:-2px;left:0;width:100%;text-align:center;
+             font-family:var(--mono);font-size:12px;color:var(--mute)}
+  .bars{flex:1;min-width:250px}
+  .barrow{margin:12px 0}
+  .barrow .top{display:flex;justify-content:space-between;font-size:13px;
+               font-family:var(--mono);margin-bottom:5px;gap:12px}
+  .track{height:11px;background:#eeede8;border-radius:6px;overflow:hidden}
+  .fill{height:100%;border-radius:6px;transition:width .6s cubic-bezier(.2,.7,.3,1)}
+  .fill.a{background:var(--a)} .fill.b{background:var(--b)}
+
+  .chain{display:flex;align-items:center;flex-wrap:wrap;margin:18px 0 6px}
+  .term{border:1.5px solid var(--line);border-radius:9px;padding:7px 11px;background:#fff;
+        transition:.45s cubic-bezier(.2,.7,.3,1)}
+  .term.on{border-color:var(--b);background:#fff6ef;transform:translateY(-3px);
+           box-shadow:0 4px 14px rgba(213,94,0,.16)}
+  .term .gid{font-family:var(--mono);font-size:11.5px;font-weight:600;display:block}
+  .term .nm{font-size:11px;color:var(--mute);max-width:76px;display:block;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .term .sz{font-family:var(--mono);font-size:10.5px;color:var(--b)}
+  .link{font-family:var(--mono);font-size:10.5px;color:var(--no);padding:0 5px;
+        white-space:nowrap;transition:.4s}
+  .link.on{color:var(--b);font-weight:600}
+
+  .mem{display:flex;height:26px;border-radius:6px;overflow:hidden;
+       border:1px solid var(--line);margin:6px 0 2px}
+  .mem i{display:block;transition:width .7s cubic-bezier(.2,.7,.3,1)}
+  .mem i.s{background:var(--a)} .mem i.d{background:#e6e5e0}
+  .memlbl{font-family:var(--mono);font-size:11.5px;color:var(--mute);
+          display:flex;justify-content:space-between;gap:16px}
+
+  button.act{font:inherit;font-size:13px;padding:6px 15px;border-radius:8px;
+      border:1px solid var(--line);background:#fff;cursor:pointer;transition:.18s}
+  button.act:hover{border-color:var(--ink)}
+  button.act.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 2px}
+
+  footer{margin-top:70px;padding-top:22px;border-top:1px solid var(--line);
+         font-size:13.5px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>连贯性术语去重，到底在做什么</h1>
+  <p class="lede">deduplicate_coherence_terms · 3a_coherence 的展示层</p>
+  <p>输入 2,097 个 GO 术语 / 复合物，输出一张不重复的代表表。<b>统计量一个都没动</b> ——
+     p 值、q 值、z 值全部沿用上游全集置换检验的结果；这一步只回答一个排版问题：
+     <b>这 2,097 行里，哪些行其实在说同一件事？</b></p>
+  <div class="big">
+    <div class="v">2,097<small>输入术语</small></div>
+    <div class="arrow">→</div>
+    <div class="v">477<small>非冗余簇</small></div>
+    <div class="arrow">=</div>
+    <div class="v">1,620<small>被判为冗余</small></div>
+  </div>
+  <p class="small">真实数据：results/3a_coherence/HD_DIT_HAP/，阈值 Jaccard ≥ 0.5，pooled 作用域。</p>
+
+  <nav class="toc">
+    <a href="#why">1 为什么需要</a>
+    <a href="#jaccard">2 判据：Jaccard</a>
+    <a href="#graph">3 建图与连通分量</a>
+    <a href="#chain">4 传递闭包的真实代价</a>
+    <a href="#dag">5 DAG 谱系为什么关掉</a>
+    <a href="#rep">6 代表怎么选</a>
+    <a href="#out">7 输出与作用域</a>
+  </nav>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section id="why" class="rv">
+  <h2><span class="num">01</span>为什么需要去重</h2>
+  <p>GO 术语是<b>层级传播</b>的：一个基因被注释到某个具体术语，它就自动属于该术语的所有祖先。
+     于是「核糖体生物发生」和「rRNA 加工」和「核仁」在成员集合上高度重叠 ——
+     它们是同一个信号的多个名字。</p>
+
+  <div class="card">
+    <h3>按连贯性 z 值排名前 14 的术语（z 越负 = 在 DR–DL 空间里越紧密）</h3>
+    <table id="topTable">
+      <thead><tr>
+        <th>z</th><th>source</th><th>术语</th><th>成员</th><th>簇</th><th>代表?</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="small" style="margin-top:12px">
+      注意「簇」这一列：前 14 名只落在 <b>7 个簇</b>里。第 1、2、3、5、11 名
+      （核糖体生物发生 / rRNA 加工 / 核糖核蛋白复合物生物发生 / rRNA 代谢 / 核仁）
+      全部属于同一个簇 <code>all:0</code>。
+      <b>不做去重，你的「最连贯复合物」排行榜前五名是同一条。</b>
+    </p>
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section id="jaccard" class="rv">
+  <h2><span class="num">02</span>判据：成员集合的 Jaccard 相似度</h2>
+  <p>每个术语被表示成它的<b>被打分基因集合</b>（<code>scored_member_names</code>，
+     即 DR &lt; −0.3 的那批基因 —— 正是 z 值真正计算所依据的集合）。
+     两个术语的相似度用 <b>Jaccard 指数</b>：</p>
+
+  <div class="formula">J(A, B) = <span class="hit">|A ∩ B|</span> / |A ∪ B|</div>
+
+  <p>分母是<b>并集</b>。这一点是 2026-09 才改对的，之前踩过一个很大的坑 —— 看下面的三组真实案例。</p>
+
+  <h3>真实案例</h3>
+  <div class="card">
+    <div class="sets">
+      <div class="venn" id="venn">
+        <div class="blob l" id="blobL"></div>
+        <div class="blob r" id="blobR"></div>
+        <div class="cap" id="vennCap"></div>
+      </div>
+      <div class="bars">
+        <div class="barrow">
+          <div class="top"><span>Jaccard&nbsp; |A∩B| / |A∪B|</span><span id="jv">0.750</span></div>
+          <div class="track"><div class="fill a" id="jbar" style="width:75%"></div></div>
+        </div>
+        <div class="barrow">
+          <div class="top"><span>包含系数&nbsp; |A∩B| / min(|A|,|B|)&nbsp;<span class="small">旧方法，已弃用</span></span><span id="ov">1.000</span></div>
+          <div class="track"><div class="fill b" id="obar" style="width:100%"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="btns" style="margin-top:20px">
+      <button class="act on" data-case="smn">SMN 复合物 vs SMN-Sm 复合物</button>
+      <button class="act" data-case="nested">磷脂合成 vs 有机磷代谢（嵌套）</button>
+      <button class="act" data-case="sibling">GPI 合成 vs 有机磷代谢（真无关）</button>
+    </div>
+    <p class="small" id="caseNote" style="margin:14px 0 0"></p>
+  </div>
+
+  <div class="note">
+    <b>弃用 min() 的原因：</b>只要 A ⊆ B，<code>|A∩B| / min(|A|,|B|)</code> 恒等于 <b>1.0</b>。
+    而 GO 传播让「包含」无处不在 —— 每个子术语都被它所有祖先包含。
+    结果：相似度图被瞬间连成一片，<b>2,097 个术语塌成 2 个簇</b>。
+    Jaccard 仍然给真实的嵌套关系高分（子术语覆盖父术语大部分时），但<b>不再单凭「包含」就判满分</b>。
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section id="graph" class="rv">
+  <h2><span class="num">03</span>建图与连通分量</h2>
+  <p>任意两个术语相似度 ≥ 阈值就<b>连一条边</b>；然后找<b>连通分量</b> —— 每个分量就是一个冗余簇。
+     下面是 6 个真实术语（都来自同一簇 <code>all:15</code>）之间的真实 Jaccard 值。
+     拖动滑杆改变阈值，看边如何出现和消失。</p>
+
+  <div class="card">
+    <div class="ctl">
+      <label>阈值</label>
+      <input type="range" id="thr" min="0.20" max="0.95" step="0.01" value="0.50">
+      <span class="readout" id="thrVal">0.50</span>
+      <div class="stat">
+        <div><b id="stEdges">4</b>条边</div>
+        <div><b id="stComp">2</b>个连通分量</div>
+        <div><b id="stBig">4</b>最大分量</div>
+      </div>
+    </div>
+    <svg viewBox="0 0 900 360" id="graphSvg" style="margin-top:6px;height:380px"></svg>
+    <p class="small" style="margin-top:4px">
+      节点大小 = 成员基因数 <code>n_scored_members</code>。虚线 = 该阈值下未连边。
+      请特别注意 <b>0180046 ↔ 0019637</b>：真实 Jaccard 只有 <b>0.190</b>，
+      它们<b>永远不会有直接的边</b> —— 但在完整数据里它们属于同一个簇。下一节解释为什么。
+    </p>
+  </div>
+
+  <h3>算法上有两个实现细节</h3>
+  <div class="card">
+    <p><b>1. 候选对用倒排索引，不做 O(n²) 全扫。</b>
+       先建 gene → 术语列表，只在共享 ≥1 个基因的术语之间生成候选对。</p>
+    <p class="small">实测：1,706 组的表上产生 555,784 对，全扫是 1,454,365 对 —— <b>只省 2.6 倍</b>。
+       因为 GO 传播后每个基因挂载的术语数 k 很大，对数 ≈ Σ<sub>gene</sub> C(k, 2)。
+       这是常数优化，不是渐近优化，但对当前规模够用。</p>
+    <p style="margin-top:18px"><b>2. 连通分量用 scipy 的 CSR 图 + <code>connected_components</code></b>
+       （本质就是并查集），<b>因此聚类是传递的</b>：A~B 且 B~C ⟹ A 和 C 同簇，
+       哪怕 A 和 C 之间毫无相似性。<b>这是本方法最重要的性质，也是最主要的代价。</b></p>
+  </div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section id="chain" class="rv">
+  <h2><span class="num">04</span>传递闭包的真实代价</h2>
+  <p>上面 6 个术语里，<code>GO:0180046</code>（27 个成员）和 <code>GO:0019637</code>（111 个成员）
+     的直接相似度是 <b>0.190</b>，差得很远。但在完整的 2,097 行图里，它们之间存在这样一条路径：</p>
+
+  <div class="card">
+    <div class="chain" id="chainTrack"></div>
+    <div class="btns">
+      <button class="act on" id="chainBtn">▶ 播放路径</button>
+    </div>
+    <div id="chainEnd" style="margin-top:18px;opacity:0;transition:opacity .6s">
+      <div class="formula">直接相似度 J(起点, 终点) = <span class="hit">0.190</span>
+        &nbsp;&nbsp;—&nbsp;&nbsp; 却并进了同一个簇</div>
+      <p class="small" style="margin-top:10px">
+        簇 <code>all:15</code> 最终包含 <b>169 个术语</b>，成员规模从 <b>3 跨到 111</b>。
+        每一步的相似度都在阈值以上（0.786 / 0.500 / 0.511 / 0.811），
+        但两端说的是不同的事：一端是 GPI 锚定蛋白合成，另一端是所有有机磷代谢。
+      </p>
+    </div>
+  </div>
+
+  <div class="note">
+    这就是为什么 <b>Jaccard 的分母用并集只解决了一半问题</b>。它防止了「单步包含」被误判，
+    但没有防止「多步漂移」。当前配置（阈值 0.5 + 传递闭包）的实际簇大小分布是：
+    <b>153 个簇只有 1 个术语，136 个簇是 2 个术语</b>，
+    但最大的几个簇分别吞掉了 <b>169 / 108 / 60 / 44 / 37</b> 个术语。
+    对那几个大簇，代表选取才是真正决定你看到什么的地方（见第 6 节）。
+  </div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section id="dag" class="rv">
+  <h2><span class="num">05</span>DAG 谱系规则，为什么默认关掉</h2>
+  <p>代码里有一条可选规则（<code>dedup_merge_dag_lineage</code>，<b>配置中为 false</b>）：
+     如果两个术语有 <code>is_a</code> / <code>part_of</code> 的祖先关系<b>且共享 ≥1 个成员</b>，
+     就判为冗余（不相交的兄弟术语永远不会被合并）。</p>
+
+  <h3>用真实数据看这条规则会发生什么</h3>
+  <div class="card">
+    <div id="dagDemo"></div>
+    <div class="btns" style="margin-top:18px">
+      <button class="act" id="dagToggle">打开 DAG 谱系规则</button>
+    </div>
+    <p class="small" id="dagNote" style="margin:14px 0 0"></p>
+  </div>
+
+  <div class="note">
+    <b>为什么这会炸：</b>GO 传播保证 —— <b>每个术语都和它所有的祖先共享成员</b>。
+    所以「共享 ≥1 成员」这个保护条件在这里形同虚设；<code>get_all_upper()</code>
+    给出的是<b>整个祖先集合</b>而不是父节点；传递闭包一开，整张 DAG 链成一坨。
+    <br><br>实测（记录在 <code>config/analysis.yaml</code>）：打开后
+    <b>2,046 / 2,097 个术语落进同一个簇</b>，而且调阈值几乎没用 ——
+    0.5 → 0.9 只把最大簇从 2,046 挪到 1,966。
+    <br><br>它当年看起来无害，只是因为旧的包含系数已经先把所有嵌套对合并完了，掩盖了它的破坏性。
+  </div>
+
+  <div class="note good">
+    要重新启用它，前提是换一条规则：<b>只合并单步父子</b>（直接 parent/child），
+    而不是合并整个祖先集合。
+  </div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section id="rep" class="rv">
+  <h2><span class="num">06</span>每个簇选一个代表</h2>
+  <p>簇建好之后，每簇挑一行当代表。默认排序键有四个，<b>按优先级依次使用</b>：</p>
+
+  <div class="formula">
+    q_value ↑ &nbsp;→&nbsp; median_pairwise_distance_z ↑ <span class="small">越负越好</span>
+    &nbsp;→&nbsp; dag_depth ↓ <span class="small">越深越特异</span>
+    &nbsp;→&nbsp; n_scored_members ↑ <span class="small">越小越好</span>
+  </div>
+
+  <p>另外 <code>dedup_force_representatives</code> 里列出的 group_id 会<b>无条件当选</b>
+     （记为 <code>forced</code>），否则记为 <code>auto</code>。
+     下面是真实的簇 <code>all:126</code>，点按钮逐级看排序键如何起作用。</p>
+
+  <div class="card">
+    <table id="repTable">
+      <thead><tr>
+        <th>术语</th><th>名称</th><th class="num">成员</th><th class="num">z</th>
+        <th class="num">q</th><th class="num">depth</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="btns" id="repBtns">
+      <button class="act on" data-key="none">原始顺序</button>
+      <button class="act" data-key="q">① 按 q</button>
+      <button class="act" data-key="z">② 再按 z</button>
+      <button class="act" data-key="d">③ 再按 depth</button>
+    </div>
+    <p class="small" id="repNote" style="margin:14px 0 0"></p>
+  </div>
+
+  <div class="note">
+    <b>一个真实的坑：q 是第一排序键，而 q 不能跨 source 比较。</b>
+    看排名第一的簇 <code>all:0</code>（核糖体那一坨）：代表是 <b>nucleolus</b>（z = −5.04），
+    而不是 z 值好得多的 <b>ribosome biogenesis</b>（z = −7.78）。
+    原因是 <code>q_value</code> 是<b>每个 source 内部独立做的 BH 校正</b>
+    （nucleolus 来自 go_cc：q = 0.0135；ribosome biogenesis 来自 go_bp：q = 0.0222），
+    两者不在同一个多重检验校正体系里，数值不可比。
+    <br><br>对 <code>pooled</code> 作用域下跨 source 合并的簇，这意味着代表选择会被
+    「哪个 source 的术语更少、校正更宽松」影响。
+    <b>想按纯连贯性选代表，得把 z 提到第一键。</b>
+  </div>
+</section>
+
+<!-- ═══ 7 ═══ -->
+<section id="out" class="rv">
+  <h2><span class="num">07</span>输出与作用域</h2>
+
+  <h3>两张 TSV，所有行都保留</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>文件</th><th>内容</th><th>怎么用</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>coherence_terms_deduplicated.tsv</code></td>
+          <td>2,097 行<b>全量</b> + 新增列</td>
+          <td>审计：每行都标了它属于哪个簇、谁被选为代表</td>
+        </tr>
+        <tr>
+          <td><code>coherence_terms_representatives.tsv</code></td>
+          <td>477 行，只留 <code>is_representative</code> 的行</td>
+          <td>画图 / 写正文用这张</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:16px">新增的 7 列：</p>
+    <p><code>redundancy_cluster</code> · <code>cluster_size</code> · <code>dag_depth</code> ·
+       <code>is_representative</code> · <code>representative_group_id</code> ·
+       <code>representative_name</code> · <code>representative_source</code></p>
+    <p class="small">排序规则：先按「本簇最好的 z 值」排簇，簇内再按各术语的 z 排 ——
+       所以每个簇的代表总是排在它自己那一组的第一个。
+       输出前列表列 <code>scored_member_names</code> 会被 join 成逗号分隔字符串
+       （Parquet 里是真 list 列，为了 round-trip 不丢 dtype；TSV 是给人读的）。</p>
+  </div>
+
+  <h3>作用域：pooled vs per_source</h3>
+  <div class="card">
+    <p><b>pooled</b>（当前默认）：所有 source 合成一张图，同一个 GO 术语出现在两个 source 里会被合并。</p>
+    <p>真实案例 —— 簇 <code>all:135</code>：</p>
+    <table style="margin-top:10px">
+      <thead><tr><th>source</th><th>术语</th><th class="num">成员</th><th class="num">z</th>
+        <th class="num">q</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag mc">go_macrocomplex</span></td><td>GO:0032797 SMN complex</td>
+            <td class="num">3</td><td class="num">−1.764</td><td class="num">0.0393</td>
+            <td>→ <b>代表</b></td></tr>
+        <tr><td><span class="tag cc">go_cc</span></td><td>GO:0032797 SMN complex</td>
+            <td class="num">3</td><td class="num">−1.764</td><td class="num">0.0439</td>
+            <td>合并</td></tr>
+        <tr><td><span class="tag cc">go_cc</span></td><td>GO:0034719 SMN-Sm protein complex</td>
+            <td class="num">4</td><td class="num">−0.659</td><td class="num">0.385</td>
+            <td>合并</td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin-top:12px">
+      <b>同一个 GO 术语、同一个成员集合、同一个 z 值，只因为来自不同 source 就有不同的 q</b>
+      （BH 校正是按 source 单独做的）。三条被并成一簇，代表是 q 最小的那条 ——
+      也就是 go_macrocomplex 那一份。这正是上面那个「q 跨 source 不可比」问题的具体表现。
+    </p>
+    <p style="margin-top:14px"><b>per_source</b>：每个 source 单独建图，
+       簇 id 带 <code>{source}:</code> 前缀保持全局唯一。
+       上例中 go_cc 的两条会自己成簇，go_macrocomplex 的不参与合并。</p>
+  </div>
+
+  <h3>它做完之后你会做什么</h3>
+  <div class="card">
+    <p>自动选出的代表只是<b>起点</b>。完整簇成员全部导出，就是为了让你
+       （或让 <code>dedup_force_representatives</code>）<b>手工改选</b> —— 因为
+       「哪个名字最好读、最该写进正文」是领域判断，不是排序键能解决的。
+       当前配置里这个列表是空的（0 forced representatives）。</p>
+  </div>
+</section>
+
+<footer>
+  <p>图解基于 <code>workflow/scripts/coherence/deduplicate_terms.py</code> ·
+     <code>workflow/rules/3a_coherence.smk:191</code> ·
+     <code>config/analysis.yaml:132–150</code>，数据来自
+     <code>results/3a_coherence/HD_DIT_HAP/</code> 的真实输出。</p>
+  <p>动画与交互均为浏览器原生实现，无外部依赖。</p>
+</footer>
+
+</div>
+
+<script>
+"use strict";
+
+/* ═══════════ 真实数据 ═══════════ */
+var TERMS = {
+  "GO:0180046": {n:27,  name:"GPI anchored protein biosynthesis"},
+  "GO:0006505": {n:23,  name:"GPI anchor metabolic process"},
+  "GO:0008654": {n:46,  name:"phospholipid biosynthetic process"},
+  "GO:0006644": {n:47,  name:"phospholipid metabolic process"},
+  "GO:0019637": {n:111, name:"organophosphate metabolic process"},
+  "GO:0006793": {n:111, name:"phosphorus metabolic process"},
+  "GO:0090407": {n:90,  name:"organophosphate biosynthetic process"}
+};
+
+// 真实逐对 Jaccard（脚本实测）
+var PAIRS = [
+  ["GO:0180046","GO:0019637",0.190], ["GO:0180046","GO:0006793",0.190],
+  ["GO:0180046","GO:0008654",0.431], ["GO:0180046","GO:0006644",0.423],
+  ["GO:0180046","GO:0006505",0.786],
+  ["GO:0019637","GO:0006793",1.000], ["GO:0019637","GO:0008654",0.414],
+  ["GO:0019637","GO:0006644",0.423], ["GO:0019637","GO:0006505",0.207],
+  ["GO:0006793","GO:0008654",0.414], ["GO:0006793","GO:0006644",0.423],
+  ["GO:0006793","GO:0006505",0.207],
+  ["GO:0008654","GO:0006644",0.979], ["GO:0008654","GO:0006505",0.500],
+  ["GO:0006644","GO:0006505",0.489]
+];
+
+var POS = {
+  "GO:0180046": [170, 120], "GO:0006505": [170, 265],
+  "GO:0008654": [410, 185], "GO:0006644": [655,  95],
+  "GO:0019637": [760, 270], "GO:0006793": [410, 330]
+};
+var R6 = Object.keys(POS);
+var CC = {"GO:0180046":"a","GO:0006505":"a","GO:0008654":"a","GO:0006644":"a",
+          "GO:0019637":"b","GO:0006793":"b"};
+
+var CHAIN = ["GO:0180046","GO:0006505","GO:0008654","GO:0090407","GO:0019637"];
+/* CHAIN_J[k] = CHAIN[k] → CHAIN[k+1] 的实测 Jaccard */
+var CHAIN_J = [0.786, 0.500, 0.511, 0.811];
+
+var TOP14 = [
+  [-7.781,"go_bp","GO:0042254","ribosome biogenesis",207,"all:0",false],
+  [-7.190,"go_bp","GO:0006364","rRNA processing",147,"all:0",false],
+  [-7.174,"go_bp","GO:0022613","ribonucleoprotein complex biogenesis",257,"all:0",false],
+  [-6.676,"go_cc","GO:0030684","preribosome",108,"all:1",true],
+  [-6.534,"go_bp","GO:0016072","rRNA metabolic process",158,"all:0",false],
+  [-6.130,"go_macrocomplex","GO:0032040","small-subunit processome",41,"all:2",false],
+  [-6.130,"go_cc","GO:0032040","small-subunit processome",41,"all:2",true],
+  [-5.497,"go_cc","GO:1905369","endopeptidase complex",37,"all:3",true],
+  [-5.305,"go_cc","GO:0098827","endoplasmic reticulum subcompartment",119,"all:4",true],
+  [-5.222,"go_bp","GO:0030490","maturation of SSU-rRNA",63,"all:5",true],
+  [-5.037,"go_cc","GO:0005730","nucleolus",199,"all:0",true],
+  [-4.989,"go_cc","GO:0042175","nuclear outer membrane-ER membrane network",118,"all:4",false],
+  [-4.989,"go_cc","GO:0005789","endoplasmic reticulum membrane",118,"all:4",false],
+  [-4.959,"go_cc","GO:0005761","mitochondrial ribosome",50,"all:6",true]
+];
+
+var REPS = [
+  {gid:"GO:0032958", name:"inositol phosphate biosynthetic process", n:4, z:-1.837360, q:0.138017, d:7},
+  {gid:"GO:0043647", name:"inositol phosphate metabolic process",     n:4, z:-1.837360, q:0.138017, d:6},
+  {gid:"GO:0019751", name:"polyol metabolic process",                 n:8, z:-1.745091, q:0.176505, d:5},
+  {gid:"GO:0046173", name:"polyol biosynthetic process",              n:7, z:-1.698944, q:0.197441, d:6}
+];
+
+var CASES = {
+  smn: {a:3, b:4, shared:3,
+    note:"GO:0032797 SMN complex（3 个成员：gem6 gem7 gem8） vs GO:0034719 SMN-Sm protein complex"+
+         "（4 个成员，多一个 smd3）。小集合被完全包含 —— 包含系数给满分 1.0，Jaccard 给 0.75。"+
+         "两者都远超阈值，无论用哪个指标都会合并。"},
+  nested: {a:46, b:111, shared:46,
+    note:"GO:0008654 磷脂生物合成（46 个成员） vs 它的祖先 GO:0019637 有机磷代谢（111 个成员）。"+
+         "孩子的 46 个成员<b>一个不差地全在</b>父术语里 —— 包含系数 = 1.000，"+
+         "而 Jaccard 只有 0.414，<b>低于 0.5 阈值，不连边</b>。"+
+         "这就是改用 Jaccard 救回来的一个真实案例。"},
+  sibling: {a:27, b:111, shared:22,
+    note:"GO:0180046 GPI 锚定蛋白合成（27 个成员） vs GO:0019637 有机磷代谢（111 个成员）。"+
+         "只有 22 个共享，两者确实在说不同的事：Jaccard 0.190，包含系数 0.81。"+
+         "但在完整图里它们仍会通过中间术语被传递地并进同一簇（见第 4 节）。"}
+};
+
+/* ═══════════ 工具 ═══════════ */
+var NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent){
+  var e = document.createElementNS(NS, tag);
+  for(var k in attrs) e.setAttribute(k, attrs[k]);
+  if(parent) parent.appendChild(e);
+  return e;
+}
+function svgText(parent, x, y, str, cls){
+  var t = el("text", {x:x, y:y, class:cls || ""}, parent);
+  t.textContent = str;
+  return t;
+}
+function observe(node, fn){
+  if(!node) return;
+  // 没有 IntersectionObserver 就直接执行：调用方拿到的都是"最终状态"，
+  // 而不是永远停在初始状态。
+  if(typeof IntersectionObserver !== "function"){ fn(); return; }
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ fn(); io.disconnect(); } });
+  }, {threshold:0.2});
+  io.observe(node);
+}
+
+/* ═══════════ 滚动入场 ═══════════ */
+// 只有确知 IntersectionObserver 可用才隐藏内容等待入场；否则内容保持默认可见。
+if(typeof IntersectionObserver === "function"){
+  document.documentElement.classList.add("js-on");
+  document.querySelectorAll(".rv").forEach(function(n){ observe(n, function(){ n.classList.add("in"); }); });
+}
+
+/* ═══════════ 1 排行榜 ═══════════ */
+(function(){
+  var tb = document.querySelector("#topTable tbody");
+  var CL = {"all:0":"#0072B2","all:1":"#D55E00","all:2":"#009E73","all:3":"#CC79A7",
+            "all:4":"#8C6D1F","all:5":"#56B4E9","all:6":"#7a3fa0"};
+  var SRC = {go_bp:"bp", go_cc:"cc", go_macrocomplex:"mc"};
+  TOP14.forEach(function(r){
+    var tr = document.createElement("tr");
+    if(r[6]) tr.className = "rep";
+    tr.innerHTML =
+      '<td class="num">' + r[0].toFixed(3) + '</td>' +
+      '<td><span class="tag ' + SRC[r[1]] + '">' + r[1] + '</span></td>' +
+      '<td><code>' + r[2] + '</code> ' + r[3] + '</td>' +
+      '<td class="num">' + r[4] + '</td>' +
+      '<td style="font-family:var(--mono);font-size:12px;color:' + CL[r[5]] + '">' + r[5] + '</td>' +
+      '<td>' + (r[6] ? '<span class="tag" style="color:var(--rep)">代表</span>' : '') + '</td>';
+    tb.appendChild(tr);
+  });
+})();
+
+/* ═══════════ 2 韦恩图 ═══════════ */
+(function(){
+  var bl = document.getElementById("blobL"), br = document.getElementById("blobR");
+  var cap = document.getElementById("vennCap");
+  var jv = document.getElementById("jv"), ov = document.getElementById("ov");
+  var jb = document.getElementById("jbar"), ob = document.getElementById("obar");
+  var note = document.getElementById("caseNote");
+  var btns = document.querySelectorAll("#jaccard [data-case]");
+
+  var CY = 79, RW = 300, BIG = 66;
+
+  function place(node, cx, r){
+    node.style.width  = (r * 2) + "px";
+    node.style.height = (r * 2) + "px";
+    node.style.left   = (cx - r) + "px";
+    node.style.top    = (CY - r) + "px";
+  }
+
+  function draw(key){
+    var c = CASES[key];
+    var jac = c.shared / (c.a + c.b - c.shared);
+    var ovc = c.shared / Math.min(c.a, c.b);
+
+    // 半径 ∝ √成员数（面积正比于集合大小），最大者固定为 BIG
+    var sA = Math.sqrt(c.a), sB = Math.sqrt(c.b), sMax = Math.max(sA, sB);
+    var rA = BIG * sA / sMax, rB = BIG * sB / sMax;
+    // 圆心距由 Jaccard 决定 —— 刻意不用包含系数：否则「被大量包含但整体不同」的两组
+    // 会被画成同心圆，等于把本页要拆穿的那个 bug 又画进图里。
+    var d = (rA + rB) * (1 - jac * 0.92);
+    var left = (RW - (d + rA + rB)) / 2;
+    var cxA = left + rA, cxB = cxA + d;
+    place(bl, cxA, rA);
+    place(br, cxB, rB);
+
+    jv.textContent = jac.toFixed(3);
+    ov.textContent = ovc.toFixed(3);
+    jb.style.width = (jac * 100) + "%";
+    ob.style.width = (ovc * 100) + "%";
+    cap.textContent = "|A|=" + c.a + "　|B|=" + c.b + "　|A∩B|=" + c.shared;
+    note.innerHTML = c.note;
+  }
+  btns.forEach(function(b){
+    b.addEventListener("click", function(){
+      btns.forEach(function(x){ x.classList.remove("on"); });
+      b.classList.add("on");
+      draw(b.dataset.case);
+    });
+  });
+  observe(document.getElementById("venn"), function(){ draw("smn"); });
+  draw("smn");
+})();
+
+/* ═══════════ 3 交互图 ═══════════ */
+(function(){
+  var svg = document.getElementById("graphSvg");
+  var thrEl = document.getElementById("thr");
+  var gEdges = el("g", {}, svg);
+  var gNodes = el("g", {}, svg);
+  var edgeEls = [], labelEls = [];
+
+  PAIRS.forEach(function(p){
+    var a = p[0], b = p[1], j = p[2];
+    var p1 = POS[a], p2 = POS[b];
+    var l = el("line", {class:"edge", x1:p1[0], y1:p1[1], x2:p2[0], y2:p2[1]}, gEdges);
+    // 标签沿边的法线方向外移，否则正好压在线上读不清
+    var dx = p2[0] - p1[0], dy = p2[1] - p1[1], len = Math.hypot(dx, dy) || 1;
+    var mx = (p1[0] + p2[0]) / 2 - dy / len * 10;
+    var my = (p1[1] + p2[1]) / 2 + dx / len * 10;
+    var mid = el("text", {class:"elabel", x:mx, y:my, "text-anchor":"middle"}, gEdges);
+    mid.textContent = j.toFixed(3);
+    edgeEls.push({el:l, j:j, a:a, b:b});
+    labelEls.push({el:mid, j:j});
+  });
+
+  R6.forEach(function(k){
+    var x = POS[k][0], y = POS[k][1];
+    var r = 11 + Math.sqrt(TERMS[k].n) * 1.4;
+    var col = CC[k] === "a" ? "var(--a)" : "var(--b)";
+    var g = el("g", {class:"node"}, gNodes);
+    el("circle", {cx:x, cy:y, r:r, fill:col, "fill-opacity":0.14,
+                  stroke:col, "stroke-width":1.8}, g);
+    var t1 = svgText(g, x, y + 3.5, k.replace("GO:", ""));
+    t1.setAttribute("text-anchor", "middle");
+    var nm = TERMS[k].name;
+    var t2 = svgText(g, x, y + r + 14, nm.length > 30 ? nm.slice(0, 29) + "…" : nm, "sub");
+    t2.setAttribute("text-anchor", "middle");
+    var t3 = svgText(g, x, y + r + 26, "n=" + TERMS[k].n, "sub");
+    t3.setAttribute("text-anchor", "middle");
+  });
+
+  function apply(){
+    var t = parseFloat(thrEl.value);
+    document.getElementById("thrVal").textContent = t.toFixed(2);
+    thrEl.style.setProperty("--p", ((t - 0.20) / (0.95 - 0.20) * 100) + "%");
+    edgeEls.forEach(function(e){ e.el.classList.toggle("off", e.j < t); });
+    labelEls.forEach(function(e){ e.el.classList.toggle("off", e.j < t); });
+
+    var parent = {};
+    R6.forEach(function(k){ parent[k] = k; });
+    function find(x){ while(parent[x] !== x){ parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+    edgeEls.forEach(function(e){ if(e.j >= t) parent[find(e.a)] = find(e.b); });
+    var comp = {};
+    R6.forEach(function(k){ var r = find(k); (comp[r] = comp[r] || []).push(k); });
+    var sizes = Object.keys(comp).map(function(k){ return comp[k].length; });
+
+    document.getElementById("stEdges").textContent = edgeEls.filter(function(e){ return e.j >= t; }).length;
+    document.getElementById("stComp").textContent  = sizes.length;
+    document.getElementById("stBig").textContent   = Math.max.apply(null, sizes);
+  }
+  thrEl.addEventListener("input", apply);
+  apply();
+})();
+
+/* ═══════════ 4 传递链 ═══════════ */
+(function(){
+  var host = document.getElementById("chainTrack");
+  var btn = document.getElementById("chainBtn");
+  var end = document.getElementById("chainEnd");
+  var nodes = [], links = [];
+
+  // CHAIN_J[k] 是 CHAIN[k] → CHAIN[k+1] 之间的 Jaccard。
+  // 挂在「起点」一侧而不是「终点」一侧，否则渲染时标签会整体错位一格。
+  CHAIN.forEach(function(gid, i){
+    if(i > 0){
+      var lk = document.createElement("span");
+      lk.className = "link";
+      lk.textContent = "─J=" + CHAIN_J[i - 1].toFixed(3) + "→";
+      host.appendChild(lk);
+      links.push(lk);
+    }
+    var d = document.createElement("div");
+    d.className = "term";
+    d.innerHTML = '<span class="gid">' + gid.replace("GO:", "") + '</span>' +
+                  '<span class="sz">n=' + TERMS[gid].n + '</span>' +
+                  '<span class="nm">' + TERMS[gid].name + '</span>';
+    host.appendChild(d);
+    nodes.push(d);
+  });
+
+  var playing = false;
+  function play(){
+    if(playing) return;
+    playing = true;
+    end.style.opacity = 0;
+    nodes.forEach(function(n){ n.classList.remove("on"); });
+    links.forEach(function(l){ l.classList.remove("on"); });
+    var i = 0;
+    (function step(){
+      if(i >= nodes.length){ playing = false; end.style.opacity = 1; return; }
+      nodes[i].classList.add("on");
+      if(i > 0) links[i - 1].classList.add("on");
+      i++;
+      setTimeout(step, 620);
+    })();
+  }
+  btn.addEventListener("click", play);
+  observe(host, play);
+})();
+
+/* ═══════════ 5 DAG 谱系演示 ═══════════ */
+(function(){
+  var host = document.getElementById("dagDemo");
+  host.innerHTML =
+    '<div class="memlbl"><span>GO:0008654 磷脂生物合成 · 46 个成员</span><span>46 / 46</span></div>' +
+    '<div class="mem"><i class="s" style="width:41%"></i><i class="d" style="width:0%"></i></div>' +
+    '<p class="small" id="r1" style="margin:4px 0 22px"></p>' +
+    '<div class="memlbl"><span>GO:0019637 有机磷代谢 · 111 个成员</span><span>111 / 111</span></div>' +
+    '<div class="mem"><i class="s" style="width:41%"></i><i class="d" style="width:59%"></i></div>' +
+    '<p class="small" style="margin:4px 0 0">' +
+      '蓝色 = 与子术语共享的 46 个成员，灰色 = 其余 65 个</p>';
+
+  var toggle = document.getElementById("dagToggle");
+  var note = document.getElementById("dagNote");
+  var r1 = document.getElementById("r1");
+  var on = false;
+
+  function render(){
+    if(on){
+      toggle.classList.add("on");
+      toggle.textContent = "关闭 DAG 谱系规则";
+      r1.innerHTML = '<b style="color:var(--b)">共享 46 ≥ 1 且祖先关系成立 → 连边</b>' +
+        '　<span class="small">包含系数 1.000，但 Jaccard 只有 0.414，本来不该连</span>';
+      note.innerHTML =
+        '<b>这条边就是连锁反应的起点。</b>孩子的全部 46 个成员都在父术语里 —— ' +
+        '所以「共享 ≥1 成员」这个保护条件对任何真实的父子对都成立，它拦不住任何东西。' +
+        '父术语再和它的父术语连，一路向上，整个 DAG 被传递闭包串成一坨。';
+    }else{
+      toggle.classList.remove("on");
+      toggle.textContent = "打开 DAG 谱系规则";
+      r1.innerHTML = '是 GO:0019637 有机磷代谢（111 个成员）的祖先关系子节点' +
+        '　<span class="small">— 祖先关系本身<b>不</b>触发合并</span>';
+      note.innerHTML =
+        '当前默认：只有 Jaccard ≥ 0.5 才连边。这一对是 <b>0.414 &lt; 0.5 → 不连边</b>，' +
+        '尽管孩子在父术语内部被完全包含。';
+    }
+  }
+  toggle.addEventListener("click", function(){ on = !on; render(); });
+  render();
+})();
+
+/* ═══════════ 6 代表选取排序 ═══════════ */
+(function(){
+  var tb = document.querySelector("#repTable tbody");
+  var note = document.getElementById("repNote");
+  var btns = document.querySelectorAll("#repBtns button");
+
+  var NOTES = {
+    none: "原始顺序。前两个术语的 q 和 z <b>完全相同</b>（都是 0.138017 / −1.837360）—— " +
+          "它们是同一批基因、不同层级的两个名字。",
+    q:    "① 按 q 排序：四条各不相同 —— 但<b>注意前两条的 q 一模一样</b>。" +
+          "只按 q 无法决定谁当选，排序必须继续往下走。",
+    z:    "② 再按 z：这两个依然并列（−1.837360）。<b>前两键全平手。</b>" +
+          "注意 z 更负不代表当选 —— 排序是「越负越前」，但 q 已经在第一键分过胜负了。",
+    d:    "③ 再按 dag_depth（降序，越大越特异）：<b>7 &gt; 6</b> —— 终于分出胜负。" +
+          "更特异的「肌醇磷酸<b>生物合成</b>过程」压过更泛的「肌醇磷酸<b>代谢</b>过程」当选。" +
+          "<br><br><b>最终代表：GO:0032958，representative_source = auto。</b>"
+  };
+
+  function render(key){
+    var rows = REPS.map(function(r, i){
+      return {gid:r.gid, name:r.name, n:r.n, z:r.z, q:r.q, d:r.d, _i:i};
+    });
+    if(key === "q") rows.sort(function(a,b){ return a.q - b.q || a._i - b._i; });
+    if(key === "z") rows.sort(function(a,b){ return a.q - b.q || a.z - b.z || a._i - b._i; });
+    if(key === "d") rows.sort(function(a,b){ return a.q - b.q || a.z - b.z || b.d - a.d || a._i - b._i; });
+
+    tb.innerHTML = "";
+    rows.forEach(function(r, pos){
+      var tr = document.createElement("tr");
+      if(pos === 0) tr.className = "rep";
+      tr.innerHTML =
+        '<td><code>' + r.gid + '</code></td><td>' + r.name + '</td>' +
+        '<td class="num">' + r.n + '</td>' +
+        '<td class="num">' + r.z.toFixed(6) + '</td>' +
+        '<td class="num">' + r.q.toFixed(6) + '</td>' +
+        '<td class="num"><b>' + r.d + '</b></td>';
+      tb.appendChild(tr);
+    });
+    note.innerHTML = NOTES[key];
+  }
+  btns.forEach(function(b){
+    b.addEventListener("click", function(){
+      btns.forEach(function(x){ x.classList.remove("on"); });
+      b.classList.add("on");
+      render(b.dataset.key);
+    });
+  });
+  render("none");
+})();
+</script>
+</body>
+</html>
