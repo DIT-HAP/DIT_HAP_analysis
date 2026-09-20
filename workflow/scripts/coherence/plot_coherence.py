@@ -91,7 +91,15 @@ _ROW_GAP = 46
 # Inset colourbar geometry as an axes-fraction (x0, y0, width, height). x0 > 1
 # puts it in the panel's reserved right margin, i.e. outside the plot area, below
 # the size legend that take_legend_out anchors at the margin's top.
-_CBAR_BOUNDS = (1.06, 0.02, 0.045, 0.42)
+#
+# x0 is what centres the colourbar under that legend. Matplotlib anchors the legend
+# by a corner and this inset by the bar's left edge, so equal left offsets make the
+# two blocks read as left-aligned even though they differ in width (the legend's
+# title is wider than its entries; the bar carries tick labels and a rotated axis
+# label). 1.147 shifts the bar so the two block centres coincide — measured at
+# 17.3 px on a 200 px-wide axes, and identical across go_macrocomplex / go_cc /
+# go_bp because every tick label is a single signed digit.
+_CBAR_BOUNDS = (1.147, 0.02, 0.045, 0.42)
 
 # Biology panels, in draw order. A 100 px panel fits about 25 characters at the
 # house title size, so titles stay short — the y-axis already says "z-score", so
@@ -143,12 +151,27 @@ _FDR_PANELS = (
 # estimator), but a pathologically tiny value would stretch the axis to nothing.
 _FDR_Q_FLOOR = 1e-12
 
-# The two FDR panels sit side by side. Measuring rather than deriving: at max_width
-# 571 multipanel packs FOUR SQUARE panels onto row 1, so the page has to stay below
-# the 4-panel width while still holding this row. 500 does both (row 1 = 3 panels,
-# this row = 481).
-_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 200, 240
-_FDR_MARGIN_SIDE = 14
+# The two FDR panels sit side by side and are sized so row 3 lines up with row 2:
+# same left edge and same total width as the three SQUARE panels above. Those
+# 3-column rows are what set the page's visual frame, and a row 3 that starts
+# further right or runs wider reads as belonging to a different figure. Measured
+# (go_macrocomplex, and identical for go_cc / go_bp): at width 159 with no left
+# margin, G's axes left edge is 25.0 px — exactly D's — and the row spans 734.6 px
+# against the SQUARE row's 735.6 px. The starting point was 200 px wide with a 14 px
+# left margin, which put G 28 px right of D and made the row 191 px too wide.
+#
+# Width is a measured constant rather than a derived one because a panel's footprint
+# includes the label and axis reserves multipanel only knows after it has drawn.
+#
+# The left margin is 0 on purpose: multipanel starts every row at the same x and each
+# panel then adds its own margin_left, so a nonzero one is exactly what pushed row 3
+# to the right. The right margin only sets the G-to-H gap.
+#
+# Height equals width: a 159 px-tall panel holds the name-label stacks without
+# crowding (tightest inter-label gap 3.8 px, measured), and square matches the SQUARE
+# panels' own aspect instead of making row 3 the one row of letterbox panels.
+_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 159, 159
+_FDR_MARGIN_RIGHT = 14
 
 # Labels sit INSIDE the axes, in the two empty quadrants of the S curve, with a leader
 # line back to the point. Both columns meet at the same mid-panel x: the incoherent
@@ -159,13 +182,20 @@ _FDR_MARGIN_SIDE = 14
 #
 # Each column is confined to its own quadrant so the two never share a y band, and the
 # stack gap is computed from the wrapped line count — a fixed gap overlaps as soon as a
-# name needs three lines. The panel height is what makes five three-line labels fit in
-# half a panel.
+# name needs three lines.
+#
+# The two vertical metrics are DERIVED from the panel height rather than fixed axes
+# fractions, because text is sized in points while these positions are axes fractions:
+# the same 5 pt label eats a bigger slice of a shorter panel, so a constant tuned at one
+# height silently crowds at another. 1 layout px is 1 pt (multipanel sizes the figure as
+# px / 72 inches), so a line of text is _LABEL_FONT_SIZE / height in axes fraction and
+# the multipliers below are just line spacing and clearance in units of the font size
+# (1.6 and 1.2 reproduce the values that were hand-tuned at height 240).
 _LABEL_COLUMN = 0.47
 _LABEL_FONT_SIZE = 5
 _LABEL_WRAP_WIDTH = 26        # characters per line before wrapping
-_LABEL_LINE_HEIGHT = 0.033    # axes fraction one rendered line occupies
-_LABEL_BLOCK_GAP = 0.025      # clearance between two stacked label blocks
+_LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT   # one rendered line
+_LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT     # between two blocks
 _LABEL_PADDING = 0.05         # how far past the extreme point the stack may reach
 _LABEL_QUADRANTS = {"right": (0.52, 0.98), "left": (0.02, 0.48)}
 
@@ -344,10 +374,10 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
     # whose labels are filled in are created with an explicit pad rather than
     # relying on a grid to align them.
     #
-    # Rows are pinned with `below=` rather than left to width-based wrapping. The
-    # FDR panel is wider than a whole row of SQUARE panels, so max_width has to
-    # accommodate it — and at that width multipanel would happily pack four SQUARE
-    # panels onto row 1 and destroy the 3 x 2 layout.
+    # Rows wrap on width, so max_width is what holds the layout at 3 panels per row:
+    # row 1 (A, B, C plus C's legend margin) is 413 layout px, and a fourth SQUARE
+    # panel would need ~122 more, so 500 wraps it. Raise max_width past ~535 and
+    # multipanel silently packs four panels onto row 1 and the grid becomes 4 x 2.
     multipanel = cns.multipanel(max_width=_MAX_WIDTH)
 
     ax_size = multipanel.panel("A", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
@@ -447,7 +477,7 @@ def draw_fdr_panels(
         ax = multipanel.panel(
             chr(ord(first_letter) + offset),
             width=_FDR_PANEL_WIDTH, height=_FDR_PANEL_HEIGHT,
-            margin_left=_FDR_MARGIN_SIDE, margin_right=_FDR_MARGIN_SIDE,
+            margin_right=_FDR_MARGIN_RIGHT,
         )
         x_values, cutoff = fdr_axis(table["q_value"], encoding, settings.q_max)
         plotted = table.assign(**{encoding: x_values})
