@@ -25,10 +25,16 @@
 #                                     conservation uniformity CVs — all computed
 #                                     here so the figure only renders)
 #   plot_coherence                 -> coherence.pdf (reads the metrics table alone)
-#   combine_coherence_metrics      -> coherence_metrics_combined.parquet (all sources)
+#   combine_coherence_metrics      -> coherence_metrics_combined.parquet (all sources;
+#                                     FDR re-derived over the union — a q is only
+#                                     defined w.r.t. a family, and this table's family
+#                                     is its own row set, so cross-source thresholds
+#                                     and the dedup representative ranking share one
+#                                     q scale. Per-source tables keep their own q.)
 #   deduplicate_coherence_terms    -> coherence_terms_deduplicated.tsv (+ _representatives.tsv):
 #                                     collapse redundant terms by member overlap + GO DAG
-#                                     (display layer; full-set q_value untouched, all terms kept)
+#                                     (display layer; the combined q_value is carried
+#                                     through untouched, all terms kept)
 #   compute_coherence_attribution  -> incoherence_attribution.tsv + incoherence_split_points.parquet:
 #                                     diagnose WHY a complex is dispersed (major/minor GMM
 #                                     split, shared subunits, paralog buffering).

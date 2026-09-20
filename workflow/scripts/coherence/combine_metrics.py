@@ -12,10 +12,24 @@ ranked, filtered and browsed side by side. Each row already carries its own
 `source` column (set upstream by compute_coherence.py), so the sources stay
 distinguishable after the concat.
 
-No re-correction happens here: q_value is computed per source in
-compute_coherence.py (each source is its own hypothesis family), and pooling the
-already-corrected rows would conflate families. This script only stacks and
-sorts; the per-source q_value is carried through unchanged.
+FDR is re-derived over the UNION here, replacing the per-source q_value. A
+q-value is only defined relative to a hypothesis family, and this table is a
+single cross-source ranked list, so its family is its own row set. Carrying
+per-source q into it meant comparing q-values computed against different family
+sizes — go_bp has ~8x the terms of go_macrocomplex, so the same p maps to ~8x
+different q and the smaller family won every cross-source comparison, which
+deduplicate_terms.py does directly: with scope=pooled its per-cluster
+representative is picked by min q over a cluster that spans sources, and the
+artifact was measurable (go_macrocomplex is 8% of the terms but was 20% of the
+representatives). The per-source tables themselves keep their per-source q,
+which is correct for them — do NOT pool those. The per-source figures
+(plot_coherence / plot_group_scatter) read those tables, not this one, so they
+are unaffected by the change here.
+Order matters: correct here, on the full concatenation, then let
+deduplicate_terms.py carry that q through unchanged. Re-running BH on the
+deduped representatives would be anti-conservative, not merely redundant: the
+representative is selected as its cluster's min q, and a family of per-cluster
+minima is not uniform under the null.
 
 Input
 -----
@@ -26,7 +40,8 @@ Output
 ------
 - --output: coherence_metrics_combined.parquet — the row-wise concatenation of
   the inputs, sorted by median_pairwise_distance_z ascending (most coherent
-  first), same columns as the per-source tables.
+  first), same columns as the per-source tables except q_value, which is
+  re-derived by BH over the pooled rows (see the FDR note above).
 
 Usage
 -----
@@ -37,8 +52,8 @@ Usage
         --output results/3a_coherence/{dataset}/coherence_metrics_combined.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
-Date:     2026-07-23
-Version:  1.0.0
+Date:     2026-09-20
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -54,6 +69,7 @@ import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+from scipy.stats import false_discovery_control
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -63,10 +79,20 @@ from logging_setup import setup_logger  # noqa: E402
 
 
 # =============================================================================
+# GLOBAL CONSTANTS
+# =============================================================================
+# The statistic the pooled FDR correction runs on: compute_coherence.py's primary
+# coherence method, the same p the per-source q_value was derived from. Spelled
+# out here rather than imported — that module is a CLI script, and this string is
+# the cross-script schema contract (the dedup stage reads q_value, not this).
+_PRIMARY_P_COLUMN = "median_pairwise_distance_p"
+
+
+# =============================================================================
 # CORE LOGIC
 # =============================================================================
 def combine(metrics_paths: list[Path]) -> pd.DataFrame:
-    """Row-concatenate per-source metrics tables, sorted by the primary z ascending."""
+    """Concat per-source metrics, re-correct q over the union, sort by primary z ascending."""
     # Empty per-source tables (a source where no group passed the size filter) are
     # tolerated and contribute no rows. If every input is empty the result is an
     # empty frame with no columns, which the Parquet writer round-trips as a 0x0
@@ -83,6 +109,13 @@ def combine(metrics_paths: list[Path]) -> pd.DataFrame:
         logger.warning("all per-source metrics tables were empty; writing an empty combined table")
         return pd.DataFrame()
     combined = pd.concat(non_empty, ignore_index=True)
+    # The pooled family's own correction, replacing every per-source q. Indexing the
+    # primary method's p column directly (no has-column guard) is deliberate: a
+    # missing column is a schema break upstream, and raising here beats silently
+    # leaving the per-source q in place under the combined table's name.
+    combined["q_value"] = false_discovery_control(
+        combined[_PRIMARY_P_COLUMN].to_numpy(), method="bh"
+    )
     if "median_pairwise_distance_z" in combined.columns:
         combined = combined.sort_values("median_pairwise_distance_z").reset_index(drop=True)
     return combined
