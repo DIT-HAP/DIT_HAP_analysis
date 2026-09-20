@@ -6,35 +6,35 @@ Coherence Metrics Combiner (per-source tables -> one cross-source table)
 ========================================================================
 
 Final stage of the coherence DAG. Concatenates the per-source
-coherence_metrics.tsv tables (go_macrocomplex / go_cc / go_bp / ...) into ONE
+coherence_metrics.parquet tables (go_macrocomplex / go_cc / go_bp / ...) into ONE
 long table so complexes, cellular components and biological processes can be
 ranked, filtered and browsed side by side. Each row already carries its own
 `source` column (set upstream by compute_coherence.py), so the sources stay
 distinguishable after the concat.
 
-No re-correction happens here: p_fdr is computed per source in
+No re-correction happens here: q_value is computed per source in
 compute_coherence.py (each source is its own hypothesis family), and pooling the
 already-corrected rows would conflate families. This script only stacks and
-sorts; the per-source p_fdr is carried through unchanged.
+sorts; the per-source q_value is carried through unchanged.
 
 Input
 -----
-- --metrics: one or more per-source coherence_metrics.tsv paths (order is only
-  cosmetic; the output is re-sorted). Each must share the same column schema.
+- --metrics: one or more per-source coherence_metrics.parquet paths (order is
+  only cosmetic; the output is re-sorted). Each must share the same column schema.
 
 Output
 ------
-- --output: coherence_metrics_combined.tsv — the row-wise concatenation of the
-  inputs, sorted by z_score ascending (most coherent first), same columns as the
-  per-source tables.
+- --output: coherence_metrics_combined.parquet — the row-wise concatenation of
+  the inputs, sorted by median_pairwise_distance_z ascending (most coherent
+  first), same columns as the per-source tables.
 
 Usage
 -----
     python combine_metrics.py \\
-        --metrics results/coherence/{dataset}/go_macrocomplex/coherence_metrics.tsv \\
-                  results/coherence/{dataset}/go_cc/coherence_metrics.tsv \\
-                  results/coherence/{dataset}/go_bp/coherence_metrics.tsv \\
-        --output results/coherence/{dataset}/coherence_metrics_combined.tsv
+        --metrics results/3a_coherence/{dataset}/go_macrocomplex/coherence_metrics.parquet \\
+                  results/3a_coherence/{dataset}/go_cc/coherence_metrics.parquet \\
+                  results/3a_coherence/{dataset}/go_bp/coherence_metrics.parquet \\
+        --output results/3a_coherence/{dataset}/coherence_metrics_combined.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
@@ -51,45 +51,40 @@ from pathlib import Path
 
 # 2. Data Processing Imports
 import pandas as pd
-from pandas.errors import EmptyDataError
 
 # 3. Third-party Imports
 from loguru import logger
 
-
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
+# 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from io_table import read_parquet, write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
+
+
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
 def combine(metrics_paths: list[Path]) -> pd.DataFrame:
-    """Row-concatenate per-source metrics tables, sorted by z_score ascending.
-
-    Empty per-source tables (a source where no group passed the size filter)
-    are tolerated and contribute no rows. If every input is empty the result is
-    an empty frame with no columns, which to_csv still writes as a valid header-
-    less TSV — downstream consumers already handle the empty-table case.
-    """
+    """Row-concatenate per-source metrics tables, sorted by the primary z ascending."""
+    # Empty per-source tables (a source where no group passed the size filter) are
+    # tolerated and contribute no rows. If every input is empty the result is an
+    # empty frame with no columns, which the Parquet writer round-trips as a 0x0
+    # table — downstream consumers already handle the empty-table case.
     frames = []
     for path in metrics_paths:
-        try:
-            frames.append(pd.read_csv(path, sep="\t"))
-        except EmptyDataError:
-            # A source where no group passed the size filter writes a truly
-            # empty TSV (compute_coherence.py's to_csv on a 0-column frame emits
-            # no header line). Skip it — it contributes no rows.
+        frame = read_parquet(path)
+        if frame.empty:
             logger.warning(f"empty metrics table (no groups passed the filter): {path}")
+            continue
+        frames.append(frame)
     non_empty = [f for f in frames if not f.empty]
     if not non_empty:
         logger.warning("all per-source metrics tables were empty; writing an empty combined table")
         return pd.DataFrame()
     combined = pd.concat(non_empty, ignore_index=True)
-    if "z_score" in combined.columns:
-        combined = combined.sort_values("z_score").reset_index(drop=True)
+    if "median_pairwise_distance_z" in combined.columns:
+        combined = combined.sort_values("median_pairwise_distance_z").reset_index(drop=True)
     return combined
 
 
@@ -98,7 +93,7 @@ def run(metrics_paths: list[Path], output: Path) -> None:
     """Combine the per-source metrics tables and write the unified table."""
     output.parent.mkdir(parents=True, exist_ok=True)
     combined = combine(metrics_paths)
-    combined.to_csv(output, sep="\t", index=False)
+    write_parquet(combined, output)
     by_source = (
         combined["source"].value_counts().to_dict() if "source" in combined.columns else {}
     )
@@ -112,8 +107,8 @@ def run(metrics_paths: list[Path], output: Path) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Combine per-source coherence metrics into one cross-source table")
-    parser.add_argument("--metrics", type=Path, nargs="+", required=True, help="Per-source coherence_metrics.tsv paths")
-    parser.add_argument("--output", type=Path, required=True, help="Output coherence_metrics_combined.tsv")
+    parser.add_argument("--metrics", type=Path, nargs="+", required=True, help="Per-source coherence_metrics.parquet paths")
+    parser.add_argument("--output", type=Path, required=True, help="Output coherence_metrics_combined.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 

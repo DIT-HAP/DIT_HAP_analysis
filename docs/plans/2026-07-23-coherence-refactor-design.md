@@ -1,5 +1,9 @@
 # complex.smk → coherence.smk 重构设计
 
+> ⚠️ **列名已过时**（2026-09-20）：本文中的 `n_group_genes` / `term_size` / `covered_genes` /
+> `centroid_x` 等列名已在 `docs/plans/2026-09-20-coherence-schema-rename.md` 中重命名，
+> 规则文件也已改名为 `3a_coherence.smk`。本文保留为当时的决策记录，不再更新。
+
 **日期**: 2026-07-23
 **worktree/分支**: `.worktrees/optimize-complex-smk` / `optimize-complex-smk`
 **范围**: 拆分 `complex.smk`，从 clustering finalize-variant 解耦，改为按 **source** 扇出的

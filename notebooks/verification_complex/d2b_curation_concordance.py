@@ -14,10 +14,10 @@ peripheral/shared subunits?
 
 Reads:
 - resources/curated/complex_subunit_roles.tsv (52 curated member rows)
-- results/coherence/HD_DIT_HAP/incoherence_attribution.tsv (D2 GMM output)
+- results/3a_coherence/HD_DIT_HAP/incoherence_attribution.tsv (D2 GMM output)
 
 Writes:
-- results/coherence/HD_DIT_HAP/curation_concordance.tsv (per-complex verdict)
+- results/3a_coherence/HD_DIT_HAP/curation_concordance.tsv (per-complex verdict)
 """
 
 from pathlib import Path
@@ -28,8 +28,8 @@ CURATED = REPO / "resources/curated/complex_subunit_roles.tsv"
 # D1/D2 coherence outputs live in the main tree; results/ is symlinked so either
 # path resolves, but use the real main-tree path to be explicit.
 MAIN = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis")
-ATTR = MAIN / "results/coherence/HD_DIT_HAP/incoherence_attribution.tsv"
-OUT = MAIN / "results/coherence/HD_DIT_HAP/curation_concordance.tsv"
+ATTR = MAIN / "results/3a_coherence/HD_DIT_HAP/incoherence_attribution.tsv"
+OUT = MAIN / "results/3a_coherence/HD_DIT_HAP/curation_concordance.tsv"
 
 # Literature role keywords → biological category (order matters: shared wins first)
 SHARED_KEYS = ("shared with", "shared ", "TAF module", "HSA-module", "heterohexamer")

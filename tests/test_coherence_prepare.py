@@ -18,6 +18,14 @@ def _write_macrocomplex(tmp_path: Path) -> Path:
     d = tmp_path / "ontologies_and_associations"
     d.mkdir(parents=True)
     df.to_csv(d / "macromolecular_complex_annotation.tsv", sep="\t", index=False)
+    # load_source reads the gene-name table for every source, so a fixture pombase
+    # dir is not complete without it.
+    meta = tmp_path / "Gene_metadata"
+    meta.mkdir(parents=True)
+    pd.DataFrame({
+        "gene_systematic_id": ["SPAC1", "SPAC2", "SPBC1"],
+        "gene_name": ["gene1", "gene2", "gene3"],
+    }).to_csv(meta / "gene_IDs_names_products.tsv", sep="\t", index=False)
     return tmp_path
 
 
@@ -25,7 +33,7 @@ def test_prepare_macrocomplex_returns_long_table(tmp_path):
     from prepare_annotation import prepare
     out = prepare("go_macrocomplex", _write_macrocomplex(tmp_path))
     assert list(out.columns) == ["source", "group_id", "group_name",
-                                 "Systematic ID", "Name", "n_group_genes"]
+                                 "Systematic ID", "Name", "n_annotated_members"]
     assert len(out) == 3
 
 

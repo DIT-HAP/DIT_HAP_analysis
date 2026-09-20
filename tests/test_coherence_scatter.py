@@ -7,6 +7,10 @@ Tests for plot_group_scatter.py
 
 Tests the resolve_groups function that matches group names/ids from the config
 namelist against the long-table annotation.
+
+plot_group_scatter imports cnsplots at module level (it draws the panel), so
+these skip in an env without it rather than failing on the import. The cnsplots
+rule env ships pytest, so they do run there.
 """
 
 import sys
@@ -16,6 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scripts" / "coherence"))
 
 import pandas as pd
+import pytest
+
+pytest.importorskip("cnsplots")
 
 
 def _long():
@@ -25,7 +32,7 @@ def _long():
         "group_name": ["alpha", "alpha", "beta"],
         "Systematic ID": ["gA", "gB", "gC"],
         "Name": ["gA", "gB", "gC"],
-        "n_group_genes": [2, 2, 1],
+        "n_annotated_members": [2, 2, 1],
     })
 
 
@@ -58,7 +65,7 @@ def test_resolve_groups_same_name_multiple_ids():
         "group_name": ["alpha", "alpha", "alpha", "alpha"],
         "Systematic ID": ["gA", "gB", "gC", "gD"],
         "Name": ["gA", "gB", "gC", "gD"],
-        "n_group_genes": [2, 2, 2, 2],
+        "n_annotated_members": [2, 2, 2, 2],
     })
     from plot_group_scatter import resolve_groups
     out = resolve_groups(long, "go_cc", ["alpha"])
@@ -76,7 +83,7 @@ def test_resolve_groups_drops_nan_ids():
         "group_name": ["alpha", "alpha"],
         "Systematic ID": ["gA", np.nan],
         "Name": ["gA", "gB"],
-        "n_group_genes": [2, 2],
+        "n_annotated_members": [2, 2],
     })
     from plot_group_scatter import resolve_groups
     out = resolve_groups(long, "go_cc", ["alpha"])

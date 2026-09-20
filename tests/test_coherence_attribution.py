@@ -1,9 +1,10 @@
 """Tests for the incoherence-attribution diagnostics (workflow/src/coherence/attribution.py).
 
-Pins the behaviour attribute_incoherence.py relies on: the GMM major/minor split
-on a synthetic core+minor cloud, the group_id-keyed shared-subunit fraction, the
-paralog fraction, and the attribution label priority ladder (including the
-CLRC-like split+shared -> conditional_module case).
+Pins the behaviour compute_incoherence_attribution.py relies on: the GMM
+major/minor split on a synthetic core+minor cloud, the source-scoped
+group_id-keyed shared-subunit fraction, the paralog fraction, and the
+attribution label priority ladder (including the CLRC-like split+shared ->
+conditional_module case).
 """
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ import pytest
 from workflow.src.coherence.attribution import (
     major_minor_split,
     shared_subunits,
-    shared_fraction,
+    shared_subunit_fractions,
     paralog_fraction,
     attribute_incoherence,
 )
@@ -75,17 +76,40 @@ def test_shared_subunits_lists_other_groups():
 
 
 def test_shared_fraction_counts_shared_members():
-    """shared_fraction = (#members shared with >=1 other group) / (#members)."""
+    """shared fraction = (#members shared with >=1 other group) / (#members)."""
     long = _long([
         ("C1", "one", "g1"), ("C1", "one", "g2"), ("C1", "one", "g3"), ("C1", "one", "g4"),
         ("C2", "two", "g1"), ("C2", "two", "g2"),  # g1, g2 shared -> 2/4
     ])
-    assert shared_fraction(long, "C1") == pytest.approx(0.5)
+    fracs = shared_subunit_fractions(long)
+    assert fracs["C1"] == pytest.approx(0.5)
+    assert fracs["C2"] == pytest.approx(1.0)  # both of C2's members also in C1
 
 
-def test_shared_fraction_empty_group_is_nan():
-    long = _long([("C1", "one", "g1")])
-    assert np.isnan(shared_fraction(long, "NOPE"))
+def test_shared_fraction_group_with_no_shared_member_is_zero():
+    long = _long([
+        ("C1", "one", "g1"), ("C1", "one", "g2"),
+        ("C2", "two", "g3"),  # disjoint
+    ])
+    assert shared_subunit_fractions(long)["C1"] == 0.0
+
+
+def test_shared_subunits_keys_on_group_id_not_name():
+    """Two distinct term IDs that share a NAME are still two different groups.
+
+    "Other groups" used to be derived by subtracting the focal group's names, so
+    a member of a same-named sibling term read as unshared. GO has real
+    same-name/different-ID pairs, and plot_coherence.py's own copy of this metric
+    was already group_id-keyed — the two disagreed.
+    """
+    long = _long([
+        ("C1", "one", "g1"), ("C1", "one", "g2"),
+        ("C9", "one", "g1"),  # different id, same name
+    ])
+    ss = shared_subunits(long, "C1")
+    assert set(ss["Systematic ID"]) == {"g1"}
+    assert ss.iloc[0]["n_other_groups"] == 1
+    assert shared_subunit_fractions(long)["C1"] == pytest.approx(0.5)
 
 
 # --- paralog fraction -------------------------------------------------------

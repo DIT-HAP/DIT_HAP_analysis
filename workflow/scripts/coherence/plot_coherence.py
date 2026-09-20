@@ -2,274 +2,468 @@
 # -*- coding: utf-8 -*-
 
 """
-Gene-Group Coherence Visualization
-===================================
+Gene-Group Coherence — Visualization
+====================================
 
-Reads computed coherence metrics from Parquet and generates a multi-panel
-overview figure showing group-size distribution, z-score distribution, centroid
-positions in fitness space, and coherence-vs-biology panels.
+Renders the overview figure for compute_coherence.py: the group-size and
+z-score distributions, the centroid map in normalized fitness space, and — when
+the metrics table carries them — the coherence-versus-biology panels.
 
-This is the plotting companion to compute_coherence.py, part of the
-computation-plotting decoupling refactor (ADR-0001).
+This is the plotting companion, split out per ADR-0001. It computes nothing:
+the shared-subunit fraction and the abundance/conservation uniformity terms are
+columns of the metrics Parquet, written by compute_coherence.py, so the figure is
+a pure renderer and every number it draws can be read back from the table.
 
 Input
 -----
-- coherence.parquet: computed metrics from compute_coherence.py, one row per
-  group with columns: source, group_id, group_name, term_size, n_group_genes,
-  covered_genes, centroid_x, centroid_y, median_distance, mean_distance,
-  std_distance, min_distance, max_distance, mpd, z_score, p_value,
-  n_permutations, mean_pairwise_distance_zscore, mean_pairwise_distance_p_value,
-  p_fdr
-- group_annotation_long.tsv: the prepared unified long-table (for panel A
-  shared-subunit fraction)
-- features.tsv: optional gene features table (for panels B/D biology metrics)
+- coherence_metrics.parquet: per-group metrics. Only these columns are read:
+  n_scored_members, median_pairwise_distance_z, geom_median_DR, geom_median_DL,
+  group_name, q_value, and whichever of frac_shared_members / abundance_cv /
+  conservation_cv are present. Those last three gate the biology panels: an
+  absent (or all-NaN) column drops its panel rather than drawing an empty one.
 
 Output
 ------
-- coherence.pdf: multi-panel figure with histograms, centroid map, and
-  coherence-vs-biology scatter panels
+- coherence.pdf (+ a .review.png sibling via save_dual)
 
 Usage
 -----
     python plot_coherence.py \\
-        --input results/coherence/{dataset}/{source}/coherence.parquet \\
-        --annotation results/coherence/{dataset}/{source}/group_annotation_long.tsv \\
-        --output results/coherence/{dataset}/{source}/coherence.pdf \\
-        [--features results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv]
+        --input results/3a_coherence/{dataset}/{source}/coherence_metrics.parquet \\
+        --output results/3a_coherence/{dataset}/{source}/coherence.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-09-03
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
-# 1. Standard Library
+# 1. Standard Library Imports
 import argparse
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-# 2. Third-party
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-from loguru import logger  # noqa: E402
+# 2. Data Processing Imports
+import cnsplots as cns
+import numpy as np
+import pandas as pd
+from matplotlib.axes import Axes
 
-# 3. Local
+# 3. Third-party Imports
+from loguru import logger
+
+# 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
+from figure_render.histogram import draw_histogram_panel  # noqa: E402
+from figures import apply_house_style, house_colors, save_dual  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-# Single-panel figure size, as matplotlib defines it at import — the house style
-# is applied later, inside run(), so this is the stock value the retired
-# plotting.style constant of the same name also captured. Kept local rather than
-# imported from figures.py: that module imports cnsplots, which not every rule
-# that uses it runs with.
-AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 
 
 # =============================================================================
-# CONFIGURATION
+# GLOBAL CONSTANTS
 # =============================================================================
-@dataclass(kw_only=True, frozen=True)
+_SQUARE_WIDTH, _SQUARE_HEIGHT = (100, 100)  # PanelShape.SQUARE, in layout pixels
+
+# The centroid panel keeps the SQUARE footprint like its neighbours; its size
+# legend and colourbar live OUTSIDE in the reserved right margin instead of
+# widening the panel, so every panel in the row is the same size.
+_CENTROID_MARGIN_RIGHT = 74
+
+# Panel footprint = axes box + the panel label's pad + the inter-panel margin.
+# multipanel wraps a row the moment its running width would exceed max_width, and
+# does so silently, so the page is derived from the widest row instead of guessed.
+_PANEL_MARGIN = 10
+
+# Vertical space reserved under a panel whose row has another row beneath it.
+# multipanel refines only the left and top decorations after a draw, so a bottom
+# row's xlabel and tick labels are not measured and will overlap the next row's
+# title unless reserved here.
+_ROW_GAP = 46
+
+# Inset colourbar geometry as an axes-fraction (x0, y0, width, height). x0 > 1
+# puts it in the panel's reserved right margin, i.e. outside the plot area, below
+# the size legend that take_legend_out anchors at the margin's top.
+_CBAR_BOUNDS = (1.06, 0.02, 0.045, 0.42)
+
+# Biology panels, in draw order. A 100 px panel fits about 25 characters at the
+# house title size, so titles stay short — the y-axis already says "z-score", so
+# the "coherence vs" half of the old titles was restating it and overflowing the
+# panel into its neighbour.
+# (column, x label, title)
+_BIOLOGY_PANELS = [
+    ("frac_shared_members", "Shared-subunit fraction", "Shared subunits"),
+    ("abundance_cv", "Abundance CV", "Abundance uniformity"),
+    ("conservation_cv", "Conservation CV", "Conservation uniformity"),
+]
+
+# Representative group sizes for the centroid map's size legend.
+_SIZE_LEGEND_VALUES = [3, 10, 30, 100]
+# Point area for a group of size s: log-compressed so a 300-member term does not
+# swamp a 3-member one, scaled to be legible in a 150 px panel.
+_SIZE_SCALE = 20.0
+
+_REQUIRED_COLUMNS = ["n_scored_members", "median_pairwise_distance_z",
+                     "geom_median_DR", "geom_median_DL", "group_name", "q_value"]
+
+# Panels are lettered explicitly so the FDR panels' letters are predictable whatever
+# number of biology columns the table carries: row 1 is A/B/C, the biology panels sit
+# under them as D/E/F, and the FDR panels take the letters after those.
+_BIOLOGY_LETTERS = ("D", "E", "F")
+
+# cnsplots' own diverging scale, for the signed z-score. Resolved through
+# cns.palettes() because it is not registered with matplotlib's cmap registry.
+_DIVERGING_CMAP = "BuRd_custom"
+
+# --- FDR-vs-coherence panel -------------------------------------------------
+# x is -log10(q), not q: q spans 0.02..1 with a median near 0.1, so a linear axis
+# crushes every interesting point against the left edge, and the significance
+# boundary becomes a vertical line at -log10(q_max) instead of a judgement call.
+# --- FDR-vs-coherence panels ------------------------------------------------
+# Two panels over the SAME data with different x encodings, side by side, so the two
+# axis choices can be compared before one is dropped.
+#
+# -log10(q) spreads a q that spans 0.02..1 with a median near 0.1; on a linear axis
+# every interesting point is crushed against the left edge. Plain q is what a reader
+# takes at face value. Whichever survives the comparison keeps its entry here and the
+# other goes.
+_FDR_PANELS = (
+    ("_log10_q", "-log10(q)"),
+    ("_q", "q (BH-adjusted)"),
+)
+
+# Floor for -log10(q). q is strictly positive by construction (the add-one
+# estimator), but a pathologically tiny value would stretch the axis to nothing.
+_FDR_Q_FLOOR = 1e-12
+
+# The two FDR panels sit side by side. Measuring rather than deriving: at max_width
+# 571 multipanel packs FOUR SQUARE panels onto row 1, so the page has to stay below
+# the 4-panel width while still holding this row. 500 does both (row 1 = 3 panels,
+# this row = 481).
+_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 200, 240
+_FDR_MARGIN_SIDE = 14
+
+# Labels sit INSIDE the axes, in the two empty quadrants of the S curve, with a leader
+# line back to the point. Both columns meet at the same mid-panel x: the incoherent
+# points (upper left) take their text rightwards into the upper-right gap, the coherent
+# points (lower right) take theirs leftwards into the lower-left one. Placing them
+# outside the frame instead would need a wide margin and drag every leader across the
+# data.
+#
+# Each column is confined to its own quadrant so the two never share a y band, and the
+# stack gap is computed from the wrapped line count — a fixed gap overlaps as soon as a
+# name needs three lines. The panel height is what makes five three-line labels fit in
+# half a panel.
+_LABEL_COLUMN = 0.47
+_LABEL_FONT_SIZE = 5
+_LABEL_WRAP_WIDTH = 26        # characters per line before wrapping
+_LABEL_LINE_HEIGHT = 0.033    # axes fraction one rendered line occupies
+_LABEL_BLOCK_GAP = 0.025      # clearance between two stacked label blocks
+_LABEL_PADDING = 0.05         # how far past the extreme point the stack may reach
+_LABEL_QUADRANTS = {"right": (0.52, 0.98), "left": (0.02, 0.48)}
+
+# LabelSettings defaults, shared by the dataclass fields and argparse. They cannot
+# be read off the dataclass: with slots=True, `LabelSettings.q_max` is a
+# member_descriptor rather than the default value.
+DEFAULT_LABEL_Q_MAX = 0.05
+DEFAULT_LABEL_QUANTILE = 0.05
+DEFAULT_LABEL_MAX = 5
+
+# Page width, in layout pixels. 500 is measured, not derived: the widest row (the two
+# FDR panels plus their margins) needs 481, and a fourth SQUARE panel on row 1 would
+# need 568. Anything in between keeps the 3 x 2 layout intact; anything larger and
+# multipanel silently packs that fourth panel onto row 1.
+_MAX_WIDTH = 500
+
+
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class LabelSettings:
+    """Which groups the FDR panel names: a significance cutoff and a per-side cap."""
+    q_max: float = DEFAULT_LABEL_Q_MAX     # q at or below this counts as significant
+    quantile: float = DEFAULT_LABEL_QUANTILE   # per-side share of the significant groups to name
+    max_labels: int = DEFAULT_LABEL_MAX    # hard cap per side, so a 1,400-group source cannot flood the margin
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
     """Inputs and outputs for coherence visualization."""
     input_metrics: Path
-    annotation: Path
     output: Path
-    features: Path | None = None
+    labels: LabelSettings = LabelSettings()
 
     def validate(self) -> None:
-        """Raise ValueError if inputs missing, then create output dir."""
-        required = [self.input_metrics, self.annotation]
-        if self.features is not None:
-            required.append(self.features)
-        for path in required:
-            if not path.exists():
-                raise ValueError(f"Required input not found: {path}")
+        """Raise ValueError if inputs are missing, then create output dirs."""
+        if not self.input_metrics.exists():
+            raise ValueError(f"Required input not found: {self.input_metrics}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
-# BIOLOGY METRICS (from compute_coherence.py)
+# CORE LOGIC
 # =============================================================================
-_ABUNDANCE_FEATURE_CANDIDATES = [
-    "copies_per_cell_EMM_Proliferating_Cell",
-    "copies_per_cell_EMMN_Quiescent_Cell",
-    "mean_EMM_Proliferating_Cell_RNA_Abundance",
-]
-_CONSERVATION_FEATURE_CANDIDATES = ["evolutionary_rate"]
+def biology_panels(table: pd.DataFrame) -> list[tuple[str, str, str]]:
+    """The biology panels this table can support, in draw order."""
+    # A column qualifies only if it is present and carries at least one value:
+    # compute_coherence.py omits the feature CVs entirely when no features table
+    # was passed, and leaves NaN for groups whose members lacked the feature, so
+    # "absent" and "all-NaN" both mean there is nothing to draw.
+    return [
+        (column, xlabel, title)
+        for column, xlabel, title in _BIOLOGY_PANELS
+        if column in table.columns and table[column].notna().any()
+    ]
 
 
-def _first_present_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
-    """Return the first candidate column present in df.columns, or None."""
-    for col in candidates:
-        if col in df.columns:
-            return col
-    return None
-
-
-def shared_subunit_fraction(long_table: pd.DataFrame) -> dict[str, float]:
-    """Per group, fraction of members also in other groups (shared-subunit metric)."""
-    member_to_groups = long_table.groupby("Systematic ID")["group_id"].apply(set).to_dict()
-    result = {}
-    for group_id, group_df in long_table.groupby("group_id"):
-        members = group_df["Systematic ID"].unique()
-        n_members = len(members)
-        if n_members == 0:
-            result[group_id] = 0.0
-            continue
-        shared = sum(1 for gene in members if len(member_to_groups.get(gene, set())) > 1)
-        result[group_id] = shared / n_members
-    return result
-
-
-def member_feature_cv(long_table: pd.DataFrame, features: pd.DataFrame, feature_col: str) -> dict[str, float]:
-    """Per group, coefficient of variation of a numeric feature across members."""
-    features_dict = features.set_index("gene_systematic_id")[feature_col].to_dict()
-    result = {}
-    for group_id, group_df in long_table.groupby("group_id"):
-        members = group_df["Systematic ID"].unique()
-        values = [features_dict[gene] for gene in members if gene in features_dict]
-        values = [v for v in values if pd.notna(v) and v > 0]
-        if len(values) < 2:
-            result[group_id] = np.nan
-        else:
-            result[group_id] = float(np.std(values, ddof=1) / np.mean(values))
-    return result
+def point_sizes(n_scored_members: pd.Series) -> np.ndarray:
+    """Marker area per group from its scored-member count (log-compressed)."""
+    return np.log1p(n_scored_members.to_numpy(dtype=float)) * _SIZE_SCALE
 
 
 # =============================================================================
-# PLOTTING
+# CORE LOGIC — FDR panel labelling
 # =============================================================================
-def plot_coherence(
-    table: pd.DataFrame,
-    long_table: pd.DataFrame,
-    features: pd.DataFrame | None = None
-) -> plt.Figure:
-    """Multi-panel coherence overview: size/z histograms, centroid map, coherence-vs-biology panels.
+def spread_positions(values: list[float], low: float, high: float, gap: float) -> list[float]:
+    """Evenly de-overlap ascending positions while keeping them inside [low, high]."""
+    # The classic label-spreading pass: a forward sweep pushes each label clear of
+    # the one above it, then a backward sweep pulls the stack back inside the axis.
+    # When the labels cannot all fit, the gap is relaxed rather than letting them
+    # march off the top.
+    count = len(values)
+    if count == 0:
+        return []
+    span = high - low
+    gap = min(gap, span / (count - 1)) if count > 1 else 0.0
 
-    Panels: (1) term-size histogram + z-score histogram; (2) centroid-position
-    scatter (x=centroid_x/"typical DR", y=centroid_y/"typical DL", color=z-score,
-    size proportional to term_size); (3) Panel A, coherence vs shared-subunit
-    fraction (always drawn); and — only when `features` is provided — (4) Panel B,
-    coherence vs protein/RNA-abundance uniformity, and Panel D, coherence vs
-    conservation uniformity. Empty table keeps a graceful placeholder.
-    """
+    spread = [min(max(value, low), high) for value in values]
+    for index in range(1, count):
+        spread[index] = max(spread[index], spread[index - 1] + gap)
+    spread[-1] = min(spread[-1], high)
+    for index in range(count - 2, -1, -1):
+        spread[index] = min(spread[index], spread[index + 1] - gap)
+    # The sweeps accumulate float error, so a clamped end can land an ulp outside.
+    return [min(max(value, low), high) for value in spread]
+
+
+def label_count(available: int, quantile: float, max_labels: int) -> int:
+    """How many groups to name on one side: the quantile share, capped at max_labels."""
+    return min(max_labels, int(np.ceil(quantile * available)))
+
+
+def labelled_extremes(
+    table: pd.DataFrame, side: str, quantile: float, q_max: float, max_labels: int
+) -> pd.DataFrame:
+    """The groups to name at one end of the z-score axis, most extreme first."""
+    # `coherent` takes the most negative z among the FDR-significant groups.
+    # `incoherent` CANNOT use FDR: the coherence p-value is one-sided for tightness,
+    # so a group more dispersed than random has p near 1 by construction (measured:
+    # every q<=0.05 group in all three sources has z < 0). Selecting that end by
+    # significance would return nothing, so it is selected by z alone.
+    ordered = table.sort_values("median_pairwise_distance_z")
+    if side == "coherent":
+        eligible = ordered[ordered["q_value"] <= q_max]
+        return eligible.head(label_count(len(eligible), quantile, max_labels))
+    incoherent = ordered[ordered["median_pairwise_distance_z"] > 0]
+    return incoherent.tail(label_count(len(incoherent), quantile, max_labels)).iloc[::-1]
+
+
+def label_block_gap(rows: pd.DataFrame) -> float:
+    """Vertical gap one row of labels needs, from how many lines its names wrap to."""
+    lines = max(
+        len(textwrap.wrap(str(name), width=_LABEL_WRAP_WIDTH)) for name in rows["group_name"]
+    )
+    return lines * _LABEL_LINE_HEIGHT + _LABEL_BLOCK_GAP
+
+
+def annotate_extremes(ax: Axes, rows: pd.DataFrame, direction: str, x_column: str) -> None:
+    """Name each row with a leader line into the panel's empty quadrant."""
+    # Labels live INSIDE the axes: the S curve leaves the upper-right and lower-left
+    # quadrants empty, so each column is confined to its own quadrant and the two never
+    # share a y band. Rows and stack positions are both ordered by z ascending, so the
+    # leaders fan out without crossing.
+    #
+    # The gap comes from the wrapped line count rather than a constant: a fixed gap
+    # overlaps the moment a name needs a third line.
+    if rows.empty:
+        return
+    rows = rows.sort_values("median_pairwise_distance_z")
+    y_limits = ax.get_ylim()
+    fractions = [(value - y_limits[0]) / (y_limits[1] - y_limits[0])
+                 for value in rows["median_pairwise_distance_z"]]
+
+    quadrant_low, quadrant_high = _LABEL_QUADRANTS[direction]
+    gap = label_block_gap(rows)
+    low = max(quadrant_low, fractions[0] - _LABEL_PADDING)
+    high = min(quadrant_high, fractions[-1] + _LABEL_PADDING)
+    if high - low < gap * (len(fractions) - 1):
+        # Too many labels for the band their points occupy; use the whole quadrant and
+        # let spread_positions relax the gap further if even that is not enough.
+        low, high = quadrant_low, quadrant_high
+
+    positions = spread_positions(fractions, low, high, gap)
+    for (_, row), y_fraction in zip(rows.iterrows(), positions):
+        ax.annotate(
+            # fill() wraps rather than shortens: a reader needs the whole term name,
+            # and the quadrant has room for two or three lines.
+            textwrap.fill(str(row["group_name"]), width=_LABEL_WRAP_WIDTH),
+            xy=(row[x_column], row["median_pairwise_distance_z"]),
+            xytext=(_LABEL_COLUMN, y_fraction), textcoords="axes fraction",
+            ha="left" if direction == "right" else "right", va="center",
+            fontsize=_LABEL_FONT_SIZE,
+            arrowprops={"arrowstyle": "-", "color": cns.GRAY, "linewidth": 0.6,
+                        "shrinkA": 2, "shrinkB": 3},
+        )
+
+
+def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -> None:
+    """Draw the coherence overview onto a fresh house-styled multipanel figure."""
+    # Panels, in order: group-size distribution, z-score distribution, centroid
+    # map, then one per available biology column. multipanel labels every panel
+    # automatically, A onwards — which is what fixes the old figure's A, B, D
+    # (a panel C was dropped when the STRING channel was removed, and the letters
+    # were never renumbered).
+    apply_house_style()
+    settings = settings or LabelSettings()
+
     if table.empty:
-        fig, ax = plt.subplots(1, 1, figsize=(AX_WIDTH, AX_HEIGHT))
+        ax = cns.multipanel().panel(width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT)
         ax.text(0.5, 0.5, "No groups passed the size filter", ha="center", va="center")
         ax.set_axis_off()
-        fig.tight_layout()
-        return fig
+        return
 
-    # Panel A: always computable from the long-table alone.
-    shared_frac = shared_subunit_fraction(long_table)
+    # multipanel sizes each panel from its own rendered decorations, so panels
+    # whose labels are filled in are created with an explicit pad rather than
+    # relying on a grid to align them.
+    #
+    # Rows are pinned with `below=` rather than left to width-based wrapping. The
+    # FDR panel is wider than a whole row of SQUARE panels, so max_width has to
+    # accommodate it — and at that width multipanel would happily pack four SQUARE
+    # panels onto row 1 and destroy the 3 x 2 layout.
+    multipanel = cns.multipanel(max_width=_MAX_WIDTH)
 
-    # Panels B (abundance) and D (conservation): only when features are supplied
-    biology_panels: list[tuple[str, dict[str, float], str, str]] = [
-        ("A", shared_frac, "Shared-subunit fraction", "Coherence vs shared subunits"),
-    ]
-    if features is None:
-        logger.warning("No features table provided; skipping biology panels B (abundance) and D (conservation)")
-    if features is not None:
-        abundance_col = _first_present_column(features, _ABUNDANCE_FEATURE_CANDIDATES)
-        if abundance_col is None:
-            logger.warning(
-                f"No abundance feature column found (tried {_ABUNDANCE_FEATURE_CANDIDATES}); skipping panel B"
-            )
-        else:
-            biology_panels.append(
-                ("B", member_feature_cv(long_table, features, abundance_col),
-                 f"Abundance CV ({abundance_col})", "Coherence vs abundance uniformity")
-            )
-        conservation_col = _first_present_column(features, _CONSERVATION_FEATURE_CANDIDATES)
-        if conservation_col is None:
-            logger.warning(
-                f"No conservation feature column found (tried {_CONSERVATION_FEATURE_CANDIDATES}); skipping panel D"
-            )
-        else:
-            biology_panels.append(
-                ("D", member_feature_cv(long_table, features, conservation_col),
-                 f"Conservation CV ({conservation_col})", "Coherence vs conservation uniformity")
-            )
-
-    # Total axes: size hist + z hist + centroid map + one per biology panel.
-    n_panels = 3 + len(biology_panels)
-    ncols = 3
-    nrows = int(np.ceil(n_panels / ncols))
-    fig, axes = plt.subplots(
-        nrows, ncols, figsize=(AX_WIDTH * ncols, AX_HEIGHT * nrows), squeeze=False
+    ax_size = multipanel.panel("A", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
+    draw_histogram_panel(
+        ax_size, table["n_scored_members"], bins=21, log_scale=True,
+        xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
+        title="Group size distribution",
     )
-    flat = axes.ravel()
 
-    # Panel 1a: term-size histogram with log-spaced bins.
-    ax_size = flat[0]
-    log_min = np.log10(table["term_size"].min())
-    log_max = np.log10(table["term_size"].max())
-    log_bins = np.logspace(log_min, log_max, 21)
-    ax_size.hist(table["term_size"], bins=log_bins, rwidth=0.9, color="#6b99df")
-    ax_size.set_xlabel("Group size (DR<threshold members)")
-    ax_size.set_ylabel("Number of groups")
-    ax_size.set_title("Group size distribution")
-    ax_size.set_xscale("log")
+    ax_z = multipanel.panel("B", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
+    draw_histogram_panel(
+        ax_z, table["median_pairwise_distance_z"], bins=20,
+        xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
+        title="Coherence z-scores",
+    )
+    # z = 0 is the null: at or above it the group is no tighter than a random
+    # draw of the same size. Drawn after the histogram so it reads on top.
+    ax_z.axvline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
 
-    # Panel 1b: z-score histogram.
-    ax_z = flat[1]
-    ax_z.hist(table["z_score"], bins=20, rwidth=0.9, color="#6b99df")
-    ax_z.axvline(0.0, color="gray", linestyle="--", linewidth=0.8)
-    ax_z.set_xlabel("MPD z-score (negative = coherent)")
-    ax_z.set_ylabel("Number of groups")
-    ax_z.set_title("Coherence z-score distribution")
-
-    # Panel 2: centroid-position map in normalized fitness space.
-    ax_centroid = flat[2]
-    sizes = np.log1p(table["term_size"].to_numpy(dtype=float)) * 20
+    ax_centroid = multipanel.panel(
+        "C", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT,
+        margin_right=_CENTROID_MARGIN_RIGHT, margin_bottom=_ROW_GAP,
+    )
+    sizes = point_sizes(table["n_scored_members"])
+    # z-score is signed and 0 is its meaningful midpoint, so a diverging map is the
+    # right encoding, with vmin/vmax set symmetrically or the midpoint colour lands
+    # at an arbitrary value. cnsplots ships this one (BuRd_custom) as its diverging
+    # map; it runs blue at the low end, which puts coherent (negative z) on the cool
+    # end. A plain matplotlib name like coolwarm would work but is not the
+    # package's own scale.
+    #
+    # The edge is not decoration: a diverging map spends its midpoint on white, and
+    # most groups sit at z ~ 0, so without a hairline outline they vanish into the
+    # page.
+    z_limits = float(np.nanmax(np.abs(table["median_pairwise_distance_z"].to_numpy(dtype=float)))) or 1.0
     scatter = ax_centroid.scatter(
-        table["centroid_x"], table["centroid_y"], c=table["z_score"], s=sizes,
-        cmap="coolwarm_r", alpha=0.8, edgecolors="none",
+        table["geom_median_DR"], table["geom_median_DL"],
+        c=table["median_pairwise_distance_z"], s=sizes,
+        cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
+        alpha=0.85, edgecolors=cns.GRAY, linewidths=0.3,
     )
-    ax_centroid.set_xlabel("typical DR")
-    ax_centroid.set_ylabel("typical DL/10")
-    ax_centroid.set_title("Group centroid positions")
-    fig.colorbar(scatter, ax=ax_centroid, label="z-score")
+    ax_centroid.set(
+        xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions"
+    )
 
-    # Size legend: show representative group sizes.
-    legend_sizes = [3, 10, 30, 100]
+    colorbar_ax = ax_centroid.inset_axes(_CBAR_BOUNDS)
+    colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax)
+    colorbar.ax.tick_params(length=0, pad=1)
+    colorbar.set_label("z-score", labelpad=1)
+
     legend_handles = [
-        plt.scatter([], [], s=np.log1p(float(s)) * 20, color="gray", alpha=0.6, edgecolors="none")
-        for s in legend_sizes
+        ax_centroid.scatter([], [], s=float(np.log1p(value) * _SIZE_SCALE),
+                            color=cns.GRAY, alpha=0.7, edgecolors="none")
+        for value in _SIZE_LEGEND_VALUES
     ]
     ax_centroid.legend(
-        legend_handles, [str(s) for s in legend_sizes],
-        title="Group size", loc="upper left", frameon=True, fontsize="small"
+        legend_handles, [str(value) for value in _SIZE_LEGEND_VALUES], frameon=False,
     )
+    # Keyword-only: written positionally this silently sets the legend TITLE.
+    cns.take_legend_out("Group size", ax=ax_centroid)
 
-    # Panel 3+: coherence-vs-biology scatter plots.
-    for i, (label, cv_map, x_label, title) in enumerate(biology_panels, start=3):
-        ax = flat[i]
-        x_values = [cv_map.get(gid, np.nan) for gid in table["group_id"]]
-        y_values = table["z_score"].to_numpy()
-        ax.scatter(x_values, y_values, s=10, alpha=0.6, edgecolors="none", color="#6b99df")
-        ax.axhline(0.0, color="gray", linestyle="--", linewidth=0.8)
-        ax.set_xlabel(x_label)
-        ax.set_ylabel("z-score")
-        ax.set_title(title)
-        ax.text(0.02, 0.98, label, transform=ax.transAxes, fontsize=14, fontweight="bold",
-                va="top", ha="left")
+    # Every biology panel plots z-score on y, so they share one y range: with
+    # autoscaled panels a group at z=-6 renders exactly like one at z=-1, and the
+    # panels only mean anything compared against each other. Their x variables are
+    # different quantities on different scales, so x stays per-panel.
+    biology = biology_panels(table)
+    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
+    shared_z_limits = (float(np.nanmin(z_values)), float(np.nanmax(z_values)))
 
-    # Remove unused axes.
-    for j in range(n_panels, len(flat)):
-        fig.delaxes(flat[j])
+    for letter, (column, xlabel, title) in zip(_BIOLOGY_LETTERS, biology):
+        ax = multipanel.panel(
+            letter, width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP
+        )
+        cns.scatterplot(table, column, "median_pairwise_distance_z", ax=ax,
+                        color=house_colors((3,))[0])
+        ax.set(xlabel=xlabel, ylabel="z-score", title=title)
+        ax.set_ylim(*shared_z_limits)
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
 
-    fig.tight_layout()
-    return fig
+    # The FDR row follows whichever biology panels were drawn, so its letters depend
+    # on how many there are.
+    draw_fdr_panels(multipanel, table, settings, first_letter=chr(ord(_BIOLOGY_LETTERS[0]) + len(biology)))
+
+
+def fdr_axis(q_values: pd.Series, encoding: str, q_max: float) -> tuple[pd.Series, float]:
+    """X values for an FDR panel and the significance cutoff on the same scale."""
+    if encoding == "_log10_q":
+        return -np.log10(q_values.clip(lower=_FDR_Q_FLOOR)), -np.log10(q_max)
+    return q_values, q_max
+
+
+def draw_fdr_panels(
+    multipanel: Any, table: pd.DataFrame, settings: LabelSettings, first_letter: str
+) -> None:
+    """Draw the FDR-versus-coherence scatter once per x encoding, side by side."""
+    for offset, (encoding, xlabel) in enumerate(_FDR_PANELS):
+        ax = multipanel.panel(
+            chr(ord(first_letter) + offset),
+            width=_FDR_PANEL_WIDTH, height=_FDR_PANEL_HEIGHT,
+            margin_left=_FDR_MARGIN_SIDE, margin_right=_FDR_MARGIN_SIDE,
+        )
+        x_values, cutoff = fdr_axis(table["q_value"], encoding, settings.q_max)
+        plotted = table.assign(**{encoding: x_values})
+        cns.scatterplot(plotted, encoding, "median_pairwise_distance_z", ax=ax,
+                        color=house_colors((3,))[0])
+        ax.set(xlabel=xlabel, ylabel="z-score", title="Coherence vs significance")
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
+        ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
+
+        # Each end is named into the quadrant its points leave empty. The incoherent
+        # ones sit upper-left and the coherent ones lower-right, because the coherence
+        # p-value is one-sided for tightness: no group more dispersed than random can
+        # be FDR-significant.
+        for end, direction in (("incoherent", "right"), ("coherent", "left")):
+            rows = labelled_extremes(plotted, end, settings.quantile, settings.q_max, settings.max_labels)
+            annotate_extremes(ax, rows, direction, encoding)
 
 
 # =============================================================================
@@ -277,25 +471,22 @@ def plot_coherence(
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PlotConfig) -> None:
-    """Generate coherence visualization from computed metrics."""
+    """Generate the coherence overview figure from the computed metrics."""
     config.validate()
-
-    # Load inputs
     table = read_parquet(config.input_metrics)
-    long_table = pd.read_csv(config.annotation, sep="\t")
-    features = pd.read_csv(config.features, sep="\t") if config.features else None
+    missing = [column for column in _REQUIRED_COLUMNS if column not in table.columns]
+    if missing:
+        raise ValueError(
+            f"metrics table missing required column(s) {missing} (have: {list(table.columns)})"
+        )
 
-    logger.info(f"Loaded {len(table):,} groups from {config.input_metrics}")
-
-    # Generate figure
-    fig = plot_coherence(table, long_table, features)
-
-    # Save as PDF
-    with PdfPages(config.output) as pdf:
-        pdf.savefig(fig, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    logger.success(f"Wrote coherence figure to {config.output}")
+    logger.info(
+        f"Loaded {len(table):,} groups; biology panels: "
+        f"{[column for column, _, _ in biology_panels(table)] or 'none'}"
+    )
+    plot_coherence(table, config.labels)
+    save_dual(config.output.with_suffix(""))
+    logger.success(f"Wrote {config.output}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -303,12 +494,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate coherence visualization")
     parser.add_argument("--input", dest="input_metrics", type=Path, required=True,
                         help="Input coherence metrics Parquet from compute_coherence.py")
-    parser.add_argument("--annotation", type=Path, required=True,
-                        help="Prepared group_annotation_long.tsv (for panel A)")
-    parser.add_argument("--features", type=Path, default=None,
-                        help="Optional gene features TSV (for panels B/D)")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output coherence figure PDF")
+    parser.add_argument("--label-q-max", type=float, default=DEFAULT_LABEL_Q_MAX,
+                        help="FDR panel: q at or below this counts as significant")
+    parser.add_argument("--label-quantile", type=float, default=DEFAULT_LABEL_QUANTILE,
+                        help="FDR panel: per-side share of significant groups to name")
+    parser.add_argument("--label-max", type=int, default=DEFAULT_LABEL_MAX,
+                        help="FDR panel: hard cap on names per side")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -321,12 +514,15 @@ def main() -> int:
     try:
         config = PlotConfig(
             input_metrics=args.input_metrics,
-            annotation=args.annotation,
             output=args.output,
-            features=args.features,
+            labels=LabelSettings(
+                q_max=args.label_q_max,
+                quantile=args.label_quantile,
+                max_labels=args.label_max,
+            ),
         )
         run(config)
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         logger.error(f"Error: {e}")
         return 1
     return 0

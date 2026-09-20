@@ -26,7 +26,7 @@ Input
 Output
 ------
 - --output: group_annotation_long.tsv with the LONG_TABLE_COLUMNS contract
-  (source, group_id, group_name, Systematic ID, Name, n_group_genes) — one row
+  (source, group_id, group_name, Systematic ID, Name, n_annotated_members) — one row
   per (group, member gene).
 
 Usage
@@ -34,7 +34,7 @@ Usage
     python prepare_annotation.py \\
         --source go_macrocomplex \\
         --pombase-dir resources/external/pombase/<version> \\
-        --output results/coherence/{dataset}/go_macrocomplex/group_annotation_long.tsv
+        --output results/3a_coherence/{dataset}/go_macrocomplex/group_annotation_long.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
@@ -58,7 +58,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from coherence.sources import SOURCE_LOADERS  # noqa: E402
+from coherence.sources import SOURCE_LOADERS, load_source  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -70,9 +70,7 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 def prepare(source: str, pombase_dir: Path) -> pd.DataFrame:
     """Dispatch to the source adapter and return the unified long-table."""
-    if source not in SOURCE_LOADERS:
-        raise ValueError(f"unknown source {source!r} (have: {sorted(SOURCE_LOADERS)})")
-    return SOURCE_LOADERS[source](Path(pombase_dir))
+    return load_source(source, Path(pombase_dir))
 
 
 @logger.catch(reraise=True)

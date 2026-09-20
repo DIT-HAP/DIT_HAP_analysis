@@ -18,7 +18,7 @@ def _background(ids):
 
 def _long(rows):
     return pd.DataFrame(rows, columns=["source", "group_id", "group_name",
-                                       "Systematic ID", "Name", "n_group_genes"])
+                                       "Systematic ID", "Name", "n_annotated_members"])
 
 
 def test_build_groups_respects_min_and_max_size():
@@ -50,20 +50,20 @@ def test_build_groups_drops_group_over_max_size():
 def test_build_groups_keeps_group_at_exact_boundaries():
     from compute_coherence import build_groups
     bg = _background([f"g{i}" for i in range(10)])
-    # 3 DR-members == min_group_size (kept); n_group_genes == max_term_genes (kept, filter uses >)
+    # 3 DR-members == min_group_size (kept); n_annotated_members == max_term_genes (kept, filter uses >)
     long = _long([("go_cc", "GO:6", "edge", f"g{i}", f"g{i}", 500) for i in range(3)])
     groups = build_groups(bg, long, min_group_size=3, max_group_size=300, max_term_genes=500)
     assert "GO:6" in groups
 
 
-def test_compute_coherence_table_adds_bh_fdr_column():
-    """compute_coherence_table emits a p_fdr column that is a valid BH lift of p_value.
+def test_compute_coherence_table_adds_q_value_column():
+    """compute_coherence_table emits a q_value column that is a valid BH lift of the p-value.
 
-    Benjamini-Hochberg is monotone and >= the raw p, so every p_fdr must be in
-    [p_value, 1]. We build a few groups over a real background point cloud so the
-    permutation test runs end-to-end.
+    Benjamini-Hochberg is monotone and >= the raw p, so every q_value must be in
+    [median_pairwise_distance_p, 1]. We build a few groups over a real background
+    point cloud so the permutation test runs end-to-end.
     """
-    from compute_coherence import build_groups, compute_coherence_table
+    from compute_coherence import build_groups, compute_coherence_table, group_annotations
 
     ids = [f"g{i}" for i in range(40)]
     bg = _background(ids)
@@ -76,15 +76,26 @@ def test_compute_coherence_table_adds_bh_fdr_column():
     groups = build_groups(bg, long, min_group_size=3, max_group_size=300, max_term_genes=500)
     points = bg[["norm_DR", "norm_DL"]].to_numpy(dtype=float)
     index = {gid: i for i, gid in enumerate(bg["Systematic ID"])}
-    table = compute_coherence_table(groups, points, index, n_permutations=200, random_state=42)
+    annotations = group_annotations(long, features=None)
+    n_measured = {"GO:1": 4, "GO:2": 2}  # GO:3 has no measured member -> 0
+    table = compute_coherence_table(
+        groups, points, index, n_permutations=200, random_state=42, annotations=annotations,
+        n_measured=n_measured,
+    )
 
-    assert "p_fdr" in table.columns
+    assert "q_value" in table.columns
+    assert "frac_shared_members" in table.columns
     assert len(table) == 3
+    # The funnel columns: annotated >= measured (>= scored) per group.
+    assert table.set_index("group_id")["n_measured_members"].to_dict() == {
+        "GO:1": 4, "GO:2": 2, "GO:3": 0,
+    }
+    assert (table["n_annotated_members"] >= table["n_measured_members"]).all()
     # BH-adjusted q is never below the raw p and never above 1.
-    assert (table["p_fdr"] >= table["p_value"] - 1e-12).all()
-    assert (table["p_fdr"] <= 1.0 + 1e-12).all()
+    assert (table["q_value"] >= table["median_pairwise_distance_p"] - 1e-12).all()
+    assert (table["q_value"] <= 1.0 + 1e-12).all()
     # The add-one p floor propagates: no q collapses to exactly 0.
-    assert (table["p_value"] > 0).all()
+    assert (table["median_pairwise_distance_p"] > 0).all()
 
 
 def test_load_fitting_results_drops_inf_rows(tmp_path):

@@ -17,5 +17,9 @@ dependencies:
   - pyyaml
   - pip
   - pyarrow
+  # scipy.sparse.csgraph powers coherence/deduplicate_terms.py's redundancy graph.
+  # goatools drags scipy in transitively, but that is an accident of goatools'
+  # deps, not a contract — declare it directly.
+  - scipy
   - pip:
     - codon-bias>=0.3.5

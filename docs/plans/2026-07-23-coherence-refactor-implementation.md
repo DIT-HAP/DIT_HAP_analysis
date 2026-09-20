@@ -1,5 +1,9 @@
 # Coherence Refactor Implementation Plan
 
+> ⚠️ **列名已过时**（2026-09-20）：本文中的 `n_group_genes` / `term_size` / `covered_genes` /
+> `centroid_x` 等列名已在 `docs/plans/2026-09-20-coherence-schema-rename.md` 中重命名，
+> 规则文件也已改名为 `3a_coherence.smk`。本文保留为当时的决策记录，不再更新。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Split `complex.smk` into a clearer `coherence.smk` stage that fans out by annotation **source** (`go_macrocomplex` / `go_cc` / `go_bp`), decoupled from clustering, so new grouping databases are added by writing one adapter + one config line.

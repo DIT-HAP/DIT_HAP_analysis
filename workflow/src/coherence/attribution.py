@@ -22,27 +22,36 @@ but none of the above signals is left as `intrinsic_heterogeneity` for manual re
 
 Pure functions over arrays / the coherence long table; no IO.
 """
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 from __future__ import annotations
 
 from collections.abc import Iterable
 
+# 2. Data Processing Imports
 import numpy as np
 import pandas as pd
+
+# 3. Third-party Imports
 from sklearn.metrics import silhouette_score
 from sklearn.mixture import GaussianMixture
 
+
+# =============================================================================
+# GLOBAL CONSTANTS
+# =============================================================================
 GMM_RANDOM_STATE = 42
 MIN_N_FOR_GMM = 6            # need enough points for a 2-cluster split to be meaningful
 SILHOUETTE_SPLIT_MIN = 0.5   # >= this = a real 2-subgroup split (major/minor)
 
 
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
 def major_minor_split(X: np.ndarray) -> dict:
-    """Fit 2-component GMM to normalized DR-DL; report whether members split core/minor.
-
-    Returns silhouette, per-component sizes, the tighter component's index ("core"),
-    and a boolean is_split (silhouette high enough to call a genuine major/minor split).
-    Returns is_split=False with reason for n<MIN_N_FOR_GMM.
-    """
+    """Fit a 2-component GMM to normalized DR-DL and report whether they split core/minor."""
     n = X.shape[0]
     if n < MIN_N_FOR_GMM:
         return {"is_split": False, "reason": f"n<{MIN_N_FOR_GMM}", "silhouette": np.nan,
@@ -73,51 +82,97 @@ def major_minor_split(X: np.ndarray) -> dict:
     }
 
 
-def shared_subunits(long_table: pd.DataFrame, group_id: str) -> pd.DataFrame:
-    """For one group, list members that also belong to OTHER groups of the same table.
+def member_pairs(long_table: pd.DataFrame) -> pd.DataFrame:
+    """Unique (source, group_id, Systematic ID) membership rows."""
+    # Sharing is per SOURCE: a gene in a go_cc term and a go_bp term belongs to two
+    # different groupings, not to two alternative descriptions of one complex, so
+    # cross-source membership must not read as a shared subunit. Every coherence
+    # stage is in fact called with a single source's long-table already (one
+    # `group_annotation_long.tsv` per source), which makes this free — it only
+    # bites if someone passes the combined all-sources table.
+    #
+    # `source` is synthesized as "" for callers whose table lacks the column, so the
+    # grouping keys are the same shape either way.
+    if "source" in long_table.columns:
+        return long_table[["source", "group_id", "Systematic ID"]].drop_duplicates()
+    return long_table[["group_id", "Systematic ID"]].drop_duplicates().assign(source="")
 
-    long_table: a single source's coherence long-table (contract columns
-    group_id, group_name, "Systematic ID"). Returns one row per shared member with
-    the count + names of the OTHER groups it participates in, sorted by that count
-    (empty df if none shared). Keyed on the stable `group_id`, matching the
-    coherence long-table contract.
-    """
+
+def member_degrees(long_table: pd.DataFrame) -> pd.Series:
+    """Per (source, gene), how many distinct group_ids contain it."""
+    # The definition behind every shared-subunit number in this repo: a member is
+    # "shared" exactly when its degree within its source is > 1.
+    pairs = member_pairs(long_table)
+    return pairs.groupby(["source", "Systematic ID"])["group_id"].nunique()
+
+
+def shared_subunit_fractions(long_table: pd.DataFrame) -> dict[str, float]:
+    """Return {group_id: fraction of members that also belong to >=1 other group}."""
+    # One pass for every group at once, which is what the compute stage wants: the
+    # per-group loop this replaces scans the whole table per group, and go_bp's
+    # 120k-row table with 3.7k groups made that cost ~40s.
+    pairs = member_pairs(long_table)
+    degrees = member_degrees(long_table).rename("degree")
+    annotated = pairs.merge(
+        degrees, left_on=["source", "Systematic ID"], right_index=True, how="left"
+    )
+    shared = annotated[annotated["degree"] > 1]
+
+    n_shared = shared.groupby(["source", "group_id"])["Systematic ID"].nunique()
+    n_members = annotated.groupby(["source", "group_id"])["Systematic ID"].nunique()
+    ratios = n_shared.reindex(n_members.index).fillna(0) / n_members
+    return {group_id: float(value) for (_source, group_id), value in ratios.items()}
+
+
+def shared_subunits(long_table: pd.DataFrame, group_id: str) -> pd.DataFrame:
+    """List one group's members that also belong to OTHER groups of the same source."""
+    # `long_table` is a single source's coherence long-table (contract columns
+    # group_id, group_name, "Systematic ID").
+    #
+    # "Other" is keyed on the stable `group_id` and scoped to the member's own
+    # source (see `member_pairs`), matching how `sources.py` dedups and how the
+    # compute stage forms groups. Two distinct term IDs can share a group_name, and
+    # keying on the name instead would make a member of such a pair read as
+    # unshared. The reported `other_groups` stays a list of NAMES (that is what a
+    # reader wants to see), so `n_other_groups` counts distinct other names; only
+    # the membership test is ID-keyed.
     cols = ["Systematic ID", "n_other_groups", "other_groups"]
-    members = set(long_table.loc[long_table["group_id"] == group_id, "Systematic ID"])
+    candidates = member_pairs(long_table)
+    if "source" in long_table.columns:
+        group_source = long_table.loc[long_table["group_id"] == group_id, "source"]
+        if group_source.empty:
+            return pd.DataFrame(columns=cols)
+        candidates = candidates[candidates["source"] == group_source.iloc[0]]
+
+    members = set(candidates.loc[candidates["group_id"] == group_id, "Systematic ID"])
     if not members:
         return pd.DataFrame(columns=cols)
-    sub = long_table[long_table["Systematic ID"].isin(members)].drop_duplicates(
-        ["group_id", "Systematic ID"]
+    sub = (
+        candidates.loc[
+            candidates["Systematic ID"].isin(members), ["group_id", "Systematic ID"]
+        ]
+        .merge(
+            long_table[["group_id", "group_name"]].drop_duplicates("group_id"),
+            on="group_id", how="left",
+        )
+        .drop_duplicates(["group_id", "Systematic ID"])
     )
-    rows = []
-    for gene, grp in sub.groupby("Systematic ID"):
-        others = sorted(set(grp["group_name"]) - set(
-            long_table.loc[long_table["group_id"] == group_id, "group_name"]
-        ))
-        if others:
-            rows.append({"Systematic ID": gene, "n_other_groups": len(others),
-                         "other_groups": "; ".join(others)})
-    if not rows:
+    sub = sub[sub["group_id"] != group_id]
+    if sub.empty:
         return pd.DataFrame(columns=cols)
+    other_names = sub.groupby("Systematic ID")["group_name"].agg(lambda names: sorted(set(names)))
+    rows = [
+        {"Systematic ID": gene, "n_other_groups": len(names), "other_groups": "; ".join(names)}
+        for gene, names in other_names.items()
+    ]
     return pd.DataFrame(rows).sort_values("n_other_groups", ascending=False)
 
 
-def shared_fraction(long_table: pd.DataFrame, group_id: str) -> float:
-    """Fraction of a group's members that are shared with >=1 other group."""
-    members = set(long_table.loc[long_table["group_id"] == group_id, "Systematic ID"])
-    if not members:
-        return np.nan
-    shared = set(shared_subunits(long_table, group_id)["Systematic ID"])
-    return len(shared) / len(members)
-
-
 def paralog_fraction(members: Iterable[str], paralog_ids: set[str]) -> float:
-    """Fraction of `members` that have >=1 paralog (present in paralog_ids).
-
-    A high paralog fraction flags a group whose members' deletion phenotypes may be
-    buffered by redundant paralogs (dampened DR), a candidate incoherence cause.
-    Returns NaN for an empty member set.
-    """
+    """Fraction of `members` that have >=1 paralog (present in paralog_ids)."""
+    # A high paralog fraction flags a group whose members' deletion phenotypes may
+    # be buffered by redundant paralogs (dampened DR), a candidate incoherence
+    # cause.
     members = list(members)
     if not members:
         return np.nan
@@ -131,19 +186,17 @@ def attribute_incoherence(
     shared_frac_threshold: float = 0.5,
     paralog_frac_threshold: float = 0.5,
 ) -> str:
-    """Combine the diagnostics into a single attribution label (priority ladder).
-
-    Priority, most-specific/structural first:
-      1. major/minor GMM split AND high shared fraction -> `conditional_module`
-         (a distinct sub-module that is also cross-shared, e.g. CLRC's shared CRL4
-         scaffold + the dispensable heterochromatin-silencing module);
-      2. major/minor GMM split alone -> `major_minor_split`;
-      3. high shared fraction alone -> `shared_subunits`;
-      4. high paralog fraction -> `paralog_buffered`;
-      5. too few members to have fit a GMM -> `data_limited`;
-      6. otherwise -> `intrinsic_heterogeneity` (real spread, no detected cause;
-         may also be an annotation/technical artefact — flagged for manual review).
-    """
+    """Combine the diagnostics into a single attribution label (priority ladder)."""
+    # Priority, most-specific/structural first:
+    #   1. major/minor GMM split AND high shared fraction -> `conditional_module`
+    #      (a distinct sub-module that is also cross-shared, e.g. CLRC's shared CRL4
+    #      scaffold + the dispensable heterochromatin-silencing module);
+    #   2. major/minor GMM split alone -> `major_minor_split`;
+    #   3. high shared fraction alone -> `shared_subunits`;
+    #   4. high paralog fraction -> `paralog_buffered`;
+    #   5. too few members to have fit a GMM -> `data_limited`;
+    #   6. otherwise -> `intrinsic_heterogeneity` (real spread, no detected cause;
+    #      may also be an annotation/technical artefact — flagged for manual review).
     is_split = bool(split.get("is_split"))
     high_shared = pd.notna(shared_frac) and shared_frac >= shared_frac_threshold
     high_paralog = pd.notna(paralog_frac) and paralog_frac >= paralog_frac_threshold

@@ -34,13 +34,18 @@ wildcard_constraints:
 #
 #   1  data plausibility + reference layer          (1a pcr_qc, 1b features, 1c annotate)
 #   2  characterisation that does not need clusters (2a coverage, 2b verification)
-#   3  clustering and what depends on it
+#   3  group-level analysis in fitness space        (3a coherence)
+#
+# The clustering block and everything downstream of it (enrichment, ml, ...) are
+# still unprefixed in both places; they take the next free chapter when they do.
 #
 # Every prefixed stage carries the same prefix into results/, so `ls results/`
 # reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
 # results/1b_features/, results/1c_annotation/ (the stage noun — the rule file is
-# the verb), results/2a_coverage/, results/2b_verification/. The later stages
-# (clustering, enrichment, ml, ...) have no prefix in either place yet.
+# the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/.
+# The prefix stops at the rule file and the results/logs directories: the script
+# and library directories keep the unprefixed stage name (workflow/scripts/
+# coherence/, workflow/src/coherence/).
 #
 # Included in prefix order. clustering.smk must stay ahead of enrichment /
 # ml / comparison — they call its selected_variant() / final_clusters_path();
@@ -50,13 +55,13 @@ include: "workflow/rules/1b_features.smk"
 include: "workflow/rules/1c_annotate.smk"
 include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/2b_verification.smk"
+include: "workflow/rules/3a_coherence.smk"
 include: "workflow/rules/clustering.smk"
 include: "workflow/rules/enrichment.smk"
 include: "workflow/rules/enrichment_network.smk"
 include: "workflow/rules/ml.smk"
 include: "workflow/rules/noncoding_rna.smk"
 include: "workflow/rules/comparison.smk"
-include: "workflow/rules/coherence.smk"
 include: "workflow/rules/utr.smk"
 include: "workflow/rules/domain_differences.smk"
 
@@ -75,6 +80,9 @@ include: "workflow/rules/domain_differences.smk"
 _REF = DATASETS["reference"]["pombase_version"]
 _DATASET = DATASETS["default_dataset"]
 _SELECTED_VARIANT = config["clustering"]["selected_variant"]
+# Coherence fans out by grouping database; its figures are one set PER source, so
+# rule all has to expand over this rather than name one folder.
+_COHERENCE_SOURCES = config["coherence"].get("sources", ["go_macrocomplex", "go_cc", "go_bp"])
 
 rule all:
     input:
@@ -115,9 +123,20 @@ rule all:
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        f"results/coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        f"results/3a_coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        # Per-source coherence figures — one coherence overview + one named-group
+        # scatter grid per registered source (3 sources = 6 figures + their
+        # .review.png siblings). Every one of these is source-specific, so they do
+        # NOT belong in a single folder; the cross-source tables above are the
+        # dataset-level products.
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/coherence.pdf",
+               source=_COHERENCE_SOURCES),
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/group_scatter.pdf",
+               source=_COHERENCE_SOURCES),
         # Incoherence attribution (why complexes are dispersed) for physical-complex sources:
-        expand(f"results/coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
+               source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.pdf",
                source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",

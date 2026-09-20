@@ -18,7 +18,7 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
 VER_DIR = REPO / "results/verification/HD_DIT_HAP"
-COH_TSV = REPO / "results/coherence/HD_DIT_HAP/coherence_metrics_all_namespaces.tsv"
+COH_TSV = REPO / "results/3a_coherence/HD_DIT_HAP/coherence_metrics_all_namespaces.tsv"
 
 FLIP_OUTCOMES = {"flip_V2E", "flip_E2V"}
 
@@ -54,9 +54,9 @@ def main() -> None:
     # overlay D1 coherence (median-pairwise z) so a flip-heavy group can be read against
     # whether it's DR-DL coherent — the [X] closed loop's core comparison. Only groups
     # in D1's 3..300 size window get a coherence_z; broad root terms are left NaN.
-    zc = "median_pairwise_distance_zscore"
+    zc = "median_pairwise_distance_z"
     summary = summary.merge(
-        coh[["group_type", "group_id", zc, "term_size"]].rename(columns={zc: "coherence_z", "term_size": "coherence_term_size"}),
+        coh[["group_type", "group_id", zc, "n_scored_members"]].rename(columns={zc: "coherence_z", "n_scored_members": "coherence_n_scored_members"}),
         on=["group_type", "group_id"], how="left",
     )
 

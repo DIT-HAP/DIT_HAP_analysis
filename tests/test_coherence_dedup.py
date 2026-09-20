@@ -10,8 +10,8 @@ import pandas as pd
 import pytest
 
 from deduplicate_terms import (
-    UnionFind,
-    overlap_coefficient,
+    member_set,
+    jaccard_index,
     candidate_pairs,
     build_clusters,
     deduplicate,
@@ -20,16 +20,24 @@ from deduplicate_terms import (
 
 
 # --- primitives -------------------------------------------------------------
-def test_overlap_coefficient_nested_is_one():
-    """A subset nested in a superset has overlap coefficient 1.0 (the GO parent/child case)."""
+def test_jaccard_index_does_not_reward_mere_containment():
+    """A subset nested in a superset scores |child|/|parent|, NOT 1.0.
+
+    This is the property that motivated dropping the overlap coefficient, whose
+    min() denominator scored ANY contained term 1.0. GO propagation makes
+    containment ubiquitous, so that connected the whole redundancy graph: 2,097
+    terms collapsed into 2 clusters once every source spelled genes with the same
+    identifier. Pinned here so it cannot regress unnoticed.
+    """
     parent = {"a", "b", "c", "d"}
-    child = {"a", "b"}
-    assert overlap_coefficient(parent, child) == 1.0
-    assert overlap_coefficient(set(), child) == 0.0
+    assert jaccard_index(parent, {"a", "b"}) == pytest.approx(0.5)
+    assert jaccard_index(parent, {"a"}) == pytest.approx(0.25)
+    assert jaccard_index(parent, parent) == 1.0
+    assert jaccard_index(set(), {"a"}) == 0.0
 
 
-def test_overlap_coefficient_partial():
-    assert overlap_coefficient({"a", "b", "c"}, {"b", "c", "d"}) == pytest.approx(2 / 3)
+def test_jaccard_index_partial():
+    assert jaccard_index({"a", "b", "c"}, {"b", "c", "d"}) == pytest.approx(2 / 4)
 
 
 def test_candidate_pairs_matches_bruteforce():
@@ -44,24 +52,42 @@ def test_candidate_pairs_matches_bruteforce():
     assert (2, 3) not in got  # {x,y} shares nothing with {c}
 
 
-def test_union_find_transitive():
-    """A-B and B-C unions put A, B, C in one set even though A,C never met directly."""
-    uf = UnionFind(4)
-    uf.union(0, 1)
-    uf.union(1, 2)
-    groups = uf.groups()
-    assert len(groups) == 2  # {0,1,2} and {3}
-    roots = {uf.find(0), uf.find(1), uf.find(2)}
-    assert len(roots) == 1
-    assert uf.find(3) not in roots
+def test_member_set_rejects_comma_joined_string():
+    """scored_member_names is a LIST column now; a joined string would split into characters.
+
+    The old TSV intermediate stored "a, b, c" and parsing it back was the reason
+    for the join/parse round-trip. Now that the column is a real list, a string
+    reaching here is a bug, and iterating it would silently produce {'a', 'b',
+    ',', ' '} — so it raises instead.
+    """
+    assert member_set(["a", "b"]) == {"a", "b"}
+    assert member_set(None) == set()
+    assert member_set(float("nan")) == set()
+    with pytest.raises(TypeError, match="list column"):
+        member_set("a, b, c")
 
 
 # --- clustering -------------------------------------------------------------
 def _sub(rows):
-    """rows: list of (group_id, covered_genes-space-set). Minimal cols for build_clusters."""
+    """rows: list of (group_id, scored_member_names list). Minimal cols for build_clusters."""
     return pd.DataFrame(
-        [{"group_id": gid, "covered_genes": ", ".join(sorted(genes))} for gid, genes in rows]
+        [{"group_id": gid, "scored_member_names": sorted(genes)} for gid, genes in rows]
     )
+
+
+def test_build_clusters_is_transitive():
+    """A-B and B-C merges leave A, B, C in one cluster even though A and C never match."""
+    sub = _sub([
+        ("GO:1", {"a", "b", "c", "d"}),
+        ("GO:2", {"a", "b", "c", "e"}),   # 3/4 with GO:1
+        ("GO:3", {"a", "b", "c", "f"}),   # 3/4 with both, disjoint-ish otherwise
+        ("GO:4", {"x", "y", "z"}),        # disjoint from all
+    ])
+    labels = build_clusters(sub, threshold=0.5, merge_dag_lineage=False, ancestors={})
+    assert labels[0] == labels[1] == labels[2]
+    assert labels[3] != labels[0]
+    # dense labels numbered by first appearance, which the output sort keys on
+    assert sorted(labels) == [0, 0, 0, 1]
 
 
 def test_build_clusters_merges_high_overlap():
@@ -107,7 +133,8 @@ def test_build_clusters_lineage_off_keeps_low_overlap_separate():
 
 # --- orchestration: representative selection --------------------------------
 def _combined(rows):
-    """rows: dicts with source, group_id, group_name, term_size, covered_genes, z_score, p_fdr."""
+    """rows: dicts with source, group_id, group_name, n_scored_members, scored_member_names,
+    median_pairwise_distance_z, q_value."""
     return pd.DataFrame(rows)
 
 
@@ -120,14 +147,14 @@ def _cfg(tmp_path, **kw):
 
 
 def test_deduplicate_picks_best_qvalue_representative(tmp_path):
-    """Within a redundant cluster the min-p_fdr term is the representative; all rows kept."""
+    """Within a redundant cluster the min-q_value term is the representative; all rows kept."""
     table = _combined([
-        {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "term_size": 200,
-         "covered_genes": "a, b, c, d", "z_score": -5.0, "p_fdr": 0.05},
-        {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "term_size": 20,
-         "covered_genes": "a, b, c, e", "z_score": -7.0, "p_fdr": 0.01},  # best q
-        {"source": "go_cc", "group_id": "GO:9", "group_name": "other", "term_size": 5,
-         "covered_genes": "x, y, z", "z_score": -3.0, "p_fdr": 0.2},
+        {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "n_scored_members": 200,
+         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value": 0.05},
+        {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "n_scored_members": 20,
+         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value": 0.01},  # best q
+        {"source": "go_cc", "group_id": "GO:9", "group_name": "other", "n_scored_members": 5,
+         "scored_member_names": ["x", "y", "z"], "median_pairwise_distance_z": -3.0, "q_value": 0.2},
     ])
     depth = {"GO:1": 3, "GO:2": 6, "GO:9": 4}
     ancestors = {"GO:1": set(), "GO:2": set(), "GO:9": set()}
@@ -144,10 +171,10 @@ def test_deduplicate_picks_best_qvalue_representative(tmp_path):
 def test_deduplicate_force_representative_overrides(tmp_path):
     """A forced group_id becomes its cluster's representative even with a worse q."""
     table = _combined([
-        {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "term_size": 200,
-         "covered_genes": "a, b, c, d", "z_score": -5.0, "p_fdr": 0.05},
-        {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "term_size": 20,
-         "covered_genes": "a, b, c, e", "z_score": -7.0, "p_fdr": 0.01},
+        {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "n_scored_members": 200,
+         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value": 0.05},
+        {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "n_scored_members": 20,
+         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value": 0.01},
     ])
     depth = {"GO:1": 3, "GO:2": 6}
     ancestors = {"GO:1": set(), "GO:2": set()}
@@ -161,8 +188,9 @@ def test_deduplicate_force_representative_overrides(tmp_path):
 def test_deduplicate_exactly_one_representative_per_cluster(tmp_path):
     """Every cluster has exactly one representative row."""
     table = _combined([
-        {"source": "go_bp", "group_id": f"GO:{i}", "group_name": f"g{i}", "term_size": 10,
-         "covered_genes": "a, b, c" if i < 3 else "x, y, z", "z_score": -float(i), "p_fdr": 0.01 * (i + 1)}
+        {"source": "go_bp", "group_id": f"GO:{i}", "group_name": f"g{i}", "n_scored_members": 10,
+         "scored_member_names": ["a", "b", "c"] if i < 3 else ["x", "y", "z"],
+         "median_pairwise_distance_z": -float(i), "q_value": 0.01 * (i + 1)}
         for i in range(6)
     ])
     depth = {f"GO:{i}": 5 for i in range(6)}
@@ -175,10 +203,10 @@ def test_deduplicate_exactly_one_representative_per_cluster(tmp_path):
 def test_deduplicate_per_source_scope_keeps_sources_separate(tmp_path):
     """per_source scope never merges identical-member terms across sources."""
     table = _combined([
-        {"source": "go_cc", "group_id": "GO:X", "group_name": "SSU", "term_size": 41,
-         "covered_genes": "a, b, c", "z_score": -5.86, "p_fdr": 0.016},
-        {"source": "go_macrocomplex", "group_id": "GO:X", "group_name": "SSU", "term_size": 41,
-         "covered_genes": "a, b, c", "z_score": -5.86, "p_fdr": 0.031},
+        {"source": "go_cc", "group_id": "GO:X", "group_name": "SSU", "n_scored_members": 41,
+         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value": 0.016},
+        {"source": "go_macrocomplex", "group_id": "GO:X", "group_name": "SSU", "n_scored_members": 41,
+         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value": 0.031},
     ])
     depth = {"GO:X": 4}
     ancestors = {"GO:X": set()}

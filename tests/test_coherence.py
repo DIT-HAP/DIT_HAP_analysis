@@ -45,13 +45,62 @@ def test_geometric_median_robust_to_outlier():
     assert gm[0] < 2.0  # stays near the cluster of 3, not pulled toward 100
 
 
-def test_coherence_metrics_returns_centroid_and_distance_keys():
-    """coherence_metrics exposes the centroid + the median_pairwise_distance axis."""
+def test_coherence_metrics_returns_geomedian_and_pairwise_distance_keys():
+    """coherence_metrics exposes the geometric median + the pairwise-distance stat block.
+
+    These are the columns compute_coherence.py writes per group, and their names
+    are the estimands: `geom_median_*` is the Weiszfeld geometric median (not a
+    centroid), and each `*_pairwise_distance` is a reduction over the pdist
+    matrix.
+    """
     points = np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.866], [0.5, -0.866]])
     result = coherence_metrics(points)
-    # main's richer key set — the ones Task 6's coherence axis depends on.
-    for key in ("centroid_x", "centroid_y", "median_pairwise_distance"):
+    for key in ("geom_median_DR", "geom_median_DL", "median_pairwise_distance",
+                "mean_pairwise_distance", "std_pairwise_distance",
+                "min_pairwise_distance", "max_pairwise_distance"):
         assert key in result
+    assert (result["min_pairwise_distance"] <= result["median_pairwise_distance"]
+            <= result["max_pairwise_distance"])
+
+
+def test_compute_distance_zscores_matches_per_method_calls():
+    """Merging several methods into ONE permutation pass must not move any number.
+
+    The merged pass seeds the rng once and scores every method on the same draws,
+    which is exactly the sequence of draws each single-method call would make on
+    its own. Equality is asserted exactly, not approximately — a shared pairwise
+    distance matrix must not perturb the arithmetic.
+    """
+    from workflow.src.coherence.metrics import compute_distance_zscores
+
+    rng = np.random.default_rng(7)
+    bg = rng.standard_normal((300, 2))
+    for methods in (
+        ["median_pairwise_distance", "mean_pairwise_distance"],
+        ["mean_knn_distance", "median_pairwise_distance"],
+        ["mean_distance_to_centroid", "median_distance_to_centroid"],
+    ):
+        X = rng.standard_normal((12, 2))
+        merged = compute_distance_zscores(X, bg, methods, n_permutations=200, random_state=42)
+        for method in methods:
+            separate = compute_distance_zscore(
+                X, bg, method=method, n_permutations=200, random_state=42
+            )
+            assert merged[method] == separate, f"{method} moved when merged"
+
+
+def test_compute_distance_zscores_deduplicates_repeated_methods():
+    """Asking for the same method twice scores it once and reports it once."""
+    from workflow.src.coherence.metrics import compute_distance_zscores
+
+    rng = np.random.default_rng(11)
+    bg = rng.standard_normal((100, 2))
+    X = bg[:5]
+    merged = compute_distance_zscores(
+        X, bg, ["median_pairwise_distance", "median_pairwise_distance"],
+        n_permutations=50, random_state=42,
+    )
+    assert list(merged) == ["median_pairwise_distance"]
 
 
 def test_compute_distance_zscore_returns_z_and_p_tuple():

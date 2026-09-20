@@ -37,12 +37,12 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from workflow.src.coherence.metrics import geometric_median, normalize_dr_dl
+from workflow.src.coherence.metrics import geometric_median
 
 # Paths
 base = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis/.claude/worktrees/followup-analysis-expansion")
 results = base / "results/verification/HD_DIT_HAP"
-coherence_dir = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis/results/coherence/HD_DIT_HAP")
+coherence_dir = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis/results/3a_coherence/HD_DIT_HAP")
 
 # (1) Load A2 summary: groups × verification outcomes
 summary = pd.read_csv(results / "verified_group_summary.tsv", sep="\t")
@@ -54,7 +54,8 @@ print(f"[closed_loop_groups] {len(targets)} target groups (coherent z<-1 AND fli
 
 # (3) Load D1 coherence aggregates
 coh_agg = pd.read_csv(coherence_dir / "coherence_metrics_all_namespaces.tsv", sep="\t")
-coh_agg = coh_agg[["group_type", "group_id", "group_name", "covered_genes", "centroid_x", "centroid_y"]]
+coh_agg = coh_agg[["group_type", "group_id", "group_name", "scored_member_names",
+                    "geom_median_DR", "geom_median_DL"]]
 
 # (4) Load A1 verification table: gene → outcome + DR/DL
 verification = pd.read_csv(
@@ -83,26 +84,26 @@ long_target = long_target.merge(
     how="left"
 )
 
-# (8) Compute per-gene distance to group centroid
-def compute_distances(group_df, centroid_x, centroid_y):
-    """Add distance to centroid for each gene."""
+# (8) Compute per-gene distance to the group geometric median
+def compute_distances(group_df, geom_median_DR, geom_median_DL):
+    """Add distance to the group geometric median for each gene."""
     dr_norm = group_df["DR"].values / 1.0
     dl_norm = group_df["DL"].values / 10.0
-    centroid = np.array([centroid_x, centroid_y])
+    location = np.array([geom_median_DR, geom_median_DL])
 
     distances = []
     for dr_n, dl_n in zip(dr_norm, dl_norm):
         point = np.array([dr_n, dl_n])
-        dist = np.linalg.norm(point - centroid)
+        dist = np.linalg.norm(point - location)
         distances.append(dist)
 
     group_df = group_df.copy()
-    group_df["distance_to_centroid"] = distances
+    group_df["distance_to_geom_median"] = distances
     return group_df
 
-# Join centroids
+# Join geometric medians
 long_target = long_target.merge(
-    coh_agg[["group_type", "group_name", "centroid_x", "centroid_y"]],
+    coh_agg[["group_type", "group_name", "geom_median_DR", "geom_median_DL"]],
     on=["group_type", "group_name"],
     how="left"
 )
@@ -110,8 +111,8 @@ long_target = long_target.merge(
 # Compute distances per group
 result_chunks = []
 for (gtype, gname), group_df in long_target.groupby(["group_type", "group_name"]):
-    cx = group_df["centroid_x"].iloc[0]
-    cy = group_df["centroid_y"].iloc[0]
+    cx = group_df["geom_median_DR"].iloc[0]
+    cy = group_df["geom_median_DL"].iloc[0]
     if pd.notna(cx) and pd.notna(cy):
         group_df = compute_distances(group_df, cx, cy)
     result_chunks.append(group_df)
@@ -125,8 +126,8 @@ def enrichment_stats(group_df):
     """Compute flip enrichment at coherence boundary."""
     flip_mask = group_df["outcome"].str.startswith("flip_", na=False)
 
-    flip_dist = group_df.loc[flip_mask, "distance_to_centroid"].dropna()
-    nonflip_dist = group_df.loc[~flip_mask, "distance_to_centroid"].dropna()
+    flip_dist = group_df.loc[flip_mask, "distance_to_geom_median"].dropna()
+    nonflip_dist = group_df.loc[~flip_mask, "distance_to_geom_median"].dropna()
 
     if len(flip_dist) < 2 or len(nonflip_dist) < 2:
         return pd.Series({
@@ -138,7 +139,7 @@ def enrichment_stats(group_df):
 
     delta = flip_dist.mean() - nonflip_dist.mean()
 
-    # Enrichment signal: flip genes further from centroid?
+    # Enrichment signal: flip genes further from the geometric median?
     if delta > 0.05:  # arbitrary threshold, 5% of normalized space
         signal = "flip_peripheral"
     elif delta < -0.05:
@@ -177,14 +178,14 @@ print(f"[closed_loop_genes_long] ({long_target.shape[0]}, {long_target.shape[1]}
 print(f"\n=== enrichment signal distribution ===")
 print(targets_out["enrichment_signal"].value_counts())
 
-print(f"\n=== top 10 flip_peripheral groups (flip genes furthest from centroid) ===")
+print(f"\n=== top 10 flip_peripheral groups (flip genes furthest from the geometric median) ===")
 peripheral = targets_out[targets_out["enrichment_signal"] == "flip_peripheral"].sort_values("distance_delta", ascending=False).head(10)
 if len(peripheral) > 0:
     print(peripheral[["group_type", "group_name", "n_flip", "coherence_z", "distance_delta"]].to_string(index=False))
 else:
     print("(none)")
 
-print(f"\n=== top 10 flip_central groups (flip genes closest to centroid) ===")
+print(f"\n=== top 10 flip_central groups (flip genes closest to the geometric median) ===")
 central = targets_out[targets_out["enrichment_signal"] == "flip_central"].sort_values("distance_delta").head(10)
 if len(central) > 0:
     print(central[["group_type", "group_name", "n_flip", "coherence_z", "distance_delta"]].to_string(index=False))

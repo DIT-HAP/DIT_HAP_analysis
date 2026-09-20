@@ -99,7 +99,7 @@ comparison:
   gRNA_data_file: "resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv"
   clip_upper: 200            # cap for integration-density columns (byte-faithful to notebook)
 
-# --- Coherence of gene groups in DR-DL fitness space (coherence.smk) ---
+# --- Coherence of gene groups in DR-DL fitness space (3a_coherence.smk) ---
 # Per (dataset x source): for every group (GO complex / CC / BP term) whose
 # DR<dr_threshold members (negative DR = depleted, sign flipped 2026-09-17) number
 # min..max AND whose total annotated size is
@@ -116,16 +116,36 @@ coherence:
   dr_threshold: -0.3
   n_permutations: 1000
   random_state: 42
-  features_panels: true
+  features_panels: true            # add the abundance/conservation uniformity columns
+  # FDR-vs-coherence panel: which groups get named. A group must be significant
+  # (q <= fdr_panel_q_max) to be named at the coherent end; the incoherent end is
+  # selected by z alone because the one-sided coherence p-value leaves every
+  # incoherent group with q near 1. Then the top `fdr_panel_label_quantile` share of
+  # each end is named, capped at `fdr_panel_label_max` per side.
+  fdr_panel_q_max: 0.05
+  fdr_panel_label_quantile: 0.05
+  fdr_panel_label_max: 5
   scatter_groups:
     go_macrocomplex: [kinetochore, "mitochondrial large ribosomal subunit"]
     go_cc: []
     go_bp: []
-  # Redundancy reduction (display layer; full-set p_fdr is untouched). Terms are
-  # clustered by member-gene overlap (+ optional GO DAG lineage), one
+  # Redundancy reduction (display layer; full-set q_value is untouched). Terms are
+  # clustered by member-gene similarity (+ optional GO DAG lineage), one
   # representative kept per cluster; the full cluster is retained + flagged.
-  dedup_overlap_threshold: 0.5      # overlap-coefficient cutoff to call two terms redundant
-  dedup_merge_dag_lineage: true     # also merge member-sharing ancestor/descendant pairs
+  # Jaccard |A∩B|/|A∪B|, NOT the overlap coefficient |A∩B|/min(|A|,|B|): with min()
+  # any term contained in a larger one scores 1.0, and since GO propagation makes
+  # containment ubiquitous the redundancy graph became one blob (2,097 terms -> 2
+  # clusters). 0.5 is calibrated on the resulting cluster count under Jaccard.
+  dedup_jaccard_threshold: 0.5
+  # OFF by default. The lineage rule unites any member-sharing ancestor/descendant
+  # pair, and GO propagation guarantees every term shares members with all of its
+  # ancestors, so transitivity chains the entire DAG into one cluster: with it on,
+  # 2,046 of 2,097 terms land in a single cluster and the similarity threshold
+  # stops mattering (0.5 -> 0.9 moves the max cluster 2046 -> 1966). It looked
+  # harmless under the old overlap coefficient only because that metric had
+  # already merged every nested pair first. Turn it back on only alongside a
+  # rule that merges single parent/child steps rather than the whole ancestor set.
+  dedup_merge_dag_lineage: false
   dedup_scope: pooled               # "pooled" (collapse across sources) | "per_source"
   dedup_force_representatives: []    # group_ids you hand-pick as their cluster's representative
   # Incoherence attribution: diagnose WHY a complex is dispersed (major/minor split,
@@ -133,7 +153,7 @@ coherence:
   attribution_sources: [go_macrocomplex]  # sources to attribute (major/minor & shared-subunit are meaningful for physical complexes)
   attribution_z_threshold: 0.0       # z_score above this = incoherent
   attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
-  attribution_shared_frac_threshold: 0.5   # shared_fraction >= this -> shared-subunit label
+  attribution_shared_frac_threshold: 0.5   # frac_shared_members >= this -> shared-subunit label
   attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label
 
 # --- Per-gene annotation reference + annotated tables (1c_annotate.smk) ---

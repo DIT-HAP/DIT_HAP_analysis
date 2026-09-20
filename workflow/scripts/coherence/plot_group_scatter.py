@@ -8,43 +8,48 @@ Generic Config-Driven Per-Group Scatter Visualization
 Per-dataset x source: given a config namelist of term/complex names-or-ids,
 draws one feature-space subplot per resolved group — background gene cloud +
 that group's members highlighted, annotated with group_name (group_id),
-n_members, and the group's coherence z_score/p_value. Replaces the hardcoded
+n_members, and the group's coherence median_pairwise_distance_z/_p. Replaces the hardcoded
 module-visualization logic from analyze_complex_modules.py; now driven by the
-generic long-table + coherence metrics TSVs produced by prepare_annotation.py
+generic long-table + coherence metrics tables produced by prepare_annotation.py
 and compute_coherence.py.
+
+The panel used to come from plotting.gene_level.plot_given_genes_on_feature_space.
+That helper is still used by the clustering figures, so it stays; this script
+draws the same picture with cns.scatterplot instead, which lets the house style
+own the styling and drops two defects the helper carried — a gaussian_kde call
+whose result was thrown away (a pure "will this raise?" probe) and a bare
+`except Exception` that silently recoloured the subset red.
 
 Input
 -----
-- fitting_results.tsv: the upstream per-gene fitting statistics, systematic id
-  as the index (column 0), with DR/DL fitness columns. Legacy releases may still
-  ship the pre-rename um/lam headers -> normalized to DR/DL. Only the systematic
-  id + DR/DL are read here.
+- fitting_results.tsv: the upstream per-gene fitting statistics (see
+  coherence/io.py::load_fitting_results). Only the systematic id and DR/DL are read.
 - group_annotation_long.tsv: the prepared unified long-table from
-  prepare_annotation.py (one row per group-member), with the contract columns
-  (source, group_id, group_name, Systematic ID, Name, n_group_genes). Maps
-  groups -> member genes.
-- coherence_metrics.tsv: per-group coherence results from compute_coherence.py,
-  with at least (source, group_id, group_name, z_score, p_value).
+  prepare_annotation.py, with the contract columns in
+  coherence/sources.py::LONG_TABLE_COLUMNS. Maps groups -> member genes.
+- coherence_metrics.parquet: per-group coherence results from compute_coherence.py,
+  with at least (source, group_id, group_name, median_pairwise_distance_z,
+  median_pairwise_distance_p).
 
 Output
 ------
 - group_scatter.pdf: one feature-space subplot per resolved group from the
-  config namelist, annotated with coherence metrics. Empty namelist -> single
-  placeholder "No groups resolved" panel.
+  config namelist, annotated with coherence metrics (+ a .review.png sibling via
+  save_dual). Empty namelist -> single placeholder "No groups resolved" panel.
 
 Usage
 -----
     python plot_group_scatter.py \\
         --fitting-results .../fitting_results.tsv \\
-        --annotation results/coherence/{dataset}/{source}/group_annotation_long.tsv \\
-        --metrics results/coherence/{dataset}/{source}/coherence_metrics.tsv \\
+        --annotation results/3a_coherence/{dataset}/{source}/group_annotation_long.tsv \\
+        --metrics results/3a_coherence/{dataset}/{source}/coherence_metrics.parquet \\
         --source go_cc \\
         --groups "['kinetochore', 'GO:0000776']" \\
-        --output-figure results/coherence/{dataset}/{source}/group_scatter.pdf
+        --output-figure results/3a_coherence/{dataset}/{source}/group_scatter.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
-Version:  2.0.0
+Version:  3.0.0
 """
 
 # =============================================================================
@@ -53,53 +58,55 @@ Version:  2.0.0
 # 1. Standard Library Imports
 import argparse
 import ast
+import math
 import sys
 from pathlib import Path
 
 # 2. Data Processing Imports
+import cnsplots as cns
 import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib
-
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from plotting.gene_level import plot_given_genes_on_feature_space  # noqa: E402
-# Single-panel figure size, as matplotlib defines it at import — the house style
-# is applied later, inside run(), so this is the stock value the retired
-# plotting.style constant of the same name also captured. Kept local rather than
-# imported from figures.py: that module imports cnsplots, which not every rule
-# that uses it runs with.
-AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
+from coherence.io import load_fitting_results, load_long_table  # noqa: E402
+from figures import (  # noqa: E402
+    FURNITURE_COLOR,
+    PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    house_colors,
+    panel_labels,
+    save_dual,
+)
+from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
 
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
+_MAX_COLUMNS = 3
+
+# Panels are SQUARE; a 100 px box fits about 25 characters at the house title
+# size, so the title is split across three short lines rather than one long one.
+_TITLE_NAME_WIDTH = 22
 
 
 # =============================================================================
-# HELPERS
+# CORE LOGIC
 # =============================================================================
 def parse_groups_arg(raw: str, source: str) -> list[str]:
-    """Parse the --groups argument into a namelist for the given source.
-
-    Snakemake renders a config list/dict via str(), so it arrives as a Python
-    literal (single quotes) rather than strict JSON — ast.literal_eval handles
-    both. Accepts BOTH:
-    - a list → use directly as the namelist for source;
-    - a dict → take parsed.get(source, []).
-    Empty/missing → empty list (script writes a placeholder figure and exits 0).
-    """
+    """Parse the --groups argument into a namelist for the given source."""
+    # Snakemake renders the config list through json.dumps, but accept a Python
+    # literal too: ast.literal_eval handles both. A list is used directly as the
+    # namelist for `source`; a dict is looked up as parsed.get(source, []).
+    # Empty/missing -> empty list (script writes a placeholder figure and exits 0).
     raw = (raw or "").strip()
     if not raw:
         return []
@@ -113,65 +120,18 @@ def parse_groups_arg(raw: str, source: str) -> list[str]:
 
     if isinstance(parsed, list):
         return [str(x) for x in parsed]
-    elif isinstance(parsed, dict):
+    if isinstance(parsed, dict):
         return [str(x) for x in parsed.get(source, [])]
-    else:
-        raise ValueError(f"--groups must be a list or dict, got {type(parsed).__name__}")
-
-
-def load_fitting_results(fitting_results_path: Path) -> pd.DataFrame:
-    """Load upstream fitting_results.tsv, normalizing legacy um/lam -> DR/DL columns.
-
-    The systematic id is the INDEX (column 0), matching how
-    workflow/src/clustering/candidates.py reads it; we reset it to a
-    `Systematic ID` column (robust to whatever the index was named). Matches
-    the loading approach in compute_coherence.py::load_fitting_results.
-    """
-    fitting = pd.read_csv(fitting_results_path, sep="\t", index_col=0)
-    fitting = fitting.reset_index()
-    # After reset_index the id column keeps the index's name (e.g. "Systematic ID",
-    # "gene_systematic_id", or "index" if the index was unnamed). Normalize it.
-    if "Systematic ID" not in fitting.columns:
-        first_col = fitting.columns[0]
-        logger.info(f"Renaming fitting_results index column '{first_col}' -> 'Systematic ID'")
-        fitting = fitting.rename(columns={first_col: "Systematic ID"})
-
-    rename = {
-        old: new
-        for old, new in LEGACY_METRIC_RENAME.items()
-        if old in fitting.columns and new not in fitting.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        fitting = fitting.rename(columns=rename)
-
-    for required in ["Systematic ID", "DR", "DL"]:
-        if required not in fitting.columns:
-            raise ValueError(f"fitting_results.tsv missing required column '{required}' (have: {list(fitting.columns)})")
-
-    # Map +/-inf to NaN before dropna so non-finite DR/DL never reach the
-    # feature-space scatter (dropna alone keeps +/-inf).
-    return fitting.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
-
-
-def load_long_table(annotation_path: Path) -> pd.DataFrame:
-    """Load the prepared unified long-table (group -> member genes)."""
-    annotation = pd.read_csv(annotation_path, sep="\t")
-    for required in ["source", "group_id", "group_name", "Systematic ID"]:
-        if required not in annotation.columns:
-            raise ValueError(
-                f"annotation missing required column '{required}' (have: {list(annotation.columns)})"
-            )
-    return annotation
+    raise ValueError(f"--groups must be a list or dict, got {type(parsed).__name__}")
 
 
 def load_metrics(metrics_path: Path) -> pd.DataFrame:
-    """Load coherence metrics TSV."""
-    metrics = pd.read_csv(metrics_path, sep="\t")
-    for required in ["group_id", "z_score", "p_value"]:
+    """Load the coherence metrics table and check the columns the titles need."""
+    metrics = read_parquet(metrics_path)
+    for required in ["group_id", "median_pairwise_distance_z", "median_pairwise_distance_p"]:
         if required not in metrics.columns:
             raise ValueError(
-                f"metrics TSV missing required column '{required}' (have: {list(metrics.columns)})"
+                f"metrics table missing required column '{required}' (have: {list(metrics.columns)})"
             )
     return metrics
 
@@ -179,16 +139,10 @@ def load_metrics(metrics_path: Path) -> pd.DataFrame:
 def resolve_groups(
     long_table: pd.DataFrame, source: str, names: list[str]
 ) -> list[tuple[str, str, list[str]]]:
-    """Resolve a config namelist to (group_id, group_name, sorted member Systematic IDs).
-
-    For each entry in `names`, match rows where `group_name == entry` OR
-    `group_id == entry` within the given source. If an entry matches multiple
-    group_ids (same name), include each distinct group_id. Skip entries with no
-    match (don't error). De-dup members within a group.
-
-    Returns:
-        List of (group_id, group_name, sorted_member_ids) tuples.
-    """
+    """Resolve a config namelist to (group_id, group_name, sorted member Systematic IDs)."""
+    # Each entry matches on `group_name` OR `group_id` within the source; an entry
+    # matching several group_ids (same name) contributes each distinct group_id,
+    # and an entry matching nothing is skipped rather than an error.
     source_table = long_table[long_table["source"] == source]
     resolved = []
     for name in names:
@@ -213,79 +167,77 @@ def resolve_groups(
     return resolved
 
 
-# =============================================================================
-# PLOTTING
-# =============================================================================
+def metrics_caption(metrics_row: pd.Series | None) -> str:
+    """The metrics half of a panel title, preferring the FDR-corrected q."""
+    # Groups missing from the metrics table did not survive the size filter, and
+    # say so rather than showing a number that was never computed.
+    if metrics_row is None:
+        return "not scored"
+    q_value = metrics_row.get("q_value", np.nan)
+    if pd.notna(q_value):
+        return f"z={metrics_row['median_pairwise_distance_z']:.2f}, q={q_value:.3g}"
+    return (f"z={metrics_row['median_pairwise_distance_z']:.2f}, "
+            f"p={metrics_row['median_pairwise_distance_p']:.3g}")
+
+
+def panel_title(group_id: str, group_name: str, n_members: int, metrics_row: pd.Series | None) -> str:
+    """Panel title: name, id, member count, and the coherence metrics."""
+    # Three lines, not one: a one-line "name (id), n=..., z=..." runs to ~37
+    # characters and overflows the panel, colliding with the panel label beside it.
+    name = group_name if len(group_name) <= _TITLE_NAME_WIDTH else group_name[: _TITLE_NAME_WIDTH - 1] + "…"
+    return f"{name}\n({group_id}), n={n_members}\n{metrics_caption(metrics_row)}"
+
+
 def plot_group_scatter_figure(
     fitting_df: pd.DataFrame,
     resolved_groups: list[tuple[str, str, list[str]]],
     metrics_df: pd.DataFrame,
-) -> plt.Figure:
-    """One feature-space subplot per resolved group, annotated with coherence metrics.
+) -> None:
+    """One feature-space panel per resolved group, annotated with coherence metrics."""
+    # Each panel: the genome-wide background cloud in furniture grey with the
+    # group's members over it. An empty namelist draws a single placeholder.
+    apply_house_style()
 
-    Each panel: background gene cloud + group's members highlighted, titled with
-    group_name (group_id), n_members, and z_score/p_value from metrics_df.
-    Groups missing from metrics (didn't survive size filter) show "z=NA, p=NA".
-    Empty resolved_groups -> single placeholder "No groups resolved" axis.
-    """
-    n = max(len(resolved_groups), 1)
-    col_num = min(3, n)
-    row_num = int(np.ceil(n / col_num))
-
-    fig, axes = plt.subplots(row_num, col_num, figsize=(AX_WIDTH * col_num, AX_HEIGHT * row_num))
-    axes = np.atleast_1d(axes).flatten()
+    n_panels = max(len(resolved_groups), 1)
+    n_cols = min(_MAX_COLUMNS, n_panels)
+    n_rows = math.ceil(n_panels / n_cols)
+    # Every panel draws the same DR/DL space, so they must share both ranges:
+    # autoscaled panels make a tight group and a sprawled one look identical, which
+    # is the one thing these panels exist to distinguish. grid_axes drops the
+    # interior tick labels once the range is shared, so the comparison reads cleanly.
+    axes = grid_axes(
+        n_rows, n_cols, labels=panel_labels(n_panels), shape=PanelShape.SQUARE,
+        share_x=True, share_y=True,
+    )
+    for ax in axes[n_panels:]:
+        # grid_axes fills every cell; fit_panels measures only visible axes, so
+        # the unfilled ones must be hidden (not just deleted) to be discounted.
+        ax.set_visible(False)
 
     if not resolved_groups:
         axes[0].text(
             0.5, 0.5, "No groups resolved from config namelist",
-            ha="center", va="center", fontsize=14, transform=axes[0].transAxes
+            ha="center", va="center", transform=axes[0].transAxes,
         )
-        axes[0].set_xticks([])
-        axes[0].set_yticks([])
-        for j in range(1, len(axes)):
-            fig.delaxes(axes[j])
-        fig.tight_layout()
-        return fig
+        axes[0].set_axis_off()
+        fit_panels()
+        return
 
-    # Precompute metrics lookup (O(1) per group)
-    metrics_dict = {row["group_id"]: row for _, row in metrics_df.iterrows()}
+    member_color = house_colors((0,))[0]
+    scored = metrics_df.set_index("group_id")
+    for ax, (group_id, group_name, members) in zip(axes, resolved_groups):
+        cns.scatterplot(fitting_df, "DR", "DL", ax=ax, color=FURNITURE_COLOR, legend=False)
+        highlighted = fitting_df[fitting_df["Systematic ID"].isin(members)]
+        cns.scatterplot(highlighted, "DR", "DL", ax=ax, color=member_color, legend=False)
 
-    for idx, (group_id, group_name, members) in enumerate(resolved_groups):
-        # Look up coherence metrics
-        metrics_row = metrics_dict.get(group_id)
-        if metrics_row is not None:
-            z_score = metrics_row["z_score"]
-            p_value = metrics_row["p_value"]
-            # Prefer the FDR-corrected q where available (metrics tables written
-            # after the p_fdr addition); fall back to raw p for older tables.
-            if "p_fdr" in metrics_row and pd.notna(metrics_row["p_fdr"]):
-                metrics_str = f"z={z_score:.2f}, q={metrics_row['p_fdr']:.3g}"
-            else:
-                metrics_str = f"z={z_score:.2f}, p={p_value:.3g}"
-        else:
-            metrics_str = "z=NA, p=NA"
-
-        title = f"{group_name} ({group_id})\nn={len(members)}, {metrics_str}"
-
-        plot_given_genes_on_feature_space(
-            ax=axes[idx],
-            data_df=fitting_df,
-            genes=members,
-            gene_column="Systematic ID",
-            title=title,
-            x_feature="DR",
-            y_feature="DL",
-            cmap="#9D343C",
-            label=group_name,
-            title_with_count=False,  # we include count in title ourselves
-            s=40,
+        metrics_row = scored.loc[group_id] if group_id in scored.index else None
+        ax.set(
+            xlabel="DR",
+            ylabel="DL",
+            title=panel_title(group_id, group_name, len(members), metrics_row),
         )
 
-    for j in range(len(resolved_groups), len(axes)):
-        fig.delaxes(axes[j])
-
-    fig.tight_layout()
-    return fig
+    fit_panels()
 
 
 # =============================================================================
@@ -301,7 +253,6 @@ def run(
     output_figure: Path,
 ) -> None:
     """Load -> resolve groups -> plot feature-space figure + write PDF."""
-    # Validate inputs
     for path in [fitting_results, annotation, metrics]:
         if not path.exists():
             raise ValueError(f"Required input not found: {path}")
@@ -314,11 +265,8 @@ def run(
     resolved = resolve_groups(long_table, source, groups)
     logger.info(f"Resolved {len(resolved)} groups from namelist of {len(groups)} entries")
 
-    fig = plot_group_scatter_figure(fitting_df, resolved, metrics_df)
-    with PdfPages(output_figure) as pdf:
-        pdf.savefig(fig, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
+    plot_group_scatter_figure(fitting_df, resolved, metrics_df)
+    save_dual(output_figure.with_suffix(""))
     logger.success(f"Wrote {output_figure}")
 
 
@@ -332,7 +280,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fitting-results", type=Path, required=True, help="fitting_results.tsv")
     parser.add_argument("--annotation", type=Path, required=True, help="group_annotation_long.tsv")
-    parser.add_argument("--metrics", type=Path, required=True, help="coherence_metrics.tsv")
+    parser.add_argument("--metrics", type=Path, required=True, help="coherence_metrics.parquet")
     parser.add_argument("--source", type=str, required=True, help="Source name (e.g. go_cc)")
     parser.add_argument(
         "--groups", type=str, default="",
