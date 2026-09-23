@@ -21,6 +21,8 @@ Input
   rows are drawn, and the label counts come from all of them.
 - incoherence_split_points.parquet: one row per member of every incoherent group
   (group_id, Systematic ID, norm_DR, norm_DL, component).
+- fitting_results.tsv: the upstream per-gene table, drawn as a genome-wide
+  background cloud behind every panel and used to fix the panels' axis ranges.
 
 Output
 ------
@@ -31,6 +33,7 @@ Usage
     python plot_incoherence_attribution.py \\
         --table results/3a_coherence/{dataset}/go_macrocomplex/incoherence_attribution.tsv \\
         --points results/3a_coherence/{dataset}/go_macrocomplex/incoherence_split_points.parquet \\
+        --fitting-results .../gene_level/fitting_results.tsv \\
         --top-n-plot 16 \\
         --output results/3a_coherence/{dataset}/go_macrocomplex/incoherence_attribution.pdf
 
@@ -70,6 +73,7 @@ from figures import (  # noqa: E402
     panel_labels,
     save_dual,
 )
+from coherence.io import load_fitting_results  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -95,6 +99,19 @@ _REQUIRED_TABLE_COLUMNS = ["group_id", "group_name", "median_pairwise_distance_z
                            "is_incoherent", "attribution_label"]
 _REQUIRED_POINT_COLUMNS = ["group_id", "norm_DR", "norm_DL", "component"]
 
+# The genome-wide cloud behind each panel's own points. Same marker size as the
+# highlighted genes — a smaller one made the cloud read as a different kind of
+# object rather than as the same measurement in context — and light enough that a
+# few thousand overlapping markers stay a background.
+_BACKGROUND_SIZE = 7
+_BACKGROUND_LIGHT_GREY = "#c9c9c9"
+_BACKGROUND_ALPHA = 0.45
+
+# Floor for the DL axis. Most genes sit at exactly DL = 0, so an axis that ends at 0
+# cuts every one of those markers in half against the frame; the panels start a
+# little below the data instead. DR has no such pile-up, so only y is padded.
+_DL_FLOOR = -0.05
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -104,12 +121,13 @@ class PlotConfig:
     """Inputs, outputs, and parameters for the attribution figure."""
     table: Path
     points: Path
+    fitting_results: Path
     output: Path
     top_n_plot: int = 16
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing or params invalid, then make output dirs."""
-        for path in [self.table, self.points]:
+        for path in [self.table, self.points, self.fitting_results]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         if self.top_n_plot < 1:
@@ -145,7 +163,27 @@ def _panel_title(row: pd.Series) -> str:
     return f"{name}\n{stats}\n[{row['attribution_label']}]"
 
 
-def plot_attribution(table: pd.DataFrame, points: pd.DataFrame, top_n: int) -> None:
+def shared_limits(
+    background: pd.DataFrame, points: pd.DataFrame
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """The (x, y) ranges every scatter panel is pinned to: the genome's own."""
+    # Every panel draws the same DR-DL space, so a group that is tight and one that
+    # is sprawled must render on one common frame — otherwise the same 20 genes
+    # look identical in both. The range comes from the background cloud, which is
+    # the whole fitted genome and therefore contains every group's members too, so
+    # no panel is ever cropped.
+    stacked = pd.concat(
+        [frame[["norm_DR", "norm_DL"]] for frame in (background, points) if not frame.empty]
+    )
+    return (
+        (float(stacked["norm_DR"].min()), float(stacked["norm_DR"].max())),
+        (min(float(stacked["norm_DL"].min()), _DL_FLOOR), float(stacked["norm_DL"].max())),
+    )
+
+
+def plot_attribution(
+    table: pd.DataFrame, points: pd.DataFrame, background: pd.DataFrame, top_n: int
+) -> None:
     """Draw the attribution figure onto a fresh house-styled grid."""
     # The leading square panel and the square `.review.png` sibling come from
     # `save_dual`, called by the caller. No incoherent groups renders a single
@@ -173,6 +211,7 @@ def plot_attribution(table: pd.DataFrame, points: pd.DataFrame, top_n: int) -> N
 
     colors = component_colors()
     palette = [colors[component] for component in _COMPONENT_ORDER]
+    x_limits, y_limits = shared_limits(background, points)
 
     for index, (_, row) in enumerate(incoherent.iterrows()):
         group_points = points[points["group_id"] == row["group_id"]]
@@ -181,6 +220,11 @@ def plot_attribution(table: pd.DataFrame, points: pd.DataFrame, top_n: int) -> N
             ax.text(0.5, 0.5, "No fitted members", ha="center", va="center", transform=ax.transAxes)
             ax.set_axis_off()
         else:
+            if not background.empty:
+                cns.scatterplot(
+                    background, "norm_DR", "norm_DL", ax=ax, color=_BACKGROUND_LIGHT_GREY,
+                    s=_BACKGROUND_SIZE, alpha=_BACKGROUND_ALPHA, legend=False,
+                )
             cns.scatterplot(
                 group_points, "norm_DR", "norm_DL",
                 hue="component", hue_order=_COMPONENT_ORDER,
@@ -188,6 +232,8 @@ def plot_attribution(table: pd.DataFrame, points: pd.DataFrame, top_n: int) -> N
             )
             ax.set_xlabel("norm DR")
             ax.set_ylabel("norm DL/10")
+            ax.set_xlim(*x_limits)
+            ax.set_ylim(*y_limits)
         ax.set_title(_panel_title(row))
 
     # Label-frequency panel: a plain count bar. cns.barplot aggregates a mean per
@@ -214,14 +260,15 @@ def run(config: PlotConfig) -> None:
         missing = [col for col in _REQUIRED_POINT_COLUMNS if col not in points.columns]
         if missing:
             raise ValueError(f"split points missing required column(s) {missing} (have: {list(points.columns)})")
+    background = load_fitting_results(config.fitting_results)[["norm_DR", "norm_DL"]]
 
     n_incoherent = int(table["is_incoherent"].sum()) if not table.empty else 0
     logger.info(
         f"{len(table):,} groups, {n_incoherent:,} incoherent, {len(points):,} split points; "
-        f"drawing top {min(config.top_n_plot, n_incoherent)}"
+        f"{len(background):,} background genes; drawing top {min(config.top_n_plot, n_incoherent)}"
     )
 
-    plot_attribution(table, points, config.top_n_plot)
+    plot_attribution(table, points, background, config.top_n_plot)
     save_dual(config.output.with_suffix(""))
     logger.success(f"Wrote {config.output}")
 
@@ -234,6 +281,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot the incoherence attribution figure")
     parser.add_argument("--table", type=Path, required=True, help="incoherence_attribution.tsv")
     parser.add_argument("--points", type=Path, required=True, help="incoherence_split_points.parquet")
+    parser.add_argument("--fitting-results", type=Path, required=True,
+                        help="Upstream fitting_results.tsv, the genome-wide background cloud")
     parser.add_argument("--top-n-plot", type=int, default=16, help="How many top-incoherent groups to scatter")
     parser.add_argument("--output", type=Path, required=True, help="Output attribution figure PDF")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -248,6 +297,7 @@ def main() -> int:
         config = PlotConfig(
             table=args.table,
             points=args.points,
+            fitting_results=args.fitting_results,
             output=args.output,
             top_n_plot=args.top_n_plot,
         )

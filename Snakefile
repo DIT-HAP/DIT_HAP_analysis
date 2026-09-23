@@ -124,6 +124,12 @@ rule all:
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
         f"results/3a_coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        # The de-duplication audit pages (Altair + pyvis, ~1-3 MB). The per-source
+        # interactive scatter page is deliberately NOT here: it embeds every
+        # (term, member) row in the source, which is 58k rows for go_bp, so it is
+        # built on demand for the source you are reading.
+        f"results/3a_coherence/{_DATASET}/redundancy_network.html",
+        f"results/3a_coherence/{_DATASET}/redundancy_overview.html",
         # Per-source coherence figures — one coherence overview + one named-group
         # scatter grid per registered source (3 sources = 6 figures + their
         # .review.png siblings). Every one of these is source-specific, so they do

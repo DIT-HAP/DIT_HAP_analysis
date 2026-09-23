@@ -14,5 +14,12 @@ dependencies:
   - pyarrow
   - pytest>=9.0
   - loguru
+  # Interactive HTML figures (plot_interactive_scatter.py, plot_redundancy_network.py).
+  # They reuse this env rather than adding one of their own: both read the house
+  # palette out of workflow/src/figures.py, so one env keeps one source of truth for
+  # the colours, and none of these conflicts with the plotting stack.
+  - altair>=5.4,<7
+  - networkx>=3.3,<4
+  - pyvis>=0.3.2,<0.4
   - pip:
     - cnsplots==0.7.0

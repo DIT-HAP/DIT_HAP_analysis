@@ -41,6 +41,10 @@
 #                                     attribution_sources subset.
 #   plot_coherence_attribution     -> incoherence_attribution.pdf (renders the persisted split points)
 #   plot_coherence_group_scatter   -> group_scatter.pdf (named groups from config)
+#   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; term picker
+#                                     + per-gene tooltips over the genome-wide cloud)
+#   plot_coherence_redundancy_network  -> redundancy_network.html (Altair; the merge
+#                                     backbone of each redundancy cluster, edge = Jaccard)
 #
 # Data-format rule: per-stage intermediates are Parquet (exact dtypes survive
 # round-trip); only the final human-facing artifacts (dedup + attribution tables)
@@ -273,6 +277,12 @@ rule plot_coherence_attribution:
     input:
         table=lambda wc: f"results/3a_coherence/{wc.dataset}/{wc.source}/incoherence_attribution.tsv",
         points=lambda wc: f"results/3a_coherence/{wc.dataset}/{wc.source}/incoherence_split_points.parquet",
+        # The genome-wide cloud behind every panel, and what fixes the panels' shared
+        # axis ranges — the same upstream table the attribution itself was computed from.
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
     output:
         figure=f"{_COH}/incoherence_attribution.pdf",
         preview=f"{_COH}/incoherence_attribution.review.png",
@@ -289,6 +299,7 @@ rule plot_coherence_attribution:
         python workflow/scripts/coherence/plot_incoherence_attribution.py \
             --table {input.table} \
             --points {input.points} \
+            --fitting-results {input.fitting_results} \
             --top-n-plot {params.top_n_plot} \
             --output {output.figure} &> {log}
         """
@@ -326,4 +337,66 @@ rule plot_coherence_group_scatter:
             --source {wildcards.source} \
             --groups '{params.groups}' \
             --output-figure {output.figure} &> {log}
+        """
+
+
+# --- Interactive HTML (Altair) ----------------------------------------------
+# These two emit .html rather than the .pdf + .review.png pair, and neither goes
+# through figures.py's save_dual(). They are exploration tools, not figure
+# panels: one page per source for the scatter, one page per dataset for the
+# network, each with a dropdown and hover tooltips.
+#
+# The scatter page embeds every (term, member) row in the source, which is 1.6k
+# rows for go_macrocomplex but 58k for go_bp — a browser-loadable but heavy page.
+# It is therefore NOT in `rule all`: build it for the source you are looking at
+# (`snakemake --use-conda results/3a_coherence/<dataset>/go_cc/interactive_scatter.html`).
+# The network page is a few tens of kilobytes, so it is a default target.
+
+rule plot_coherence_interactive_scatter:
+    input:
+        metrics=f"{_COH}/coherence_metrics.parquet",
+        annotation=f"{_COH}/group_annotation_long.tsv",
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+    output:
+        page=f"{_COH}/interactive_scatter.html",
+    log:
+        "logs/3a_coherence/interactive_scatter_{dataset}_{source}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Writing the interactive scatter for {wildcards.dataset} × {wildcards.source}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_interactive_scatter.py \
+            --metrics {input.metrics} \
+            --annotation {input.annotation} \
+            --fitting-results {input.fitting_results} \
+            --source {wildcards.source} \
+            --output {output.page} &> {log}
+        """
+
+
+rule plot_coherence_redundancy_network:
+    input:
+        combined=f"results/3a_coherence/{{dataset}}/coherence_metrics_combined.parquet",
+        deduplicated=f"results/3a_coherence/{{dataset}}/coherence_terms_deduplicated.tsv",
+    output:
+        page="results/3a_coherence/{dataset}/redundancy_network.html",
+        overview="results/3a_coherence/{dataset}/redundancy_overview.html",
+    log:
+        "logs/3a_coherence/redundancy_network_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Writing the redundancy network for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_redundancy_network.py \
+            --combined {input.combined} \
+            --deduplicated {input.deduplicated} \
+            --output {output.page} \
+            --output-overview {output.overview} &> {log}
         """

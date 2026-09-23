@@ -238,7 +238,7 @@ def test_attribution_layout_is_clean():
          "component": "core" if j % 2 else "minor"}
         for i in range(17) for j in range(6)
     ])
-    plot_attribution(table, points, top_n=16)
+    plot_attribution(table, points, _background_cloud(), top_n=16)
     assert_layout_is_clean(plt.gcf())
     plt.close("all")
 
@@ -250,9 +250,51 @@ def test_attribution_layout_is_clean_with_no_incoherent_groups():
         "group_id": ["GO:1"], "group_name": ["n"], "median_pairwise_distance_z": [-1.0],
         "is_incoherent": [False], "attribution_label": ["intrinsic_heterogeneity"],
     })
-    plot_attribution(table, pd.DataFrame(columns=["group_id", "norm_DR", "norm_DL", "component"]), top_n=16)
+    plot_attribution(
+        table,
+        pd.DataFrame(columns=["group_id", "norm_DR", "norm_DL", "component"]),
+        _background_cloud(),
+        top_n=16,
+    )
     assert_layout_is_clean(plt.gcf())
     plt.close("all")
+
+
+def test_attribution_panels_share_both_axes():
+    """Every panel draws the same DR-DL space, so all of them must be pinned to it."""
+    from plot_incoherence_attribution import plot_attribution
+
+    table = pd.DataFrame({
+        "group_id": [f"GO:{i:07d}" for i in range(3)],
+        "group_name": [f"complex {i}" for i in range(3)],
+        "median_pairwise_distance_z": [3.0, 2.0, 1.0],
+        "is_incoherent": [True] * 3,
+        "attribution_label": ["data_limited"] * 3,
+    })
+    # One group hugging the origin and one far out: autoscaled panels would render
+    # them identically, which is the defect this pins down.
+    points = pd.DataFrame([
+        {"group_id": "GO:0000000", "Systematic ID": "a", "norm_DR": -0.10, "norm_DL": 0.01, "component": "core"},
+        {"group_id": "GO:0000000", "Systematic ID": "b", "norm_DR": -0.12, "norm_DL": 0.02, "component": "core"},
+        {"group_id": "GO:0000001", "Systematic ID": "c", "norm_DR": -1.80, "norm_DL": 0.90, "component": "core"},
+        {"group_id": "GO:0000001", "Systematic ID": "d", "norm_DR": -1.70, "norm_DL": 0.85, "component": "core"},
+        {"group_id": "GO:0000002", "Systematic ID": "e", "norm_DR": -0.90, "norm_DL": 0.40, "component": "core"},
+        {"group_id": "GO:0000002", "Systematic ID": "f", "norm_DR": -0.80, "norm_DL": 0.45, "component": "core"},
+    ])
+    plot_attribution(table, points, _background_cloud(), top_n=16)
+    fig = plt.gcf()
+
+    scatter_panels = [ax for ax in fig.axes if ax.get_title().startswith(("complex", "GO:"))]
+    assert len(scatter_panels) == 3
+    limits = {(tuple(ax.get_xlim()), tuple(ax.get_ylim())) for ax in scatter_panels}
+    assert len(limits) == 1, f"scatter panels do not share one range: {limits}"
+    plt.close("all")
+
+
+def _background_cloud() -> pd.DataFrame:
+    """A gene-cloud frame with the two columns the attribution panels draw."""
+    return pd.DataFrame({"norm_DR": np.linspace(-2.0, 0.1, 50),
+                         "norm_DL": np.linspace(0.0, 0.9, 50)})
 
 
 # --- FDR panel: label selection and de-overlapping --------------------------
@@ -296,22 +338,29 @@ def test_labelled_extremes_ignores_fdr_on_the_incoherent_side():
     assert labelled_extremes(table, "incoherent", 1.0, 0.05, 2)["median_pairwise_distance_z"].tolist() == [3.0, 2.0]
 
 
-def test_spread_positions_keeps_the_gap_and_the_range():
-    from plot_coherence import spread_positions
+def test_place_label_avoids_a_point_it_could_cover():
+    """A label is pushed clear of a drawn point when another candidate is free."""
+    from plot_coherence import box_for, place_label
 
-    spread = spread_positions([0.10, 0.11, 0.12, 0.50], low=0.0, high=1.0, gap=0.1)
-    assert spread == sorted(spread)
-    assert all(b - a >= 0.1 - 1e-9 for a, b in zip(spread, spread[1:]))
-    assert 0.0 <= spread[0] and spread[-1] <= 1.0
+    point = (0.9, 0.2)          # the label's own point, right of centre -> text leftwards
+    blocker = [(0.8, 0.2)]      # a point sitting exactly where the nearest candidate lands
+    anchor_x, anchor_y, to_the_left = place_label(
+        point, width=0.3, height=0.1, band=(0.02, 0.98), occupied=[], points=blocker
+    )
+    box = box_for(anchor_x, anchor_y, 0.3, 0.1, to_the_left)
+    assert not (box[0] <= 0.8 <= box[1] and box[2] <= 0.2 <= box[3])
 
 
-def test_spread_positions_relaxes_the_gap_when_labels_cannot_fit():
-    """Ten labels cannot hold a 0.2 gap inside a unit span; they must still fit."""
-    from plot_coherence import spread_positions
+def test_place_label_keeps_its_box_inside_the_axes():
+    from plot_coherence import box_for, place_label
 
-    spread = spread_positions([0.5] * 10, low=0.0, high=1.0, gap=0.2)
-    assert spread[0] >= 0.0 and spread[-1] <= 1.0
-    assert spread == sorted(spread)
+    for point in [(0.02, 0.1), (0.5, 0.5), (0.98, 0.9)]:
+        anchor_x, anchor_y, to_the_left = place_label(
+            point, width=0.35, height=0.1, band=(0.02, 0.98), occupied=[], points=[]
+        )
+        box = box_for(anchor_x, anchor_y, 0.35, 0.1, to_the_left)
+        assert 0.0 <= box[0] and box[1] <= 1.0, f"box escapes the axes for point {point}: {box}"
+        assert 0.0 <= box[2] and box[3] <= 1.0, f"box escapes the axes for point {point}: {box}"
 
 
 def test_fdr_label_text_does_not_overlap():

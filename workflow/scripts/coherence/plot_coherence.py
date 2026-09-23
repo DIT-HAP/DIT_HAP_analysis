@@ -130,6 +130,21 @@ _BIOLOGY_LETTERS = ("D", "E", "F")
 # cns.palettes() because it is not registered with matplotlib's cmap registry.
 _DIVERGING_CMAP = "BuRd_custom"
 
+# Half-range of the diverging colour scale, as a percentile of |z|.
+#
+# Scaling the map to max|z| is what made the panel look washed out: the z
+# distribution is strongly asymmetric (median -1.5, |z| p98 ~3.2, but the tail
+# runs to 6), so a symmetric +/-6 range spends most of its span on a handful of
+# points and paints the bulk of the groups within half a step of the white
+# midpoint. Clipping at a high percentile keeps the colour range where the data
+# actually is; the colourbar's end triangles still say the tails were clipped.
+_PANEL_C_PERCENTILE = 98.0
+
+# Blended alpha for the centroid points. Below 1 the white midpoint of the
+# diverging map lets the page through and washes out again, which is the second
+# half of the same problem; the grey hairline outline still separates overlaps.
+_PANEL_C_ALPHA = 1.0
+
 # --- FDR-vs-coherence panel -------------------------------------------------
 # x is -log10(q), not q: q spans 0.02..1 with a median near 0.1, so a linear axis
 # crushes every interesting point against the left edge, and the significance
@@ -173,16 +188,20 @@ _FDR_Q_FLOOR = 1e-12
 _FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 159, 159
 _FDR_MARGIN_RIGHT = 14
 
-# Labels sit INSIDE the axes, in the two empty quadrants of the S curve, with a leader
-# line back to the point. Both columns meet at the same mid-panel x: the incoherent
-# points (upper left) take their text rightwards into the upper-right gap, the coherent
-# points (lower right) take theirs leftwards into the lower-left one. Placing them
-# outside the frame instead would need a wide margin and drag every leader across the
-# data.
+# Labels sit INSIDE the axes, anchored beside their OWN point (a short leader),
+# and are placed by scoring a grid of candidate anchors and keeping the cheapest.
 #
-# Each column is confined to its own quadrant so the two never share a y band, and the
-# stack gap is computed from the wrapped line count — a fixed gap overlaps as soon as a
-# name needs three lines.
+# No single fixed rule places them: the same end's points sit at the left edge in
+# one panel and the right in the other (q and -log10(q) order the x axis in
+# opposite directions), so which side has room, and how far a label must travel to
+# clear the curve, flips between the two. A shared mid-panel column — the previous
+# approach — made every leader as long as its point sat far from the column, and in
+# panel G those leaders ran the width of the panel and crossed the data.
+#
+# Scoring counts drawn points and already-placed labels inside a candidate's
+# estimated footprint, so a label lands in white space with a leader no longer than
+# it has to be. The y bands stay disjoint between the two ends, so they cannot
+# collide with each other whatever the search picks.
 #
 # The two vertical metrics are DERIVED from the panel height rather than fixed axes
 # fractions, because text is sized in points while these positions are axes fractions:
@@ -191,13 +210,40 @@ _FDR_MARGIN_RIGHT = 14
 # px / 72 inches), so a line of text is _LABEL_FONT_SIZE / height in axes fraction and
 # the multipliers below are just line spacing and clearance in units of the font size
 # (1.6 and 1.2 reproduce the values that were hand-tuned at height 240).
-_LABEL_COLUMN = 0.47
 _LABEL_FONT_SIZE = 5
-_LABEL_WRAP_WIDTH = 26        # characters per line before wrapping
+_LABEL_WRAP_WIDTH = 35        # characters per line before wrapping
 _LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT   # one rendered line
 _LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT     # between two blocks
-_LABEL_PADDING = 0.05         # how far past the extreme point the stack may reach
-_LABEL_QUADRANTS = {"right": (0.52, 0.98), "left": (0.02, 0.48)}
+_LABEL_ANCHOR_PAD = 0.035     # smallest gap between a point and its own label
+
+# The y band each end's labels occupy. The incoherent end (z > 0) sits in the
+# upper band and the coherent end (z < 0) in the lower one, because the coherence
+# p-value is one-sided for tightness: no group more dispersed than random can be
+# FDR-significant, so the S curve leaves the upper-right and lower-left quadrants
+# empty. Disjoint bands are what keep the two stacks apart.
+_LABEL_BANDS = {"incoherent": (0.52, 0.98), "coherent": (0.02, 0.48)}
+
+# Placement search. Character width at _LABEL_FONT_SIZE, in axes fraction of a
+# _FDR_PANEL_WIDTH-wide panel (~0.5 em per glyph for the house font) — used only to
+# estimate a candidate's footprint for the overlap test; matplotlib lays out the
+# text itself.
+_LABEL_CHAR_WIDTH = 0.017
+_POINT_RADIUS = 0.012         # drawn marker radius, same units
+_ANCHOR_PUSHES = (0.0, 0.08, 0.16, 0.24, 0.34)   # how far out from the point to try
+_ANCHOR_Y_STEPS = 24          # candidate rows within the end's band
+
+# Scoring, in strict priority order: a candidate must never overlap another label's
+# text, may cover a few markers rather than none, and only then is a leader that cuts
+# across a label penalised. Each later term's worst case is kept below the one before
+# it, so a candidate can never buy its way out of the harder defect with a cheaper
+# one — and the point term saturates, so a candidate in a dense region is not scored
+# as impossible and the search does not abandon a clear row to escape it.
+_POINT_HIT_PENALTY = 20.0
+_POINT_HIT_CAP = 4            # x the penalty above = 80, below the label-overlap cost
+_LEADER_CROSS_PENALTY = 20.0  # x four other labels = 80, likewise
+_LABEL_HIT_PENALTY = 200.0    # text on text: the one outcome to avoid outright
+_OVERLAP_AREA_WEIGHT = 5.0    # tie-break between candidates that all collide
+_LEADER_PENALTY = 1.0         # per unit of leader length
 
 # LabelSettings defaults, shared by the dataclass fields and argparse. They cannot
 # be read off the dataclass: with slots=True, `LabelSettings.q_max` is a
@@ -284,6 +330,121 @@ def spread_positions(values: list[float], low: float, high: float, gap: float) -
     return [min(max(value, low), high) for value in spread]
 
 
+def visible_fractions(
+    ax: Axes, table: pd.DataFrame, x_column: str
+) -> list[tuple[float, float]]:
+    """Every drawn point as an axes-fraction (x, y) pair, for the placement search."""
+    x_limits, y_limits = ax.get_xlim(), ax.get_ylim()
+    x_span = x_limits[1] - x_limits[0]
+    y_span = y_limits[1] - y_limits[0]
+    return [
+        ((x - x_limits[0]) / x_span, (z - y_limits[0]) / y_span)
+        for x, z in zip(table[x_column], table["median_pairwise_distance_z"])
+    ]
+
+
+def boxes_hit(
+    box: tuple[float, float, float, float], points: list[tuple[float, float]],
+) -> int:
+    """How many drawn points fall inside (or under) an axes-fraction box."""
+    x0, x1, y0, y1 = box
+    return sum(
+        x0 - _POINT_RADIUS <= px <= x1 + _POINT_RADIUS
+        and y0 - _POINT_RADIUS <= py <= y1 + _POINT_RADIUS
+        for px, py in points
+    )
+
+
+def place_label(
+    point: tuple[float, float],
+    width: float,
+    height: float,
+    band: tuple[float, float],
+    occupied: list[tuple[float, float, float, float]],
+    points: list[tuple[float, float]],
+) -> tuple[float, float, bool]:
+    """Anchor and side for one label: the cheapest of a small candidate grid."""
+    # Candidates differ in how far the label is pushed from its point (which picks
+    # the side, by room) and in where it sits within the end's band. Each is scored
+    # by the drawn points and placed labels it covers, the leaders it cuts, and the
+    # leader length it costs — in that order of priority.
+    #
+    # Returns (anchor_x, anchor_y, to_the_left) so the caller can place the text and
+    # record the box without re-deriving the side, which a pushed anchor would get
+    # wrong near the middle of the panel.
+    point_x, point_y = point
+    to_the_left = point_x > 0.5
+    low = band[0] + height / 2
+    high = band[1] - height / 2
+    if high < low:
+        low = high = (band[0] + band[1]) / 2
+
+    # The anchor is clamped rather than rejected, so a label wider than the room on
+    # its side still gets a box inside the axes instead of falling back to the bare
+    # point and sitting on top of the data.
+    def anchor_at(push: float) -> float:
+        offset = (push + _LABEL_ANCHOR_PAD) * (-1 if to_the_left else 1)
+        raw = point_x + offset
+        return min(max(raw, width), 1.0) if to_the_left else max(min(raw, 1.0 - width), 0.0)
+
+    best, best_score = (point_x, point_y, to_the_left), None
+    for push in _ANCHOR_PUSHES:
+        anchor_x = anchor_at(push)
+        for step in range(_ANCHOR_Y_STEPS + 1):
+            anchor_y = low + (high - low) * step / _ANCHOR_Y_STEPS
+            box = box_for(anchor_x, anchor_y, width, height, to_the_left)
+            hits = boxes_hit(box, points)
+            score = _LEADER_PENALTY * (abs(anchor_x - point_x) + abs(anchor_y - point_y))
+            score += _POINT_HIT_PENALTY * min(hits, _POINT_HIT_CAP)
+            score += _LABEL_HIT_PENALTY * sum(overlap_area(box, other) > 0.0 for other in occupied)
+            score += _OVERLAP_AREA_WEIGHT * sum(overlap_area(box, other) for other in occupied)
+            # A leader has to reach its label without cutting through another one, or
+            # the panel reads as a tangle even when every box is clear of the rest.
+            score += _LEADER_CROSS_PENALTY * leader_crossings((point_x, point_y), (anchor_x, anchor_y), occupied)
+            if best_score is None or score < best_score:
+                best, best_score = (anchor_x, anchor_y, to_the_left), score
+
+    return best
+
+
+def box_for(
+    anchor_x: float, anchor_y: float, width: float, height: float, to_the_left: bool,
+) -> tuple[float, float, float, float]:
+    """The (x0, x1, y0, y1) axes-fraction footprint of a label anchored at (x, y)."""
+    left, right = (anchor_x - width, anchor_x) if to_the_left else (anchor_x, anchor_x + width)
+    return (left, right, anchor_y - height / 2, anchor_y + height / 2)
+
+
+def overlap_area(
+    box: tuple[float, float, float, float], other: tuple[float, float, float, float],
+) -> float:
+    """Intersection area of two boxes, 0.0 when they are clear of each other."""
+    dx = min(box[1], other[1]) - max(box[0], other[0])
+    dy = min(box[3], other[3]) - max(box[2], other[2])
+    return max(dx, 0.0) * max(dy, 0.0)
+
+
+def leader_crossings(
+    point: tuple[float, float],
+    anchor: tuple[float, float],
+    occupied: list[tuple[float, float, float, float]],
+) -> int:
+    """How many placed labels a leader from `point` to `anchor` cuts through."""
+    # Sampled rather than solved: 25 points along a segment a tenth of the panel
+    # long cannot miss a label box, and the test stays a few lines.
+    steps = 24
+    hits = 0
+    for box in occupied:
+        for step in range(steps + 1):
+            fraction = step / steps
+            x = point[0] + (anchor[0] - point[0]) * fraction
+            y = point[1] + (anchor[1] - point[1]) * fraction
+            if box[0] <= x <= box[1] and box[2] <= y <= box[3]:
+                hits += 1
+                break
+    return hits
+
+
 def label_count(available: int, quantile: float, max_labels: int) -> int:
     """How many groups to name on one side: the quantile share, capped at max_labels."""
     return min(max_labels, int(np.ceil(quantile * available)))
@@ -306,52 +467,96 @@ def labelled_extremes(
     return incoherent.tail(label_count(len(incoherent), quantile, max_labels)).iloc[::-1]
 
 
-def label_block_gap(rows: pd.DataFrame) -> float:
-    """Vertical gap one row of labels needs, from how many lines its names wrap to."""
-    lines = max(
+def label_block_lines(rows: pd.DataFrame) -> int:
+    """Rendered line count of the tallest name in `rows`."""
+    return max(
         len(textwrap.wrap(str(name), width=_LABEL_WRAP_WIDTH)) for name in rows["group_name"]
     )
-    return lines * _LABEL_LINE_HEIGHT + _LABEL_BLOCK_GAP
 
 
-def annotate_extremes(ax: Axes, rows: pd.DataFrame, direction: str, x_column: str) -> None:
-    """Name each row with a leader line into the panel's empty quadrant."""
-    # Labels live INSIDE the axes: the S curve leaves the upper-right and lower-left
-    # quadrants empty, so each column is confined to its own quadrant and the two never
-    # share a y band. Rows and stack positions are both ordered by z ascending, so the
-    # leaders fan out without crossing.
-    #
-    # The gap comes from the wrapped line count rather than a constant: a fixed gap
-    # overlaps the moment a name needs a third line.
+def annotate_extremes(
+    ax: Axes, rows: pd.DataFrame, end: str, x_column: str,
+    points: list[tuple[float, float]],
+) -> None:
+    """Name each row with a leader line out of its own point."""
     if rows.empty:
         return
     rows = rows.sort_values("median_pairwise_distance_z")
-    y_limits = ax.get_ylim()
-    fractions = [(value - y_limits[0]) / (y_limits[1] - y_limits[0])
-                 for value in rows["median_pairwise_distance_z"]]
+    x_limits, y_limits = ax.get_xlim(), ax.get_ylim()
+    x_span, y_span = x_limits[1] - x_limits[0], y_limits[1] - y_limits[0]
+    band = _LABEL_BANDS[end]
+    lines = label_block_lines(rows)
+    # The block gap is part of the footprint the search reserves, so two labels on
+    # adjacent candidates come out spaced rather than flush.
+    height = lines * _LABEL_LINE_HEIGHT + _LABEL_BLOCK_GAP
 
-    quadrant_low, quadrant_high = _LABEL_QUADRANTS[direction]
-    gap = label_block_gap(rows)
-    low = max(quadrant_low, fractions[0] - _LABEL_PADDING)
-    high = min(quadrant_high, fractions[-1] + _LABEL_PADDING)
-    if high - low < gap * (len(fractions) - 1):
-        # Too many labels for the band their points occupy; use the whole quadrant and
-        # let spread_positions relax the gap further if even that is not enough.
-        low, high = quadrant_low, quadrant_high
+    entries = []
+    for _, row in rows.iterrows():
+        text = textwrap.fill(str(row["group_name"]), width=_LABEL_WRAP_WIDTH)
+        entries.append((
+            text,
+            max(len(line) for line in text.splitlines()) * _LABEL_CHAR_WIDTH,
+            ((row[x_column] - x_limits[0]) / x_span,
+             (row["median_pairwise_distance_z"] - y_limits[0]) / y_span),
+            (row[x_column], row["median_pairwise_distance_z"]),
+        ))
 
-    positions = spread_positions(fractions, low, high, gap)
-    for (_, row), y_fraction in zip(rows.iterrows(), positions):
+    placements = place_all(entries, height, [band] * len(entries), points)
+    if any_overlap(placements, entries, height):
+        # The bands are only about four text blocks tall, so the search's greedy
+        # picks can crowd out the labels still to come and leave two on top of each
+        # other. An even stack over the band cannot overlap at all, so it takes over
+        # rather than emitting a collision.
+        rows_y = spread_positions(
+            [point[1] for _, _, point, _ in entries],
+            band[0] + height / 2, band[1] - height / 2, height,
+        )
+        placements = place_all(
+            entries, height, [(y - height / 2, y + height / 2) for y in rows_y], points
+        )
+
+    for (text, _, _, xy), (anchor_x, anchor_y, to_the_left) in zip(entries, placements):
         ax.annotate(
-            # fill() wraps rather than shortens: a reader needs the whole term name,
-            # and the quadrant has room for two or three lines.
-            textwrap.fill(str(row["group_name"]), width=_LABEL_WRAP_WIDTH),
-            xy=(row[x_column], row["median_pairwise_distance_z"]),
-            xytext=(_LABEL_COLUMN, y_fraction), textcoords="axes fraction",
-            ha="left" if direction == "right" else "right", va="center",
+            text,
+            xy=xy, xytext=(anchor_x, anchor_y), textcoords="axes fraction",
+            ha="right" if to_the_left else "left", va="center",
             fontsize=_LABEL_FONT_SIZE,
             arrowprops={"arrowstyle": "-", "color": cns.GRAY, "linewidth": 0.6,
                         "shrinkA": 2, "shrinkB": 3},
         )
+
+
+def place_all(
+    entries: list[tuple[str, float, tuple[float, float], tuple[float, float]]],
+    height: float,
+    bands: list[tuple[float, float]],
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float, bool]]:
+    """Run the placement search over every label, later ones avoiding earlier boxes."""
+    occupied: list[tuple[float, float, float, float]] = []
+    placements = []
+    for (_, width, point, _), band in zip(entries, bands):
+        anchor = place_label(point, width, height, band, occupied, points)
+        occupied.append(box_for(anchor[0], anchor[1], width, height, anchor[2]))
+        placements.append(anchor)
+    return placements
+
+
+def any_overlap(
+    placements: list[tuple[float, float, bool]],
+    entries: list[tuple[str, float, tuple[float, float], tuple[float, float]]],
+    height: float,
+) -> bool:
+    """Whether the placed label boxes collide with each other anywhere."""
+    boxes = [
+        box_for(anchor[0], anchor[1], width, height, anchor[2])
+        for anchor, (_, width, _, _) in zip(placements, entries)
+    ]
+    return any(
+        overlap_area(a, b) > 0.0
+        for index, a in enumerate(boxes)
+        for b in boxes[index + 1:]
+    )
 
 
 def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -> None:
@@ -409,22 +614,28 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
     # end. A plain matplotlib name like coolwarm would work but is not the
     # package's own scale.
     #
+    # The limits are a percentile, not max|z| — see _PANEL_C_PERCENTILE. The
+    # colourbar gets `extend="both"` so the clipped tails are visible as such.
+    #
     # The edge is not decoration: a diverging map spends its midpoint on white, and
     # most groups sit at z ~ 0, so without a hairline outline they vanish into the
     # page.
-    z_limits = float(np.nanmax(np.abs(table["median_pairwise_distance_z"].to_numpy(dtype=float)))) or 1.0
+    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
+    z_limits = float(np.nanpercentile(np.abs(z_values), _PANEL_C_PERCENTILE))
+    if not z_limits:
+        z_limits = 1.0
     scatter = ax_centroid.scatter(
         table["geom_median_DR"], table["geom_median_DL"],
         c=table["median_pairwise_distance_z"], s=sizes,
         cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
-        alpha=0.85, edgecolors=cns.GRAY, linewidths=0.3,
+        alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
     )
     ax_centroid.set(
         xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions"
     )
 
     colorbar_ax = ax_centroid.inset_axes(_CBAR_BOUNDS)
-    colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax)
+    colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax, extend="both")
     colorbar.ax.tick_params(length=0, pad=1)
     colorbar.set_label("z-score", labelpad=1)
 
@@ -487,13 +698,14 @@ def draw_fdr_panels(
         ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
         ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
 
-        # Each end is named into the quadrant its points leave empty. The incoherent
-        # ones sit upper-left and the coherent ones lower-right, because the coherence
-        # p-value is one-sided for tightness: no group more dispersed than random can
-        # be FDR-significant.
-        for end, direction in (("incoherent", "right"), ("coherent", "left")):
+        # Each end is named beside its own points: the incoherent ones sit in the
+        # upper band and the coherent ones in the lower, because the coherence
+        # p-value is one-sided for tightness — no group more dispersed than random
+        # can be FDR-significant.
+        points = visible_fractions(ax, plotted, encoding)
+        for end in ("incoherent", "coherent"):
             rows = labelled_extremes(plotted, end, settings.quantile, settings.q_max, settings.max_labels)
-            annotate_extremes(ax, rows, direction, encoding)
+            annotate_extremes(ax, rows, end, encoding, points)
 
 
 # =============================================================================
