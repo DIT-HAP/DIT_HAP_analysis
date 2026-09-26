@@ -139,7 +139,7 @@ rule all:
                source=_COHERENCE_SOURCES),
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/group_scatter.pdf",
                source=_COHERENCE_SOURCES),
-        # Incoherence attribution (why complexes are dispersed) for physical-complex sources:
+        # Incoherence attribution (why a group is dispersed), per configured source:
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
                source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.pdf",

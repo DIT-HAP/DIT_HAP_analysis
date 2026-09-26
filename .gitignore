@@ -35,3 +35,6 @@ mamba
 # worktree
 .worktree
 .scratch/
+
+# archive
+arc

@@ -69,8 +69,10 @@ import json
 _COH = "results/3a_coherence/{dataset}/{source}"
 _COH_CFG = config.get("coherence", {})
 _COH_SOURCES = _COH_CFG.get("sources", ["go_macrocomplex", "go_cc", "go_bp"])
-# Incoherence attribution runs on a (usually smaller) subset of sources: major/minor
-# split + shared-subunit are only meaningful for physical complexes, not GO_BP processes.
+# Incoherence attribution runs on a configurable subset of sources (currently all
+# of them): the major/minor + shared-subunit signals are sharpest for physical
+# complexes, but the label ladder still separates a genuinely two-population term
+# from a broadly-annotated one for the process / pathway sources.
 _COH_ATTR_SOURCES = _COH_CFG.get("attribution_sources", ["go_macrocomplex"])
 _COH_FEATURES_PANELS = _COH_CFG.get("features_panels", True)
 _COH_FEATURES = (
