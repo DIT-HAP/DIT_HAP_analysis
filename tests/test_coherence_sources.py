@@ -179,11 +179,74 @@ def test_gaf_namespace_rejects_unknown_namespace(tmp_path):
         load_gaf_namespace(pombase_dir, "MF", GENE_NAMES)
 
 
-def test_source_loaders_registry_has_three_sources():
+def test_source_loaders_registry_has_every_configured_source():
     from workflow.src.coherence.sources import SOURCE_LOADERS
-    assert set(SOURCE_LOADERS) == {"go_macrocomplex", "go_cc", "go_bp"}
+    assert set(SOURCE_LOADERS) == {
+        "go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway",
+    }
 
 
 def test_load_source_rejects_unknown_source(tmp_path):
     with pytest.raises(ValueError, match="unknown source"):
         load_source("not_a_source", tmp_path)
+
+
+def _write_kegg_dir(tmp_path: Path) -> Path:
+    """A tiny kegg_dir + gene-name table: one pathway, two BRITE trees.
+
+    Gene_Symbol carries what KEGG actually puts there: PomBase's gene name when the
+    gene has one (gene1), and the bare systematic id when it does not (SPAC2). The
+    third row's symbol resolves to nothing and must be dropped. The BRITE fixture's
+    Level_C differs from Level_D on the second tree, so a test can tell which one
+    the adapter reads.
+    """
+    _write_gene_metadata(tmp_path, GENE_NAMES)
+    kegg = tmp_path / "kegg"
+    kegg.mkdir()
+    pd.DataFrame({
+        "Gene_Symbol": ["gene1", "SPAC2", "nosuchgene"],
+        "Pathway_ID": ["spo00010"] * 3,
+        "Pathway_Name": ["Glycolysis / Gluconeogenesis"] * 3,
+    }).to_csv(kegg / "pathway_gene_mapping.tsv", sep="\t", index=False)
+    pd.DataFrame({
+        "BRITE_ID": ["spo00001", "spo00001", "spo04131"],
+        "Level_C": ["00010 Glycolysis / Gluconeogenesis", "00010 Glycolysis / Gluconeogenesis",
+                    "09132 Signal transduction"],
+        "Level_D": ["00010 Glycolysis / Gluconeogenesis", "00010 Glycolysis / Gluconeogenesis",
+                    "04031 GTP-binding proteins"],
+        "Gene_Symbol": ["gene1", "gene3", "gene4"],
+    }).to_csv(kegg / "brite_flat.tsv", sep="\t", index=False)
+    return kegg
+
+
+def test_kegg_pathway_groups_by_pathway_and_drops_unmapped_genes(tmp_path):
+    kegg_dir = _write_kegg_dir(tmp_path)
+    out = load_source("kegg_pathway", tmp_path, kegg_dir)
+    assert list(out.columns) == LONG_TABLE_COLUMNS_EXPECTED
+    assert set(out["source"]) == {"kegg_pathway"}
+    assert set(out["group_id"]) == {"spo00010"}
+    assert set(out["Systematic ID"]) == {"SPAC1", "SPAC2"}  # nosuchgene dropped
+    assert set(out["Name"]) == {"gene1", "SPAC2"}
+    assert (out["n_annotated_members"] == 2).all()
+
+
+def test_kegg_brite_groups_by_the_deepest_node_keyed_by_tree(tmp_path):
+    kegg_dir = _write_kegg_dir(tmp_path)
+    out = load_source("kegg_brite", tmp_path, kegg_dir)
+    ids = dict(zip(out["Systematic ID"], out["group_id"]))
+    assert ids["SPAC1"] == "spo00001:00010 Glycolysis / Gluconeogenesis"
+    assert ids["SPBC1"] == "spo00001:00010 Glycolysis / Gluconeogenesis"
+    # Level_C is "09132 Signal transduction" here, so this only holds if Level_D is read.
+    assert ids["SPBC2"] == "spo04131:04031 GTP-binding proteins"
+    # Only the deepest node is emitted — the shallower levels are not groups of their own.
+    assert set(out["group_id"]) == {
+        "spo00001:00010 Glycolysis / Gluconeogenesis",
+        "spo04131:04031 GTP-binding proteins",
+    }
+
+
+def test_kegg_sources_require_a_kegg_dir(tmp_path):
+    pombase_dir = _write_macrocomplex(tmp_path)
+    for source in ("kegg_brite", "kegg_pathway"):
+        with pytest.raises(ValueError, match="--kegg-dir"):
+            load_source(source, pombase_dir)

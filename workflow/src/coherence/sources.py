@@ -5,7 +5,10 @@ downstream compute/plot stages are source-agnostic. Add a database = add one
 adapter here + one entry in SOURCE_LOADERS + one line in config.coherence.sources.
 
 Call `load_source()` rather than an adapter directly: it is what reads the shared
-gene-name table once and hands it to the adapter.
+gene-name table once and hands it to the adapter. Every adapter takes the same
+`(pombase_dir, gene_names, kegg_dir)` triple so the registry stays uniform;
+`kegg_dir` is only read by the kegg_* adapters, which need it to find the
+kegg_parser derived tables.
 """
 
 # =============================================================================
@@ -50,6 +53,10 @@ _NS_SOURCE = {"CC": "go_cc", "BP": "go_bp"}
 _GO_LOAD_KWARGS = {"relationships": {"is_a", "part_of"}, "propagate_counts": True,
                    "load_obsolete": False, "prt": None}
 
+# --- KEGG derived tables (kegg_parser output under resources/external/kegg) ---
+# One flat file per KEGG product; see load_kegg_brite / load_kegg_pathway.
+_KEGG_BRITE_FILE, _KEGG_PATHWAY_FILE = "brite_flat.tsv", "pathway_gene_mapping.tsv"
+
 
 # =============================================================================
 # CORE LOGIC
@@ -90,7 +97,9 @@ def _finalize(df: pd.DataFrame, source: str, gene_names: Mapping[str, str]) -> p
     return df[LONG_TABLE_COLUMNS]
 
 
-def load_macrocomplex(pombase_dir: Path, gene_names: Mapping[str, str]) -> pd.DataFrame:
+def load_macrocomplex(
+    pombase_dir: Path, gene_names: Mapping[str, str], kegg_dir: Path | None = None
+) -> pd.DataFrame:
     """Flat PomBase macromolecular_complex_annotation.tsv -> unified long-table."""
     path = Path(pombase_dir) / "ontologies_and_associations" / "macromolecular_complex_annotation.tsv"
     raw = pd.read_csv(path, sep="\t").rename(columns=_MACRO_RENAME)
@@ -105,7 +114,7 @@ def load_macrocomplex(pombase_dir: Path, gene_names: Mapping[str, str]) -> pd.Da
 
 
 def load_gaf_namespace(
-    pombase_dir: Path, namespace: str, gene_names: Mapping[str, str]
+    pombase_dir: Path, namespace: str, gene_names: Mapping[str, str], kegg_dir: Path | None = None
 ) -> pd.DataFrame:
     """GO GAF for one namespace (CC/BP), goatools-propagated, -> unified long-table."""
     # Reuses enrichment/ontology.py's OBO+GAF loading (is_a/part_of propagation,
@@ -144,19 +153,111 @@ def load_gaf_namespace(
     return _finalize(df, _NS_SOURCE[namespace], gene_names)
 
 
+def load_symbol_to_systematic(pombase_dir: Path) -> dict[str, str]:
+    """KEGG `Gene_Symbol` -> PomBase systematic id.
+
+    KEGG carries PomBase's gene name when the gene has one and the systematic id
+    (KEGG's `SPOM_` prefix stripped) when it does not, so this resolves both: the
+    name->id table plus every systematic id as its own key. Symbols that resolve to
+    neither (genes absent from this PomBase release) are simply absent from the
+    map, and `Series.map` turns those into NaN for the caller to drop.
+    """
+    meta = pd.read_csv(
+        Path(pombase_dir) / _GENE_METADATA_REL,
+        sep="\t",
+        usecols=["gene_systematic_id", "gene_name"],
+    )
+    mapping = dict(zip(meta["gene_systematic_id"], meta["gene_systematic_id"]))
+    named = meta.dropna(subset=["gene_name"]).drop_duplicates(subset="gene_name")
+    mapping.update(dict(zip(named["gene_name"], named["gene_systematic_id"])))
+    logger.info(f"KEGG symbol map: {len(mapping):,} keys "
+                f"({len(named):,} gene names + {len(meta):,} systematic ids)")
+    return mapping
+
+
+def _kegg_frame(
+    group_id: pd.Series, group_name: pd.Series, symbols: pd.Series, resolver: Mapping[str, str]
+) -> pd.DataFrame:
+    """Build the four pre-`_finalize` columns, dropping genes with no PomBase id."""
+    df = pd.DataFrame({
+        "group_id": group_id,
+        "group_name": group_name,
+        "Systematic ID": symbols.map(resolver),
+        "Name": symbols,
+    })
+    n_raw = len(df)
+    df = df.dropna(subset=["Systematic ID"])
+    if len(df) < n_raw:
+        logger.info(f"KEGG: kept {len(df):,} of {n_raw:,} rows "
+                    f"(dropped {n_raw - len(df):,} with no PomBase systematic id)")
+    return df
+
+
+def load_kegg_pathway(
+    kegg_dir: Path, pombase_dir: Path, gene_names: Mapping[str, str]
+) -> pd.DataFrame:
+    """KEGG PATHWAY gene mapping -> unified long-table, one group per pathway id."""
+    if kegg_dir is None:
+        raise ValueError("kegg_pathway needs --kegg-dir (the kegg_parser derived tables)")
+    raw = pd.read_csv(
+        Path(kegg_dir) / _KEGG_PATHWAY_FILE,
+        sep="\t",
+        usecols=["Gene_Symbol", "Pathway_ID", "Pathway_Name"],
+    )
+    df = _kegg_frame(
+        raw["Pathway_ID"], raw["Pathway_Name"], raw["Gene_Symbol"],
+        load_symbol_to_systematic(pombase_dir),
+    )
+    return _finalize(df, "kegg_pathway", gene_names)
+
+
+def load_kegg_brite(
+    kegg_dir: Path, pombase_dir: Path, gene_names: Mapping[str, str]
+) -> pd.DataFrame:
+    """KEGG BRITE leaves -> unified long-table, one group per gene's deepest node.
+
+    Level_D is the deepest classification node kegg_parser emits: it forward-fills an
+    empty level from the one above, so A-D are gap-free and Level_D already means
+    "the most specific category this leaf has" (it equals Level_C for 82% of rows and
+    Level_B for another 10%). The three shallower levels are deliberately NOT emitted
+    as their own groups - within one tree an ancestor and its descendant share members
+    by construction, so that would just hand dedup a pile of nested pairs to merge
+    back. The label alone is not a unique key ("Others" names a node in 11 different
+    trees), so the id carries the tree it came from.
+    """
+    if kegg_dir is None:
+        raise ValueError("kegg_brite needs --kegg-dir (the kegg_parser derived tables)")
+    raw = pd.read_csv(
+        Path(kegg_dir) / _KEGG_BRITE_FILE,
+        sep="\t",
+        usecols=["BRITE_ID", "Level_D", "Gene_Symbol"],
+    )
+    unclassified = raw["Level_D"].isna()
+    if unclassified.any():
+        logger.warning(f"BRITE: dropping {int(unclassified.sum()):,} rows with no classification node")
+        raw = raw[~unclassified]
+    df = _kegg_frame(
+        raw["BRITE_ID"] + ":" + raw["Level_D"], raw["Level_D"], raw["Gene_Symbol"],
+        load_symbol_to_systematic(pombase_dir),
+    )
+    return _finalize(df, "kegg_brite", gene_names)
+
+
 # A registry OF the adapters above, so it has to follow them — the section order
 # ("each section depends only on what came before") is what keeps it out of
 # GLOBAL CONSTANTS rather than an oversight.
 SOURCE_LOADERS = {
     "go_macrocomplex": load_macrocomplex,
-    "go_cc": lambda d, names: load_gaf_namespace(d, "CC", names),
-    "go_bp": lambda d, names: load_gaf_namespace(d, "BP", names),
+    "go_cc": lambda d, names, kegg=None: load_gaf_namespace(d, "CC", names),
+    "go_bp": lambda d, names, kegg=None: load_gaf_namespace(d, "BP", names),
+    "kegg_pathway": lambda d, names, kegg: load_kegg_pathway(kegg, d, names),
+    "kegg_brite": lambda d, names, kegg: load_kegg_brite(kegg, d, names),
 }
 
 
-def load_source(source: str, pombase_dir: Path) -> pd.DataFrame:
+def load_source(source: str, pombase_dir: Path, kegg_dir: Path | None = None) -> pd.DataFrame:
     """Dispatch to `source`'s adapter, reading the shared gene-name table once."""
     if source not in SOURCE_LOADERS:
         raise ValueError(f"unknown source {source!r} (have: {sorted(SOURCE_LOADERS)})")
     pombase_dir = Path(pombase_dir)
-    return SOURCE_LOADERS[source](pombase_dir, load_gene_names(pombase_dir))
+    return SOURCE_LOADERS[source](pombase_dir, load_gene_names(pombase_dir), kegg_dir)

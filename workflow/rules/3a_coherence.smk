@@ -55,9 +55,10 @@
 # DAG is honest about what lands on disk and `--delete-all-output` cleans it.
 #
 # Sources are registered in config.coherence.sources (currently: go_macrocomplex,
-# go_cc, go_bp). Each source has a loader in workflow/src/coherence/sources.py.
-# scatter_groups drives plot_group_scatter (per-source namelist, entries match
-# group_name OR group_id).
+# go_cc, go_bp, kegg_brite, kegg_pathway). Each source has a loader in
+# workflow/src/coherence/sources.py; the kegg_* ones read the kegg_parser derived
+# tables under config.coherence.kegg_dir instead of PomBase. scatter_groups drives
+# plot_group_scatter (per-source namelist, entries match group_name OR group_id).
 #
 # DATA-PATH NOTE: fitting_results comes from upstream DIT_HAP_snakemake release/
 # dirs via DATASETS['datasets'][dataset]['release_dir']; pombase from
@@ -76,6 +77,11 @@ _COH_FEATURES = (
     f"results/1b_features/{DATASETS['reference']['pombase_version']}"
     f"/pombe_coding_gene_protein_features.tsv"
 )
+# The kegg_* adapters read the kegg_parser derived tables instead of PomBase; the
+# GO ones ignore --kegg-dir entirely, so the input stays off for them (same
+# optional-input idiom as compute_coherence's features).
+_COH_KEGG_DIR = _COH_CFG.get("kegg_dir", "resources/external/kegg/data/derived")
+_COH_KEGG_SOURCES = {src for src in _COH_SOURCES if src.startswith("kegg_")}
 
 wildcard_constraints:
     source="|".join(_COH_SOURCES),
@@ -84,8 +90,11 @@ wildcard_constraints:
 rule prepare_coherence_annotation:
     input:
         pombase_dir=lambda wc: f"resources/external/pombase/{DATASETS['reference']['pombase_version']}",
+        kegg_dir=lambda wc: _COH_KEGG_DIR if wc.source in _COH_KEGG_SOURCES else [],
     output:
         long_table=f"{_COH}/group_annotation_long.tsv",
+    params:
+        kegg_flag=lambda wc, input: f"--kegg-dir {input.kegg_dir}" if input.kegg_dir else "",
     log:
         "logs/3a_coherence/prepare_{dataset}_{source}.log",
     conda:
@@ -97,6 +106,7 @@ rule prepare_coherence_annotation:
         python workflow/scripts/coherence/prepare_annotation.py \
             --source {wildcards.source} \
             --pombase-dir {input.pombase_dir} \
+            {params.kegg_flag} \
             --output {output.long_table} &> {log}
         """
 

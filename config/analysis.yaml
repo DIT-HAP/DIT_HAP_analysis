@@ -109,7 +109,13 @@ comparison:
 # + a name here. scatter_groups drives plot_group_scatter (per-source namelist,
 # entries match group_name OR group_id).
 coherence:
-  sources: [go_macrocomplex, go_cc, go_bp]
+  # Grouping databases to run the coherence chain over. go_* read PomBase; kegg_*
+  # read the kegg_parser derived tables under kegg_dir and resolve KEGG gene
+  # symbols to PomBase systematic ids so they land in the same gene space.
+  # kegg_brite groups by each gene's deepest BRITE classification node (one group
+  # per tree, so an ancestor and its descendants never both appear).
+  sources: [go_macrocomplex, go_cc, go_bp, kegg_brite, kegg_pathway]
+  kegg_dir: resources/external/kegg/data/derived
   min_group_size: 3
   max_group_size: 300
   max_term_genes: 500
@@ -129,6 +135,8 @@ coherence:
     go_macrocomplex: [kinetochore, "mitochondrial large ribosomal subunit"]
     go_cc: []
     go_bp: []
+    kegg_brite: []
+    kegg_pathway: []
   # Redundancy reduction (display layer; full-set q_value is untouched). Terms are
   # clustered by member-gene similarity (+ optional GO DAG lineage), one
   # representative kept per cluster; the full cluster is retained + flagged.

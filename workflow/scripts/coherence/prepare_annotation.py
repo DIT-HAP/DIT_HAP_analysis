@@ -22,6 +22,8 @@ Input
   for go_macrocomplex, or go-basic.obo + gene_ontology_annotation.gaf.tsv for
   the go_cc / go_bp GAF-namespace adapters).
 - --source: which adapter to run; one of SOURCE_LOADERS keys.
+- --kegg-dir: the kegg_parser derived-table directory, read only by the kegg_*
+  sources (they also use --pombase-dir, to map KEGG gene symbols to systematic ids).
 
 Output
 ------
@@ -36,9 +38,15 @@ Usage
         --pombase-dir resources/external/pombase/<version> \\
         --output results/3a_coherence/{dataset}/go_macrocomplex/group_annotation_long.tsv
 
+    python prepare_annotation.py \\
+        --source kegg_pathway \\
+        --pombase-dir resources/external/pombase/<version> \\
+        --kegg-dir resources/external/kegg/data/derived \\
+        --output results/3a_coherence/{dataset}/kegg_pathway/group_annotation_long.tsv
+
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -68,16 +76,16 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def prepare(source: str, pombase_dir: Path) -> pd.DataFrame:
+def prepare(source: str, pombase_dir: Path, kegg_dir: Path | None = None) -> pd.DataFrame:
     """Dispatch to the source adapter and return the unified long-table."""
-    return load_source(source, Path(pombase_dir))
+    return load_source(source, Path(pombase_dir), kegg_dir)
 
 
 @logger.catch(reraise=True)
-def run(source: str, pombase_dir: Path, output: Path) -> None:
+def run(source: str, pombase_dir: Path, output: Path, kegg_dir: Path | None = None) -> None:
     """Prepare the long-table for one source and write it to output."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    table = prepare(source, pombase_dir)
+    table = prepare(source, pombase_dir, kegg_dir)
     table.to_csv(output, sep="\t", index=False)
     logger.success(f"[{source}] {len(table):,} rows, "
                    f"{table['group_id'].nunique():,} groups -> {output}")
@@ -91,6 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare a coherence source's unified long-table annotation")
     parser.add_argument("--source", required=True, choices=sorted(SOURCE_LOADERS), help="Grouping-database source adapter to run")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
+    parser.add_argument("--kegg-dir", type=Path, default=None, help="kegg_parser derived-table directory (kegg_* sources only)")
     parser.add_argument("--output", type=Path, required=True, help="Output group_annotation_long.tsv")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -101,7 +110,7 @@ def main() -> int:
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        run(args.source, args.pombase_dir, args.output)
+        run(args.source, args.pombase_dir, args.output, args.kegg_dir)
     except (ValueError, OSError) as e:
         # OSError covers a missing annotation file (the files inside pombase_dir are
         # not individually DAG-tracked) and output write/mkdir failures.
