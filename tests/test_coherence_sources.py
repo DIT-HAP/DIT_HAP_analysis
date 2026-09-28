@@ -196,9 +196,13 @@ def _write_kegg_dir(tmp_path: Path) -> Path:
 
     Gene_Symbol carries what KEGG actually puts there: PomBase's gene name when the
     gene has one (gene1), and the bare systematic id when it does not (SPAC2). The
-    third row's symbol resolves to nothing and must be dropped. The BRITE fixture's
-    Level_C differs from Level_D on the second tree, so a test can tell which one
-    the adapter reads.
+    third row's symbol resolves to nothing and must be dropped.
+
+    The BRITE fixture mirrors the real table's two id regimes: `spo00001` labels its
+    nodes with a KEGG id (so `Level_D_ID` decides the group), `spo04131` labels none,
+    so kegg_parser repeats the label back as the "id" and the path decides instead.
+    Its rows also put two DIFFERENT `Level_B` branches under one `Level_D`, which is
+    the case the id has to keep apart.
     """
     _write_gene_metadata(tmp_path, GENE_NAMES)
     kegg = tmp_path / "kegg"
@@ -209,12 +213,18 @@ def _write_kegg_dir(tmp_path: Path) -> Path:
         "Pathway_Name": ["Glycolysis / Gluconeogenesis"] * 3,
     }).to_csv(kegg / "pathway_gene_mapping.tsv", sep="\t", index=False)
     pd.DataFrame({
-        "BRITE_ID": ["spo00001", "spo00001", "spo04131"],
-        "Level_C": ["00010 Glycolysis / Gluconeogenesis", "00010 Glycolysis / Gluconeogenesis",
-                    "09132 Signal transduction"],
-        "Level_D": ["00010 Glycolysis / Gluconeogenesis", "00010 Glycolysis / Gluconeogenesis",
-                    "04031 GTP-binding proteins"],
-        "Gene_Symbol": ["gene1", "gene3", "gene4"],
+        "BRITE_ID": ["spo00001", "spo00001", "spo04131", "spo04131"],
+        # Two kingdom branches that both end at the same leaf label.
+        "Level_A": ["Metabolism", "Metabolism", "Ribosomal proteins", "Ribosomal proteins"],
+        "Level_B": ["Carbohydrate metabolism", "Carbohydrate metabolism",
+                    "Eukaryotes", "Archaea"],
+        "Level_C": ["Glycolysis / Gluconeogenesis", "Glycolysis / Gluconeogenesis",
+                    "Large subunit", "Large subunit"],
+        "Level_D": ["Glycolysis / Gluconeogenesis", "Glycolysis / Gluconeogenesis",
+                    "Large subunit", "Large subunit"],
+        # Non-empty everywhere, but the last two are kegg_parser's label fallback.
+        "Level_D_ID": ["spo00010", "spo00010", "Large subunit", "Large subunit"],
+        "Gene_Symbol": ["gene1", "gene3", "gene4", "gene4"],
     }).to_csv(kegg / "brite_flat.tsv", sep="\t", index=False)
     return kegg
 
@@ -230,18 +240,46 @@ def test_kegg_pathway_groups_by_pathway_and_drops_unmapped_genes(tmp_path):
     assert (out["n_annotated_members"] == 2).all()
 
 
-def test_kegg_brite_groups_by_the_deepest_node_keyed_by_tree(tmp_path):
+def test_kegg_brite_prefers_the_kegg_id_and_falls_back_to_the_path(tmp_path):
     kegg_dir = _write_kegg_dir(tmp_path)
     out = load_source("kegg_brite", tmp_path, kegg_dir)
     ids = dict(zip(out["Systematic ID"], out["group_id"]))
-    assert ids["SPAC1"] == "spo00001:00010 Glycolysis / Gluconeogenesis"
-    assert ids["SPBC1"] == "spo00001:00010 Glycolysis / Gluconeogenesis"
-    # Level_C is "09132 Signal transduction" here, so this only holds if Level_D is read.
-    assert ids["SPBC2"] == "spo04131:04031 GTP-binding proteins"
+    # spo00001 labels its node with a KEGG id, so that id IS the group id.
+    assert ids["SPAC1"] == "spo00010"
+    assert ids["SPBC1"] == "spo00010"
+    # spo04131 labels none, so the group id is the tree + the root-to-node path.
+    # SPBC2 sits on both branches, hence a set rather than one value.
+    assert set(out.loc[out["Systematic ID"] == "SPBC2", "group_id"]) == {
+        "spo04131:Ribosomal proteins > Archaea > Large subunit > Large subunit",
+        "spo04131:Ribosomal proteins > Eukaryotes > Large subunit > Large subunit",
+    }
     # Only the deepest node is emitted — the shallower levels are not groups of their own.
     assert set(out["group_id"]) == {
-        "spo00001:00010 Glycolysis / Gluconeogenesis",
-        "spo04131:04031 GTP-binding proteins",
+        "spo00010",
+        "spo04131:Ribosomal proteins > Archaea > Large subunit > Large subunit",
+        "spo04131:Ribosomal proteins > Eukaryotes > Large subunit > Large subunit",
+    }
+
+
+def test_kegg_brite_keeps_same_named_branches_apart(tmp_path):
+    """Two branches that both end at "Large subunit" are two groups, not one.
+
+    The leaf label is not unique within a tree (four kingdom branches share "Large
+    subunit" in the real ribosome tree), and `Level_D_ID` does not rescue it: where
+    KEGG has no id for a node, kegg_parser repeats the label back as the id. Keying
+    on either merged unrelated branches — 68 `Level_D_ID`s cover more than one node
+    in the real table, 17 more collide across trees.
+    """
+    kegg_dir = _write_kegg_dir(tmp_path)
+    out = load_source("kegg_brite", tmp_path, kegg_dir)
+    brite = out[out["source"] == "kegg_brite"]
+    shared_label = brite[brite["group_name"] == "Large subunit"]
+    # gene4 is annotated under both the Eukaryotes and the Archaea branch, so the
+    # two groups share a member and must NOT have been collapsed into one.
+    assert shared_label["group_id"].nunique() == 2
+    assert set(shared_label["group_id"]) == {
+        "spo04131:Ribosomal proteins > Eukaryotes > Large subunit > Large subunit",
+        "spo04131:Ribosomal proteins > Archaea > Large subunit > Large subunit",
     }
 
 

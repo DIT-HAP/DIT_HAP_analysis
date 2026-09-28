@@ -211,6 +211,31 @@ def load_kegg_pathway(
     return _finalize(df, "kegg_pathway", gene_names)
 
 
+def _brite_group_ids(raw: pd.DataFrame) -> pd.Series:
+    """One id per BRITE node: its KEGG id where it has one, else its full path.
+
+    `Level_D_ID` is never empty, but it is not always an id: kegg_parser's own
+    contract is that "labels carrying no id at all fall back to the label text
+    itself so ids stay non-empty" — so `Level_D_ID == Level_D` is exactly the
+    no-id case. It is the common case: only the nodes carrying a `[PATH:...]`
+    bracket, a leading class code or an EC number have a real one (8.6k of 13.1k
+    rows here; the ribosome, kinase and most of the transporter trees have none).
+
+    The fallback has to be the PATH, not the leaf label. `Level_D` is not unique
+    within a tree — four kingdom branches all end at "Large subunit" — so keying on
+    it merges unrelated nodes: 68 `Level_D_ID`s cover more than one node and 17 more
+    collide across trees, while the 8.6k real ids collide neither way. The tree id
+    still prefixes the path, because the same path is not contractually unique
+    across trees.
+    """
+    levels = [f"Level_{name}" for name in "ABCD"]
+    path = raw[levels].fillna("").astype(str).agg(" > ".join, axis=1)
+    fallback = raw["BRITE_ID"].astype(str) + ":" + path
+    node_id = raw["Level_D_ID"].fillna("").astype(str)
+    has_real_id = (node_id != "") & (node_id != raw["Level_D"].fillna("").astype(str))
+    return node_id.where(has_real_id, fallback)
+
+
 def load_kegg_brite(
     kegg_dir: Path, pombase_dir: Path, gene_names: Mapping[str, str]
 ) -> pd.DataFrame:
@@ -223,21 +248,23 @@ def load_kegg_brite(
     as their own groups - within one tree an ancestor and its descendant share members
     by construction, so that would just hand dedup a pile of nested pairs to merge
     back. The label alone is not a unique key ("Others" names a node in 11 different
-    trees), so the id carries the tree it came from.
+    trees), and neither is `Level_D_ID` — it is the label again wherever KEGG has no
+    id for the node. `_brite_group_ids` is where the id is built.
     """
     if kegg_dir is None:
         raise ValueError("kegg_brite needs --kegg-dir (the kegg_parser derived tables)")
     raw = pd.read_csv(
         Path(kegg_dir) / _KEGG_BRITE_FILE,
         sep="\t",
-        usecols=["BRITE_ID", "Level_D", "Gene_Symbol"],
+        usecols=["BRITE_ID", "Level_A", "Level_B", "Level_C", "Level_D",
+                 "Level_D_ID", "Gene_Symbol"],
     )
     unclassified = raw["Level_D"].isna()
     if unclassified.any():
         logger.warning(f"BRITE: dropping {int(unclassified.sum()):,} rows with no classification node")
         raw = raw[~unclassified]
     df = _kegg_frame(
-        raw["BRITE_ID"] + ":" + raw["Level_D"], raw["Level_D"], raw["Gene_Symbol"],
+        _brite_group_ids(raw), raw["Level_D"], raw["Gene_Symbol"],
         load_symbol_to_systematic(pombase_dir),
     )
     return _finalize(df, "kegg_brite", gene_names)

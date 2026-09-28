@@ -108,3 +108,135 @@ snakemake --use-conda --cores 8     # 本机配方见 memory: snakemake-conda-en
   想保证每个 source 都露面需要加一个 `--top-n-per-source`。
 - `plot_redundancy_network.py` 里的 `_SOURCE_ORDER/_SOURCE_COLORS` 只有 3 个 source，
   已经过期，没有随本轮合并到 `palette.py`（避免扩大改动面）。
+
+---
+
+# 追加（2026-09-28）：kegg_brite 跟随上游新 schema
+
+上游 kegg_parser 现在把每一层的标签和 id 分成两列（`Level_X` / `Level_X_ID`），
+并且 **id 永远非空**。`sources.py::load_kegg_brite` 相应重写（`load_kegg_pathway` 不动，
+`pathway_gene_mapping.tsv` schema 没变）。
+
+## 关键：`Level_D_ID` 非空 ≠ `Level_D_ID` 是 id
+
+kegg_parser 自己的契约（`src/kegg_parser/brite.py:16-21`）写着：
+
+> bracket ids are kept bare (`[PATH:spo00010]` -> `spo00010`, joinable with
+> `Pathway_ID`), leading 5-digit codes become `map:00566` / `class:09100`,
+> leading EC numbers become `EC:1.1.1.1`, **and labels carrying no id at all fall
+> back to the label text itself so ids stay non-empty and text-safe**.
+
+也就是说，KEGG 没给 id 的节点，`Level_D_ID` 就是**标签本身**。而标签恰恰是不唯一的那个东西
+（核糖体树里四条分支都以 `Large subunit` 结尾）。所以「非空」不等于「可用作节点主键」。
+
+实测（13,141 行）：
+
+| | 行数 | 跨 tree 碰撞 | 一个 id 对多个节点 |
+|---|---|---|---|
+| `Level_D_ID != Level_D`（真 id） | 8,642 | 0 | 0 |
+| `Level_D_ID == Level_D`（标签回退） | 4,499 | 17 | 68 |
+
+两个 regime 分得干干净净，所以 `Level_D_ID == Level_D` 就是「没有真 id」的判据。
+
+## 新的 group_id 规则（`_brite_group_ids`）
+
+```
+有真 id（Level_D_ID != Level_D） →  直接用该 id      （spo00010 / EC:1.1.1.1 / map:00566）
+否则                             →  BRITE_ID + ":" + Level_A > Level_B > Level_C > Level_D
+```
+
+兜底必须是**完整路径**而不是叶子标签：`Level_D` 在一棵树内就不唯一，按它建 id 会把
+核糖体树的四条分支并成一个组。实测 `label_path -> id_path` 是单射、两者都是 1,976 个节点，
+而裸 `Level_D_ID` 只有 1,843 个、`BRITE_ID:Level_D_ID` 只有 1,869 个 —— 都少了。
+
+## 效果
+
+| | 旧 | 新 |
+|---|---|---|
+| kegg_brite 组数（annotation） | 1,869 | 1,937 |
+| kegg_brite 组数（过 metrics 过滤） | 369 | 388 |
+| 其中真 id / 路径回退 | — | 147 / 241 |
+| `Large subunit` | 1 个组（119 基因，四分支并集） | 4 个组（87 / 50 / 32 / 21） |
+| combined | 2,568 | 2,587 |
+| dedup 代表 | 623 | 626 |
+
+另外 4 个 source 的 per-source 表逐字节不变（`equals()` 验证）。
+
+## 遗留
+
+- **`Level_D` 名字仍会重复**：拆开后 133 个组的 `Level_D` 与别的组重名（`Large subunit` 之类）。
+  本轮没动 `group_name`（仍是 `Level_D`），因为改它会把所有 kegg_brite 图/表的标签换一遍。
+  要区分可以改成路径里最后两个不同的层（如 `Eukaryotes > Large subunit`）。
+- 真 id 里有 130 个与 `kegg_pathway` 的 `Pathway_ID` 重叠（`spo00010` 这类）—— 那是同一批
+  KEGG pathway 的两种视图，pooled 表靠 `(source, group_id)` 区分，dedup 也会把它们并到一起，
+  这是正确的。
+- dedup 的 single-linkage 传递闭包问题见另一节。
+
+---
+
+# dedup 的 single-linkage 链式合并
+
+## 机制
+
+`deduplicate_terms.py::build_clusters` 做的是**单链（single-linkage）连通分量**：
+两个 term 之间的边 = 成员集 Jaccard ≥ `dedup_jaccard_threshold`（config 里 0.5）。
+连通分量具有传递性 —— A~B 且 B~C 会把 A、B、C 放进同一簇，**即使 A~C 相似度为 0**。
+所以一个簇的紧密度只由它最弱的那条链决定，不由阈值决定。
+
+`merge_dag_lineage` 默认关（config 注释里记了原因：开着会让 2,046/2,097 个 GO term
+塌成一个簇），所以这里没有第二条边规则。
+
+## 证据（2,587 个 term → 626 个簇）
+
+| 指标 | 值 |
+|---|---|
+| 簇内 pair 总数 | 36,999 |
+| 其中成员**完全不重叠**（J=0） | 13,888（**37.5%**） |
+| ≥5 个 term 的簇（121 个）里最弱 pair 的 Jaccard | 中位数 0.25，69 个 < 0.3，18 个 = 0 |
+| 最大簇 | **193 个 term，并集只有 191 个基因** |
+
+**最大簇 `all:17`**：193 个 term（go_bp 166 / kegg_brite 11 / kegg_pathway 10 / go_cc 5 /
+go_macrocomplex 1），并集 191 个基因，代表是 `GPI anchored protein biosynthesis`。
+也就是说表里看到 1 行，另外 192 个 term 被它代表 —— 而这些 term 之间大多是
+`organophosphate metabolic process` / `lipid biosynthetic process` 这种互相重叠的宽泛 BP，
+度数只有 3~6，靠弱边连成一片。
+
+**核糖体那个簇**（21 个 term，含 `mitochondrial matrix` 133 基因）：胞质和线粒体大亚基
+被连在了一起。链是
+
+```
+kegg Mito-LSU  --J=0.73-->  kegg Bacteria-LSU
+kegg Mito-LSU  --J=0.51-->  cytosolic ribosome
+cytosolic LSU  --J=0.52-->  cytosolic ribosome
+cytosolic LSU  --J=0.97-->  kegg Eukaryotes-LSU
+```
+
+55 条边就把 21 个 term 连成一簇，代表是 `mitochondrial ribosome` ——
+于是 `cytosolic large ribosomal subunit`（一个真实的、和线粒体核糖体完全不同的东西）
+在 dedup 视图里消失了。
+
+## 阈值敏感性
+
+| threshold | 簇数 | 最大簇 | 非代表 | 单例 |
+|---|---|---|---|---|
+| 0.5（当前） | 626 | **193** | 1,961 | 252 |
+| 0.6 | 920 | 46 | 1,667 | 401 |
+| 0.7 | 1,125 | 31 | 1,462 | 528 |
+| 0.8 | 1,346 | 27 | 1,241 | 714 |
+| 0.9 | 1,579 | 23 | 1,008 | 971 |
+
+193 → 46 只要把阈值从 0.5 提到 0.6：那个巨簇是靠 0.5~0.6 区间的边撑起来的，典型链式特征。
+
+## 可选的处理方向（未实施）
+
+1. **提高阈值** —— 一行 config，0.6 就把最大簇从 193 砍到 46。代价是留下更多冗余。
+2. **换连接准则** —— 平均链（average-linkage）或全连接（complete-linkage，簇内所有 pair
+   都 ≥ 阈值）。能根治链式，但要改 `build_clusters`，且是 O(n²)。
+3. **限簇大小** —— 超过 N 就不再合并，代价是结果依赖合并顺序。
+4. **不动算法，只让读者知道** —— `cluster_size` 列已经在表里，`redundancy_network.html`
+   就是用来逐个簇审查的。193 个 term 的簇在表里是可见的，只是容易被忽略。
+
+## 这不是"引入的 bug"
+
+是单链聚类的定义本身。repo 里 config 已经把 DAG lineage 关掉（同一类问题的另一种表现），
+说明这个折中是明知的。列在这里是因为它的规模（1,961/2,587 个 term 是非代表）值得知道。
