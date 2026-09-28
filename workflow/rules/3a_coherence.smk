@@ -231,7 +231,10 @@ rule deduplicate_coherence_terms:
         representatives="results/3a_coherence/{dataset}/coherence_terms_representatives.tsv",
     params:
         jaccard_threshold=_COH_CFG.get("dedup_jaccard_threshold", 0.5),
-        lineage_flag="--merge-dag-lineage" if _COH_CFG.get("dedup_merge_dag_lineage", True) else "--no-merge-dag-lineage",
+        # Fallbacks must match the script's own defaults, or a config that dropped
+        # the key would silently run a different algorithm than a bare CLI call.
+        linkage=_COH_CFG.get("dedup_linkage", "complete"),
+        lineage_flag="--merge-dag-lineage" if _COH_CFG.get("dedup_merge_dag_lineage", False) else "--no-merge-dag-lineage",
         scope=_COH_CFG.get("dedup_scope", "pooled"),
         force=lambda wc: " ".join(_COH_CFG.get("dedup_force_representatives", []) or []),
     log:
@@ -248,6 +251,7 @@ rule deduplicate_coherence_terms:
             --combined {input.combined} \
             --obo {input.obo} \
             --jaccard-threshold {params.jaccard_threshold} \
+            --linkage {params.linkage} \
             {params.lineage_flag} \
             --scope {params.scope} \
             --force-representatives {params.force} \

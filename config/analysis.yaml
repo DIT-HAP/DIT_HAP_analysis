@@ -145,6 +145,15 @@ coherence:
   # containment ubiquitous the redundancy graph became one blob (2,097 terms -> 2
   # clusters). 0.5 is calibrated on the resulting cluster count under Jaccard.
   dedup_jaccard_threshold: 0.5
+  # How the "these two clear the threshold" relation is turned into clusters.
+  # `complete` (agglomerative, cut at 1 - threshold) instead of `single`
+  # (connected components): single linkage is transitive, so A~B and B~C fuse A and
+  # C even at Jaccard 0 and a cluster ends up only as tight as its weakest link.
+  # Measured on the 2,587-term table, single @0.5 gave 37.5% of intra-cluster pairs
+  # sharing no member and a 193-term biggest cluster (union: 191 genes, cytosolic
+  # and mitochondrial ribosomes together); complete @0.5 caps it at 26 and puts the
+  # two ribosomes in separate clusters. `average` is available as the middle ground.
+  dedup_linkage: complete
   # OFF by default. The lineage rule unites any member-sharing ancestor/descendant
   # pair, and GO propagation guarantees every term shares members with all of its
   # ancestors, so transitivity chains the entire DAG into one cluster: with it on,

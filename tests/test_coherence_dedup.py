@@ -214,3 +214,112 @@ def test_deduplicate_per_source_scope_keeps_sources_separate(tmp_path):
     # Same GO:X in two sources -> two clusters under per_source, both representatives.
     assert out["redundancy_cluster"].nunique() == 2
     assert out["is_representative"].sum() == 2
+
+
+# --- linkage: single (connected components) vs complete (hierarchical cut) ---
+def _chain_sub():
+    """A~B and B~C clear 0.5; A~C is far below it. The classic chaining case."""
+    return _sub([
+        ("GO:A", {"a", "b", "c", "d", "e"}),              # J(A,B)=4/7=0.57
+        ("GO:B", {"a", "b", "c", "d", "f", "g"}),         # J(B,C)=4/8=0.50
+        ("GO:C", {"c", "d", "f", "g", "h", "i"}),         # J(A,C)=2/9=0.22
+    ])
+
+
+def test_single_linkage_chains_the_whole_line():
+    """Default behaviour, pinned because it is what `complete` is being compared to."""
+    labels = build_clusters(_chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={})
+    assert labels[0] == labels[1] == labels[2]
+
+
+def test_complete_linkage_breaks_the_chain():
+    """A and C are not redundant with each other, so no cluster may hold both."""
+    labels = build_clusters(
+        _chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={},
+        linkage_method="complete",
+    )
+    assert labels[0] == labels[1]          # A~B still merge
+    assert labels[2] != labels[0]          # C does not ride in on B
+    assert sorted(labels) == [0, 0, 1]     # first-appearance numbering preserved
+
+
+def test_complete_linkage_holds_at_every_threshold():
+    """The property that motivates it: no cluster ever contains a pair below threshold.
+
+    Checked exhaustively rather than on one pair, because "the widest internal pair
+    bounds the merge height" is the whole claim.
+    """
+    sub = _sub([
+        ("GO:C1", {"a", "b", "c", "d", "e", "f"}),
+        ("GO:C2", {"a", "b", "c", "d", "e", "g"}),
+        ("GO:C3", {"d", "e", "f", "g", "h", "i"}),
+        ("GO:C4", {"h", "i", "j", "k", "l", "m"}),
+        ("GO:C5", {"a", "b", "h", "i", "j", "k"}),
+        ("GO:C6", {"x", "y", "z", "w", "v", "u"}),      # disjoint from everything
+    ])
+    members = [set(row) for row in sub["scored_member_names"]]
+    for threshold in (0.3, 0.5, 0.6, 0.8):
+        labels = build_clusters(
+            sub, threshold=threshold, merge_dag_lineage=False, ancestors={},
+            linkage_method="complete",
+        )
+        for i, j in itertools.combinations(range(len(members)), 2):
+            if labels[i] != labels[j] or not (members[i] | members[j]):
+                continue
+            overlap = len(members[i] & members[j]) / len(members[i] | members[j])
+            assert overlap >= threshold, (
+                f"thr={threshold}: terms {i},{j} share a cluster at Jaccard {overlap:.2f}"
+            )
+
+
+def test_complete_linkage_keeps_a_disjoint_term_alone():
+    labels = build_clusters(
+        _chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={},
+        linkage_method="complete",
+    )
+    assert len(set(labels)) == 2
+
+
+def _existing_cfg(tmp_path, **kw):
+    """A config whose declared inputs exist, so validate() reaches the param checks."""
+    for name in ("c.tsv", "o.obo"):
+        (tmp_path / name).touch()
+    return _cfg(tmp_path, **kw)
+
+
+@pytest.mark.parametrize("method", ["average", "complete"])
+def test_lineage_rule_is_rejected_outside_single_linkage(tmp_path, method):
+    """A DAG-ancestor edge is not a similarity, so it cannot ride on a linkage cut.
+
+    Silently dropping it (or silently ignoring the linkage) would answer a different
+    question than the config asked, so the config refuses the pair outright.
+    """
+    cfg = _existing_cfg(tmp_path, linkage=method, merge_dag_lineage=True)
+    with pytest.raises(ValueError, match="merge_dag_lineage needs linkage='single'"):
+        cfg.validate()
+
+
+def test_unknown_linkage_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="linkage must be one of"):
+        _existing_cfg(tmp_path, linkage="ward").validate()
+
+
+def test_single_linkage_still_carries_the_lineage_edge(tmp_path):
+    """The one combination that is allowed to set both must validate."""
+    _existing_cfg(tmp_path, linkage="single", merge_dag_lineage=True).validate()
+
+
+def test_defaults_are_self_consistent(tmp_path):
+    """A bare DedupConfig() must validate, and its linkage must be `complete`.
+
+    `complete` and the DAG-lineage rule are mutually exclusive (a similarity cannot
+    express an ancestor edge), so a lineage default of True would make the
+    out-of-the-box config — and therefore the CLI's own --help — advertise a
+    combination that raises on the first call. The two constants have to move
+    together; this pins the pair.
+    """
+    from deduplicate_terms import DEFAULT_LINKAGE, DEFAULT_MERGE_DAG_LINEAGE
+
+    assert DEFAULT_LINKAGE == "complete"
+    assert DEFAULT_MERGE_DAG_LINEAGE is False
+    _existing_cfg(tmp_path).validate()   # no kwargs: exactly the defaults

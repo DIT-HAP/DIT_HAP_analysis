@@ -240,3 +240,72 @@ cytosolic LSU  --J=0.97-->  kegg Eukaryotes-LSU
 
 是单链聚类的定义本身。repo 里 config 已经把 DAG lineage 关掉（同一类问题的另一种表现），
 说明这个折中是明知的。列在这里是因为它的规模（1,961/2,587 个 term 是非代表）值得知道。
+
+---
+
+# 追加（2026-09-28）：dedup 换成全连接（complete linkage）
+
+上节描述了单链的链式合并。现在 `dedup_linkage` 是一个 config 开关：
+
+| 值 | 含义 |
+|---|---|
+| `single` | 连通分量（原行为）。快、稀疏，但传递 |
+| `average` | 层次聚类的平均链 |
+| **`complete`** | **层次聚类的全连接，在 `1 - threshold` 处切割 —— 脚本默认值 + 当前配置** |
+
+`build_clusters` 走 `scipy.cluster.hierarchy`：只有共享成员的 pair 需要算 Jaccard，
+其余距离为 1.0，然后 `linkage(...)` + `fcluster(t=1-threshold, criterion="distance")`。
+
+**为什么全连接能根治**：complete linkage 里两个簇的合并高度 = 它们之间**最宽**的那一对的
+距离，所以一个簇的合并高度就是它内部最宽的一对。在 `1-threshold` 处切，
+得到的分区里**任何簇内任何一对都不会低于阈值** —— 链式在定义上就不可能出现。
+
+`merge_dag_lineage` 现在和 `linkage != single` **互斥**（`DedupConfig.validate` 直接报错）：
+祖先边不是相似度，无法被 linkage 的切割表达，静默丢掉会答非所问。
+
+## 效果（2,587 个 term）
+
+| linkage | thr | 簇数 | 最大簇 | 非代表 | 单例 | 簇内 pair 的 Jaccard 中位/最小 | J=0 的簇内 pair |
+|---|---|---|---|---|---|---|---|
+| single | 0.5 | 626 | **193** | 1,961 | 252 | **0.13** / **0.00** | **13,888 / 36,999（37.5%）** |
+| **complete** | **0.5** | **957** | **26** | 1,630 | 329 | 0.82 / 0.50 | 0 |
+| complete | 0.6 | 1,115 | 26 | 1,472 | 448 | 0.91 / 0.60 | 0 |
+| complete | 0.7 | 1,253 | 24 | 1,334 | 579 | 1.00 / 0.70 | 0 |
+| complete | 0.8 | 1,405 | 23 | 1,182 | 746 | 1.00 / 0.80 | 0 |
+| complete | 0.9 | 1,593 | 23 | 994 | 978 | 1.00 / 0.90 | 0 |
+| average | 0.5 | 884 | 31 | 1,703 | 317 | 0.75 / 0.20 | 0 |
+| average | 0.7 | 1,213 | 29 | 1,374 | 559 | 0.95 / 0.53 | 0 |
+
+`complete` 的「簇内最小 Jaccard」在每一档都精确等于该档阈值 —— 性质得到实证。
+
+**关键读数**：单链 @0.5 下，簇内 pair 的 Jaccard 中位数只有 **0.13**（也就是说：一个
+"冗余簇"里典型的一对几乎不相关），37.5% 完全不共享成员。换成全连接后，
+阈值才第一次成为**真正的旋钮** —— 提高它只改变折叠的激进度（非代表 1,630 → 994），
+最大簇几乎不动（26 → 23）。
+
+## 核糖体的结果
+
+| | single @0.5 | complete @0.5 |
+|---|---|---|
+| 胞质 LSU | 和线粒体的挤在同一个 21-term 簇 | `all:438`（3 terms：胞质 LSU ×2 + kegg Euk LSU） |
+| 线粒体 LSU | 同上 | `all:18`（5 terms：organellar/mito LSU ×3 + kegg Mito/Bacteria LSU） |
+| Archaea LSU | 同上 | `all:624`（自己一个簇） |
+
+代表数 626 → **957**；`coherence_terms_representatives.tsv` 从 626 行长到 957 行。
+
+## 默认值
+
+`complete` 同时也是 `deduplicate_terms.py::DEFAULT_LINKAGE`（CLI/code 层面的默认），
+不只是 config 的值 —— 所以裸跑脚本也走全连接。连带的：`DEFAULT_MERGE_DAG_LINEAGE`
+从 `True` 改成 `False`，因为两者互斥（祖先边不是相似度，无法被 linkage 的切割表达），
+旧值会让 `DedupConfig()` 的默认组合直接 validate 失败。这个默认值本来就与
+config（`false`）和模块 docstring（"OFF by default"）不一致，改完三者才对齐。
+`tests/test_coherence_dedup.py::test_defaults_are_self_consistent` 钉住了这一对。
+
+规则里的 `.get(..., fallback)` 也同步改成 `complete` / `False`，否则 config 少一个键时，
+经 Snakemake 走和裸跑 CLI 会得到不同的算法。
+
+## 遗留
+
+阈值仍是 0.5（只为隔离「换 linkage」这一个变量）。上表给了提高阈值的完整效果，
+选定后改 `dedup_jaccard_threshold` 一行即可。

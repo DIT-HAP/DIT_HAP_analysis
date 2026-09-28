@@ -42,6 +42,25 @@ Clustering is transitive (union-find). Scope is `pooled` (default; clusters
 across all sources, so the same complex appearing in go_cc AND go_macrocomplex
 collapses) or `per_source`.
 
+LINKAGE (dedup_linkage, default `complete`): how the "clears the threshold"
+relation is turned into clusters. A similarity threshold alone only says which
+PAIRS are redundant, and making a cluster out of that needs a linkage rule.
+
+- `single` (connected components): transitive, so A~B and B~C fuse A and C even at
+  Jaccard 0. A cluster ends up only as tight as its weakest link. Measured on the
+  current 2,587-term table: 37.5% of all intra-cluster pairs share no member, the
+  largest cluster is 193 terms whose union is 191 genes, and it takes the whole
+  cytosolic ribosome and the mitochondrial one into a single cluster.
+- `complete` (agglomerative, cut at 1 - threshold): a cluster's merge height IS its
+  widest internal pair, so no cluster can contain a pair below the threshold and the
+  chaining is gone by construction. Largest cluster drops to 26, and the threshold
+  becomes a real knob (it controls how much gets collapsed rather than how badly a
+  chain runs away).
+- `average`: same machinery on the mean linkage, the middle ground.
+
+`single` is the only one that can carry the DAG-lineage edge (a similarity cannot
+express it), so `dedup_merge_dag_lineage` requires it — see DedupConfig.validate.
+
 Representative selection
 ------------------------
 Per cluster, the default representative is the best-evidence term: smallest
@@ -93,10 +112,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # 2. Data Processing Imports
+import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
@@ -109,8 +130,31 @@ from scipy.sparse.csgraph import connected_components
 # it: `DedupConfig.jaccard_threshold` is a member_descriptor, not 0.5, so
 # `default=DedupConfig.jaccard_threshold` silently hands argparse a descriptor.
 DEFAULT_JACCARD_THRESHOLD = 0.5
-DEFAULT_MERGE_DAG_LINEAGE = True
+# OFF, matching config/analysis.yaml and the docstring below. It was True, which
+# was already stale against both — and now that `complete` is the default linkage
+# the old value would make the bare defaults self-contradictory: validate() rejects
+# the lineage rule outside single linkage, so `DedupConfig()` would not validate.
+DEFAULT_MERGE_DAG_LINEAGE = False
 DEFAULT_SCOPE = "pooled"
+# How two terms that clear the threshold are grouped. `complete` is the default:
+#   single   - connected components. Fast and sparse, but transitive: A~B and B~C
+#              fuse A and C even at Jaccard 0, so a cluster is only as tight as its
+#              weakest link. Measured here: a 193-term cluster whose union is 191
+#              genes, a within-cluster Jaccard median of 0.13, and 37.5% of all
+#              intra-cluster pairs sharing no member at all.
+#   complete - agglomerative complete linkage, cut at 1 - threshold. A cluster's
+#              merge height IS its widest internal pair, so no cluster can contain a
+#              pair below the threshold; the chaining is gone by construction. That
+#              also makes the threshold a real knob: raising it only moves how much
+#              gets collapsed (1,630 -> 994 non-representatives from 0.5 to 0.9)
+#              instead of racing a chain (whose largest cluster runs 193 -> 31 over
+#              the same range). Biggest cluster: 26 at 0.5.
+#   average  - same, on the mean linkage. The middle ground, offered because the
+#              call is identical.
+# `single` alone can carry the DAG-lineage edge rule (a similarity cannot express
+# it), so the two are mutually exclusive - see DedupConfig.validate.
+DEFAULT_LINKAGE = "complete"
+_LINKAGE_METHODS = ("single", "average", "complete")
 
 
 # =============================================================================
@@ -125,6 +169,7 @@ class DedupConfig:
     output_representatives: Path
     jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD
     merge_dag_lineage: bool = DEFAULT_MERGE_DAG_LINEAGE
+    linkage: str = DEFAULT_LINKAGE
     scope: str = DEFAULT_SCOPE  # "pooled" | "per_source"
     force_representatives: list[str] = field(default_factory=list)
 
@@ -137,6 +182,17 @@ class DedupConfig:
             raise ValueError(f"jaccard_threshold must be in (0, 1]: {self.jaccard_threshold}")
         if self.scope not in ("pooled", "per_source"):
             raise ValueError(f"scope must be 'pooled' or 'per_source': {self.scope!r}")
+        if self.linkage not in _LINKAGE_METHODS:
+            raise ValueError(f"linkage must be one of {_LINKAGE_METHODS}: {self.linkage!r}")
+        if self.linkage != "single" and self.merge_dag_lineage:
+            # The lineage rule adds an edge for a member-sharing ancestor/descendant
+            # pair whatever their Jaccard, which a similarity-based linkage cannot
+            # express. Silently dropping it would answer a different question than
+            # the one the config asked, so say so instead.
+            raise ValueError(
+                f"merge_dag_lineage needs linkage='single' (got {self.linkage!r}): "
+                "the DAG-ancestor edge is not a similarity and cannot be cut by a linkage"
+            )
         for out in [self.output_all, self.output_representatives]:
             out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -198,22 +254,35 @@ def member_set(value: object) -> set[str]:
     return {str(gene) for gene in value}
 
 
+def condensed_index(i: int, j: int, n: int) -> int:
+    """Position of the (i, j) pair in scipy's condensed distance vector (i < j)."""
+    return n * i - i * (i + 1) // 2 + (j - i - 1)
+
+
 def build_clusters(
     sub: pd.DataFrame,
     threshold: float,
     merge_dag_lineage: bool,
     ancestors: dict[str, set[str]],
+    linkage_method: str = "single",
 ) -> list[int]:
     """Cluster the rows of `sub` (a single scope) -> a cluster label per row."""
     # Two terms are united when their member-set Jaccard similarity >= threshold,
-    # OR (when merge_dag_lineage) one is a DAG ancestor of the other AND they share
-    # >=1 member — disjoint siblings are never merged. `ancestors[group_id]` is the
-    # is_a+part_of ancestor set. The returned labels are small dense integers
-    # aligned to sub's row order, numbered by first appearance.
+    # OR (single linkage + merge_dag_lineage) one is a DAG ancestor of the other AND
+    # they share >=1 member — disjoint siblings are never merged.
+    # `ancestors[group_id]` is the is_a+part_of ancestor set.
+    #
+    # `single` returns connected components; `average`/`complete` return a
+    # hierarchical cut. The returned labels are small dense integers aligned to
+    # sub's row order, numbered by first appearance.
     member_sets = [member_set(cg) for cg in sub["scored_member_names"]]
-    group_ids = sub["group_id"].tolist()
     n_rows = len(sub)
 
+    if linkage_method != "single":
+        labels = hierarchical_labels(member_sets, threshold, linkage_method)
+        return _relabel_by_first_appearance(labels)
+
+    group_ids = sub["group_id"].tolist()
     edges = []
     for i, j in candidate_pairs(member_sets):
         united = jaccard_index(member_sets[i], member_sets[j]) >= threshold
@@ -231,8 +300,49 @@ def build_clusters(
     rows, cols = zip(*edges)
     graph = csr_matrix(([1] * len(edges), (rows, cols)), shape=(n_rows, n_rows))
     _, labels = connected_components(graph, directed=False)
-    # Relabel to first-appearance order: the caller turns labels into cluster-id
-    # strings that the output sort keys on, so the numbering is observable.
+    return _relabel_by_first_appearance(labels)
+
+
+def hierarchical_labels(
+    member_sets: list[set[str]], threshold: float, linkage_method: str
+) -> np.ndarray:
+    """Cut an agglomerative tree at `threshold` -> one label per term.
+
+    Unlike connected components, a cut here bounds the whole cluster and not just
+    its chain: with complete linkage a cluster's merge height IS its widest internal
+    pair, so no cluster can end up holding two terms below the threshold. That is
+    what removes the chaining — measured on the current table, single linkage at 0.5
+    produced a 193-term cluster (union: 191 genes) whose members are mostly mutually
+    disjoint, which complete linkage caps at 26.
+
+    The distance matrix is dense: a pair that shares no member has Jaccard 0 and so
+    sits at the maximum distance, and the hierarchy needs every pair to build the
+    tree at all. Only the sharing pairs are computed; the rest stay at 1.0.
+    n(n-1)/2 doubles per doubling of the term count — 26 MB at today's 2,587 terms,
+    105 MB at 5,000 — so this is not the branch for a table an order of magnitude
+    larger without a sparse-linkage implementation.
+    """
+    n_rows = len(member_sets)
+    if n_rows < 2:
+        return np.arange(n_rows)
+
+    distances = np.ones(n_rows * (n_rows - 1) // 2, dtype=np.float64)
+    for i, j in candidate_pairs(member_sets):
+        distances[condensed_index(i, j, n_rows)] = 1.0 - jaccard_index(member_sets[i], member_sets[j])
+
+    tree = linkage(distances, method=linkage_method)
+    # `criterion="distance"` cuts at the height itself, and the height of a complete
+    # linkage is 1 - Jaccard, so t = 1 - threshold is exactly "no intra-cluster pair
+    # below the threshold".
+    return fcluster(tree, t=1.0 - threshold, criterion="distance")
+
+
+def _relabel_by_first_appearance(labels) -> list[int]:
+    """Dense 0..k-1 labels in first-appearance order.
+
+    The caller turns labels into cluster-id strings that the output sort keys on,
+    so the numbering is observable and has to be stable.
+    """
     remap: dict[int, int] = {}
     return [remap.setdefault(int(label), len(remap)) for label in labels]
 
@@ -302,7 +412,9 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
     scopes = [("all", table)] if config.scope == "pooled" else list(table.groupby("source"))
     table["redundancy_cluster"] = pd.NA
     for scope_name, sub in scopes:
-        labels = build_clusters(sub, config.jaccard_threshold, config.merge_dag_lineage, ancestors)
+        labels = build_clusters(
+            sub, config.jaccard_threshold, config.merge_dag_lineage, ancestors, config.linkage
+        )
         cluster_ids = [f"{scope_name}:{lab}" for lab in labels]
         table.loc[sub.index, "redundancy_cluster"] = cluster_ids
 
@@ -387,7 +499,9 @@ def parse_args() -> argparse.Namespace:
                         help="Member-set Jaccard similarity at or above which two terms are redundant")
     parser.add_argument("--merge-dag-lineage", action=argparse.BooleanOptionalAction,
                         default=DEFAULT_MERGE_DAG_LINEAGE,
-                        help="Also merge member-sharing ancestor/descendant pairs (--no-merge-dag-lineage to disable)")
+                        help="Also merge member-sharing ancestor/descendant pairs (--no-merge-dag-lineage to disable; single linkage only)")
+    parser.add_argument("--linkage", choices=list(_LINKAGE_METHODS), default=DEFAULT_LINKAGE,
+                        help="How to group terms that clear the threshold: single (connected components, chains), average or complete (hierarchical cut)")
     parser.add_argument("--scope", choices=["pooled", "per_source"], default=DEFAULT_SCOPE,
                         help="Cluster across all sources (pooled) or within each source")
     parser.add_argument("--force-representatives", nargs="*", default=[], help="group_ids forced to be their cluster's representative")
@@ -409,6 +523,7 @@ def main() -> int:
             output_representatives=args.output_representatives,
             jaccard_threshold=args.jaccard_threshold,
             merge_dag_lineage=args.merge_dag_lineage,
+            linkage=args.linkage,
             scope=args.scope,
             force_representatives=list(args.force_representatives),
         )
