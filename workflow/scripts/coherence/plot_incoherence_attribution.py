@@ -20,9 +20,17 @@ Input
 - incoherence_attribution.tsv: per-group attribution rows. Only is_incoherent
   rows are drawn, and the label counts come from all of them.
 - incoherence_split_points.parquet: one row per member of every incoherent group
-  (group_id, Systematic ID, norm_DR, norm_DL, component).
+  (group_id, Systematic ID, norm_DR, norm_DL, component — plus `source` when the
+  attribution ran over a pooled table).
 - fitting_results.tsv: the upstream per-gene table, drawn as a genome-wide
   background cloud behind every panel and used to fix the panels' axis ranges.
+
+A table spanning more than one `source` (the pooled de-duplicated run) is drawn
+differently in three places, all of them because group_id stops being an
+identifier once sources are mixed: each panel title gains a source line, the
+split-point lookup matches on (source, group_id), and the label-count panel stacks
+by source. Top-N is still one global z-ranking, so every panel can come from the
+same source — the titles say which, rather than implying a balanced spread.
 
 Output
 ------
@@ -37,9 +45,16 @@ Usage
         --top-n-plot 16 \\
         --output results/3a_coherence/{dataset}/go_macrocomplex/incoherence_attribution.pdf
 
+    # Pooled: the de-duplicated representative set, all sources at once.
+    python plot_incoherence_attribution.py \\
+        --table results/3a_coherence/{dataset}/dedup_incoherence_attribution.tsv \\
+        --points results/3a_coherence/{dataset}/dedup_incoherence_split_points.parquet \\
+        --fitting-results .../gene_level/fitting_results.tsv \\
+        --output results/3a_coherence/{dataset}/dedup_incoherence_attribution.pdf
+
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
-Version:  2.0.0
+Version:  2.1.0
 """
 
 # =============================================================================
@@ -55,7 +70,9 @@ from pathlib import Path
 
 # 2. Data Processing Imports
 import cnsplots as cns
+import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 
 # 3. Third-party Imports
 from loguru import logger
@@ -74,6 +91,7 @@ from figures import (  # noqa: E402
     save_dual,
 )
 from coherence.io import load_fitting_results  # noqa: E402
+from coherence.palette import source_colors  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -148,19 +166,30 @@ def component_colors() -> dict[str, str]:
     return {"core": core, "minor": minor, "single": FURNITURE_COLOR}
 
 
-def _panel_title(row: pd.Series) -> str:
+def _panel_title(row: pd.Series, show_source: bool = False) -> str:
     """Panel title: group name, its z-score, and the GMM silhouette when there was one."""
     # Three lines, each short enough for a SQUARE panel. A 100 px panel holds about
     # 25 characters at the 8 pt house title size, so a two-line
     # "name / z=3.33, sil=0.76 [conditional_module]" overflows into the neighbouring
     # panel — measured on the real go_macrocomplex figure, where line 2 is 37
     # characters. The name is shortened on word boundaries.
+    #
+    # `show_source` appends a fourth line. It is off for a per-source table (the
+    # source is the figure's whole subject there, and a line of it would only cost
+    # the name its room) and on for the pooled one, where group_id is not unique
+    # across sources and two panels titled "GO:0032040 / peptidase complex" would
+    # otherwise be indistinguishable. Last, not first: the panel LETTER is anchored
+    # to the axes' top-left, so a line above the name pushes the letter down beside
+    # the second line and the row stops reading as a row.
     name = textwrap.shorten(str(row["group_name"]), width=_TITLE_NAME_WIDTH, placeholder="…")
     silhouette = row["gmm_silhouette"] if "gmm_silhouette" in row else float("nan")
     stats = f"z={row['median_pairwise_distance_z']:.2f}"
     if pd.notna(silhouette):
         stats += f", sil={silhouette:.2f}"
-    return f"{name}\n{stats}\n[{row['attribution_label']}]"
+    title = f"{name}\n{stats}\n[{row['attribution_label']}]"
+    if show_source and "source" in row.index:
+        title += f"\n{row['source']}"
+    return title
 
 
 def shared_limits(
@@ -179,6 +208,19 @@ def shared_limits(
         (float(stacked["norm_DR"].min()), float(stacked["norm_DR"].max())),
         (min(float(stacked["norm_DL"].min()), _DL_FLOOR), float(stacked["norm_DL"].max())),
     )
+
+
+def group_points_for(points: pd.DataFrame, row: pd.Series, keyed: bool) -> pd.DataFrame:
+    """One group's split points, matched on (source, group_id) when `keyed`.
+
+    `keyed` means the points carry a `source` column, and then the pair is what
+    identifies the group: group_id alone is not unique across sources, so matching
+    on it would draw the union of two different groups' members in each panel.
+    """
+    mask = points["group_id"] == row["group_id"]
+    if keyed and "source" in row.index:
+        mask &= points["source"] == row["source"]
+    return points[mask]
 
 
 def plot_attribution(
@@ -209,12 +251,18 @@ def plot_attribution(
         fit_panels()
         return
 
+    # A pooled table (the de-duplicated representatives) needs both the source in
+    # each title and the (source, group_id) point lookup; a per-source table is
+    # unaffected, and its figures stay exactly as they were.
+    pooled = "source" in table.columns and table["source"].nunique() > 1
+    points_keyed = "source" in points.columns
+
     colors = component_colors()
     palette = [colors[component] for component in _COMPONENT_ORDER]
     x_limits, y_limits = shared_limits(background, points)
 
     for index, (_, row) in enumerate(incoherent.iterrows()):
-        group_points = points[points["group_id"] == row["group_id"]]
+        group_points = group_points_for(points, row, points_keyed)
         ax = axes[index]
         if group_points.empty:
             ax.text(0.5, 0.5, "No fitted members", ha="center", va="center", transform=ax.transAxes)
@@ -234,17 +282,44 @@ def plot_attribution(
             ax.set_ylabel("norm DL/10")
             ax.set_xlim(*x_limits)
             ax.set_ylim(*y_limits)
-        ax.set_title(_panel_title(row))
+        ax.set_title(_panel_title(row, show_source=pooled))
 
-    # Label-frequency panel: a plain count bar. cns.barplot aggregates a mean per
-    # category with optional significance testing, which is not this.
-    counts = table[table["is_incoherent"]]["attribution_label"].value_counts().sort_values()
-    ax_freq = axes[len(incoherent)]
-    ax_freq.barh(counts.index, counts.values, color=house_colors((3,))[0])
-    ax_freq.set_xlabel("Number of incoherent groups")
-    ax_freq.set_title("Label frequency")
+    draw_label_frequency(axes[len(incoherent)], table, pooled)
 
     fit_panels()
+
+
+def draw_label_frequency(ax: Axes, table: pd.DataFrame, pooled: bool) -> None:
+    """Label counts per source: one bar per label, or a source-stacked bar when pooled."""
+    # A plain count bar. cns.barplot aggregates a mean per category with optional
+    # significance testing, which is not this.
+    incoherent = table[table["is_incoherent"]]
+    if pooled:
+        # Stacked by source: the pooled set is dominated by go_bp and go_cc by sheer
+        # term count, so a single bar per label would say more about the sources'
+        # sizes than about their labels. Sources are ordered by total so the bar
+        # reads bottom-up as the biggest contributor first.
+        counts = incoherent.groupby(["attribution_label", "source"]).size().unstack(fill_value=0)
+        counts = counts.loc[counts.sum(axis=1).sort_values().index]
+        palette = source_colors(list(counts.columns))
+        left = np.zeros(len(counts))
+        for source in counts.columns:
+            values = counts[source].to_numpy()
+            ax.barh(counts.index, values, left=left, color=palette[source], label=source)
+            left += values
+        # Tight by necessity: a SQUARE panel is 100 px and the key has one entry per
+        # source, so the default padding is enough to run the last entry off the
+        # axes (measured with five). Anchored lower-right, where the shortest bar
+        # leaves the space free.
+        ax.legend(
+            loc="lower right", frameon=False, fontsize=4.5,
+            handlelength=0.9, handletextpad=0.4, labelspacing=0.25, borderaxespad=0.1,
+        )
+    else:
+        counts = incoherent["attribution_label"].value_counts().sort_values()
+        ax.barh(counts.index, counts.values, color=house_colors((3,))[0])
+    ax.set_xlabel("Number of incoherent groups")
+    ax.set_title("Label frequency")
 
 
 @logger.catch(reraise=True)

@@ -35,11 +35,20 @@
 #                                     collapse redundant terms by member overlap + GO DAG
 #                                     (display layer; the combined q_value is carried
 #                                     through untouched, all terms kept)
+#   plot_coherence_dedup           -> coherence_dedup.pdf (the representative set alone)
+#   plot_coherence_by_source       -> coherence_by_source.pdf (every source + the
+#                                     representative set on one figure, coloured by source)
 #   compute_coherence_attribution  -> incoherence_attribution.tsv + incoherence_split_points.parquet:
 #                                     diagnose WHY a complex is dispersed (major/minor GMM
 #                                     split, shared subunits, paralog buffering).
 #                                     attribution_sources subset.
 #   plot_coherence_attribution     -> incoherence_attribution.pdf (renders the persisted split points)
+#   compute_coherence_attribution_dedup -> dedup_incoherence_attribution.tsv
+#                                     (+ dedup_incoherence_split_points.parquet): the same
+#                                     diagnosis over the pooled representative set — every
+#                                     source's annotation concatenated, keyed (source, group_id)
+#                                     because group_id is NOT unique across sources.
+#   plot_coherence_attribution_dedup -> dedup_incoherence_attribution.pdf
 #   plot_coherence_group_scatter   -> group_scatter.pdf (named groups from config)
 #   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; term picker
 #                                     + per-gene tooltips over the genome-wide cloud)
@@ -247,6 +256,70 @@ rule deduplicate_coherence_terms:
         """
 
 
+# --- The de-duplicated set as a first-class result --------------------------
+# Everything above is per source; the representative set is the cross-source end
+# product, so it gets its own coherence figure and its own attribution run. The
+# TSV's pooled q_value is carried through untouched from the combined table — see
+# combine_metrics.py's FDR note for why re-correcting over the representatives
+# would be anti-conservative rather than merely redundant.
+
+rule plot_coherence_dedup:
+    input:
+        representatives="results/3a_coherence/{dataset}/coherence_terms_representatives.tsv",
+    output:
+        figure="results/3a_coherence/{dataset}/coherence_dedup.pdf",
+        preview="results/3a_coherence/{dataset}/coherence_dedup.review.png",
+    params:
+        label_q_max=_COH_CFG.get("fdr_panel_q_max", 0.05),
+        label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
+        label_max=_COH_CFG.get("fdr_panel_label_max", 5),
+    log:
+        "logs/3a_coherence/plot_dedup_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Plotting the de-duplicated representative set for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_coherence.py \
+            --input {input.representatives} \
+            --label-q-max {params.label_q_max} \
+            --label-quantile {params.label_quantile} \
+            --label-max {params.label_max} \
+            --output {output.figure} &> {log}
+        """
+
+
+rule plot_coherence_by_source:
+    input:
+        combined="results/3a_coherence/{dataset}/coherence_metrics_combined.parquet",
+        representatives="results/3a_coherence/{dataset}/coherence_terms_representatives.tsv",
+    output:
+        figure="results/3a_coherence/{dataset}/coherence_by_source.pdf",
+        preview="results/3a_coherence/{dataset}/coherence_by_source.review.png",
+    params:
+        label_q_max=_COH_CFG.get("fdr_panel_q_max", 0.05),
+        label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
+        label_max=_COH_CFG.get("fdr_panel_label_max", 5),
+    log:
+        "logs/3a_coherence/plot_by_source_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Plotting the cross-source comparison for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_coherence.py \
+            --input {input.combined} \
+            --color-by source \
+            --dedup-series {input.representatives} \
+            --label-q-max {params.label_q_max} \
+            --label-quantile {params.label_quantile} \
+            --label-max {params.label_max} \
+            --output {output.figure} &> {log}
+        """
+
+
 rule compute_coherence_attribution:
     input:
         metrics=f"{_COH}/coherence_metrics.parquet",
@@ -306,6 +379,83 @@ rule plot_coherence_attribution:
         "../envs/cnsplots.yml"
     message:
         "*** [coherence] Plotting incoherence attribution for {wildcards.dataset} × {wildcards.source}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_incoherence_attribution.py \
+            --table {input.table} \
+            --points {input.points} \
+            --fitting-results {input.fitting_results} \
+            --top-n-plot {params.top_n_plot} \
+            --output {output.figure} &> {log}
+        """
+
+
+# The de-duplicated set's attribution. Same diagnosis as the per-source rule above,
+# run once over the pooled representatives instead of five times over the full
+# per-source tables: the metrics TSV carries the pooled q, and every source's
+# annotation is concatenated so a group_id shared by two sources (173 of them)
+# still resolves to its own source's members. `--top-n-plot` is still a global
+# z-ranking, so the panels can all come from one source — each panel's title now
+# names its source, which is what makes that visible rather than misleading.
+rule compute_coherence_attribution_dedup:
+    input:
+        metrics="results/3a_coherence/{dataset}/coherence_terms_representatives.tsv",
+        annotations=lambda wc: expand(
+            f"results/3a_coherence/{wc.dataset}/{{source}}/group_annotation_long.tsv",
+            source=_COH_SOURCES,
+        ),
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+        paralogs="resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv",
+    output:
+        table="results/3a_coherence/{dataset}/dedup_incoherence_attribution.tsv",
+        points="results/3a_coherence/{dataset}/dedup_incoherence_split_points.parquet",
+    params:
+        z_threshold=_COH_CFG.get("attribution_z_threshold", 0.0),
+        shared_frac=_COH_CFG.get("attribution_shared_frac_threshold", 0.5),
+        paralog_frac=_COH_CFG.get("attribution_paralog_frac_threshold", 0.5),
+    log:
+        "logs/3a_coherence/attribution_dedup_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [coherence] Attributing incoherence for the de-duplicated set of {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/compute_incoherence_attribution.py \
+            --metrics {input.metrics} \
+            --annotation {input.annotations} \
+            --fitting-results {input.fitting_results} \
+            --paralogs {input.paralogs} \
+            --z-threshold {params.z_threshold} \
+            --shared-frac-threshold {params.shared_frac} \
+            --paralog-frac-threshold {params.paralog_frac} \
+            --output-table {output.table} \
+            --output-points {output.points} &> {log}
+        """
+
+
+rule plot_coherence_attribution_dedup:
+    input:
+        table="results/3a_coherence/{dataset}/dedup_incoherence_attribution.tsv",
+        points="results/3a_coherence/{dataset}/dedup_incoherence_split_points.parquet",
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+    output:
+        figure="results/3a_coherence/{dataset}/dedup_incoherence_attribution.pdf",
+        preview="results/3a_coherence/{dataset}/dedup_incoherence_attribution.review.png",
+    params:
+        top_n_plot=_COH_CFG.get("attribution_top_n_plot", 16),
+    log:
+        "logs/3a_coherence/attribution_plot_dedup_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Plotting the de-duplicated incoherence attribution for {wildcards.dataset}..."
     shell:
         """
         python workflow/scripts/coherence/plot_incoherence_attribution.py \

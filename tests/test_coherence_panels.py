@@ -23,8 +23,8 @@ def test_shared_subunit_fraction_counts_cross_group_members():
         ("go_cc", "GO:2", "two", "gA", "gA", 1),
     ])
     frac = shared_subunit_fractions(long)
-    assert frac["GO:1"] == 0.5   # gA shared, gB not -> 1/2
-    assert frac["GO:2"] == 1.0   # gA shared -> 1/1
+    assert frac[("go_cc", "GO:1")] == 0.5   # gA shared, gB not -> 1/2
+    assert frac[("go_cc", "GO:2")] == 1.0   # gA shared -> 1/1
 
 
 def test_shared_subunit_fraction_is_per_source():
@@ -35,8 +35,29 @@ def test_shared_subunit_fraction_is_per_source():
         ("go_bp", "GO:9", "nine", "gA", "gA", 1),
     ])
     frac = shared_subunit_fractions(long)
-    assert frac["GO:1"] == 0.0  # gA only in one go_cc group
-    assert frac["GO:9"] == 0.0
+    assert frac[("go_cc", "GO:1")] == 0.0  # gA only in one go_cc group
+    assert frac[("go_bp", "GO:9")] == 0.0
+
+
+def test_shared_subunit_fraction_keys_on_source_when_group_id_collides():
+    """One group_id in two sources must keep two fractions, not overwrite one.
+
+    173 group_ids really do appear in more than one source (GO:0032040 is both a
+    go_cc term and a go_macrocomplex complex), so a group_id-keyed dict silently
+    lets the last source win and reports the other one's fraction. The repr is
+    `{('go_cc','GO:1'): 0.0, ('go_bp','GO:1'): 1.0}` — the same bare id, two
+    different answers, and only the pair tells them apart.
+    """
+    from coherence.attribution import shared_subunit_fractions
+    long = _long([
+        ("go_cc", "GO:1", "cc view", "gA", "gA", 1),
+        ("go_bp", "GO:1", "bp view", "gA", "gA", 2),
+        ("go_bp", "GO:1", "bp view", "gB", "gB", 2),
+        ("go_bp", "GO:2", "other", "gB", "gB", 1),
+    ])
+    frac = shared_subunit_fractions(long)
+    assert frac[("go_cc", "GO:1")] == 0.0   # gA is alone within go_cc
+    assert frac[("go_bp", "GO:1")] == 0.5   # gB is shared within go_bp
 
 
 def test_member_feature_cv_computes_per_group_cv():

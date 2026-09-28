@@ -408,3 +408,75 @@ def test_fdr_label_text_does_not_overlap():
             )
         assert_layout_is_clean(fig)
     plt.close("all")
+
+
+# --- cross-source comparison mode -------------------------------------------
+# `color_by="source"` draws every panel once per source instead of once. The two
+# ways it can go wrong are both layout defects: panels A/B switch from the house's
+# filled histogram to overlaid step outlines with a legend added, and panels D-H go
+# from one cns.scatterplot call to one per source — neither change is visible to a
+# test that only checks the figure rendered.
+def _sourced_coherence_table(sources: list[str], n_per_source: int = 30) -> pd.DataFrame:
+    frames = []
+    for position, source in enumerate(sources):
+        frame = _coherence_table(n_per_source).copy()
+        frame["source"] = source
+        # Offset so the sources do not land on identical points, which would make a
+        # colour check pass by accident on a single visible series.
+        frame["median_pairwise_distance_z"] += position * 0.5
+        frame["geom_median_DR"] += position * 0.05
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_comparison_layout_is_clean():
+    from plot_coherence import plot_coherence
+
+    table = _sourced_coherence_table(["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway"])
+    plot_coherence(table, color_by="source")
+    assert_layout_is_clean(plt.gcf())
+    plt.close("all")
+
+
+def test_comparison_panel_c_has_one_colour_per_source_and_no_z_colourbar():
+    from plot_coherence import _source_series, plot_coherence
+    from coherence.palette import source_colors
+
+    sources = ["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway", "dedup"]
+    table = _sourced_coherence_table(sources)
+    plot_coherence(table, color_by="source")
+    fig = plt.gcf()
+
+    assert _source_series(table) == sources  # config order, not order of appearance
+    expected = source_colors(sources)
+    assert len(set(expected.values())) == len(sources), "two sources share a colour"
+
+    centroid = next(ax for ax in fig.axes if ax.get_title() == "Group centroid positions")
+    drawn = {
+        tuple(np.round(collection.get_facecolors()[0][:3], 6))
+        for collection in centroid.collections
+        if len(collection.get_offsets())
+    }
+    want = {tuple(np.round(matplotlib.colors.to_rgb(expected[s]), 6)) for s in sources}
+    assert drawn >= want, f"missing colours: {want - drawn}"
+    # The z-score colourbar is what comparison mode replaces with the source key.
+    assert not any(ax.get_label() == "<colorbar>" for ax in fig.axes)
+    plt.close("all")
+
+
+def test_single_series_mode_still_draws_without_a_source_column():
+    """`color_by="none"` is the default and must not start requiring `source`."""
+    from plot_coherence import plot_coherence
+
+    table = _coherence_table()
+    assert "source" not in table.columns
+    plot_coherence(table)
+    fig = plt.gcf()
+    centroid = next(ax for ax in fig.axes if ax.get_title() == "Group centroid positions")
+    # One data collection, not one per source. (The four others are the empty
+    # size-legend handles, which carry no offsets.)
+    data_collections = [c for c in centroid.collections if len(c.get_offsets())]
+    assert len(data_collections) == 1
+    assert len(data_collections[0].get_offsets()) == len(table)
+    assert_layout_is_clean(fig)
+    plt.close("all")

@@ -32,9 +32,14 @@ renders the figure from these two outputs.
 
 Input
 -----
-- --metrics: a source's coherence_metrics.parquet (source, group_id, group_name,
+- --metrics: a coherence metrics table (source, group_id, group_name,
   n_scored_members, scored_member_names, median_pairwise_distance_z, q_value, ...).
-- --annotation: that source's group_annotation_long.tsv (group -> member genes).
+  One source's Parquet for a per-source run; the pooled de-duplicated
+  representatives TSV for the dataset-level run.
+- --annotation: the matching group_annotation_long.tsv table(s) (group -> member
+  genes). One path per source; they are concatenated, and `source` is what keeps a
+  group_id shared by two sources (173 of them) from resolving to the union of two
+  different groups' members.
 - --fitting-results: upstream fitting_results.tsv (see coherence/io.py).
 - --paralogs: Ensembl paralog export TSV (its "Gene stable ID" column lists genes
   with >=1 paralog).
@@ -49,8 +54,9 @@ Output
   is a final human-facing table, not a pipeline intermediate.
 - --output-points: incoherence_split_points.parquet — one row per member of every
   INCOHERENT group: group_id, Systematic ID, norm_DR, norm_DL, component
-  ("core" / "minor" / "single"). This is what the figure colours by, persisted so
-  the plot never re-fits the GMM.
+  ("core" / "minor" / "single") — plus `source` when the input carried one, which
+  is what lets the figure tell two same-group_id panels apart. This is what the
+  figure colours by, persisted so the plot never re-fits the GMM.
 
 Usage
 -----
@@ -95,7 +101,7 @@ from coherence.attribution import (  # noqa: E402
     attribute_incoherence,
 )
 from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from io_table import read_parquet, write_parquet  # noqa: E402
+from io_table import read_file, write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -120,7 +126,12 @@ _COMPONENT_SINGLE = "single"
 class AttributionConfig:
     """Inputs, outputs, and parameters for incoherence attribution."""
     metrics: Path
-    annotation: Path
+    # One path per source: a per-source run passes one, the pooled dedup run passes
+    # every registered source's table. They are concatenated, which is what makes
+    # the pooled call correct — `source` is what keeps a group_id shared by two
+    # sources (173 of them, e.g. GO:0032040 in both go_cc and go_macrocomplex) from
+    # resolving to the union of both member sets.
+    annotations: tuple[Path, ...]
     fitting_results: Path
     paralogs: Path
     output_table: Path
@@ -131,7 +142,8 @@ class AttributionConfig:
 
     def validate(self) -> None:
         """Raise ValueError on missing inputs, then make output dirs."""
-        for path in [self.metrics, self.annotation, self.fitting_results, self.paralogs]:
+        paths = [self.metrics, *self.annotations, self.fitting_results, self.paralogs]
+        for path in paths:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for out in [self.output_table, self.output_points]:
@@ -159,13 +171,21 @@ def load_paralog_ids(paralogs: Path) -> set[str]:
 # CORE LOGIC — per-group attribution
 # =============================================================================
 def group_member_points(
-    long_table: pd.DataFrame, group_id: str, points: pd.DataFrame
+    long_table: pd.DataFrame, group_id: str, points: pd.DataFrame, source: str | None = None
 ) -> tuple[list[str], np.ndarray]:
     """The group's members that have fitness points, as (ids, (n,2) array)."""
     # Uses the same long-table -> point-cloud join coherence used, so the GMM sees
     # exactly the member set the z-score was computed on (members without a fitted
     # DR/DL are dropped, matching compute_coherence's inner merge).
-    members = long_table.loc[long_table["group_id"] == group_id, "Systematic ID"].unique()
+    #
+    # `source` must be passed on a POOLED table: group_id alone is ambiguous there
+    # (173 group_ids appear in two sources), so without it the GMM would be fitted
+    # to the union of two different groups' members. A single-source table makes it
+    # optional — the union over one source is just the group.
+    rows = long_table
+    if source is not None and "source" in long_table.columns:
+        rows = long_table[long_table["source"] == source]
+    members = rows.loc[rows["group_id"] == group_id, "Systematic ID"].unique()
     ids = [m for m in members if m in points.index]
     X = points.loc[ids].to_numpy(dtype=float) if ids else np.empty((0, 2))
     return ids, X
@@ -194,16 +214,25 @@ def attribute_all(
     # Returns (attribution_table, split_points). Split points cover only the
     # INCOHERENT groups — the figure never draws the rest — and carry each member's
     # normalized DR/DL and its GMM component, so the plot never re-fits the GMM.
+    #
+    # Everything below is keyed on (source, group_id) when the tables carry a
+    # `source` column: group_id is not unique across sources, so on the pooled dedup
+    # table a group_id-only lookup returns whichever source happens to come first.
+    # `sourced` mirrors `attribution.member_pairs`' own column test, so the two key
+    # shapes stay in step.
+    sourced = "source" in long_table.columns and "source" in metrics.columns
     shared_fractions = shared_subunit_fractions(long_table)
 
     rows = []
     point_rows = []
     for _, m in metrics.iterrows():
         group_id = m["group_id"]
-        ids, X = group_member_points(long_table, group_id, points)
+        source = str(m["source"]) if sourced else None
+        key = (source, group_id) if sourced else group_id
+        ids, X = group_member_points(long_table, group_id, points, source=source)
         split = major_minor_split(X)
 
-        shared_frac = shared_fractions.get(group_id, np.nan)
+        shared_frac = shared_fractions.get(key, np.nan)
         par_frac = paralog_fraction(ids, paralog_ids)
         label = attribute_incoherence(
             split, shared_frac, par_frac,
@@ -213,7 +242,7 @@ def attribute_all(
         is_incoherent = bool(m["median_pairwise_distance_z"] > config.z_threshold)
 
         # One shared_subunits call serves both the detail column and its count.
-        shared_members = shared_subunits(long_table, group_id)
+        shared_members = shared_subunits(long_table, group_id, source=source)
         sizes = split.get("component_sizes")
         core_label = split.get("core_label")
 
@@ -239,7 +268,7 @@ def attribute_all(
         if is_incoherent and ids:
             components = component_labels(split, len(ids))
             point_rows.extend(
-                {"group_id": group_id, "Systematic ID": gene,
+                {"source": source, "group_id": group_id, "Systematic ID": gene,
                  "norm_DR": X[i, 0], "norm_DL": X[i, 1], "component": components[i]}
                 for i, gene in enumerate(ids)
             )
@@ -247,9 +276,13 @@ def attribute_all(
     table = pd.DataFrame(rows)
     if not table.empty:
         table = table.sort_values("median_pairwise_distance_z", ascending=False).reset_index(drop=True)
-    points_table = pd.DataFrame(
-        point_rows, columns=["group_id", "Systematic ID", "norm_DR", "norm_DL", "component"]
-    )
+    # `source` is carried only when it keys the rows: an unsourced table has no
+    # source to record whatsoever, and a NaN column would just read as a real one
+    # (the DataFrame constructor drops the extra key against an explicit column list).
+    point_columns = ["group_id", "Systematic ID", "norm_DR", "norm_DL", "component"]
+    if sourced:
+        point_columns = ["source", *point_columns]
+    points_table = pd.DataFrame(point_rows, columns=point_columns)
     return table, points_table
 
 
@@ -260,11 +293,20 @@ def attribute_all(
 def run(config: AttributionConfig) -> None:
     """Load -> per-group attribution -> TSV + split-points Parquet."""
     config.validate()
-    metrics = read_parquet(config.metrics)
+    metrics = read_file(config.metrics)
     missing = [col for col in _REQUIRED_METRIC_COLUMNS if col not in metrics.columns]
     if missing:
         raise ValueError(f"metrics table missing required column(s) {missing} (have: {list(metrics.columns)})")
-    long_table = load_long_table(config.annotation)
+    # One long table per source, concatenated. `source` survives the concat and is
+    # what keeps a group_id shared by two sources (173 of them) from resolving to
+    # the union of two different groups' members.
+    long_table = pd.concat(
+        [load_long_table(path) for path in config.annotations], ignore_index=True
+    )
+    logger.info(
+        f"annotation: {len(long_table):,} rows from {len(config.annotations)} source table(s); "
+        f"sources={sorted(long_table['source'].unique()) if 'source' in long_table.columns else 'none'}"
+    )
     # keep="last" mirrors the dict comprehension this replaced: a repeated gene id
     # resolved to its last row, and .loc[] on a duplicated index would fan out.
     points = (
@@ -300,8 +342,9 @@ def run(config: AttributionConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Attribute the cause of coherence incoherence per group")
-    parser.add_argument("--metrics", type=Path, required=True, help="A source's coherence_metrics.parquet")
-    parser.add_argument("--annotation", type=Path, required=True, help="That source's group_annotation_long.tsv")
+    parser.add_argument("--metrics", type=Path, required=True, help="A coherence metrics table (one source's Parquet, or the pooled dedup TSV)")
+    parser.add_argument("--annotation", type=Path, nargs="+", required=True,
+                        help="The matching group_annotation_long.tsv table(s) — one per source, concatenated")
     parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv (DR/DL)")
     parser.add_argument("--paralogs", type=Path, required=True, help="Ensembl paralog export TSV")
     parser.add_argument("--z-threshold", type=float, default=0.0, help="median_pairwise_distance_z above this = incoherent")
@@ -320,7 +363,7 @@ def main() -> int:
     try:
         config = AttributionConfig(
             metrics=args.metrics,
-            annotation=args.annotation,
+            annotations=tuple(args.annotation),
             fitting_results=args.fitting_results,
             paralogs=args.paralogs,
             output_table=args.output_table,

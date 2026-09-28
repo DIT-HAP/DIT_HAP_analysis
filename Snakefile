@@ -124,6 +124,14 @@ rule all:
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
         f"results/3a_coherence/{_DATASET}/coherence_terms_representatives.tsv",
+        # The de-duplicated representative set as a first-class result: its own
+        # coherence figure and its own attribution run, over the pooled table.
+        f"results/3a_coherence/{_DATASET}/coherence_dedup.pdf",
+        f"results/3a_coherence/{_DATASET}/dedup_incoherence_attribution.tsv",
+        f"results/3a_coherence/{_DATASET}/dedup_incoherence_attribution.pdf",
+        # One figure with every source on it, coloured by source, + the
+        # representative set as a sixth series.
+        f"results/3a_coherence/{_DATASET}/coherence_by_source.pdf",
         # The de-duplication audit pages (Altair + pyvis, ~1-3 MB). The per-source
         # interactive scatter page is deliberately NOT here: it embeds every
         # (term, member) row in the source, which is 58k rows for go_bp, so it is

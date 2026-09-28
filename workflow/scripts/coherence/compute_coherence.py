@@ -195,9 +195,15 @@ def group_annotations(long_table: pd.DataFrame, features: pd.DataFrame | None) -
     # a features table is supplied. Each is computed in one pass over every group
     # (not per surviving group), then left-joined onto the metrics table so a group
     # that failed the size filter simply does not appear.
-    annotations = pd.DataFrame(
-        {"frac_shared_members": pd.Series(shared_subunit_fractions(long_table))}
-    )
+    #
+    # This stage runs once per source, so the source half of the (source, group_id)
+    # key `shared_subunit_fractions` returns is the same for every row and the frame
+    # is indexed by group_id alone. (The pair is what the pooled attribution needs;
+    # see attribution.py — group_id is not unique across sources.)
+    fractions = shared_subunit_fractions(long_table)
+    if "source" in long_table.columns:
+        fractions = {group_id: value for (_source, group_id), value in fractions.items()}
+    annotations = pd.DataFrame({"frac_shared_members": pd.Series(fractions)})
     if features is None:
         return annotations
 

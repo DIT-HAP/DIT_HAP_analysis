@@ -2,14 +2,19 @@
 
 Pins the behaviour compute_incoherence_attribution.py relies on: the GMM
 major/minor split on a synthetic core+minor cloud, the source-scoped
-group_id-keyed shared-subunit fraction, the paralog fraction, and the
+(source, group_id)-keyed shared-subunit fraction, the paralog fraction, and the
 attribution label priority ladder (including the CLRC-like split+shared ->
 conditional_module case).
+
+The (source, group_id) key is pinned separately below: it is what makes the
+pooled de-duplicated attribution correct, because group_id is NOT unique across
+sources (173 of them, e.g. GO:0032040, appear in both go_cc and go_macrocomplex).
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scripts" / "coherence"))
 
 import numpy as np
 import pandas as pd
@@ -110,6 +115,92 @@ def test_shared_subunits_keys_on_group_id_not_name():
     assert set(ss["Systematic ID"]) == {"g1"}
     assert ss.iloc[0]["n_other_groups"] == 1
     assert shared_subunit_fractions(long)["C1"] == pytest.approx(0.5)
+
+
+# --- pooled (all-sources) tables --------------------------------------------
+# group_id is not unique across sources, so on the pooled de-duplicated table
+# every lookup has to carry the source with it. `_long_pooled` mirrors the real
+# long table's column order (source first), which is what the code tests for.
+def _long_pooled(rows):
+    return pd.DataFrame(rows, columns=["source", "group_id", "group_name", "Systematic ID"])
+
+
+def test_shared_subunits_scopes_to_the_given_source():
+    """The same group_id in two sources is two different groups' member lists."""
+    long = _long_pooled([
+        ("go_cc", "GO:1", "cc view", "gA"),
+        ("go_bp", "GO:1", "bp view", "gB"), ("go_bp", "GO:1", "bp view", "gC"),
+        ("go_bp", "GO:2", "other", "gB"),
+    ])
+    assert set(shared_subunits(long, "GO:1", source="go_cc")["Systematic ID"]) == set()
+    assert set(shared_subunits(long, "GO:1", source="go_bp")["Systematic ID"]) == {"gB"}
+    # Without the source it falls back to inferring it, which on a collision picks
+    # whichever row comes first — the reason the pooled caller must pass it.
+    assert set(shared_subunits(long, "GO:1")["Systematic ID"]) == set()
+
+
+def test_group_member_points_scopes_to_the_given_source():
+    """A pooled long table must not union two sources' members under one group_id."""
+    from compute_incoherence_attribution import group_member_points
+
+    long = _long_pooled([
+        ("go_cc", "GO:1", "cc view", "gA"),
+        ("go_bp", "GO:1", "bp view", "gB"), ("go_bp", "GO:1", "bp view", "gC"),
+    ])
+    points = pd.DataFrame(
+        {"norm_DR": [-1.0, -0.5, 0.0], "norm_DL": [0.0, 1.0, 2.0]},
+        index=["gA", "gB", "gC"],
+    )
+    cc_ids, cc_X = group_member_points(long, "GO:1", points, source="go_cc")
+    bp_ids, bp_X = group_member_points(long, "GO:1", points, source="go_bp")
+    assert cc_ids == ["gA"] and cc_X.shape == (1, 2)
+    assert bp_ids == ["gB", "gC"] and bp_X.shape == (2, 2)
+    # An unsourced table (every per-source caller) keeps the old behaviour: the
+    # group_id is unique there, so omitting the source is not a silent change.
+    assert group_member_points(long.drop(columns="source"), "GO:1", points)[0] == ["gA", "gB", "gC"]
+
+
+def test_attribute_all_pooled_matches_per_source():
+    """The pooled run answers each source with its own members, not the union.
+
+    This is the whole reason the dedup attribution is allowed to run once over a
+    pooled table instead of five times per source: a group_id's GMM, shared
+    fraction and label must come out identical either way.
+    """
+    from compute_incoherence_attribution import AttributionConfig, attribute_all
+
+    long = _long_pooled([
+        ("go_cc", "GO:1", "cc view", "gA"),
+        ("go_bp", "GO:1", "bp view", "gB"), ("go_bp", "GO:1", "bp view", "gC"),
+        ("go_bp", "GO:2", "other", "gB"),
+    ])
+    metrics = pd.DataFrame({
+        "source": ["go_cc", "go_bp", "go_bp"],
+        "group_id": ["GO:1", "GO:1", "GO:2"],
+        "group_name": ["cc view", "bp view", "other"],
+        "n_scored_members": [1, 2, 1],
+        "median_pairwise_distance_z": [2.5, 2.5, -1.0],
+    })
+    points = pd.DataFrame(
+        {"norm_DR": [-1.0, -0.5, 0.0], "norm_DL": [0.0, 1.0, 2.0]},
+        index=["gA", "gB", "gC"],
+    )
+    config = AttributionConfig(
+        metrics=Path("unused.parquet"), annotations=(Path("unused.tsv"),),
+        fitting_results=Path("unused.tsv"), paralogs=Path("unused.tsv"),
+        output_table=Path("unused.tsv"), output_points=Path("unused.parquet"),
+    )
+    table, split_points = attribute_all(metrics, long, points, set(), config)
+
+    by_key = {(row.source, row.group_id): row for row in table.itertuples()}
+    # gA alone in go_cc -> nothing shared; gB shared with GO:2 within go_bp -> 0.5.
+    assert by_key[("go_cc", "GO:1")].frac_shared_members == pytest.approx(0.0)
+    assert by_key[("go_bp", "GO:1")].frac_shared_members == pytest.approx(0.5)
+    # The split points carry the source, which is what lets the figure key on it.
+    assert set(split_points.columns) >= {"source", "group_id"}
+    assert set(map(tuple, split_points[["source", "group_id"]].drop_duplicates().values)) == {
+        ("go_cc", "GO:1"), ("go_bp", "GO:1"),
+    }
 
 
 # --- paralog fraction -------------------------------------------------------

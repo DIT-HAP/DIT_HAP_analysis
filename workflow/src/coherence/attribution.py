@@ -86,10 +86,10 @@ def member_pairs(long_table: pd.DataFrame) -> pd.DataFrame:
     """Unique (source, group_id, Systematic ID) membership rows."""
     # Sharing is per SOURCE: a gene in a go_cc term and a go_bp term belongs to two
     # different groupings, not to two alternative descriptions of one complex, so
-    # cross-source membership must not read as a shared subunit. Every coherence
-    # stage is in fact called with a single source's long-table already (one
-    # `group_annotation_long.tsv` per source), which makes this free — it only
-    # bites if someone passes the combined all-sources table.
+    # cross-source membership must not read as a shared subunit. This matters on the
+    # pooled table the dedup stage now uses — and it is not enough on its own there,
+    # because group_id is not unique across sources either; every lookup keyed by
+    # group_id must carry the source along (see `shared_subunit_fractions`).
     #
     # `source` is synthesized as "" for callers whose table lacks the column, so the
     # grouping keys are the same shape either way.
@@ -106,8 +106,16 @@ def member_degrees(long_table: pd.DataFrame) -> pd.Series:
     return pairs.groupby(["source", "Systematic ID"])["group_id"].nunique()
 
 
-def shared_subunit_fractions(long_table: pd.DataFrame) -> dict[str, float]:
-    """Return {group_id: fraction of members that also belong to >=1 other group}."""
+def shared_subunit_fractions(long_table: pd.DataFrame) -> dict:
+    """Return {key: fraction of members that also belong to >=1 other group}.
+
+    `key` is `(source, group_id)` when the table carries a `source` column and the
+    bare `group_id` when it does not, mirroring `member_pairs`. The pair is not
+    decoration on a pooled table: group_id is NOT unique across sources (173 of
+    them, e.g. GO:0032040, appear in both go_cc and go_macrocomplex), so a
+    group_id-keyed dict lets whichever source is iterated last silently overwrite
+    the other's fraction, and every lookup then returns the wrong source's number.
+    """
     # One pass for every group at once, which is what the compute stage wants: the
     # per-group loop this replaces scans the whole table per group, and go_bp's
     # 120k-row table with 3.7k groups made that cost ~40s.
@@ -121,13 +129,22 @@ def shared_subunit_fractions(long_table: pd.DataFrame) -> dict[str, float]:
     n_shared = shared.groupby(["source", "group_id"])["Systematic ID"].nunique()
     n_members = annotated.groupby(["source", "group_id"])["Systematic ID"].nunique()
     ratios = n_shared.reindex(n_members.index).fillna(0) / n_members
+    if "source" in long_table.columns:
+        return {(str(source), group_id): float(value) for (source, group_id), value in ratios.items()}
     return {group_id: float(value) for (_source, group_id), value in ratios.items()}
 
 
-def shared_subunits(long_table: pd.DataFrame, group_id: str) -> pd.DataFrame:
+def shared_subunits(
+    long_table: pd.DataFrame, group_id: str, source: str | None = None
+) -> pd.DataFrame:
     """List one group's members that also belong to OTHER groups of the same source."""
-    # `long_table` is a single source's coherence long-table (contract columns
-    # group_id, group_name, "Systematic ID").
+    # `long_table` is either a single source's coherence long-table (contract columns
+    # group_id, group_name, "Systematic ID") or the pooled all-sources table.
+    #
+    # `source` scopes the lookups. It is optional because a single-source table
+    # makes the group_id unique and the source inferable; on a POOLED table it must
+    # be passed, since group_id alone is ambiguous there (see
+    # `shared_subunit_fractions`) and inferring it picks an arbitrary source.
     #
     # "Other" is keyed on the stable `group_id` and scoped to the member's own
     # source (see `member_pairs`), matching how `sources.py` dedups and how the
@@ -139,10 +156,12 @@ def shared_subunits(long_table: pd.DataFrame, group_id: str) -> pd.DataFrame:
     cols = ["Systematic ID", "n_other_groups", "other_groups"]
     candidates = member_pairs(long_table)
     if "source" in long_table.columns:
-        group_source = long_table.loc[long_table["group_id"] == group_id, "source"]
-        if group_source.empty:
-            return pd.DataFrame(columns=cols)
-        candidates = candidates[candidates["source"] == group_source.iloc[0]]
+        if source is None:
+            group_source = long_table.loc[long_table["group_id"] == group_id, "source"]
+            if group_source.empty:
+                return pd.DataFrame(columns=cols)
+            source = group_source.iloc[0]
+        candidates = candidates[candidates["source"] == source]
 
     members = set(candidates.loc[candidates["group_id"] == group_id, "Systematic ID"])
     if not members:

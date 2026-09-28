@@ -16,11 +16,23 @@ a pure renderer and every number it draws can be read back from the table.
 
 Input
 -----
-- coherence_metrics.parquet: per-group metrics. Only these columns are read:
-  n_scored_members, median_pairwise_distance_z, geom_median_DR, geom_median_DL,
-  group_name, q_value, and whichever of frac_shared_members / abundance_cv /
+- coherence_metrics.parquet (or any table with the same columns): per-group
+  metrics. Only these columns are read: n_scored_members,
+  median_pairwise_distance_z, geom_median_DR, geom_median_DL, group_name,
+  q_value, and whichever of frac_shared_members / abundance_cv /
   conservation_cv are present. Those last three gate the biology panels: an
   absent (or all-NaN) column drops its panel rather than drawing an empty one.
+
+Two optional modes change only the colour encoding, never the panel layout, so a
+comparison figure can be read panel-for-panel against a per-source one:
+
+  --color-by source   Draw every panel once per `source` and colour by it. Panel C
+                      gives up its z-score map for this (z is already the y axis of
+                      every other panel); panels A/B become overlaid step outlines
+                      on shared bin edges; one legend on panel A keys the figure.
+  --dedup-series PATH Append a second table as an extra `dedup` series — the
+                      de-duplicated representative subset, drawn alongside the full
+                      sets rather than instead of them.
 
 Output
 ------
@@ -32,9 +44,21 @@ Usage
         --input results/3a_coherence/{dataset}/{source}/coherence_metrics.parquet \\
         --output results/3a_coherence/{dataset}/{source}/coherence.pdf
 
+    # The de-duplicated representative set on its own.
+    python plot_coherence.py \\
+        --input results/3a_coherence/{dataset}/coherence_terms_representatives.tsv \\
+        --output results/3a_coherence/{dataset}/coherence_dedup.pdf
+
+    # Every source + the representatives, coloured by source.
+    python plot_coherence.py \\
+        --input results/3a_coherence/{dataset}/coherence_metrics_combined.parquet \\
+        --color-by source \\
+        --dedup-series results/3a_coherence/{dataset}/coherence_terms_representatives.tsv \\
+        --output results/3a_coherence/{dataset}/coherence_by_source.pdf
+
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-09-03
-Version:  2.0.0
+Version:  2.1.0
 """
 
 # =============================================================================
@@ -62,8 +86,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from figure_render.histogram import draw_histogram_panel  # noqa: E402
-from figures import apply_house_style, house_colors, save_dual  # noqa: E402
-from io_table import read_parquet  # noqa: E402
+from figures import apply_house_style, apply_log_scale, house_colors, save_dual  # noqa: E402
+from coherence.palette import SOURCE_ORDER, source_colors  # noqa: E402
+from io_table import read_file  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -117,6 +142,15 @@ _SIZE_LEGEND_VALUES = [3, 10, 30, 100]
 # Point area for a group of size s: log-compressed so a 300-member term does not
 # swamp a 3-member one, scaled to be legible in a 150 px panel.
 _SIZE_SCALE = 20.0
+
+# --- Cross-source comparison mode (color_by="source") -----------------------
+# Bin counts for panels A and B. Same as the single-series figure's, so the two can
+# be read against each other; the comparison lays the per-source histograms as step
+# OUTLINES on SHARED edges, because binning each source on its own range would make
+# the panels compare bin widths as much as counts, and six overlapping filled bars
+# would hide one another.
+_COMPARISON_SIZE_BINS = 21
+_COMPARISON_Z_BINS = 20
 
 _REQUIRED_COLUMNS = ["n_scored_members", "median_pairwise_distance_z",
                      "geom_median_DR", "geom_median_DL", "group_name", "q_value"]
@@ -276,11 +310,23 @@ class PlotConfig:
     input_metrics: Path
     output: Path
     labels: LabelSettings = LabelSettings()
+    # "none" (default) = today's single-series figure with z encoded as colour.
+    # "source" = the cross-source comparison: every panel is drawn once per `source`
+    # and coloured by it, so the per-source figures can be read side by side.
+    color_by: str = "none"
+    # Appended as an extra `source` ("dedup") when set — the de-duplicated
+    # representative subset, which is a subset of the rows already in
+    # `input_metrics` and is drawn alongside them rather than instead of them.
+    dedup_series: Path | None = None
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing, then create output dirs."""
         if not self.input_metrics.exists():
             raise ValueError(f"Required input not found: {self.input_metrics}")
+        if self.dedup_series is not None and not self.dedup_series.exists():
+            raise ValueError(f"Required input not found: {self.dedup_series}")
+        if self.color_by not in ("none", "source"):
+            raise ValueError(f"color_by must be 'none' or 'source': {self.color_by!r}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -559,7 +605,76 @@ def any_overlap(
     )
 
 
-def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -> None:
+def _source_series(table: pd.DataFrame) -> list[str]:
+    """The sources present in `table`, in SOURCE_ORDER (anything unlisted last)."""
+    # Fixed order, not order of appearance: the legend, the draw order and the
+    # colour are then the same however the table happens to be sorted, and a source
+    # keeps its colour between the two figures that use this module.
+    present = set(table["source"].dropna().unique())
+    ordered = [source for source in SOURCE_ORDER if source in present]
+    return ordered + sorted(present.difference(ordered))
+
+
+def draw_source_histogram(
+    ax: Axes, table: pd.DataFrame, column: str, *, bins: int, log_scale: bool,
+    colors: dict[str, str], series: list[str], legend: bool = False,
+) -> None:
+    """One step-histogram per source on SHARED bin edges."""
+    # Shared edges come from the whole table, not per source: binning each source on
+    # its own range would make two panels compare bin widths rather than counts.
+    # Outlines, not the house's filled bars, because six overlapping fills are
+    # unreadable; the single-series figure keeps its filled bar in panel A.
+    values = table[[column, "source"]].dropna()
+    if log_scale:
+        values = values[values[column] > 0]
+    if values.empty:
+        logger.warning(f"Panel {column!r} has no valid data")
+        ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+        return
+
+    if log_scale:
+        edges: np.ndarray | int = np.logspace(
+            np.log10(values[column].min()), np.log10(values[column].max()), bins + 1
+        )
+    else:
+        edges = bins
+
+    for source in series:
+        source_values = values.loc[values["source"] == source, column]
+        if source_values.empty:
+            continue
+        ax.hist(source_values, bins=edges, histtype="step", linewidth=1.0,
+                color=colors[source], label=source)
+
+    if log_scale:
+        # The edges are already laid out in log10 space, so the axis is switched
+        # afterwards rather than by a log flag that would re-bin them.
+        apply_log_scale(ax, x=True, y=False)
+    if legend:
+        ax.legend(frameon=False, fontsize=5, loc="upper right")
+
+
+def draw_source_scatter(
+    ax: Axes, table: pd.DataFrame, x_column: str, y_column: str, *,
+    by_source: bool, colors: dict[str, str], series: list[str],
+) -> None:
+    """Scatter `x_column`-vs-`y_column`, one series per source in comparison mode."""
+    # Goes through cns.scatterplot once per source rather than ax.scatter, so the
+    # marker size and style stay exactly what the single-series panels draw — only
+    # the colour changes.
+    if not by_source:
+        cns.scatterplot(table, x_column, y_column, ax=ax, color=house_colors((3,))[0])
+        return
+    for source in series:
+        rows = table[table["source"] == source]
+        if rows.empty:
+            continue
+        cns.scatterplot(rows, x_column, y_column, ax=ax, color=colors[source])
+
+
+def plot_coherence(
+    table: pd.DataFrame, settings: LabelSettings | None = None, color_by: str = "none"
+) -> None:
     """Draw the coherence overview onto a fresh house-styled multipanel figure."""
     # Panels, in order: group-size distribution, z-score distribution, centroid
     # map, then one per available biology column. multipanel labels every panel
@@ -575,6 +690,14 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
         ax.set_axis_off()
         return
 
+    # Comparison mode: one flat colour per source, replacing panel C's z-score map.
+    # The z it gives up is not lost from the figure — every biology and FDR panel
+    # below already plots z on y — while what the comparison is for (which source a
+    # group came from) has nowhere else to live.
+    by_source = color_by == "source"
+    series = _source_series(table) if by_source else []
+    colors = source_colors(series) if by_source else {}
+
     # multipanel sizes each panel from its own rendered decorations, so panels
     # whose labels are filled in are created with an explicit pad rather than
     # relying on a grid to align them.
@@ -586,18 +709,39 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
     multipanel = cns.multipanel(max_width=_MAX_WIDTH)
 
     ax_size = multipanel.panel("A", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
-    draw_histogram_panel(
-        ax_size, table["n_scored_members"], bins=21, log_scale=True,
-        xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
-        title="Group size distribution",
-    )
+    if by_source:
+        # The one legend for the whole figure: the key is read once, at the top.
+        draw_source_histogram(
+            ax_size, table, "n_scored_members", bins=_COMPARISON_SIZE_BINS, log_scale=True,
+            colors=colors, series=series, legend=True,
+        )
+        ax_size.set(
+            xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
+            title="Group size distribution",
+        )
+    else:
+        draw_histogram_panel(
+            ax_size, table["n_scored_members"], bins=21, log_scale=True,
+            xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
+            title="Group size distribution",
+        )
 
     ax_z = multipanel.panel("B", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
-    draw_histogram_panel(
-        ax_z, table["median_pairwise_distance_z"], bins=20,
-        xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
-        title="Coherence z-scores",
-    )
+    if by_source:
+        draw_source_histogram(
+            ax_z, table, "median_pairwise_distance_z", bins=_COMPARISON_Z_BINS,
+            log_scale=False, colors=colors, series=series,
+        )
+        ax_z.set(
+            xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
+            title="Coherence z-scores",
+        )
+    else:
+        draw_histogram_panel(
+            ax_z, table["median_pairwise_distance_z"], bins=20,
+            xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
+            title="Coherence z-scores",
+        )
     # z = 0 is the null: at or above it the group is no tighter than a random
     # draw of the same size. Drawn after the histogram so it reads on top.
     ax_z.axvline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
@@ -620,24 +764,37 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
     # The edge is not decoration: a diverging map spends its midpoint on white, and
     # most groups sit at z ~ 0, so without a hairline outline they vanish into the
     # page.
-    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
-    z_limits = float(np.nanpercentile(np.abs(z_values), _PANEL_C_PERCENTILE))
-    if not z_limits:
-        z_limits = 1.0
-    scatter = ax_centroid.scatter(
-        table["geom_median_DR"], table["geom_median_DL"],
-        c=table["median_pairwise_distance_z"], s=sizes,
-        cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
-        alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
-    )
+    if by_source:
+        # One flat colour per source; the z-score map and its colourbar are dropped.
+        # Point size still carries group size, so the two encodings stay the same
+        # shape as the per-source figure's C panel — only colour changes meaning.
+        for source in series:
+            rows = table[table["source"] == source]
+            ax_centroid.scatter(
+                rows["geom_median_DR"], rows["geom_median_DL"],
+                s=point_sizes(rows["n_scored_members"]), color=colors[source],
+                alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
+            )
+    else:
+        z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
+        z_limits = float(np.nanpercentile(np.abs(z_values), _PANEL_C_PERCENTILE))
+        if not z_limits:
+            z_limits = 1.0
+        scatter = ax_centroid.scatter(
+            table["geom_median_DR"], table["geom_median_DL"],
+            c=table["median_pairwise_distance_z"], s=sizes,
+            cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
+            alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
+        )
     ax_centroid.set(
         xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions"
     )
 
-    colorbar_ax = ax_centroid.inset_axes(_CBAR_BOUNDS)
-    colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax, extend="both")
-    colorbar.ax.tick_params(length=0, pad=1)
-    colorbar.set_label("z-score", labelpad=1)
+    if not by_source:
+        colorbar_ax = ax_centroid.inset_axes(_CBAR_BOUNDS)
+        colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax, extend="both")
+        colorbar.ax.tick_params(length=0, pad=1)
+        colorbar.set_label("z-score", labelpad=1)
 
     legend_handles = [
         ax_centroid.scatter([], [], s=float(np.log1p(value) * _SIZE_SCALE),
@@ -662,15 +819,21 @@ def plot_coherence(table: pd.DataFrame, settings: LabelSettings | None = None) -
         ax = multipanel.panel(
             letter, width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP
         )
-        cns.scatterplot(table, column, "median_pairwise_distance_z", ax=ax,
-                        color=house_colors((3,))[0])
+        draw_source_scatter(
+            ax, table, column, "median_pairwise_distance_z",
+            by_source=by_source, colors=colors, series=series,
+        )
         ax.set(xlabel=xlabel, ylabel="z-score", title=title)
         ax.set_ylim(*shared_z_limits)
         ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
 
     # The FDR row follows whichever biology panels were drawn, so its letters depend
     # on how many there are.
-    draw_fdr_panels(multipanel, table, settings, first_letter=chr(ord(_BIOLOGY_LETTERS[0]) + len(biology)))
+    draw_fdr_panels(
+        multipanel, table, settings,
+        first_letter=chr(ord(_BIOLOGY_LETTERS[0]) + len(biology)),
+        by_source=by_source, colors=colors, series=series,
+    )
 
 
 def fdr_axis(q_values: pd.Series, encoding: str, q_max: float) -> tuple[pd.Series, float]:
@@ -681,9 +844,12 @@ def fdr_axis(q_values: pd.Series, encoding: str, q_max: float) -> tuple[pd.Serie
 
 
 def draw_fdr_panels(
-    multipanel: Any, table: pd.DataFrame, settings: LabelSettings, first_letter: str
+    multipanel: Any, table: pd.DataFrame, settings: LabelSettings, first_letter: str,
+    by_source: bool = False, colors: dict[str, str] | None = None,
+    series: list[str] | None = None,
 ) -> None:
     """Draw the FDR-versus-coherence scatter once per x encoding, side by side."""
+    colors, series = colors or {}, series or []
     for offset, (encoding, xlabel) in enumerate(_FDR_PANELS):
         ax = multipanel.panel(
             chr(ord(first_letter) + offset),
@@ -692,8 +858,10 @@ def draw_fdr_panels(
         )
         x_values, cutoff = fdr_axis(table["q_value"], encoding, settings.q_max)
         plotted = table.assign(**{encoding: x_values})
-        cns.scatterplot(plotted, encoding, "median_pairwise_distance_z", ax=ax,
-                        color=house_colors((3,))[0])
+        draw_source_scatter(
+            ax, plotted, encoding, "median_pairwise_distance_z",
+            by_source=by_source, colors=colors, series=series,
+        )
         ax.set(xlabel=xlabel, ylabel="z-score", title="Coherence vs significance")
         ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
         ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
@@ -715,18 +883,35 @@ def draw_fdr_panels(
 def run(config: PlotConfig) -> None:
     """Generate the coherence overview figure from the computed metrics."""
     config.validate()
-    table = read_parquet(config.input_metrics)
+    # read_file dispatches on extension: the per-source tables are Parquet and the
+    # de-duplicated representatives (a final human-facing artifact) are TSV.
+    table = read_file(config.input_metrics)
     missing = [column for column in _REQUIRED_COLUMNS if column not in table.columns]
     if missing:
         raise ValueError(
             f"metrics table missing required column(s) {missing} (have: {list(table.columns)})"
         )
+    if config.dedup_series is not None:
+        # Appended, not swapped in: the comparison puts the representative subset
+        # next to the full per-source sets so the de-duplication's effect is visible
+        # as a difference between two series on the same axes.
+        dedup = read_file(config.dedup_series)
+        missing = [column for column in _REQUIRED_COLUMNS if column not in dedup.columns]
+        if missing:
+            raise ValueError(
+                f"dedup table missing required column(s) {missing} (have: {list(dedup.columns)})"
+            )
+        table = pd.concat([table, dedup.assign(source="dedup")], ignore_index=True)
+    if config.color_by == "source" and "source" not in table.columns:
+        raise ValueError("color_by='source' needs a `source` column in the metrics table")
 
     logger.info(
         f"Loaded {len(table):,} groups; biology panels: "
         f"{[column for column, _, _ in biology_panels(table)] or 'none'}"
     )
-    plot_coherence(table, config.labels)
+    if config.color_by == "source":
+        logger.info(f"Comparison mode: {len(_source_series(table))} series {_source_series(table)}")
+    plot_coherence(table, config.labels, config.color_by)
     save_dual(config.output.with_suffix(""))
     logger.success(f"Wrote {config.output}")
 
@@ -735,7 +920,11 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Generate coherence visualization")
     parser.add_argument("--input", dest="input_metrics", type=Path, required=True,
-                        help="Input coherence metrics Parquet from compute_coherence.py")
+                        help="Input coherence metrics table (per-source Parquet, or the cross-source combined Parquet)")
+    parser.add_argument("--color-by", dest="color_by", choices=("none", "source"), default="none",
+                        help="'none' = the single-series figure (z as colour); 'source' = the cross-source comparison, one colour per source")
+    parser.add_argument("--dedup-series", dest="dedup_series", type=Path, default=None,
+                        help="Optional de-duplicated representatives TSV, appended as a `dedup` series (comparison mode)")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output coherence figure PDF")
     parser.add_argument("--label-q-max", type=float, default=DEFAULT_LABEL_Q_MAX,
@@ -762,6 +951,8 @@ def main() -> int:
                 quantile=args.label_quantile,
                 max_labels=args.label_max,
             ),
+            color_by=args.color_by,
+            dedup_series=args.dedup_series,
         )
         run(config)
     except (ValueError, OSError) as e:
