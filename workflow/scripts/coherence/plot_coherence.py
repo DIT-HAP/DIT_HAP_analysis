@@ -102,11 +102,6 @@ _SQUARE_WIDTH, _SQUARE_HEIGHT = (100, 100)  # PanelShape.SQUARE, in layout pixel
 # widening the panel, so every panel in the row is the same size.
 _CENTROID_MARGIN_RIGHT = 74
 
-# Panel footprint = axes box + the panel label's pad + the inter-panel margin.
-# multipanel wraps a row the moment its running width would exceed max_width, and
-# does so silently, so the page is derived from the widest row instead of guessed.
-_PANEL_MARGIN = 10
-
 # Vertical space reserved under a panel whose row has another row beneath it.
 # multipanel refines only the left and top decorations after a draw, so a bottom
 # row's xlabel and tick labels are not measured and will overlap the next row's

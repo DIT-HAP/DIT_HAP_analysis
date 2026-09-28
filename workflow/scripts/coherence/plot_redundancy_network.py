@@ -122,16 +122,14 @@ _LABEL_FONT_SIZE = 10
 
 # Node footprint by the term's own gene count (annotated members), so a cluster's
 # biggest term reads as its biggest term. The square-root keeps a 500-gene term
-# from dwarfing a 3-gene one; the scale is calibrated on the real range (3..500
+# from dwarfing a 3-gene one; the range is calibrated on the real span (3..500
 # annotated members) so the small terms are not all pinned to the floor.
-_NODE_SIZE_SCALE = 22.0
 _NODE_SIZE_MIN, _NODE_SIZE_MAX = 60.0, 620.0
 
-# Edge weight carries the Jaccard on the edge itself, as width. The Altair page
-# also ramps opacity with it; the pyvis overview has 1,600 edges on screen at once
-# and needs the weak ones to recede, so there both channels are used.
+# Edge weight carries the Jaccard on the edge itself, as width. The pyvis overview
+# has 1,600 edges on screen at once and needs the weak ones to recede, which it
+# does through the alpha baked into each edge's rgba colour.
 _EDGE_WIDTH_RANGE = (1.0, 6.0)
-_EDGE_OPACITY_RANGE = (0.35, 0.95)
 
 # Spring layout is seeded: the figure is a record of a decision, so it has to come
 # back the same on every run.
