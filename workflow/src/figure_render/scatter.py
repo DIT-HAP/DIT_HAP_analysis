@@ -525,7 +525,7 @@ def render_scatter_grid_figure(
     labels = panel_labels(len(panels))
     axes = grid_axes(n_rows, n_cols, labels=labels)
 
-    for label, panel, ax in zip(labels, panels, axes, strict=True):
+    for label, panel, ax in zip(labels, panels, axes[: len(panels)], strict=True):
         if df.empty:
             logger.warning(f"  Panel {label}: {panel.title} has no valid data")
         else:
