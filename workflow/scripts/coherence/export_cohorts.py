@@ -25,11 +25,12 @@ Input
   stages use); a per-source coherence_metrics.parquet works too — same columns,
   but its q is the per-source BH and not cross-source comparable.
 - --source (optional): keep one source's rows only, writing that source's workbook
-  into its own folder. Meant to run on the COMBINED table, not on the per-source
-  one: 58 of the 322 coherent groups (2026-09-29) flip cohort depending on which q
-  family is used, so a per-source workbook built from the per-source q would
-  disagree with the dataset-level one on 1 row in 6. Slicing the combined table
-  keeps every workbook on one q scale by construction.
+  into its own folder. The per-source rule runs this on that source's OWN
+  coherence_metrics.parquet, so the cohort is called from the per-source BH family
+  and the workbook is self-contained — no `--representatives`, no de-duplication
+  column. Slicing the COMBINED table with this flag also works, giving the same
+  cut on the pooled q instead (58 of the 322 coherent groups flip between the two,
+  2026-09-29); that is the job of the combined/ workbook, not this one.
 - --representatives (optional): dedup/coherence_terms_representatives.tsv, used only to
   add the `in_dedup_set` flag, so a reader can see which rows of a cohort survive
   de-duplication. Joined on (source, group_id) — group_id alone is NOT unique
@@ -59,9 +60,9 @@ Usage
         --metrics results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
         --output results/3a_coherence/{dataset}/dedup/coherence_cohorts.xlsx
 
-    # A single source: the combined table cut down, into that source's folder.
+    # A single source: its own metrics table, its own q family.
     python export_cohorts.py \\
-        --metrics results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
+        --metrics results/3a_coherence/{dataset}/go_cc/coherence_metrics.parquet \\
         --source go_cc \\
         --output results/3a_coherence/{dataset}/go_cc/coherence_cohorts.xlsx
 
