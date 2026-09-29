@@ -123,29 +123,37 @@ rule all:
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
-        f"results/3a_coherence/{_DATASET}/coherence_terms_representatives.tsv",
-        # The de-duplicated representative set as a first-class result: its own
-        # coherence figure and its own attribution run, over the pooled table.
-        f"results/3a_coherence/{_DATASET}/coherence_dedup.pdf",
-        f"results/3a_coherence/{_DATASET}/dedup_incoherence_attribution.tsv",
-        f"results/3a_coherence/{_DATASET}/dedup_incoherence_attribution.pdf",
-        # One figure with every source on it, coloured by source, + the
-        # representative set as a sixth series.
-        f"results/3a_coherence/{_DATASET}/coherence_by_source.pdf",
+        # 3a_coherence is organised as one folder per view — {source}/, combined/
+        # and dedup/ — with the FOLDER name (never the file name) saying which view
+        # a file belongs to, so each view exposes the same names where the artifact
+        # exists for it. The view-neutral inputs live at the dataset root.
+        # dedup/ — the de-duplicated representative set as a first-class result: its
+        # own terms table, coherence figure, attribution run and cohort workbook.
+        f"results/3a_coherence/{_DATASET}/dedup/coherence_terms_representatives.tsv",
+        f"results/3a_coherence/{_DATASET}/dedup/coherence.pdf",
+        f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.tsv",
+        f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.pdf",
+        f"results/3a_coherence/{_DATASET}/dedup/coherence_cohorts.xlsx",
         # The de-duplication audit pages (Altair + pyvis, ~1-3 MB). The per-source
         # interactive scatter page is deliberately NOT here: it embeds every
         # (term, member) row in the source, which is 58k rows for go_bp, so it is
         # built on demand for the source you are reading.
-        f"results/3a_coherence/{_DATASET}/redundancy_network.html",
-        f"results/3a_coherence/{_DATASET}/redundancy_overview.html",
+        f"results/3a_coherence/{_DATASET}/dedup/redundancy_network.html",
+        f"results/3a_coherence/{_DATASET}/dedup/redundancy_overview.html",
+        # combined/ — one figure with every source on it, coloured by source, + the
+        # representative set as a sixth series, and the threshold-filtered cohort
+        # workbook over the pooled metrics.
+        f"results/3a_coherence/{_DATASET}/combined/coherence.pdf",
+        f"results/3a_coherence/{_DATASET}/combined/coherence_cohorts.xlsx",
         # Per-source coherence figures — one coherence overview + one named-group
         # scatter grid per registered source (3 sources = 6 figures + their
-        # .review.png siblings). Every one of these is source-specific, so they do
-        # NOT belong in a single folder; the cross-source tables above are the
-        # dataset-level products.
+        # .review.png siblings), each with its own cohort workbook sliced out of the
+        # combined table so all views share one q scale.
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/coherence.pdf",
                source=_COHERENCE_SOURCES),
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/group_scatter.pdf",
+               source=_COHERENCE_SOURCES),
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/coherence_cohorts.xlsx",
                source=_COHERENCE_SOURCES),
         # Incoherence attribution (why a group is dispersed), per configured source:
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",

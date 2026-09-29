@@ -7,7 +7,7 @@ Coherence Term Redundancy Reducer (display-layer de-duplication)
 
 GO terms (and macromolecular complexes) are heavily redundant: parents and
 children share member genes, so the "most coherent" head of
-coherence_metrics_combined.parquet is dominated by many aliases of the same signal
+combined/coherence_metrics.parquet is dominated by many aliases of the same signal
 (e.g. ribosome biogenesis / rRNA processing / preribosome / 90S / nucleolus...).
 This stage collapses that redundancy into clusters and picks one representative
 per cluster — WITHOUT touching the statistics: the full-set q_value from
@@ -72,29 +72,29 @@ by hand afterwards — the full cluster membership is emitted so nothing is hidd
 
 Input
 -----
-- --combined: coherence_metrics_combined.parquet (source, group_id, group_name,
+- --combined: combined/coherence_metrics.parquet (source, group_id, group_name,
   n_scored_members, scored_member_names, median_pairwise_distance_z,
   median_pairwise_distance_p, q_value, ...).
 - --obo: go-basic.obo (GO DAG for depth + is_a/part_of lineage).
 
 Output
 ------
-- --output-all: coherence_terms_deduplicated.tsv — every input row + columns
+- --output-all: dedup/coherence_terms_deduplicated.tsv — every input row + columns
   redundancy_cluster, cluster_size, dag_depth, is_representative,
   representative_group_id, representative_name, representative_source. Sorted by
   (cluster's best z, then within-cluster z).
-- --output-representatives: coherence_terms_representatives.tsv — only the
+- --output-representatives: dedup/coherence_terms_representatives.tsv — only the
   is_representative rows (the de-duplicated view for figures/tables).
 
 Usage
 -----
     python deduplicate_terms.py \\
-        --combined results/3a_coherence/{dataset}/coherence_metrics_combined.parquet \\
+        --combined results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
         --obo resources/external/pombase/<version>/ontologies_and_associations/go-basic.obo \\
         --overlap-threshold 0.5 --merge-dag-lineage --scope pooled \\
         --force-representatives GO:0042254 GO:0005762 \\
-        --output-all results/3a_coherence/{dataset}/coherence_terms_deduplicated.tsv \\
-        --output-representatives results/3a_coherence/{dataset}/coherence_terms_representatives.tsv
+        --output-all results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
+        --output-representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
@@ -493,7 +493,7 @@ def parse_args() -> argparse.Namespace:
     # Do NOT read them off `DedupConfig`: the dataclass is slots=True, so its class
     # attributes are member_descriptors rather than default values.
     parser = argparse.ArgumentParser(description="De-duplicate coherence terms by member overlap + GO DAG structure")
-    parser.add_argument("--combined", type=Path, required=True, help="coherence_metrics_combined.parquet")
+    parser.add_argument("--combined", type=Path, required=True, help="combined/coherence_metrics.parquet")
     parser.add_argument("--obo", type=Path, required=True, help="go-basic.obo (GO DAG for depth + lineage)")
     parser.add_argument("--jaccard-threshold", type=float, default=DEFAULT_JACCARD_THRESHOLD,
                         help="Member-set Jaccard similarity at or above which two terms are redundant")

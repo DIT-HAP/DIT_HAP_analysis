@@ -47,10 +47,10 @@ Usage
 
     # Pooled: the de-duplicated representative set, all sources at once.
     python plot_incoherence_attribution.py \\
-        --table results/3a_coherence/{dataset}/dedup_incoherence_attribution.tsv \\
-        --points results/3a_coherence/{dataset}/dedup_incoherence_split_points.parquet \\
+        --table results/3a_coherence/{dataset}/dedup/incoherence_attribution.tsv \\
+        --points results/3a_coherence/{dataset}/dedup/incoherence_split_points.parquet \\
         --fitting-results .../gene_level/fitting_results.tsv \\
-        --output results/3a_coherence/{dataset}/dedup_incoherence_attribution.pdf
+        --output results/3a_coherence/{dataset}/dedup/incoherence_attribution.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23

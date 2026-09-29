@@ -31,25 +31,25 @@ unreadable regardless; hover still identifies a node.
 
 Input
 -----
-- coherence_metrics_combined.parquet: all sources' metrics, joined on
+- combined/coherence_metrics.parquet: all sources' metrics, joined on
   (source, group_id) for the member sets the Jaccard is computed from.
-- coherence_terms_deduplicated.tsv: the annotated table from deduplicate_terms.py
+- dedup/coherence_terms_deduplicated.tsv: the annotated table from deduplicate_terms.py
   (redundancy_cluster, is_representative, representative_source, ...).
 
 Output
 ------
-- redundancy_network.html: one cluster at a time, Altair; the dropdown lists clusters
+- dedup/redundancy_network.html: one cluster at a time, Altair; the dropdown lists clusters
   by their representative's name. Loads vega-embed from a CDN.
-- redundancy_overview.html: every cluster on one pan-and-zoom canvas, pyvis/vis.js.
+- dedup/redundancy_overview.html: every cluster on one pan-and-zoom canvas, pyvis/vis.js.
   Loads vis.js from a CDN. Both pages need a network connection the first time.
 
 Usage
 -----
     python plot_redundancy_network.py \\
-        --combined results/3a_coherence/{dataset}/coherence_metrics_combined.parquet \\
-        --deduplicated results/3a_coherence/{dataset}/coherence_terms_deduplicated.tsv \\
-        --output tmp/{dataset}/redundancy_network.html \\
-        --output-overview tmp/{dataset}/redundancy_overview.html
+        --combined results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
+        --deduplicated results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
+        --output tmp/{dataset}/dedup/redundancy_network.html \\
+        --output-overview tmp/{dataset}/dedup/redundancy_overview.html
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-09-22
@@ -756,8 +756,8 @@ def run(config: PlotConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Interactive Altair network of the coherence redundancy clusters")
-    parser.add_argument("--combined", type=Path, required=True, help="coherence_metrics_combined.parquet")
-    parser.add_argument("--deduplicated", type=Path, required=True, help="coherence_terms_deduplicated.tsv")
+    parser.add_argument("--combined", type=Path, required=True, help="combined/coherence_metrics.parquet")
+    parser.add_argument("--deduplicated", type=Path, required=True, help="dedup/coherence_terms_deduplicated.tsv")
     parser.add_argument("--output", type=Path, required=True, help="Output HTML page: one cluster at a time")
     parser.add_argument("--output-overview", type=Path, required=True,
                         help="Output HTML page: every cluster at once (pyvis)")

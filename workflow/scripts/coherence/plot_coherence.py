@@ -46,15 +46,15 @@ Usage
 
     # The de-duplicated representative set on its own.
     python plot_coherence.py \\
-        --input results/3a_coherence/{dataset}/coherence_terms_representatives.tsv \\
-        --output results/3a_coherence/{dataset}/coherence_dedup.pdf
+        --input results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
+        --output results/3a_coherence/{dataset}/dedup/coherence.pdf
 
     # Every source + the representatives, coloured by source.
     python plot_coherence.py \\
-        --input results/3a_coherence/{dataset}/coherence_metrics_combined.parquet \\
+        --input results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
         --color-by source \\
-        --dedup-series results/3a_coherence/{dataset}/coherence_terms_representatives.tsv \\
-        --output results/3a_coherence/{dataset}/coherence_by_source.pdf
+        --dedup-series results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
+        --output results/3a_coherence/{dataset}/combined/coherence.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-09-03

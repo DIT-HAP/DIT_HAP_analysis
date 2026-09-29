@@ -38,7 +38,7 @@ Input
 
 Output
 ------
-- --output: coherence_metrics_combined.parquet — the row-wise concatenation of
+- --output: combined/coherence_metrics.parquet — the row-wise concatenation of
   the inputs, sorted by median_pairwise_distance_z ascending (most coherent
   first), same columns as the per-source tables except q_value, which is
   re-derived by BH over the pooled rows (see the FDR note above).
@@ -49,7 +49,7 @@ Usage
         --metrics results/3a_coherence/{dataset}/go_macrocomplex/coherence_metrics.parquet \\
                   results/3a_coherence/{dataset}/go_cc/coherence_metrics.parquet \\
                   results/3a_coherence/{dataset}/go_bp/coherence_metrics.parquet \\
-        --output results/3a_coherence/{dataset}/coherence_metrics_combined.parquet
+        --output results/3a_coherence/{dataset}/combined/coherence_metrics.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-09-20
@@ -141,7 +141,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Combine per-source coherence metrics into one cross-source table")
     parser.add_argument("--metrics", type=Path, nargs="+", required=True, help="Per-source coherence_metrics.parquet paths")
-    parser.add_argument("--output", type=Path, required=True, help="Output coherence_metrics_combined.parquet")
+    parser.add_argument("--output", type=Path, required=True, help="Output combined/coherence_metrics.parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
