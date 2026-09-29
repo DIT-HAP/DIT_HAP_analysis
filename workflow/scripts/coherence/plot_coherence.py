@@ -245,8 +245,8 @@ _LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT   # one rendered
 _LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT     # between two blocks
 _LABEL_ANCHOR_PAD = 0.035     # smallest gap between a point and its own label
 
-# The y band each end's labels occupy. The incoherent end (z > 0) sits in the
-# upper band and the coherent end (z < 0) in the lower one, because the coherence
+# The y band each end's labels occupy. The incoherent (dispersed) end sits in the
+# upper band and the coherent (tight) end in the lower one, because the coherence
 # p-value is one-sided for tightness: no group more dispersed than random can be
 # FDR-significant, so the S curve leaves the upper-right and lower-left quadrants
 # empty. Disjoint bands are what keep the two stacks apart.
@@ -280,6 +280,8 @@ _LEADER_PENALTY = 1.0         # per unit of leader length
 DEFAULT_LABEL_Q_MAX = 0.05
 DEFAULT_LABEL_QUANTILE = 0.05
 DEFAULT_LABEL_MAX = 5
+DEFAULT_COHERENT_Z = -2.0
+DEFAULT_INCOHERENT_Z = 1.0
 
 # Page width, in layout pixels. 500 is measured, not derived: the widest row (the two
 # FDR panels plus their margins) needs 481, and a fourth SQUARE panel on row 1 would
@@ -293,9 +295,11 @@ _MAX_WIDTH = 500
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class LabelSettings:
-    """Which groups the FDR panel names: a significance cutoff and a per-side cap."""
+    """Which groups the FDR panel names: the two cohort cuts and a per-side cap."""
     q_max: float = DEFAULT_LABEL_Q_MAX     # q at or below this counts as significant
-    quantile: float = DEFAULT_LABEL_QUANTILE   # per-side share of the significant groups to name
+    coherent_z: float = DEFAULT_COHERENT_Z     # coherent = q <= q_max AND z < this
+    incoherent_z: float = DEFAULT_INCOHERENT_Z  # incoherent = z > this
+    quantile: float = DEFAULT_LABEL_QUANTILE   # per-side share of the eligible groups to name
     max_labels: int = DEFAULT_LABEL_MAX    # hard cap per side, so a 1,400-group source cannot flood the margin
 
 
@@ -491,21 +495,24 @@ def label_count(available: int, quantile: float, max_labels: int) -> int:
     return min(max_labels, int(np.ceil(quantile * available)))
 
 
-def labelled_extremes(
-    table: pd.DataFrame, side: str, quantile: float, q_max: float, max_labels: int
-) -> pd.DataFrame:
+def labelled_extremes(table: pd.DataFrame, side: str, settings: LabelSettings) -> pd.DataFrame:
     """The groups to name at one end of the z-score axis, most extreme first."""
-    # `coherent` takes the most negative z among the FDR-significant groups.
-    # `incoherent` CANNOT use FDR: the coherence p-value is one-sided for tightness,
-    # so a group more dispersed than random has p near 1 by construction (measured:
-    # every q<=0.05 group in all three sources has z < 0). Selecting that end by
-    # significance would return nothing, so it is selected by z alone.
+    # `coherent` takes the most negative z among the coherent cohort: significant
+    # (q <= q_max) AND separated (z < coherent_z), the latter an effect-size floor on
+    # top of the FDR test. `incoherent` CANNOT use FDR: the coherence p-value is
+    # one-sided for tightness, so a group more dispersed than random has p near 1 by
+    # construction (measured: every q<=0.05 group in all three sources has z < 0).
+    # Selecting that end by significance would return nothing, so it is selected by
+    # z alone.
     ordered = table.sort_values("median_pairwise_distance_z")
     if side == "coherent":
-        eligible = ordered[ordered["q_value"] <= q_max]
-        return eligible.head(label_count(len(eligible), quantile, max_labels))
-    incoherent = ordered[ordered["median_pairwise_distance_z"] > 0]
-    return incoherent.tail(label_count(len(incoherent), quantile, max_labels)).iloc[::-1]
+        eligible = ordered[
+            (ordered["q_value"] <= settings.q_max)
+            & (ordered["median_pairwise_distance_z"] < settings.coherent_z)
+        ]
+        return eligible.head(label_count(len(eligible), settings.quantile, settings.max_labels))
+    eligible = ordered[ordered["median_pairwise_distance_z"] > settings.incoherent_z]
+    return eligible.tail(label_count(len(eligible), settings.quantile, settings.max_labels)).iloc[::-1]
 
 
 def label_block_lines(rows: pd.DataFrame) -> int:
@@ -867,7 +874,7 @@ def draw_fdr_panels(
         # can be FDR-significant.
         points = visible_fractions(ax, plotted, encoding)
         for end in ("incoherent", "coherent"):
-            rows = labelled_extremes(plotted, end, settings.quantile, settings.q_max, settings.max_labels)
+            rows = labelled_extremes(plotted, end, settings)
             annotate_extremes(ax, rows, end, encoding, points)
 
 
@@ -924,6 +931,10 @@ def parse_args() -> argparse.Namespace:
                         help="Output coherence figure PDF")
     parser.add_argument("--label-q-max", type=float, default=DEFAULT_LABEL_Q_MAX,
                         help="FDR panel: q at or below this counts as significant")
+    parser.add_argument("--label-coherent-z", type=float, default=DEFAULT_COHERENT_Z,
+                        help="FDR panel: the coherent cohort is z below this (and q <= --label-q-max)")
+    parser.add_argument("--label-incoherent-z", type=float, default=DEFAULT_INCOHERENT_Z,
+                        help="FDR panel: the incoherent cohort is z above this")
     parser.add_argument("--label-quantile", type=float, default=DEFAULT_LABEL_QUANTILE,
                         help="FDR panel: per-side share of significant groups to name")
     parser.add_argument("--label-max", type=int, default=DEFAULT_LABEL_MAX,
@@ -943,6 +954,8 @@ def main() -> int:
             output=args.output,
             labels=LabelSettings(
                 q_max=args.label_q_max,
+                coherent_z=args.label_coherent_z,
+                incoherent_z=args.label_incoherent_z,
                 quantile=args.label_quantile,
                 max_labels=args.label_max,
             ),

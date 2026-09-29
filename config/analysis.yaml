@@ -123,12 +123,18 @@ coherence:
   n_permutations: 1000
   random_state: 42
   features_panels: true            # add the abundance/conservation uniformity columns
-  # FDR-vs-coherence panel: which groups get named. A group must be significant
-  # (q <= fdr_panel_q_max) to be named at the coherent end; the incoherent end is
-  # selected by z alone because the one-sided coherence p-value leaves every
-  # incoherent group with q near 1. Then the top `fdr_panel_label_quantile` share of
-  # each end is named, capped at `fdr_panel_label_max` per side.
-  fdr_panel_q_max: 0.05
+  # Cohort definitions — the two ends of the z-score axis (median_pairwise_distance).
+  #   coherent   = q_value <= coherent_q_max (BH, per source) AND z < coherent_z_threshold
+  #   incoherent = z > incoherent_z_threshold alone
+  # The incoherent end carries no FDR by construction: the coherence test is one-sided
+  # for tightness, so every dispersed group has q near 1 and significance cannot select
+  # that end. It is therefore a descriptive cut, while the coherent end is error-controlled.
+  coherent_q_max: 0.05
+  coherent_z_threshold: -2.0
+  incoherent_z_threshold: 1.0
+  # FDR-vs-coherence panel: which groups get named. The coherent end draws on the
+  # coherent cohort above; the top `fdr_panel_label_quantile` share of each end is
+  # named, capped at `fdr_panel_label_max` per side.
   fdr_panel_label_quantile: 0.05
   fdr_panel_label_max: 5
   scatter_groups:
@@ -171,7 +177,6 @@ coherence:
   # but for the process / pathway sources they still discriminate a genuinely
   # two-population term from one that is just broadly annotated.
   attribution_sources: [go_macrocomplex, go_cc, go_bp, kegg_brite, kegg_pathway]
-  attribution_z_threshold: 0.0       # z_score above this = incoherent
   attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
   attribution_shared_frac_threshold: 0.5   # frac_shared_members >= this -> shared-subunit label
   attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label

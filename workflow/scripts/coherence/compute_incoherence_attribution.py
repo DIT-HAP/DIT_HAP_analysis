@@ -6,7 +6,7 @@ Coherence Incoherence Attribution (WHY a complex is internally dispersed) — Co
 ===========================================================================================
 
 Complementary to the coherence z-score: the tightest groups are the expected
-obligate machines, but the INCOHERENT ones (z > 0 = more dispersed than random)
+obligate machines, but the INCOHERENT ones (z > incoherent_z_threshold = more dispersed than random)
 are biologically informative too — a complex's members scatter in DR-DL fitness
 space when they play different functional roles. This stage scores the candidate
 causes of that dispersion for every group and labels each with its most likely
@@ -65,7 +65,7 @@ Usage
         --annotation results/3a_coherence/{dataset}/go_macrocomplex/group_annotation_long.tsv \\
         --fitting-results .../fitting_results.tsv \\
         --paralogs resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
-        --z-threshold 0.0 \\
+        --z-threshold 1.0 \\
         --output-table results/3a_coherence/{dataset}/go_macrocomplex/incoherence_attribution.tsv \\
         --output-points results/3a_coherence/{dataset}/go_macrocomplex/incoherence_split_points.parquet
 
@@ -136,7 +136,7 @@ class AttributionConfig:
     paralogs: Path
     output_table: Path
     output_points: Path
-    z_threshold: float = 0.0
+    z_threshold: float = 1.0
     shared_frac_threshold: float = 0.5
     paralog_frac_threshold: float = 0.5
 
@@ -347,7 +347,7 @@ def parse_args() -> argparse.Namespace:
                         help="The matching group_annotation_long.tsv table(s) — one per source, concatenated")
     parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv (DR/DL)")
     parser.add_argument("--paralogs", type=Path, required=True, help="Ensembl paralog export TSV")
-    parser.add_argument("--z-threshold", type=float, default=0.0, help="median_pairwise_distance_z above this = incoherent")
+    parser.add_argument("--z-threshold", type=float, default=1.0, help="median_pairwise_distance_z above this = incoherent")
     parser.add_argument("--shared-frac-threshold", type=float, default=0.5, help="frac_shared_members >= this triggers the shared-subunit label")
     parser.add_argument("--paralog-frac-threshold", type=float, default=0.5, help="paralog_fraction >= this triggers the paralog-buffered label")
     parser.add_argument("--output-table", type=Path, required=True, help="Output attribution TSV")

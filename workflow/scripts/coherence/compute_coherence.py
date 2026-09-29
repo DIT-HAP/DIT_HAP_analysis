@@ -359,11 +359,13 @@ def run(config: CoherenceConfig) -> None:
     # Write output as Parquet
     write_parquet(table, config.output)
 
-    n_coherent = (
+    # Not the `coherent` cohort (config.coherence.coherent_*), which is defined on the
+    # z/q pair; this is the raw sign split, kept as a sanity number in the log.
+    n_tighter = (
         int((table[f"{_PRIMARY_METHOD}_z"] < 0).sum()) if not table.empty else 0
     )
     logger.success(
-        f"[{config.source}] Coherence: {len(table):,} groups scored, {n_coherent:,} coherent (z<0); "
+        f"[{config.source}] Coherence: {len(table):,} groups scored, {n_tighter:,} tighter than random (z<0); "
         f"wrote {config.output}"
     )
 

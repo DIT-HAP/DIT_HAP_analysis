@@ -175,9 +175,11 @@ rule plot_coherence:
         figure=f"{_COH}/coherence.pdf",
         preview=f"{_COH}/coherence.review.png",
     params:
-        label_q_max=_COH_CFG.get("fdr_panel_q_max", 0.05),
+        label_q_max=_COH_CFG.get("coherent_q_max", 0.05),
         label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
         label_max=_COH_CFG.get("fdr_panel_label_max", 5),
+        label_coherent_z=_COH_CFG.get("coherent_z_threshold", -2.0),
+        label_incoherent_z=_COH_CFG.get("incoherent_z_threshold", 1.0),
     log:
         "logs/3a_coherence/plot_{dataset}_{source}.log",
     conda:
@@ -191,6 +193,8 @@ rule plot_coherence:
             --label-q-max {params.label_q_max} \
             --label-quantile {params.label_quantile} \
             --label-max {params.label_max} \
+            --label-coherent-z {params.label_coherent_z} \
+            --label-incoherent-z {params.label_incoherent_z} \
             --output {output.figure} &> {log}
         """
 
@@ -274,9 +278,11 @@ rule plot_coherence_dedup:
         figure="results/3a_coherence/{dataset}/coherence_dedup.pdf",
         preview="results/3a_coherence/{dataset}/coherence_dedup.review.png",
     params:
-        label_q_max=_COH_CFG.get("fdr_panel_q_max", 0.05),
+        label_q_max=_COH_CFG.get("coherent_q_max", 0.05),
         label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
         label_max=_COH_CFG.get("fdr_panel_label_max", 5),
+        label_coherent_z=_COH_CFG.get("coherent_z_threshold", -2.0),
+        label_incoherent_z=_COH_CFG.get("incoherent_z_threshold", 1.0),
     log:
         "logs/3a_coherence/plot_dedup_{dataset}.log",
     conda:
@@ -290,6 +296,8 @@ rule plot_coherence_dedup:
             --label-q-max {params.label_q_max} \
             --label-quantile {params.label_quantile} \
             --label-max {params.label_max} \
+            --label-coherent-z {params.label_coherent_z} \
+            --label-incoherent-z {params.label_incoherent_z} \
             --output {output.figure} &> {log}
         """
 
@@ -302,9 +310,11 @@ rule plot_coherence_by_source:
         figure="results/3a_coherence/{dataset}/coherence_by_source.pdf",
         preview="results/3a_coherence/{dataset}/coherence_by_source.review.png",
     params:
-        label_q_max=_COH_CFG.get("fdr_panel_q_max", 0.05),
+        label_q_max=_COH_CFG.get("coherent_q_max", 0.05),
         label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
         label_max=_COH_CFG.get("fdr_panel_label_max", 5),
+        label_coherent_z=_COH_CFG.get("coherent_z_threshold", -2.0),
+        label_incoherent_z=_COH_CFG.get("incoherent_z_threshold", 1.0),
     log:
         "logs/3a_coherence/plot_by_source_{dataset}.log",
     conda:
@@ -320,6 +330,8 @@ rule plot_coherence_by_source:
             --label-q-max {params.label_q_max} \
             --label-quantile {params.label_quantile} \
             --label-max {params.label_max} \
+            --label-coherent-z {params.label_coherent_z} \
+            --label-incoherent-z {params.label_incoherent_z} \
             --output {output.figure} &> {log}
         """
 
@@ -337,7 +349,7 @@ rule compute_coherence_attribution:
         table=f"{_COH}/incoherence_attribution.tsv",
         points=f"{_COH}/incoherence_split_points.parquet",
     params:
-        z_threshold=_COH_CFG.get("attribution_z_threshold", 0.0),
+        z_threshold=_COH_CFG.get("incoherent_z_threshold", 1.0),
         shared_frac=_COH_CFG.get("attribution_shared_frac_threshold", 0.5),
         paralog_frac=_COH_CFG.get("attribution_paralog_frac_threshold", 0.5),
     log:
@@ -417,7 +429,7 @@ rule compute_coherence_attribution_dedup:
         table="results/3a_coherence/{dataset}/dedup_incoherence_attribution.tsv",
         points="results/3a_coherence/{dataset}/dedup_incoherence_split_points.parquet",
     params:
-        z_threshold=_COH_CFG.get("attribution_z_threshold", 0.0),
+        z_threshold=_COH_CFG.get("incoherent_z_threshold", 1.0),
         shared_frac=_COH_CFG.get("attribution_shared_frac_threshold", 0.5),
         paralog_frac=_COH_CFG.get("attribution_paralog_frac_threshold", 0.5),
     log:
