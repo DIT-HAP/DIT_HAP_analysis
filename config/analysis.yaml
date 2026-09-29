@@ -149,8 +149,10 @@ coherence:
   # Jaccard |A∩B|/|A∪B|, NOT the overlap coefficient |A∩B|/min(|A|,|B|): with min()
   # any term contained in a larger one scores 1.0, and since GO propagation makes
   # containment ubiquitous the redundancy graph became one blob (2,097 terms -> 2
-  # clusters). 0.5 is calibrated on the resulting cluster count under Jaccard.
-  dedup_jaccard_threshold: 0.5
+  # clusters). Raised from 0.5 to 0.7 (2026-09-29) to collapse less aggressively:
+  # at 0.5 complete linkage still fused 26-term clusters of merely co-annotated
+  # GO BP terms, which is co-membership rather than the same signal.
+  dedup_jaccard_threshold: 0.7
   # How the "these two clear the threshold" relation is turned into clusters.
   # `complete` (agglomerative, cut at 1 - threshold) instead of `single`
   # (connected components): single linkage is transitive, so A~B and B~C fuse A and

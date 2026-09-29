@@ -81,8 +81,9 @@ Output
 ------
 - --output-all: dedup/coherence_terms_deduplicated.tsv — every input row + columns
   redundancy_cluster, cluster_size, dag_depth, is_representative,
-  representative_group_id, representative_name, representative_source. Sorted by
-  (cluster's best z, then within-cluster z).
+  representative_group_id, representative_name, representative_source,
+  non_representative_terms (the rest of the cluster, newline-joined, on every row
+  of that cluster). Sorted by (cluster's best z, then within-cluster z).
 - --output-representatives: dedup/coherence_terms_representatives.tsv — only the
   is_representative rows (the de-duplicated view for figures/tables).
 
@@ -424,12 +425,24 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
     table["representative_group_id"] = pd.NA
     table["representative_name"] = pd.NA
     table["representative_source"] = pd.NA
+    table["non_representative_terms"] = ""
     for _cluster, rows in table.groupby("redundancy_cluster"):
         rep_idx, rep_source = pick_representative(rows, forced)
         table.loc[rep_idx, "is_representative"] = True
         table.loc[rows.index, "representative_group_id"] = table.loc[rep_idx, "group_id"]
         table.loc[rows.index, "representative_name"] = table.loc[rep_idx, "group_name"]
         table.loc[rows.index, "representative_source"] = rep_source
+        # What this cluster folded into its representative, one term per line as
+        # "source:group_name (group_id)" (the source is not redundant here — pooled
+        # scope puts go_cc and go_macrocomplex copies of one term in one cluster).
+        # Cluster-level like the representative_* columns: written on EVERY row of
+        # the cluster, so the representatives-only table carries the collapsed list
+        # next to the row it describes.
+        others = rows[rows.index != rep_idx].sort_values("median_pairwise_distance_z")
+        table.loc[rows.index, "non_representative_terms"] = "\n".join(
+            f"{source}:{name} ({gid})"
+            for source, name, gid in zip(others["source"], others["group_name"], others["group_id"])
+        )
 
     # Sort so each cluster's best (min) z leads, members grouped, best-first within.
     table["_cluster_best_z"] = table.groupby("redundancy_cluster")["median_pairwise_distance_z"].transform("min")

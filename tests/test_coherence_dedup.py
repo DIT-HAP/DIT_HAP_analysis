@@ -166,6 +166,9 @@ def test_deduplicate_picks_best_qvalue_representative(tmp_path):
     cl = out[out["group_id"].isin(["GO:1", "GO:2"])]
     assert cl["representative_group_id"].nunique() == 1
     assert cl["representative_group_id"].iloc[0] == "GO:2"
+    # The collapsed terms ride on every row of the cluster, the representative's included.
+    assert set(cl["non_representative_terms"]) == {"go_bp:big (GO:1)"}
+    assert out.loc[out["group_id"] == "GO:9", "non_representative_terms"].iloc[0] == ""
 
 
 def test_deduplicate_force_representative_overrides(tmp_path):
