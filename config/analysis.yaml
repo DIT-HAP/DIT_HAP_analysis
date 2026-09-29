@@ -131,7 +131,12 @@ coherence:
   # that end. It is therefore a descriptive cut, while the coherent end is error-controlled.
   coherent_q_max: 0.05
   coherent_z_threshold: -2.0
-  incoherent_z_threshold: 1.0
+  # Loosened from 1.0 to 0.5 (2026-09-29). Reads as: this end is a descriptive rank
+  # cut on the same permutation z (no FDR, see above), so 0.5 admits ~15% of the
+  # terms as "incoherent" — it selects a ranked tail, not evidence of dispersion.
+  # It also sets is_incoherent for the attribution stage and the FDR panel's label
+  # band; the top-N attribution panels still take the most dispersed groups first.
+  incoherent_z_threshold: 0.5
   # FDR-vs-coherence panel: which groups get named. The coherent end draws on the
   # coherent cohort above; the top `fdr_panel_label_quantile` share of each end is
   # named, capped at `fdr_panel_label_max` per side.
