@@ -68,6 +68,10 @@ SELECTED_PEPTIDE_FEATURE_COLUMNS = [
     "aa_percent_Ser", "aa_percent_Thr", "aa_percent_Val", "aa_percent_Trp", "aa_percent_Tyr",
 ]
 
+# The paralogue half of the Ensembl BioMart export. Named here because the column
+# title is long and it is the one column the count depends on.
+_PARALOGUE_ID_COLUMN = "Schizosaccharomyces pombe paralogue gene stable ID"
+
 
 # =============================================================================
 # SHARED HELPERS
@@ -241,6 +245,28 @@ def collect_protein_level_features(
 # =============================================================================
 # EVOLUTIONARY LEVEL
 # =============================================================================
+def count_paralogs(pombe_paralogs: pd.DataFrame, coding_genes: list[str]) -> pd.DataFrame:
+    """Distinct paralogue count per coding gene, indexed by `Gene stable ID`."""
+    # Only genes with >=1 paralogue come back; a gene with none is ABSENT rather
+    # than 0, and the caller's fillna(0) is what turns that absence into 0. So in
+    # the assembled table 0 means "no paralogue" and n means exactly n — which is
+    # what the old row count could not express.
+    #
+    # Two traps this avoids, both measured on the 2026-06-01 export:
+    # - Counting export ROWS makes "no paralogue" read as 1, because a gene without
+    #   a paralogue still ships one row with the paralogue column left blank (1,922
+    #   genes read as 1 that way).
+    # - Grouping on `Gene name` as well drops every gene Ensembl ships without a
+    #   name, since pandas discards NaN group keys: 611 of the 2,427 genes that do
+    #   have paralogues ended up at 0, including one with 20 of them.
+    subset = pombe_paralogs[pombe_paralogs["Gene stable ID"].isin(coding_genes)]
+    return (
+        subset.dropna(subset=[_PARALOGUE_ID_COLUMN])
+        .groupby("Gene stable ID")[_PARALOGUE_ID_COLUMN].nunique()
+        .rename("paralog_count").to_frame()
+    )
+
+
 @logger.catch(reraise=True)
 def collect_evolutionary_level_features(
     pombase_dir: Path,
@@ -262,14 +288,9 @@ def collect_evolutionary_level_features(
     num_human = get_ortholog_counts(orthologs_dir / "pombe_human_orthologs.txt")
 
     pombe_paralogs = pd.read_csv(ensembl_paralogs_tsv, sep="\t")
-    paralog_count = (
-        pombe_paralogs.query("`Gene stable ID` in @coding_genes")
-        .groupby(["Gene stable ID", "Gene name"])
-        .apply(lambda sub_df: sub_df.shape[0], include_groups=False)
-        .to_frame("paralog_count")
-    )
+    paralog_count = count_paralogs(pombe_paralogs, coding_genes)
     paralog_count["gene_systematic_id"] = update_sysIDs(
-        paralog_count.index.get_level_values("Gene stable ID").tolist(), gene_meta_file
+        paralog_count.index.tolist(), gene_meta_file
     )
 
     evolutionary_rate = pd.read_excel(

@@ -10,7 +10,12 @@ import pytest
 
 from workflow.src.io_table import write_parquet, read_parquet
 
-from workflow.src.features.assembly import get_ortholog_counts, merge_all_features, read_coding_genes
+from workflow.src.features.assembly import (
+    count_paralogs,
+    get_ortholog_counts,
+    merge_all_features,
+    read_coding_genes,
+)
 from workflow.scripts.features.collect_dna_features import DnaConfig
 from workflow.scripts.features.collect_rna_features import RnaConfig
 from workflow.scripts.features.merge_features import MergeConfig
@@ -23,6 +28,23 @@ def test_get_ortholog_counts_counts_pipe_separated_entries(tmp_path):
     counts = get_ortholog_counts(f)
     assert counts.loc["SPAC1002.01"] == 3
     assert counts.loc["SPAC1002.02"] == 0
+
+
+def test_count_paralogs_distinguishes_none_from_one(tmp_path):
+    """A blank-paralogue row means "none", not 1; unnamed genes are still counted."""
+    export = pd.DataFrame({
+        "Gene stable ID": ["g1", "g1", "g1", "g2", "g3", "g4"],
+        "Gene name": ["a", "a", "a", "b", None, None],
+        # g2: no paralogue at all (one row, blank paralogue column)
+        # g3: 1 paralogue, but Ensembl ships no gene name for it
+        "Schizosaccharomyces pombe paralogue gene stable ID": ["g9", "g10", None, None, "g8", "g7"],
+    })
+    counts = count_paralogs(export, coding_genes=["g1", "g2", "g3"])
+
+    assert counts.loc["g1", "paralog_count"] == 2
+    assert counts.loc["g3", "paralog_count"] == 1, "unnamed genes must not be dropped"
+    assert "g2" not in counts.index, "no paralogue -> absent, filled to 0 by the caller"
+    assert "g4" not in counts.index, "non-coding gene must be filtered out"
 
 
 def test_get_ortholog_counts_strips_parenthetical_gene_name(tmp_path):
