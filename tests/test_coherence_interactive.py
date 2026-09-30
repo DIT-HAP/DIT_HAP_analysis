@@ -46,6 +46,7 @@ def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     })
     fitting = pd.DataFrame({
         "Systematic ID": ["a", "b", "c", "e"],
+        "Name": ["a", "b", "c", "e"],
         "DR": [-1.0, -1.1, -0.5, 0.0],
         "DL": [0.1, 0.2, 0.3, 0.4],
         "norm_DR": [-1.0, -1.1, -0.5, 0.0],
@@ -56,36 +57,175 @@ def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return metrics, long_table, fitting
 
 
-def test_member_table_drops_members_without_a_fit():
-    from plot_interactive_scatter import member_table
+def _scatter_pieces() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """(gene detail, members, centroids) — the frames run() hands to build_chart."""
+    from plot_interactive_scatter import centroid_table, gene_detail, member_table, term_labels
 
     metrics, long_table, fitting = _scatter_frames()
-    members = member_table(metrics, long_table, fitting, "s")
+    metrics = term_labels(metrics)
+    detail = gene_detail(fitting)
+    members = member_table(metrics, long_table, detail, "s")
+    return detail, members, centroid_table(members, detail, metrics)
+
+
+def test_member_table_drops_members_without_a_fit():
+    _, members, _ = _scatter_pieces()
     # 'unfitted' is annotated into g2 but has no DR/DL, so drawing it would mean
     # inventing a coordinate for it.
     assert "unfitted" not in set(members["Systematic ID"])
-    assert set(members["group_name"]) == {"coherent term", "middling term", "loose term"}
+    assert set(members["term"]) == {"coherent term", "middling term", "loose term"}
+
+
+def test_member_rows_carry_keys_only_so_the_cloud_is_embedded_once():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+
+    # The member frame is a join key, not a copy of the gene record: a flat row per
+    # member repeats every field name 58k times in go_bp, which is what made the
+    # page 24 MB. The gene columns must arrive by lookup into the cloud's own
+    # dataset — so both references must resolve to ONE embedded dataset.
+    assert set(members.columns) == {"term", "Systematic ID"}
+    genes = spec["hconcat"][1]["layer"]
+    cloud = genes[0]["data"]["name"]
+    looked_up = genes[1]["transform"][0]["from"]["data"]["name"]
+    assert cloud == looked_up
+    assert cloud in spec["datasets"]
+
+
+def test_centroid_is_the_mean_of_its_members():
+    _, _, centroids = _scatter_pieces()
+    centroids = centroids.set_index("term")
+    # g1 = genes a, b -> norm_DR (-1.0, -1.1) -> -1.05
+    assert centroids.loc["coherent term", "norm_DR"] == pytest.approx(-1.05)
+    assert centroids.loc["coherent term", "norm_DL"] == pytest.approx(0.015)
+    assert centroids.loc["coherent term", "median_pairwise_distance_z"] == pytest.approx(-3.0)
+
+
+def test_shared_group_names_are_disambiguated_but_unique_ones_are_not():
+    from plot_interactive_scatter import term_labels
+
+    metrics = pd.DataFrame({
+        "source": ["kegg_brite"] * 3,
+        "group_name": ["Others", "Others", "solo term"],
+        "group_id": ["b1", "b2", "g1"],
+    })
+    assert term_labels(metrics)["term"].tolist() == ["Others (b1)", "Others (b2)", "solo term"]
+
+
+def _pooled_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Two sources sharing a group_id — the collision the pooled views must survive."""
+    metrics = pd.DataFrame({
+        "source": ["go_cc", "go_macrocomplex"],
+        "group_id": ["GO:1", "GO:1"],
+        "group_name": ["same name", "same name"],
+        "n_scored_members": [2, 1],
+        "median_pairwise_distance_z": [-3.0, 1.0],
+        "q_value": [0.01, 0.9],
+    })
+    long_table = pd.DataFrame({
+        "source": ["go_cc", "go_cc", "go_macrocomplex"],
+        "group_id": ["GO:1", "GO:1", "GO:1"],
+        "group_name": ["same name"] * 3,
+        "Systematic ID": ["a", "b", "c"],
+        "Name": ["a", "b", "c"],
+    })
+    fitting = pd.DataFrame({
+        "Systematic ID": ["a", "b", "c"],
+        "Name": ["a", "b", "c"],
+        "DR": [-1.0, -0.5, 0.0],
+        "DL": [0.1, 0.2, 0.3],
+        "norm_DR": [-1.0, -0.5, 0.0],
+        "norm_DL": [0.01, 0.02, 0.03],
+        "R2": [0.9, 0.8, 0.7],
+        "FYPOviability": ["viable"] * 3,
+    })
+    return metrics, long_table, fitting
+
+
+def test_pooled_terms_are_prefixed_with_their_source():
+    from plot_interactive_scatter import term_labels
+
+    metrics, _, _ = _pooled_frames()
+    # The same name in two databases is two different groups, so neither the picker
+    # nor the centroid map may treat them as one.
+    assert term_labels(metrics)["term"].tolist() == [
+        "go_cc: same name", "go_macrocomplex: same name",
+    ]
+
+
+def test_pooled_members_join_on_source_as_well_as_group_id():
+    from plot_interactive_scatter import centroid_table, gene_detail, member_table, term_labels
+
+    metrics, long_table, fitting = _pooled_frames()
+    metrics = term_labels(metrics)
+    detail = gene_detail(fitting)
+    members = member_table(metrics, long_table, detail, None)   # None = pooled
+
+    # GO:1 exists in both sources; on group_id alone every row would claim both
+    # terms and each centroid would sit on all three genes.
+    assert members.groupby("term").size().to_dict() == {
+        "go_cc: same name": 2, "go_macrocomplex: same name": 1,
+    }
+    centroids = centroid_table(members, detail, metrics).set_index("term")
+    assert centroids.loc["go_macrocomplex: same name", "norm_DR"] == pytest.approx(0.0)
+    assert centroids.loc["go_cc: same name", "norm_DR"] == pytest.approx(-0.75)
+
+
+def test_pooled_view_drops_the_other_sources_genes():
+    from plot_interactive_scatter import gene_detail, member_table, term_labels
+
+    metrics, long_table, fitting = _pooled_frames()
+    metrics = term_labels(metrics)
+    detail = gene_detail(fitting)
+    # The per-source pick must still work on a pooled annotation table — that is how
+    # the script tells the three views apart.
+    members = member_table(metrics, long_table, detail, "go_cc")
+    assert sorted(members["Systematic ID"]) == ["a", "b"]
 
 
 def test_term_options_open_on_the_most_coherent_term():
     from plot_interactive_scatter import term_options
 
-    metrics, _, _ = _scatter_frames()
-    assert term_options(metrics)[0] == "coherent term"
+    _, _, centroids = _scatter_pieces()
+    assert term_options(centroids)[0] == "coherent term"
 
 
 def test_scatter_spec_is_serializable_and_carries_a_dropdown():
-    from plot_interactive_scatter import build_chart, member_table, term_options
+    from plot_interactive_scatter import build_chart, term_options
 
-    metrics, long_table, fitting = _scatter_frames()
-    options = term_options(metrics)
-    chart = build_chart(fitting, member_table(metrics, long_table, fitting, "s"), options)
-    params = [p for p in chart.to_dict()["params"] if isinstance(p, dict)]
+    detail, members, centroids = _scatter_pieces()
+    options = term_options(centroids)
+    params = [p for p in build_chart(detail, members, centroids, options).to_dict()["params"]
+              if isinstance(p, dict)]
     pickers = [p for p in params if isinstance(p.get("bind"), dict)
                and p["bind"].get("input") == "select"]
     assert len(pickers) == 1, f"expected exactly one dropdown, got {len(pickers)}"
     assert pickers[0]["bind"]["options"] == options
     assert pickers[0]["value"] == "coherent term", "the page must open on a term, not blank"
+
+
+def test_the_centroid_panel_can_set_the_dropdowns_selection():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    picker = [p for p in spec["params"] if isinstance(p.get("bind"), dict)][0]
+
+    # One selection, two ways in: the bound dropdown sets it, and a click on a
+    # centroid marker sets the same value, so the two controls cannot disagree.
+    assert picker["select"]["on"] == "click"
+    assert picker["select"]["fields"] == ["term"]
+    # Altair hoists the param to the top level, which would scope the click to the
+    # whole figure — `views` is what pins it back inside the centroid panel. Without
+    # it a click on the gene cloud, whose rows carry no `term`, would clear the pick.
+    centroid_units = {layer.get("name") for layer in spec["hconcat"][0]["layer"]}
+    assert set(picker["views"]) <= centroid_units, "the click must not listen on the gene panel"
+    # Filtering the gene layer by that selection is what redraws the genes when the
+    # map is clicked, with no re-render.
+    genes = spec["hconcat"][1]["layer"][1]
+    assert {"filter": {"param": picker["name"]}} in genes["transform"]
 
 
 # --- redundancy network -----------------------------------------------------

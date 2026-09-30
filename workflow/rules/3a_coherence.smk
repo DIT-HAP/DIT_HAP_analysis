@@ -67,6 +67,8 @@
 #   plot_coherence_attribution_for_dedup -> dedup/incoherence_attribution.pdf
 #   plot_coherence_redundancy_network_for_dedup -> dedup/redundancy_network.html (Altair; the merge
 #                                     backbone of each redundancy cluster, edge = Jaccard)
+#   plot_coherence_interactive_scatter_for_pooled -> combined|dedup/interactive_scatter.html (the
+#                                     per-source Altair explorer re-run over the pooled rows)
 #
 # VIEW FOLDERS: results/3a_coherence/{dataset}/ holds one folder per view, and the
 # folder name — never the file name — says which view a file belongs to:
@@ -648,9 +650,13 @@ rule plot_coherence_group_scatter:
 # panels: one page per source for the scatter, one page per dataset for the
 # network, each with a dropdown and hover tooltips.
 #
-# The scatter page embeds every (term, member) row in the source, which is 1.6k
-# rows for go_macrocomplex but 58k for go_bp — a browser-loadable but heavy page.
-# It is therefore NOT in `rule all`: build it for the source you are looking at
+# The scatter page is a two-panel explorer: the terms' centroid positions on the
+# left (click a marker to pick one) and the picked term's genes over the
+# genome-wide cloud on the right, both driven by one selection. Its payload was
+# cut from 24 MB to 6.9 MB for go_bp by embedding the gene columns once as the
+# cloud's dataset and looking them up from the member rows, so it stays out of
+# `rule all` only because a 58k-row page is not worth pre-building for four
+# sources you are not reading: build it for the source you are looking at
 # (`snakemake --use-conda results/3a_coherence/<dataset>/go_cc/interactive_scatter.html`).
 # The network page is a few tens of kilobytes, so it is a default target.
 
@@ -677,6 +683,52 @@ rule plot_coherence_interactive_scatter:
             --annotation {input.annotation} \
             --fitting-results {input.fitting_results} \
             --source {wildcards.source} \
+            --output {output.page} &> {log}
+        """
+
+
+# The pooled views get the same page over their own metrics table. One rule for
+# both, because the two differ only in the file they read: `--source` is simply
+# omitted, which tells the script to take every row of the concatenated annotation
+# and to prefix each term with its source (a name is only unique within a source,
+# and 173 group_ids are shared by two of them). The scripts/ dir keeps the
+# per-source split for rules whose shell command actually differs.
+_POOLED_METRICS = {
+    "combined": "coherence_metrics.parquet",
+    "dedup": "coherence_terms_representatives.tsv",
+}
+
+rule plot_coherence_interactive_scatter_for_pooled:
+    input:
+        metrics=lambda wc: (
+            f"results/3a_coherence/{wc.dataset}/{wc.view}/{_POOLED_METRICS[wc.view]}"
+        ),
+        # Every source's annotation, concatenated by the script: the pooled metrics
+        # table carries groups from all of them, and the members have to come along.
+        annotations=lambda wc: expand(
+            f"results/3a_coherence/{wc.dataset}/{{source}}/group_annotation_long.tsv",
+            source=_COH_SOURCES,
+        ),
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+    output:
+        page="results/3a_coherence/{dataset}/{view}/interactive_scatter.html",
+    wildcard_constraints:
+        view="combined|dedup",
+    log:
+        "logs/3a_coherence/interactive_scatter_{dataset}_{view}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Writing the interactive scatter for {wildcards.dataset} × {wildcards.view}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_interactive_scatter.py \
+            --metrics {input.metrics} \
+            --annotation {input.annotations} \
+            --fitting-results {input.fitting_results} \
             --output {output.page} &> {log}
         """
 

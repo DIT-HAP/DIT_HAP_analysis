@@ -134,12 +134,15 @@ rule all:
         f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.tsv",
         f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.pdf",
         f"results/3a_coherence/{_DATASET}/dedup/coherence_cohorts.xlsx",
-        # The de-duplication audit pages (Altair + pyvis, ~1-3 MB). The per-source
-        # interactive scatter page is deliberately NOT here: it embeds every
-        # (term, member) row in the source, which is 58k rows for go_bp, so it is
-        # built on demand for the source you are reading.
+        # The de-duplication audit pages (Altair + pyvis, ~1-3 MB), and the
+        # interactive explorer over both pooled views. The per-source explorer is
+        # deliberately NOT here: it is the same page over one source's rows, and
+        # pre-building five of them for the one you are reading is not worth it
+        # (build it by naming the path, e.g. .../go_cc/interactive_scatter.html).
         f"results/3a_coherence/{_DATASET}/dedup/redundancy_network.html",
         f"results/3a_coherence/{_DATASET}/dedup/redundancy_overview.html",
+        f"results/3a_coherence/{_DATASET}/combined/interactive_scatter.html",
+        f"results/3a_coherence/{_DATASET}/dedup/interactive_scatter.html",
         # combined/ — one figure with every source on it, coloured by source, + the
         # representative set as a sixth series, and the threshold-filtered cohort
         # workbook over the pooled metrics.

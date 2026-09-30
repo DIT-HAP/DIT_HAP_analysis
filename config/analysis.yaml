@@ -118,7 +118,7 @@ coherence:
   kegg_dir: resources/external/kegg/data/derived
   min_group_size: 3
   max_group_size: 300
-  max_term_genes: 500
+  max_term_genes: 350
   dr_threshold: -0.3
   n_permutations: 1000
   random_state: 42
