@@ -84,9 +84,33 @@ def test_parse_deletion_library_paralogs_explodes_none_and_normalises_case(tmp_p
 
     pairs = parse_deletion_library_paralogs(xlsx, meta)
 
+    assert list(pairs.columns) == [
+        "gene_systematic_id", "gene_name", "paralog_systematic_id", "paralog_name"
+    ]
     assert set(pairs["gene_systematic_id"]) == {"SPAC1002.13c", "SPAC1002.16c"}
     assert set(pairs["paralog_systematic_id"]) == {"SPBC2G2.17c", "SPAC1399.04c"}
     assert len(pairs) == 2, "the two case-variants of one paralogue must collapse to one pair"
+
+
+def test_parse_deletion_library_paralogs_falls_back_to_the_systematic_id(tmp_path):
+    """An id PomBase has no name for (or does not know at all) keeps its own id."""
+    # SPAC1002.13c is in the metadata with an EMPTY name -> falls back to its id.
+    # SPBC2G2.17c is absent from the metadata entirely -> also falls back.
+    meta = tmp_path / "gene_IDs_names_products.tsv"
+    meta.write_text(
+        "gene_systematic_id\tgene_name\tsynonyms\tgene_type\n"
+        "SPAC1002.13c\t\tSPAC1002.13c-old\tprotein coding gene\n"
+    )
+    xlsx = tmp_path / "dl.xlsx"
+    pd.DataFrame({
+        "Systematic ID": ["SPAC1002.13c"],
+        "Paralogues": ["SPBC2G2.17c"],
+    }).to_excel(xlsx, index=False)
+
+    pairs = parse_deletion_library_paralogs(xlsx, meta)
+
+    assert pairs.loc[0, "gene_name"] == "SPAC1002.13c", "unnamed gene falls back to its id"
+    assert pairs.loc[0, "paralog_name"] == "SPBC2G2.17c", "unknown id falls back to itself"
 
 
 def test_deletion_library_paralogs_round_trip_through_parquet(tmp_path):
@@ -103,8 +127,7 @@ def test_deletion_library_paralogs_round_trip_through_parquet(tmp_path):
     write_parquet(pairs, out)
 
     read_back = read_deletion_library_paralogs(out)
-    assert list(read_back.columns) == ["gene_systematic_id", "paralog_systematic_id"]
-    assert read_back.to_dict("records") == [{"gene_systematic_id": "g1", "paralog_systematic_id": "g2"}]
+    assert read_back.columns.tolist() == pairs.columns.tolist()
     assert count_paralogs(read_back, coding_genes=["g1", "g2"]).loc["g1", "paralog_count"] == 1
 
 

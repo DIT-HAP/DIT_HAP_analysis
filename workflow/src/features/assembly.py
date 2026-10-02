@@ -292,12 +292,39 @@ def load_ensembl_paralogs(ensembl_paralogs_tsv: Path, gene_meta_file: Path) -> p
     return _resolve_paralog_ids(pairs, gene_meta_file)
 
 
+def _add_paralog_names(pairs: pd.DataFrame, gene_meta_file: Path) -> pd.DataFrame:
+    """Add gene_name / paralog_name, falling back to the systematic id when unnamed.
+
+    About a third of PomBase genes carry no symbol, and the source table also holds
+    ids PomBase has since retired (the `being curated` placeholder, the SPMTR.03/04
+    mating-type cassettes). Those keep their systematic id as the "name" rather than
+    blanking out, so every row stays greppable by whatever identifier you have.
+    """
+    gene_meta = pd.read_csv(
+        gene_meta_file, sep="\t", usecols=["gene_systematic_id", "gene_name"]
+    )
+    gene_meta["gene_name"] = gene_meta["gene_name"].fillna(gene_meta["gene_systematic_id"])
+    id2name = dict(zip(gene_meta["gene_systematic_id"], gene_meta["gene_name"]))
+    pairs = pairs.copy()
+    for id_col, name_col in (
+        ("gene_systematic_id", "gene_name"),
+        ("paralog_systematic_id", "paralog_name"),
+    ):
+        pairs.insert(
+            pairs.columns.get_loc(id_col) + 1,
+            name_col,
+            pairs[id_col].map(id2name).fillna(pairs[id_col]),
+        )
+    return pairs
+
+
 def parse_deletion_library_paralogs(
     deletion_library_xlsx: Path, gene_meta_file: Path
 ) -> pd.DataFrame:
-    """Hayles-2013 deletion-library `Paralogues` column -> long (gene, paralog).
+    """Hayles-2013 deletion-library `Paralogues` column -> long (gene, paralog) table.
 
-    The cell is one `|`-joined list, exploded here to long. Materialised as its own
+    Columns: gene_systematic_id, gene_name, paralog_systematic_id, paralog_name. The
+    cell is one `|`-joined list, exploded here to long. Materialised as its own
     parquet by the `build_deletion_library_paralogs` rule so consumers read the
     pairs instead of re-parsing the sheet; see that rule for why it exists.
 
@@ -323,13 +350,15 @@ def parse_deletion_library_paralogs(
         .rename(columns={_DELETION_LIBRARY_ID_COLUMN: "gene_systematic_id"})
         .assign(paralog_systematic_id=lambda d: d["paralog_systematic_id"].str.strip())
     )
-    return _resolve_paralog_ids(pairs, gene_meta_file)
+    return _add_paralog_names(_resolve_paralog_ids(pairs, gene_meta_file), gene_meta_file)
 
 
 def read_deletion_library_paralogs(deletion_library_paralogs: Path) -> pd.DataFrame:
-    """Read the long (gene, paralog) parquet built by build_deletion_library_paralogs."""
-    pairs = read_parquet(deletion_library_paralogs)
-    return pairs[["gene_systematic_id", "paralog_systematic_id"]]
+    """Read the long table built by build_deletion_library_paralogs.
+
+    Carries gene_name / paralog_name alongside the ids; `count_paralogs` ignores them.
+    """
+    return read_parquet(deletion_library_paralogs)
 
 
 def load_paralogs(

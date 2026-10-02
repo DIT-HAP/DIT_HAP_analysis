@@ -23,7 +23,8 @@ Input
 Output
 ------
 - deletion_library_paralogs.parquet: long table, columns
-  gene_systematic_id, paralog_systematic_id
+  gene_systematic_id, gene_name, paralog_systematic_id, paralog_name
+  (a name falls back to the systematic id when PomBase has none)
 
 Usage
 -----
