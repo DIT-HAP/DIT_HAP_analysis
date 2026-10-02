@@ -2,6 +2,25 @@
 # which only points at where upstream data lives). Populated incrementally as
 # each analysis stage is migrated — see design doc §9.
 
+# --- Gene feature collection (1b_features.smk) ---
+features:
+  # Which source feeds the `paralog_count` column of the feature matrix.
+  #   deletion_library : the Hayles-2013 `Paralogues` column (curated within-species
+  #                      paralogues), read as the long table built by the
+  #                      build_deletion_library_paralogs rule. Covers only the 4,843
+  #                      genes of that deletion library, so the 287 coding genes
+  #                      outside it read 0.
+  #   ensembl          : the BioMart paralog export. All genes, but 7,908 of its
+  #                      10,888 paralogue rows are `other_paralog`, i.e. a homolog
+  #                      whose last common ancestor with S. pombe is Fungi or above
+  #                      — 1,013 genes get a count on that basis alone. It also caps
+  #                      at 24 paralogues per gene, which 25 genes hit.
+  # The two agree on 1,410 pairs; Hayles is a subset of Ensembl for 898/955 genes.
+  # Switching this re-runs only collect_evolutionary_features and its downstream
+  # (merge -> the feature matrix -> ml); the source is echoed into the shell
+  # command, so Snakemake picks the change up on its own.
+  paralog_source: deletion_library
+
 # --- Gene-level clustering (clustering.smk) ---
 clustering:
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)

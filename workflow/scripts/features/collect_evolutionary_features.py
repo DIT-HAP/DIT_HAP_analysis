@@ -8,10 +8,15 @@ Evolutionary-Level Feature Collection
 Assembles ortholog/paralog counts, evolutionary rate, and phyloP/divergence
 scores per coding gene. Reads the coding-gene set from the DNA-level parquet.
 
+`paralog_count` has two selectable sources (config.features.paralog_source):
+- `ensembl`          — the BioMart paralog export, every homology type
+- `deletion_library` — the Hayles-2013 `Paralogues` column (curated, within-species)
+
 Input
 -----
 - A PomBase version directory (curated_orthologs, gene metadata)
-- An Ensembl paralog export TSV
+- An Ensembl paralog export TSV, and/or the long deletion-library paralog parquet
+  (built by the build_deletion_library_paralogs rule)
 - Literature tables (Rhind 2011, Grech 2019)
 - DNA-level features parquet (for the coding-gene set)
 
@@ -24,7 +29,9 @@ Usage
     python collect_evolutionary_features.py \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --literature-dir resources/literature \\
+        --paralog-source deletion_library \\
         --ensembl-paralogs-tsv resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
+        --deletion-library-paralogs results/1b_features/2025-10-01/deletion_library_paralogs.parquet \\
         --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
         --output results/1b_features/2025-10-01/_levels/evolutionary_features.parquet
 
@@ -51,7 +58,9 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet, write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 from features.assembly import (  # noqa: E402
+    PARALOG_SOURCES,
     collect_evolutionary_level_features,
+    load_paralogs,
     load_phyloP_and_divergence,
     read_coding_genes,
 )
@@ -65,13 +74,29 @@ class EvolutionaryConfig:
     """Inputs/outputs for evolutionary-level feature collection."""
     pombase_dir: Path
     literature_dir: Path
+    paralog_source: str
     ensembl_paralogs_tsv: Path
+    deletion_library_paralogs: Path
     dna_features: Path
     output_evolutionary: Path
 
+    @property
+    def paralog_file(self) -> Path:
+        """The file `paralog_source` selects; the other one is never read."""
+        return (
+            self.ensembl_paralogs_tsv
+            if self.paralog_source == "ensembl"
+            else self.deletion_library_paralogs
+        )
+
     def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure the output dir exists."""
-        for path in [self.pombase_dir, self.literature_dir, self.ensembl_paralogs_tsv, self.dna_features]:
+        """Raise ValueError if the source is unknown or any required input is missing, then ensure the output dir exists."""
+        if self.paralog_source not in PARALOG_SOURCES:
+            raise ValueError(
+                f"features.paralog_source must be one of {PARALOG_SOURCES}, "
+                f"got {self.paralog_source!r}"
+            )
+        for path in [self.pombase_dir, self.literature_dir, self.paralog_file, self.dna_features]:
             if not path.exists():
                 raise ValueError(f"Required input path does not exist: {path}")
         self.output_evolutionary.parent.mkdir(parents=True, exist_ok=True)
@@ -93,10 +118,16 @@ def run(config: EvolutionaryConfig) -> None:
     """Collect evolutionary-level features filtered to the DNA-level coding-gene set."""
     coding_genes = read_coding_genes(config.dna_features)
     phyloP_and_divergence = load_phyloP_and_divergence(config.literature_dir, config.gene_meta_file)
+    paralog_pairs = load_paralogs(
+        config.paralog_source,
+        config.ensembl_paralogs_tsv,
+        config.deletion_library_paralogs,
+        config.gene_meta_file,
+    )
 
-    logger.info("Collecting evolutionary-level features")
+    logger.info(f"Collecting evolutionary-level features (paralogs from {config.paralog_source})")
     evolutionary_df = collect_evolutionary_level_features(
-        config.pombase_dir, config.ensembl_paralogs_tsv, config.literature_dir,
+        config.pombase_dir, config.literature_dir, paralog_pairs,
         config.gene_meta_file, coding_genes, phyloP_and_divergence,
     )
     write_parquet(evolutionary_df, config.output_evolutionary)
@@ -111,7 +142,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect evolutionary-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table")
+    parser.add_argument("--paralog-source", required=True, choices=PARALOG_SOURCES, help="Which paralog source feeds paralog_count (config.features.paralog_source)")
+    parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table (read only when --paralog-source=ensembl)")
+    parser.add_argument("--deletion-library-paralogs", type=Path, required=True, help="Long (gene, paralog) parquet from build_deletion_library_paralogs (read only when --paralog-source=deletion_library)")
     parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
     parser.add_argument("--output", type=Path, required=True, dest="output_evolutionary", help="Output evolutionary-level features parquet")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -125,7 +158,9 @@ def main() -> int:
     try:
         config = EvolutionaryConfig(
             pombase_dir=args.pombase_dir, literature_dir=args.literature_dir,
+            paralog_source=args.paralog_source,
             ensembl_paralogs_tsv=args.ensembl_paralogs_tsv,
+            deletion_library_paralogs=args.deletion_library_paralogs,
             dna_features=args.dna_features, output_evolutionary=args.output_evolutionary,
         )
         config.validate()

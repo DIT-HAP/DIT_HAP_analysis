@@ -13,8 +13,12 @@ from workflow.src.io_table import write_parquet, read_parquet
 from workflow.src.features.assembly import (
     count_paralogs,
     get_ortholog_counts,
+    load_ensembl_paralogs,
+    load_paralogs,
     merge_all_features,
+    parse_deletion_library_paralogs,
     read_coding_genes,
+    read_deletion_library_paralogs,
 )
 from workflow.scripts.features.collect_dna_features import DnaConfig
 from workflow.scripts.features.collect_rna_features import RnaConfig
@@ -30,8 +34,23 @@ def test_get_ortholog_counts_counts_pipe_separated_entries(tmp_path):
     assert counts.loc["SPAC1002.02"] == 0
 
 
+def _write_gene_meta(tmp_path: Path, ids: list[str]) -> Path:
+    """Minimal PomBase gene_IDs_names_products.tsv listing `ids` as coding genes.
+
+    `synonyms` must hold at least one real value: an all-empty column reads back as
+    float64 and update_sysIDs()'s `.str.split(",")` then raises.
+    """
+    f = tmp_path / "gene_IDs_names_products.tsv"
+    f.write_text(
+        "gene_systematic_id\tgene_name\tsynonyms\tgene_type\n"
+        + "".join(f"{g}\t{g}\t{g}-old\tprotein coding gene\n" for g in ids)
+    )
+    return f
+
+
 def test_count_paralogs_distinguishes_none_from_one(tmp_path):
     """A blank-paralogue row means "none", not 1; unnamed genes are still counted."""
+    meta = _write_gene_meta(tmp_path, ["g1", "g2", "g3", "g4"])
     export = pd.DataFrame({
         "Gene stable ID": ["g1", "g1", "g1", "g2", "g3", "g4"],
         "Gene name": ["a", "a", "a", "b", None, None],
@@ -39,12 +58,61 @@ def test_count_paralogs_distinguishes_none_from_one(tmp_path):
         # g3: 1 paralogue, but Ensembl ships no gene name for it
         "Schizosaccharomyces pombe paralogue gene stable ID": ["g9", "g10", None, None, "g8", "g7"],
     })
-    counts = count_paralogs(export, coding_genes=["g1", "g2", "g3"])
+    tsv = tmp_path / "ensembl_paralogs.tsv"
+    export.to_csv(tsv, sep="\t", index=False)
+
+    pairs = load_ensembl_paralogs(tsv, meta)
+    counts = count_paralogs(pairs, coding_genes=["g1", "g2", "g3"])
 
     assert counts.loc["g1", "paralog_count"] == 2
     assert counts.loc["g3", "paralog_count"] == 1, "unnamed genes must not be dropped"
     assert "g2" not in counts.index, "no paralogue -> absent, filled to 0 by the caller"
-    assert "g4" not in counts.index, "non-coding gene must be filtered out"
+    assert "g4" not in counts.index, "genes outside coding_genes must be filtered out"
+
+
+def test_parse_deletion_library_paralogs_explodes_none_and_normalises_case(tmp_path):
+    """`|`-joined lists explode to long, NONE drops out, `.NNNC` normalises to `.NNNc`."""
+    meta = _write_gene_meta(
+        tmp_path,
+        ["SPAC1002.13c", "SPAC1002.16c", "SPAC1002.12c", "SPBC2G2.17c", "SPAC1399.04c"],
+    )
+    xlsx = tmp_path / "deletion_library_categories.xlsx"
+    pd.DataFrame({
+        "Systematic ID": ["SPAC1002.13c", "SPAC1002.12c", "SPAC1002.16c"],
+        "Paralogues": ["SPBC2G2.17C", "NONE", "SPAC1399.04C|SPAC1399.04c"],
+    }).to_excel(xlsx, index=False)
+
+    pairs = parse_deletion_library_paralogs(xlsx, meta)
+
+    assert set(pairs["gene_systematic_id"]) == {"SPAC1002.13c", "SPAC1002.16c"}
+    assert set(pairs["paralog_systematic_id"]) == {"SPBC2G2.17c", "SPAC1399.04c"}
+    assert len(pairs) == 2, "the two case-variants of one paralogue must collapse to one pair"
+
+
+def test_deletion_library_paralogs_round_trip_through_parquet(tmp_path):
+    """What build_deletion_library_paralogs writes is what the feature reads back."""
+    meta = _write_gene_meta(tmp_path, ["g1", "g2"])
+    xlsx = tmp_path / "dl.xlsx"
+    pd.DataFrame({
+        "Systematic ID": ["g1", "g2"],
+        "Paralogues": ["g2", "NONE"],
+    }).to_excel(xlsx, index=False)
+
+    pairs = parse_deletion_library_paralogs(xlsx, meta)
+    out = tmp_path / "deletion_library_paralogs.parquet"
+    write_parquet(pairs, out)
+
+    read_back = read_deletion_library_paralogs(out)
+    assert list(read_back.columns) == ["gene_systematic_id", "paralog_systematic_id"]
+    assert read_back.to_dict("records") == [{"gene_systematic_id": "g1", "paralog_systematic_id": "g2"}]
+    assert count_paralogs(read_back, coding_genes=["g1", "g2"]).loc["g1", "paralog_count"] == 1
+
+
+def test_load_paralogs_rejects_an_unknown_source(tmp_path):
+    """The config contract: only PARALOG_SOURCES are accepted."""
+    meta = _write_gene_meta(tmp_path, ["g1"])
+    with pytest.raises(ValueError, match="paralog source must be one of"):
+        load_paralogs("pombase", tmp_path / "a", tmp_path / "b", meta)
 
 
 def test_get_ortholog_counts_strips_parenthetical_gene_name(tmp_path):

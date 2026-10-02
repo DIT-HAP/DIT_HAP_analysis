@@ -72,6 +72,15 @@ SELECTED_PEPTIDE_FEATURE_COLUMNS = [
 # title is long and it is the one column the count depends on.
 _PARALOGUE_ID_COLUMN = "Schizosaccharomyces pombe paralogue gene stable ID"
 
+# The deletion-library twin: one `|`-joined cell per gene holding that gene's
+# paralogues, with the literal `NONE` for "none".
+_DELETION_LIBRARY_ID_COLUMN = "Systematic ID"
+_DELETION_LIBRARY_PARALOGUE_COLUMN = "Paralogues"
+
+# Accepted values of `features.paralog_source` (config/analysis.yaml). See
+# load_paralogs() for what each one actually measures.
+PARALOG_SOURCES = ("ensembl", "deletion_library")
+
 
 # =============================================================================
 # SHARED HELPERS
@@ -245,24 +254,117 @@ def collect_protein_level_features(
 # =============================================================================
 # EVOLUTIONARY LEVEL
 # =============================================================================
-def count_paralogs(pombe_paralogs: pd.DataFrame, coding_genes: list[str]) -> pd.DataFrame:
-    """Distinct paralogue count per coding gene, indexed by `Gene stable ID`."""
+def _resolve_paralog_ids(pairs: pd.DataFrame, gene_meta_file: Path) -> pd.DataFrame:
+    """Map both id columns of a long (gene, paralog) table to current PomBase ids.
+
+    Version drift is the norm across both sources: the 2013 deletion-library ids are
+    still valid but write the Crick-strand suffix as a capital `C`, and the Ensembl
+    export carries retired ids. `update_sysIDs()` normalises the suffix and leaves
+    anything it cannot resolve untouched, so an unresolvable paralogue still counts.
+    Resolution can also COLLAPSE two reported ids onto one, so the de-duplication
+    has to happen after it, not before.
+    """
+    for col in ("gene_systematic_id", "paralog_systematic_id"):
+        pairs[col] = update_sysIDs(pairs[col].tolist(), gene_meta_file)
+    return pairs.dropna(subset=["gene_systematic_id", "paralog_systematic_id"]).drop_duplicates()
+
+
+def load_ensembl_paralogs(ensembl_paralogs_tsv: Path, gene_meta_file: Path) -> pd.DataFrame:
+    """Ensembl BioMart paralog export -> long (gene, paralog).
+
+    Keeps every homology type. `within_species_paralog` and `other_paralog` are very
+    different claims — on the 2026-06-01 export 7,908 of 10,888 paralogue rows are
+    `other_paralog`, i.e. a homolog whose last common ancestor with S. pombe is Fungi
+    or above — but both are counted, which is what this feature has always done.
+    Select `deletion_library` instead for a curated within-species list.
+    """
+    export = pd.read_csv(ensembl_paralogs_tsv, sep="\t")
+    pairs = (
+        export[["Gene stable ID", _PARALOGUE_ID_COLUMN]]
+        .dropna(subset=[_PARALOGUE_ID_COLUMN])
+        .rename(
+            columns={
+                "Gene stable ID": "gene_systematic_id",
+                _PARALOGUE_ID_COLUMN: "paralog_systematic_id",
+            }
+        )
+    )
+    return _resolve_paralog_ids(pairs, gene_meta_file)
+
+
+def parse_deletion_library_paralogs(
+    deletion_library_xlsx: Path, gene_meta_file: Path
+) -> pd.DataFrame:
+    """Hayles-2013 deletion-library `Paralogues` column -> long (gene, paralog).
+
+    The cell is one `|`-joined list, exploded here to long. Materialised as its own
+    parquet by the `build_deletion_library_paralogs` rule so consumers read the
+    pairs instead of re-parsing the sheet; see that rule for why it exists.
+
+    Coverage is narrower than Ensembl's: the table only describes the 4,843 genes of
+    the 2013 deletion library, so the 287 coding genes outside it read as 0
+    paralogues rather than unknown ones. Its lists are also NOT symmetric — only 485
+    of 1,878 pairs are reciprocated — so the count means "paralogues this gene
+    reports", the same thing the Ensembl count means.
+    """
+    table = pd.read_excel(
+        deletion_library_xlsx,
+        usecols=[_DELETION_LIBRARY_ID_COLUMN, _DELETION_LIBRARY_PARALOGUE_COLUMN],
+    )
+    table[_DELETION_LIBRARY_PARALOGUE_COLUMN] = (
+        table[_DELETION_LIBRARY_PARALOGUE_COLUMN].astype(str).str.strip()
+    )
+    table = table[table[_DELETION_LIBRARY_PARALOGUE_COLUMN].str.upper() != "NONE"]
+    table["paralog_systematic_id"] = table[_DELETION_LIBRARY_PARALOGUE_COLUMN].str.split("|")
+    pairs = (
+        table.explode("paralog_systematic_id")[
+            [_DELETION_LIBRARY_ID_COLUMN, "paralog_systematic_id"]
+        ]
+        .rename(columns={_DELETION_LIBRARY_ID_COLUMN: "gene_systematic_id"})
+        .assign(paralog_systematic_id=lambda d: d["paralog_systematic_id"].str.strip())
+    )
+    return _resolve_paralog_ids(pairs, gene_meta_file)
+
+
+def read_deletion_library_paralogs(deletion_library_paralogs: Path) -> pd.DataFrame:
+    """Read the long (gene, paralog) parquet built by build_deletion_library_paralogs."""
+    pairs = read_parquet(deletion_library_paralogs)
+    return pairs[["gene_systematic_id", "paralog_systematic_id"]]
+
+
+def load_paralogs(
+    source: str,
+    ensembl_paralogs_tsv: Path,
+    deletion_library_paralogs: Path,
+    gene_meta_file: Path,
+) -> pd.DataFrame:
+    """Long (gene, paralog) table from whichever source `features.paralog_source` names."""
+    if source == "ensembl":
+        return load_ensembl_paralogs(ensembl_paralogs_tsv, gene_meta_file)
+    if source == "deletion_library":
+        return read_deletion_library_paralogs(deletion_library_paralogs)
+    raise ValueError(f"paralog source must be one of {PARALOG_SOURCES}, got {source!r}")
+
+
+def count_paralogs(paralogs: pd.DataFrame, coding_genes: list[str]) -> pd.DataFrame:
+    """Distinct paralogue count per coding gene, from a long (gene, paralog) table."""
     # Only genes with >=1 paralogue come back; a gene with none is ABSENT rather
     # than 0, and the caller's fillna(0) is what turns that absence into 0. So in
     # the assembled table 0 means "no paralogue" and n means exactly n — which is
     # what the old row count could not express.
     #
-    # Two traps this avoids, both measured on the 2026-06-01 export:
-    # - Counting export ROWS makes "no paralogue" read as 1, because a gene without
-    #   a paralogue still ships one row with the paralogue column left blank (1,922
-    #   genes read as 1 that way).
-    # - Grouping on `Gene name` as well drops every gene Ensembl ships without a
-    #   name, since pandas discards NaN group keys: 611 of the 2,427 genes that do
+    # Two traps this avoids, both measured on the 2026-06-01 Ensembl export:
+    # - Counting ROWS makes "no paralogue" read as 1, because a gene without a
+    #   paralogue still ships one row with the paralogue column left blank (1,922
+    #   genes read as 1 that way). Dropping the blank paralogues first is what
+    #   prevents it.
+    # - Grouping on a gene NAME as well drops every gene the source ships without
+    #   one, since pandas discards NaN group keys: 611 of the 2,427 genes that do
     #   have paralogues ended up at 0, including one with 20 of them.
-    subset = pombe_paralogs[pombe_paralogs["Gene stable ID"].isin(coding_genes)]
+    subset = paralogs[paralogs["gene_systematic_id"].isin(coding_genes)]
     return (
-        subset.dropna(subset=[_PARALOGUE_ID_COLUMN])
-        .groupby("Gene stable ID")[_PARALOGUE_ID_COLUMN].nunique()
+        subset.dropna(subset=["paralog_systematic_id"])
+        .groupby("gene_systematic_id")["paralog_systematic_id"].nunique()
         .rename("paralog_count").to_frame()
     )
 
@@ -270,13 +372,16 @@ def count_paralogs(pombe_paralogs: pd.DataFrame, coding_genes: list[str]) -> pd.
 @logger.catch(reraise=True)
 def collect_evolutionary_level_features(
     pombase_dir: Path,
-    ensembl_paralogs_tsv: Path,
     literature_dir: Path,
+    paralog_pairs: pd.DataFrame,
     gene_meta_file: Path,
     coding_genes: list[str],
     phyloP_and_divergence: pd.DataFrame,
 ) -> pd.DataFrame:
     """Assemble ortholog/paralog counts, evolutionary rate, and phyloP/divergence scores.
+
+    `paralog_pairs` is the long (gene, paralog) table from load_paralogs(), so the
+    paralog source is chosen by the caller rather than here.
 
     `phyloP_and_divergence` (Grech 2019) is loaded once via load_phyloP_and_divergence()
     and shared with collect_phenotype_level_features, which reads transposon-insertion-density
@@ -287,11 +392,7 @@ def collect_evolutionary_level_features(
     num_cerevisiae = get_ortholog_counts(orthologs_dir / "pombe_cerevisiae_orthologs.txt")
     num_human = get_ortholog_counts(orthologs_dir / "pombe_human_orthologs.txt")
 
-    pombe_paralogs = pd.read_csv(ensembl_paralogs_tsv, sep="\t")
-    paralog_count = count_paralogs(pombe_paralogs, coding_genes)
-    paralog_count["gene_systematic_id"] = update_sysIDs(
-        paralog_count.index.tolist(), gene_meta_file
-    )
+    paralog_count = count_paralogs(paralog_pairs, coding_genes)
 
     evolutionary_rate = pd.read_excel(
         literature_dir / "rhindComparativeFunctionalGenomics2011.xls", sheet_name="S30", skiprows=[0, 1]
@@ -305,7 +406,7 @@ def collect_evolutionary_level_features(
             num_japonicus.rename("japonicus_ortholog_count"),
             num_cerevisiae.rename("cerevisiae_ortholog_count"),
             num_human.rename("human_ortholog_count"),
-            paralog_count.set_index("gene_systematic_id")[["paralog_count"]],
+            paralog_count,
             evolutionary_rate.set_index("gene_systematic_id")[["Rate"]].rename(columns={"Rate": "evolutionary_rate"}),
             phyloP_and_divergence.set_index("gene_systematic_id")[
                 ["mean.phylop", "diversity.S", "diversity.Pi", "diversity.Theta", "diversity.Tajima_D"]

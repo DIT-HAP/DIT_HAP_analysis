@@ -90,12 +90,44 @@ rule collect_protein_features:
         """
 
 
+# --- Deletion-library paralogues (long table) ---
+# Not a feature level: nothing merges this into `merge_pombe_features`. It is its
+# own rule because the parse is the awkward half — one `|`-joined cell per gene, the
+# literal `NONE` for "none", and 2013-era ids that need PomBase-version-dependent
+# resolution — and because the PAIRS are reusable while only the count is needed
+# here. The xlsx is already a 1b input (collect_phenotype_features reads it).
+rule build_deletion_library_paralogs:
+    input:
+        pombase_dir="resources/external/pombase/{pombase_version}",
+        deletion_library_xlsx="resources/curated/deletion_library_categories.xlsx",
+    output:
+        paralogs="results/1b_features/{pombase_version}/deletion_library_paralogs.parquet",
+    log:
+        "logs/1b_features/build_deletion_library_paralogs_{pombase_version}.log",
+    conda:
+        "../envs/biopython.yml"
+    message:
+        "*** [paralogs] Exploding the deletion-library Paralogues column for PomBase {wildcards.pombase_version}..."
+    shell:
+        """
+        python workflow/scripts/features/build_deletion_library_paralogs.py \
+            --deletion-library-xlsx {input.deletion_library_xlsx} \
+            --gene-meta {input.pombase_dir}/Gene_metadata/gene_IDs_names_products.tsv \
+            --output {output.paralogs} &> {log}
+        """
+
+
 # --- Evolutionary level ---
+# Both paralog sources are declared as inputs and both paths are passed to the
+# script, which reads only the one `features.paralog_source` selects; putting the
+# source in the shell command is what makes Snakemake rerun on a config flip.
+# `deletion_library` reads the long table above, never the xlsx.
 rule collect_evolutionary_features:
     input:
         pombase_dir="resources/external/pombase/{pombase_version}",
         literature_dir="resources/literature",
         ensembl_paralogs_tsv="resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv",
+        deletion_library_paralogs="results/1b_features/{pombase_version}/deletion_library_paralogs.parquet",
         dna=f"{_LEVELS}/dna_features.parquet",
     output:
         evolutionary=f"{_LEVELS}/evolutionary_features.parquet",
@@ -110,7 +142,9 @@ rule collect_evolutionary_features:
         python workflow/scripts/features/collect_evolutionary_features.py \
             --pombase-dir {input.pombase_dir} \
             --literature-dir {input.literature_dir} \
+            --paralog-source {config[features][paralog_source]} \
             --ensembl-paralogs-tsv {input.ensembl_paralogs_tsv} \
+            --deletion-library-paralogs {input.deletion_library_paralogs} \
             --dna-features {input.dna} \
             --output {output.evolutionary} &> {log}
         """
