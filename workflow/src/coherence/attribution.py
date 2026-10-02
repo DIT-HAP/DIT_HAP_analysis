@@ -187,6 +187,16 @@ def shared_subunits(
     return pd.DataFrame(rows).sort_values("n_other_groups", ascending=False)
 
 
+def paralog_ids_from_features(features: pd.DataFrame) -> set[str]:
+    """Genes with >=1 paralog, from the feature matrix's `paralog_count` column."""
+    # Whichever source fills that column is `features.paralog_source` in
+    # config/analysis.yaml (the deletion library, currently); nothing here picks a
+    # source of its own, so this set and the ML feature cannot drift apart. A gene
+    # absent from the matrix (not a coding gene, or outside the deletion library)
+    # reads as "no paralog", which is what the column itself says.
+    return set(features.loc[features["paralog_count"] > 0, "gene_systematic_id"].astype(str))
+
+
 def paralog_fraction(members: Iterable[str], paralog_ids: set[str]) -> float:
     """Fraction of `members` that have >=1 paralog (present in paralog_ids)."""
     # A high paralog fraction flags a group whose members' deletion phenotypes may

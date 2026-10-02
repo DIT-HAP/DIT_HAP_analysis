@@ -27,8 +27,9 @@
 #                                     over the primary method's p;
 #                                     plus the shared-subunit fraction and, when
 #                                     features_panels is on, the abundance /
-#                                     conservation uniformity CVs — all computed
-#                                     here so the figure only renders)
+#                                     conservation uniformity CVs and the
+#                                     paralog_fraction of the scored members —
+#                                     all computed here so the figure only renders)
 #   export_coherence_cohorts       -> {source}/coherence_cohorts.xlsx (thresholded
 #                                     straight off the table above — this source's
 #                                     own q, no de-duplication columns)

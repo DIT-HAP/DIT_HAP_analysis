@@ -98,6 +98,39 @@ def test_compute_coherence_table_adds_q_value_column():
     assert (table["median_pairwise_distance_p"] > 0).all()
 
 
+def test_compute_coherence_table_paralog_fraction_uses_scored_members():
+    """The column is the share of a group's SCORED members with paralog_count > 0.
+
+    Built through paralog_ids_from_features, so the feature-matrix column name is
+    part of what is pinned: the fraction is keyed on the scored members' systematic
+    ids, the id space that table is indexed by (NOT the `Name` display column), and
+    it is left out entirely when no features table was passed.
+    """
+    from compute_coherence import build_groups, compute_coherence_table, group_annotations
+    from workflow.src.coherence.attribution import paralog_ids_from_features
+
+    bg = _background([f"g{i}" for i in range(10)])
+    long = _long([("go_cc", "GO:1", "a", f"g{i}", f"n{i}", 4) for i in range(4)]
+                 + [("go_cc", "GO:2", "b", f"g{i}", f"n{i}", 3) for i in range(4, 7)])
+    groups = build_groups(bg, long, min_group_size=3, max_group_size=300, max_term_genes=500)
+    features = pd.DataFrame({
+        "gene_systematic_id": [f"g{i}" for i in range(5)],
+        "paralog_count": [1, 0, 2, 0, 0],
+    })
+    args = (groups, bg[["norm_DR", "norm_DL"]].to_numpy(dtype=float),
+            {gid: i for i, gid in enumerate(bg["Systematic ID"])})
+    kwargs = dict(n_permutations=200, random_state=42,
+                  annotations=group_annotations(long, features=None), n_measured={})
+
+    table = compute_coherence_table(
+        *args, paralog_ids=paralog_ids_from_features(features), **kwargs
+    )
+    # GO:1 = g0..g3 -> g0 and g2 have a paralog -> 2/4; GO:2 = g4..g6 -> 0/3.
+    assert table.set_index("group_id")["paralog_fraction"].to_dict() == {"GO:1": 0.5, "GO:2": 0.0}
+
+    assert "paralog_fraction" not in compute_coherence_table(*args, **kwargs).columns
+
+
 def test_load_fitting_results_drops_inf_rows(tmp_path):
     from compute_coherence import load_fitting_results
     df = pd.DataFrame(

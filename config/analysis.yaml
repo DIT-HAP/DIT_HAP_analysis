@@ -16,9 +16,11 @@ features:
   #                      — 1,013 genes get a count on that basis alone. It also caps
   #                      at 24 paralogues per gene, which 25 genes hit.
   # The two agree on 1,410 pairs; Hayles is a subset of Ensembl for 898/955 genes.
-  # Switching this re-runs only collect_evolutionary_features and its downstream
-  # (merge -> the feature matrix -> ml); the source is echoed into the shell
-  # command, so Snakemake picks the change up on its own.
+  # This one column also feeds the coherence metrics' `paralog_fraction` (via the
+  # feature matrix, not a source of its own), so switching it re-runs
+  # collect_evolutionary_features and its downstream (merge -> the feature matrix
+  # -> ml, and the 3a_coherence metrics -> combined/dedup tables). The source is
+  # echoed into the shell command, so Snakemake picks the change up on its own.
   paralog_source: deletion_library
 
 # --- Gene-level clustering (clustering.smk) ---
@@ -142,6 +144,10 @@ coherence:
   n_permutations: 1000
   random_state: 42
   features_panels: true            # add the abundance/conservation uniformity columns
+  # The paralog_fraction column of each metrics table comes from the features
+  # matrix's `paralog_count` (features.paralog_source decides which source fills
+  # it), over the group's SCORED members — no separate paralog source is read here.
+
   # Cohort definitions — the two ends of the z-score axis (median_pairwise_distance).
   #   coherent   = q_value <= coherent_q_max (BH, per source) AND z < coherent_z_threshold
   #   incoherent = z > incoherent_z_threshold alone

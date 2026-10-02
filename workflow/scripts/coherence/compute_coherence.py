@@ -46,7 +46,9 @@ Output
     of the primary method, median_pairwise_distance).
   * annotations: frac_shared_members, and — when --features is given —
     abundance_cv / conservation_cv each with a `_feature` column naming the
-    feature column actually used.
+    feature column actually used, plus paralog_fraction (the share of the scored
+    members whose feature-matrix `paralog_count` is > 0, so it follows
+    `features.paralog_source` rather than naming a paralog source of its own).
 
 Usage
 -----
@@ -83,7 +85,11 @@ from scipy.stats import false_discovery_control
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from coherence.attribution import shared_subunit_fractions  # noqa: E402
+from coherence.attribution import (  # noqa: E402
+    paralog_fraction,
+    paralog_ids_from_features,
+    shared_subunit_fractions,
+)
 from coherence.io import load_fitting_results, load_long_table  # noqa: E402
 from coherence.metrics import coherence_metrics, compute_distance_zscores  # noqa: E402
 from io_table import write_parquet  # noqa: E402
@@ -273,6 +279,7 @@ def compute_coherence_table(
     random_state: int,
     annotations: pd.DataFrame,
     n_measured: dict[str, int],
+    paralog_ids: set[str] | None = None,
 ) -> pd.DataFrame:
     """One coherence row per group: identity + metrics + permutation z-scores."""
     rows = []
@@ -302,6 +309,11 @@ def compute_coherence_table(
             "scored_member_names": sorted(grp["Name"].dropna().astype(str)),
             **coherence_metrics(member_points),
         }
+        # Keyed on the systematic ids, not the `Name` display column above: the
+        # feature matrix is indexed by gene_systematic_id. Left out entirely when
+        # no features table was passed, like the CV columns.
+        if paralog_ids is not None:
+            row["paralog_fraction"] = paralog_fraction(member_ids, paralog_ids)
         # Test columns are generated off the method key, so `{method}` is the
         # observed statistic and `{method}_z` / `{method}_p` are its test.
         for method, (z, p) in zscores.items():
@@ -354,6 +366,7 @@ def run(config: CoherenceConfig) -> None:
         groups, background_points, background_index,
         config.n_permutations, config.random_state, annotations,
         measured_member_counts(long_table, set(fitting["Systematic ID"])),
+        paralog_ids=paralog_ids_from_features(features) if features is not None else None,
     )
 
     # Write output as Parquet
@@ -395,7 +408,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-state", type=int, default=42,
                         help="Permutation RNG seed")
     parser.add_argument("--features", type=Path, default=None,
-                        help="Optional gene features TSV; adds the abundance/conservation CV columns")
+                        help="Optional gene features TSV; adds the abundance/conservation CV and paralog-fraction columns")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output coherence metrics Parquet")
     parser.add_argument("-v", "--verbose", action="store_true",
