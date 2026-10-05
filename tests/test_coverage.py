@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 
 from workflow.src.coverage.core import (
+    DETAIL_COLUMNS,
     DIMENSION_LABELS,
     IN_GENE_FILTER,
     compute_insertion_coverage,
@@ -16,6 +17,8 @@ from workflow.src.coverage.core import (
     coverage_dicts_from_stats_table,
     build_stats_table,
     build_detailed_gene_table,
+    build_fypo_unknown_table,
+    build_undetermined_essentiality_table,
     dr_dl_histogram_frame,
     resolve_duplicate_annotations,
     write_detailed_gene_excel,
@@ -458,6 +461,50 @@ def test_build_detailed_gene_table_reads_annotation_from_gene_result():
     # covered first, then DR ascending (most depleted first — negative DR is the depleted end)
     assert list(result["Systematic ID"]) == ["SPAC1002.02", "SPAC1002.04c", "SPAC1002.01"]
     assert list(result["coverage_status"]) == ["covered", "covered", "not_covered"]
+
+
+def test_build_undetermined_essentiality_table_needs_both_sources_silent_and_a_dr():
+    """Keeps only genes both sources leave uncalled AND that were measured, most depleted first."""
+    gene_result = pd.DataFrame({
+        "Systematic ID": ["SPAC1002.02", "SPAC1002.01", "SPAC1002.04c", "SPAC1002.03c", "SPAC1002.05c"],
+        "Name": ["pom34", "SPAC1002.01", "asa1", "gen1", "gen2"],
+        "product": ["p"] * 5,
+        "characterisation_status": ["biological role published"] * 5,
+        "FYPOviability": ["unknown", "unknown", "viable", "unknown", "unknown"],
+        "DR": [0.056, -0.996, 0.100, -0.500, None],
+        "DL": [0.0, 1.099, 0.0, 0.5, None],
+        "gRNA_DR": [-0.1, -1.044, 0.2, -0.3, None],
+        "gRNA_DL": [1.0, 2.318, 0.5, 1.5, None],
+        # both silent, measured | both silent, measured | viability called | essentiality called | covered=no
+        "deletion_essentiality": ["Not_determined", "Not_determined", "Not_determined", "E", "Not_determined"],
+    })
+
+    result = build_undetermined_essentiality_table(gene_result)
+
+    assert list(result["Systematic ID"]) == ["SPAC1002.01", "SPAC1002.02"]
+    assert result["DR"].is_monotonic_increasing
+    # columns in DETAIL_COLUMNS' order, filtered to the ones this fixture carries
+    assert list(result.columns) == [c for c in DETAIL_COLUMNS if c in gene_result.columns]
+
+
+def test_build_fypo_unknown_table_keeps_uncovered_genes_and_sorts_them_last():
+    """The wider FYPO-unknown set: no deletion-library condition, unmeasured genes kept."""
+    gene_result = pd.DataFrame({
+        "Systematic ID": ["SPAC1002.01", "SPAC1002.02", "SPAC1002.03c", "SPAC1002.04c"],
+        "Name": ["a", "b", "c", "d"],
+        "product": ["p"] * 4,
+        "characterisation_status": ["x"] * 4,
+        "FYPOviability": ["unknown", "unknown", "unknown", "viable"],
+        "DR": [0.056, None, -0.996, -0.500],
+        "DL": [0.0, None, 1.099, 0.5],
+        "deletion_essentiality": ["Not_determined"] * 4,
+    })
+
+    result = build_fypo_unknown_table(gene_result)
+
+    # the viability-called gene is excluded; the unmeasured one sorts last rather than dropping
+    assert list(result["Systematic ID"]) == ["SPAC1002.03c", "SPAC1002.01", "SPAC1002.02"]
+    assert list(result.columns) == [c for c in DETAIL_COLUMNS if c in gene_result.columns]
 
 
 def test_write_detailed_gene_excel_sheets_cover_every_category(tmp_path):

@@ -26,10 +26,8 @@ Input
   approach without inflating per-chromosome or per-gene counts.
 - Gene-level fitting_results.tsv (Systematic ID, DR, ... ). Legacy releases
   still ship the pre-rename um/lam headers instead of DR/DL; normalized on
-  load (same quirk as workflow/src/clustering/candidates.py). Its native
-  FYPOviability/DeletionLibrary_essentiality columns are dropped by
-  prepare_coverage_data.py: the gene universe and its annotation columns
-  (characterisation_status, FYPOviability, deletion_essentiality) come from the
+  load (same quirk as workflow/src/clustering/candidates.py). Only DR/DL are
+  taken from it: the gene universe and every annotation column come from the
   gene annotation reference instead, so coverage reads the same values — under
   the same column names — as the rest of the analysis (see
   prepare_coverage_data.py's run()).
@@ -45,6 +43,10 @@ Usage
         composition_frame, dimension_coverage_frame, insertion_placement_frame,
         dr_dl_histogram_frame, DIMENSION_LABELS,
     )
+
+Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
+Date:     2026-07-22
+Version:  1.0.0
 """
 
 # =============================================================================
@@ -62,7 +64,7 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-from release_schema import IN_GENE_FILTER, read_gene_level
+from release_schema import IN_GENE_FILTER
 
 
 # =============================================================================
@@ -123,6 +125,26 @@ COVERED_LABEL = "Covered"
 NOT_COVERED_LABEL = "Not covered"
 IN_GENE_LABEL = "In genes"
 INTERGENIC_LABEL = "Intergenic"
+
+# The per-gene columns both human-facing tables in this stage carry, in display order.
+# These are the annotation reference's own columns (all of them) plus DR/DL, which come
+# from this dataset's own release rather than from the reference. Both tables carry
+# exactly this list, so nothing is shown by one and hidden by the other.
+DETAIL_COLUMNS = [
+    "Systematic ID", "Name", "product", "feature_type",
+    "characterisation_status", "FYPOviability",
+    "DR", "DL", "HD_DIT_HAP_DR", "HD_DIT_HAP_DL", "gRNA_DR", "gRNA_DL",
+    "deletion_essentiality",
+    "taxonomic_distribution", "Category", "Sub_category", "verification_phenotype",
+    "Sc_ortholog_id", "Sc_ortholog_name", "Sc_essentiality", "Sc_description", "Sc_ortholog_count",
+    "Hs_ortholog_symbol", "Hs_ortholog_count",
+    "GO_slim_BP", "GO_slim_CC", "GO_slim_MF", "complex", "gene_status",
+]
+
+# deletion_essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
+# tabs, so map them to the same essential/non_essential naming already used by
+# essentiality_coverage's bucket names (FYPOviability's values are used as-is).
+_ESSENTIALITY_SHEET_NAMES = {"E": "essential", "V": "non_essential", "Not_determined": "essentiality_not_determined"}
 
 
 # =============================================================================
@@ -283,23 +305,16 @@ def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
     """Build a detailed gene-level table with DIT-HAP data + annotation for all protein-coding genes.
 
     `gene_result` is already the full protein-coding gene universe, carrying its annotation
-    columns (Name, product, characterisation_status, FYPOviability, deletion_essentiality) from
-    the gene annotation reference — see prepare_coverage_data.
+    columns from the gene annotation reference — see prepare_coverage_data.
 
-    Returns a table with columns:
-    - Systematic ID, Name, product, characterisation_status, FYPOviability
-    - DR, DL (NaN if not covered)
-    - deletion_essentiality (never null — "Not_determined" when no deletion-library call exists)
-    - coverage_status: "covered" if DR is not NaN, "not_covered" otherwise
+    Returns a table with DETAIL_COLUMNS, plus coverage_status ("covered" if DR is not NaN,
+    "not_covered" otherwise) appended. deletion_essentiality is never null — "Not_determined"
+    when no deletion-library call exists.
 
     Sorted by characterisation_status (descending by gene count), then by coverage_status,
     then by DR ascending — most depleted first, since negative DR now means depleted.
     """
-    detail_cols = [
-        "Systematic ID", "Name", "product", "characterisation_status",
-        "FYPOviability", "DR", "DL", "deletion_essentiality",
-    ]
-    detailed_table = gene_result[[c for c in detail_cols if c in gene_result.columns]].copy()
+    detailed_table = gene_result[[c for c in DETAIL_COLUMNS if c in gene_result.columns]].copy()
 
     # Add coverage status
     detailed_table["coverage_status"] = detailed_table["DR"].notna().map({True: "covered", False: "not_covered"})
@@ -326,17 +341,45 @@ def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
     return detailed_table.reset_index(drop=True)
 
 
-# deletion_essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
-# tabs, so map them to the same essential/non_essential naming already used by
-# essentiality_coverage's bucket names (FYPOviability's values are used as-is).
-_ESSENTIALITY_SHEET_NAMES = {"E": "essential", "V": "non_essential", "Not_determined": "essentiality_not_determined"}
+def build_undetermined_essentiality_table(gene_result: pd.DataFrame) -> pd.DataFrame:
+    """Covered genes whose essentiality neither annotation source calls, most depleted first."""
+    # FYPOviability "unknown" is PomBase declining to call viability; deletion_essentiality
+    # "Not_determined" means no deletion-library call was ever made. Both at once leaves the
+    # gene with depletion data but no essentiality anchor — DR ascending puts the strongest
+    # candidates at the top.
+    undetermined = gene_result[
+        (gene_result["FYPOviability"] == "unknown")
+        & (gene_result["deletion_essentiality"] == "Not_determined")
+        & gene_result["DR"].notna()
+    ]
+    columns = [c for c in DETAIL_COLUMNS if c in undetermined.columns]
+    return undetermined[columns].sort_values("DR").reset_index(drop=True)
+
+
+def build_fypo_unknown_table(gene_result: pd.DataFrame) -> pd.DataFrame:
+    """Every gene PomBase records as viability-unknown, measured or not, most depleted first."""
+    # A superset of build_undetermined_essentiality_table: the 165 genes it adds here are the
+    # ones with no deletion-library call either, which differs from Not_determined by a single
+    # gene — so this table is mostly the coverage gap rather than a second population. DR is
+    # absent for the uncovered genes, which sort last.
+    unknown = gene_result[gene_result["FYPOviability"] == "unknown"]
+    columns = [c for c in DETAIL_COLUMNS if c in unknown.columns]
+    return unknown[columns].sort_values("DR", na_position="last").reset_index(drop=True)
+
+
+def write_unknown_annotation_excel(tables: Mapping[str, pd.DataFrame], output_path: Path) -> None:
+    """Write one sheet per annotation-gap population, in the given order."""
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        for sheet_name, table in tables.items():
+            table.to_excel(writer, sheet_name=sheet_name, index=False)
+            logger.info(f"Wrote sheet '{sheet_name}': {len(table):,} genes")
 
 
 def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -> None:
     """Write detailed gene table to Excel with multiple sheets.
 
     Sheets:
-    - "All genes": complete table (5,126 genes)
+    - "All genes": the complete table
     - one sheet per characterisation_status category (e.g. "biological role published")
     - one sheet per deletion_essentiality category ("essential" / "non_essential" / "essentiality_not_determined")
     - one sheet per FYPOviability category ("viable" / "inviable" / "depends_on_conditions" / "unknown")

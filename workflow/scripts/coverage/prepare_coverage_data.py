@@ -14,9 +14,31 @@ intermediates consumed by the compute-stats / plot-figures rules:
   and with duplicate-indexed rows collapsed (see
   workflow.src.coverage.core.resolve_duplicate_annotations) — ready for
   compute_insertion_coverage / compute_per_chromosome_insertion_coverage.
-- gene_result.parquet: the full protein-coding gene universe (from the gene
-  annotation reference, 1c_annotate.smk) left-joined to the dataset's own gene-level
-  fitting results, with legacy um/lam headers normalized to DR/DL.
+- gene_result.parquet: the full protein-coding gene universe with its annotation
+  columns (all from the gene annotation reference, 1c_annotate.smk) left-joined to
+  the dataset's own gene-level DR/DL, so uncovered genes survive as DR=NaN rows.
+  Legacy um/lam headers are normalized to DR/DL on the way in.
+
+Input
+-----
+- {release_dir}/insertion_level/fitting_results.tsv and annotations.tsv.gz
+- {release_dir}/gene_level/fitting_results.tsv — this dataset's own DR/DL
+- results/1c_annotation/{pombase_version}/{sgd_version}/gene_annotation_reference.protein.parquet
+
+Output
+------
+- results/2a_coverage/{dataset}/_work/annotations.parquet
+- results/2a_coverage/{dataset}/_work/gene_result.parquet
+
+Usage
+-----
+    python workflow/scripts/coverage/prepare_coverage_data.py \\
+        --fitting-results .../insertion_level/fitting_results.tsv \\
+        --annotations .../insertion_level/annotations.tsv.gz \\
+        --gene-level .../gene_level/fitting_results.tsv \\
+        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --output-annotations results/2a_coverage/HD_DIT_HAP/_work/annotations.parquet \\
+        --output-gene-result results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
@@ -47,7 +69,7 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-@dataclass(kw_only=True, frozen=True)
+@dataclass(kw_only=True, slots=True, frozen=True)
 class PrepareConfig:
     """Inputs and parquet outputs for the coverage data preparation."""
     fitting_results: Path
@@ -71,53 +93,34 @@ class PrepareConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Load -> build full gene universe from metadata -> left join fitting results -> write parquet intermediates."""
+    """Load -> take the gene universe from the annotation reference -> left join this dataset's DR/DL -> write parquet."""
     config.validate()
 
-    gene_result = read_gene_level(config.gene_level)
+    # DR/DL come from the dataset's own gene-level table — the annotation reference's
+    # are dataset-independent (HD_DIT_HAP's), so taking them here would silently
+    # mislabel every other dataset (DR correlates with HD_DIT_HAP at r = 0.61-0.95 on
+    # the other three released datasets). Nothing else is read from it: Name matches the
+    # reference's gene_name on all four released datasets, and its FYPOviability /
+    # DeletionLibrary_essentiality are a covered-genes-only snapshot superseded by the
+    # reference's full-universe versions.
+    gene_result = read_gene_level(config.gene_level)[["Systematic ID", "DR", "DL"]]
     _fitting_results, annotations = load_insertion_level(config.fitting_results, config.annotations)
 
-    # gene_level's fitting_results.tsv carries FYPOviability + DeletionLibrary_essentiality,
-    # but both are PomBase-era snapshots limited to the genes DIT-HAP happened to cover.
-    # Drop them here — FYPOviability and deletion_essentiality come from the annotation
-    # reference below (same two sources: PomBase gene metadata + deletion_library_categories
-    # .xlsx) applied to the FULL protein-coding gene universe, uncovered genes included.
-    # Verified identical to these two columns on the covered subset (2026-07-23
-    # coverage-fields verification), and to the reference on the full universe (2026-09-17).
-    gene_result = gene_result.drop(columns=["FYPOviability", "DeletionLibrary_essentiality"], errors="ignore")
-
-    # Gene universe + annotation come from the annotation reference (1c_annotate.smk) rather
-    # than re-reading PomBase metadata + the deletion-library xlsx here. Only the columns
-    # coverage needs are selected, under the reference's own names — so a coverage table
-    # reads the same as the reference and the annotated workbook, with no renaming in
-    # between. The reference also carries HD_DIT_HAP's own gene-level DR/DL (baked in at
-    # build time) and the SGD-derived blocks, none of which belong in a per-dataset
-    # coverage analysis.
+    # Gene universe + annotation come from the annotation reference (1c_annotate.smk) — every
+    # column it carries, under its own names, so a coverage table reads the same as the
+    # reference and the annotated workbook, with no renaming in between. The reference's
+    # HD_DIT_HAP_DR/DL stay (named for the dataset they came from, so they sit beside this
+    # dataset's own DR/DL as a comparison, not a collision).
     reference = read_parquet(config.annotation_reference)
     # protein-only: the reference is built filtered to protein genes, but its experimental
     # blocks are outer-joined, so rows with no current PomBase record carry feature_type=NaN.
-    gene_universe = (
-        reference.loc[
-            reference["feature_type"] == "protein",
-            ["gene_name", "product", "characterisation_status", "FYPOviability", "deletion_essentiality"],
-        ]
+    gene_result_full = (
+        reference.loc[reference["feature_type"] == "protein"]
         .rename(columns={"gene_name": "Name"})
         .rename_axis("Systematic ID")
         .reset_index()
+        .merge(gene_result, on="Systematic ID", how="left")
     )
-
-    # Left join: all genes from universe, fitting results where available
-    gene_result_full = gene_universe.merge(
-        gene_result,
-        on="Systematic ID",
-        how="left",
-        suffixes=("_meta", "_fitting")
-    )
-
-    # Prefer Name from fitting results if present (it may have been curated), else use metadata
-    if "Name_fitting" in gene_result_full.columns:
-        gene_result_full["Name"] = gene_result_full["Name_fitting"].fillna(gene_result_full["Name_meta"])
-        gene_result_full = gene_result_full.drop(columns=["Name_meta", "Name_fitting"])
 
     # Genes absent from the deletion library (no deletion-library call was ever made for
     # them) are labeled "Not_determined" rather than left null.
@@ -129,7 +132,7 @@ def run(config: PrepareConfig) -> None:
     )
 
     logger.info(
-        f"Built full gene universe: {len(gene_universe):,} protein-coding genes, "
+        f"Built full gene universe: {len(gene_result_full):,} protein-coding genes, "
         f"{gene_result_full['DR'].notna().sum():,} covered (DR not NaN), "
         f"{gene_result_full['DR'].isna().sum():,} not covered"
     )
