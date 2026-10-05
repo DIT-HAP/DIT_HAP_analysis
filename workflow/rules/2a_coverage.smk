@@ -75,9 +75,10 @@ rule compute_coverage_stats:
     output:
         stats="results/2a_coverage/{dataset}/coverage_stats.tsv",
         detailed_genes_xlsx="results/2a_coverage/{dataset}/detailed_genes.xlsx",
-        # The two annotation-gap populations, one sheet each: genes whose essentiality
-        # neither PomBase (FYPOviability "unknown") nor the deletion library
-        # ("Not_determined") calls, and the wider FYPO-unknown set, both DR ascending.
+        # The two annotation-gap populations, one sheet each, from the two independent
+        # essentiality sources: genes no deletion-library call was ever made for
+        # (deletion_essentiality "Not_determined"), and genes PomBase records as
+        # viability-unknown (FYPOviability "unknown"). Both DR ascending.
         unknown_annotation_xlsx="results/2a_coverage/{dataset}/unknown_annotation_genes.xlsx",
     log:
         "logs/2a_coverage/compute_coverage_stats_{dataset}.log",

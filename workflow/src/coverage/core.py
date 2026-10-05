@@ -341,30 +341,24 @@ def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
     return detailed_table.reset_index(drop=True)
 
 
+def _annotation_gap_table(gene_result: pd.DataFrame, column: str, no_call: str) -> pd.DataFrame:
+    """Rows where `column` reports no call, DR ascending with the unmeasured genes last."""
+    rows = gene_result[gene_result[column] == no_call]
+    columns = [c for c in DETAIL_COLUMNS if c in rows.columns]
+    return rows[columns].sort_values("DR", na_position="last").reset_index(drop=True)
+
+
 def build_undetermined_essentiality_table(gene_result: pd.DataFrame) -> pd.DataFrame:
-    """Covered genes whose essentiality neither annotation source calls, most depleted first."""
-    # FYPOviability "unknown" is PomBase declining to call viability; deletion_essentiality
-    # "Not_determined" means no deletion-library call was ever made. Both at once leaves the
-    # gene with depletion data but no essentiality anchor — DR ascending puts the strongest
-    # candidates at the top.
-    undetermined = gene_result[
-        (gene_result["FYPOviability"] == "unknown")
-        & (gene_result["deletion_essentiality"] == "Not_determined")
-        & gene_result["DR"].notna()
-    ]
-    columns = [c for c in DETAIL_COLUMNS if c in undetermined.columns]
-    return undetermined[columns].sort_values("DR").reset_index(drop=True)
+    """Every gene the deletion library never called (deletion_essentiality "Not_determined")."""
+    return _annotation_gap_table(gene_result, "deletion_essentiality", "Not_determined")
 
 
 def build_fypo_unknown_table(gene_result: pd.DataFrame) -> pd.DataFrame:
-    """Every gene PomBase records as viability-unknown, measured or not, most depleted first."""
-    # A superset of build_undetermined_essentiality_table: the 165 genes it adds here are the
-    # ones with no deletion-library call either, which differs from Not_determined by a single
-    # gene — so this table is mostly the coverage gap rather than a second population. DR is
-    # absent for the uncovered genes, which sort last.
-    unknown = gene_result[gene_result["FYPOviability"] == "unknown"]
-    columns = [c for c in DETAIL_COLUMNS if c in unknown.columns]
-    return unknown[columns].sort_values("DR", na_position="last").reset_index(drop=True)
+    """Every gene PomBase records as viability-unknown (FYPOviability "unknown")."""
+    # The two gaps are independent axes over the same gene universe, not nested: they overlap
+    # on 165 genes, but 122 genes have a viability call and no deletion-library call, and 1 has
+    # the reverse. Neither is the other's subset, so neither sheet can be read off the other.
+    return _annotation_gap_table(gene_result, "FYPOviability", "unknown")
 
 
 def write_unknown_annotation_excel(tables: Mapping[str, pd.DataFrame], output_path: Path) -> None:

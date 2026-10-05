@@ -125,8 +125,7 @@ def run(config: ComputeStatsConfig) -> None:
     detailed_genes = build_detailed_gene_table(gene_result)
     write_detailed_gene_excel(detailed_genes, config.output_detailed_genes_xlsx)
 
-    # The two annotation-gap populations, one sheet each: genes both sources leave
-    # uncalled, and the wider set PomBase records as viability-unknown
+    # The two annotation-gap populations, one sheet each, one per essentiality source
     undetermined = build_undetermined_essentiality_table(gene_result)
     fypo_unknown = build_fypo_unknown_table(gene_result)
     write_unknown_annotation_excel(

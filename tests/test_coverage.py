@@ -463,8 +463,8 @@ def test_build_detailed_gene_table_reads_annotation_from_gene_result():
     assert list(result["coverage_status"]) == ["covered", "covered", "not_covered"]
 
 
-def test_build_undetermined_essentiality_table_needs_both_sources_silent_and_a_dr():
-    """Keeps only genes both sources leave uncalled AND that were measured, most depleted first."""
+def test_build_undetermined_essentiality_table_keeps_every_uncalled_gene():
+    """Every gene with no deletion-library call, whatever PomBase says about its viability."""
     gene_result = pd.DataFrame({
         "Systematic ID": ["SPAC1002.02", "SPAC1002.01", "SPAC1002.04c", "SPAC1002.03c", "SPAC1002.05c"],
         "Name": ["pom34", "SPAC1002.01", "asa1", "gen1", "gen2"],
@@ -475,15 +475,15 @@ def test_build_undetermined_essentiality_table_needs_both_sources_silent_and_a_d
         "DL": [0.0, 1.099, 0.0, 0.5, None],
         "gRNA_DR": [-0.1, -1.044, 0.2, -0.3, None],
         "gRNA_DL": [1.0, 2.318, 0.5, 1.5, None],
-        # both silent, measured | both silent, measured | viability called | essentiality called | covered=no
+        # uncalled | uncalled | uncalled (viability called) | called | uncalled, unmeasured
         "deletion_essentiality": ["Not_determined", "Not_determined", "Not_determined", "E", "Not_determined"],
     })
 
     result = build_undetermined_essentiality_table(gene_result)
 
-    assert list(result["Systematic ID"]) == ["SPAC1002.01", "SPAC1002.02"]
-    assert result["DR"].is_monotonic_increasing
-    # columns in DETAIL_COLUMNS' order, filtered to the ones this fixture carries
+    # SPAC1002.04c is in: this axis ignores FYPO, so the two gap tables are not nested
+    assert list(result["Systematic ID"]) == ["SPAC1002.01", "SPAC1002.02", "SPAC1002.04c", "SPAC1002.05c"]
+    assert list(result["DR"].dropna()) == [-0.996, 0.056, 0.100]   # unmeasured last
     assert list(result.columns) == [c for c in DETAIL_COLUMNS if c in gene_result.columns]
 
 
