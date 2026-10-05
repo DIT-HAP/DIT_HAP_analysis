@@ -9,7 +9,8 @@ Parses PomBase and SGD sources once into a single per-gene annotation table, so
 that annotating a user table is later just a join. Combines blocks in order:
 1. PomBase gene metadata (systematic_id, name, product, feature_type, characterisation_status, etc.)
 2. Deletion library categories (this study's essentiality classification)
-3. Gene-level HD_DIT_HAP depletion (DR/DL)
+3. Gene-level HD_DIT_HAP depletion (HD_DIT_HAP_DR/HD_DIT_HAP_DL — prefixed so the join
+   onto a per-dataset table cannot mistake them for that dataset's own DR/DL)
 4. gRNA-level depletion (DR/DL)
 5. S. cerevisiae ortholog info (id/name/essentiality/description)
 6. Human ortholog symbols

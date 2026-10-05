@@ -98,9 +98,7 @@ def annotate_with_reference(
     """Append the reference's columns that `table` does not already carry.
 
     Anything the table already has came from this same reference — coverage's detailed
-    table is built out of it — so re-attaching it would only add identical duplicates,
-    and for DR/DL a silently WRONG one: the reference's DR/DL are HD_DIT_HAP's own
-    gene-level fits, while a coverage table's belong to the dataset it came from.
+    table is built out of it — so re-attaching it would only add identical duplicates.
 
     The join itself is annotation.core.annotate_table (one implementation, shared with
     annotate_pombe_genes); genes the reference lacks keep their row with a blank

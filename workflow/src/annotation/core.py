@@ -431,10 +431,14 @@ def build_gene_level_depletion_block(dataset_name: str) -> pd.DataFrame:
     if dataset_config.gene_level is None:
         raise ValueError(f"Dataset {dataset_name} has no gene-level data (has_time_points=False)")
 
+    # Prefixed with the dataset name, like gRNA_DR/gRNA_DL. The reference carries depletion
+    # from several measurements, and a bare DR/DL collides by name with the DR/DL of whichever
+    # per-dataset table the reference is later joined onto — annotate_table skips columns the
+    # table already has, so that collision would pick the wrong dataset's numbers silently.
     # The gene column is "Systematic ID" (with space), not "systematic_id".
     block = _build_block(
         read_file(dataset_config.gene_level.fitting_results),
-        {"Systematic ID": "systematic_id", "DR": "DR", "DL": "DL"},
+        {"Systematic ID": "systematic_id", "DR": f"{dataset_name}_DR", "DL": f"{dataset_name}_DL"},
         required=True,
     )
 
