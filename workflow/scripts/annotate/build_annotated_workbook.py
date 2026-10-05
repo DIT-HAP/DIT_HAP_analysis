@@ -109,9 +109,11 @@ def annotate_with_reference(
     missing = [c for c in reference.columns if c not in table.columns]
     merged = annotate_table(table, reference, gene_column=gene_column, columns=missing)
 
-    # Move gRNA columns to front of annotation block for visibility
-    grna_cols = [c for c in merged.columns if c in ["gRNA_DR", "gRNA_DL"]]
+    # Move the gRNA columns the reference just supplied to the front of the annotation block
+    # for visibility. A table that already carries them (coverage's detailed table does) keeps
+    # its own position — and must not be listed twice, which `head + grna_cols` would do.
     head = [c for c in merged.columns if c in table.columns]
+    grna_cols = [c for c in merged.columns if c in ["gRNA_DR", "gRNA_DL"] and c not in head]
     tail = [c for c in merged.columns if c not in head and c not in grna_cols]
     return merged[head + grna_cols + tail]
 
