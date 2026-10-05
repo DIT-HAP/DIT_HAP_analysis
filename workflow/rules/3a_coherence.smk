@@ -50,7 +50,9 @@
 #                                     is its own row set, so cross-source thresholds
 #                                     and the dedup representative ranking share one
 #                                     q scale. Per-source tables keep their own q.)
-#   deduplicate_coherence_terms    -> dedup/coherence_terms_deduplicated.tsv (+ _representatives.tsv):
+#   deduplicate_coherence_terms    -> dedup/coherence_terms_deduplicated.tsv (+ _representatives.tsv
+#                                     + coherence_group_members_long.tsv, the (group, gene)
+#                                     long table with the moonlighting columns):
 #                                     collapse redundant terms by member overlap + GO DAG
 #                                     (display layer; the combined q_value is carried
 #                                     through untouched, all terms kept)
@@ -299,6 +301,7 @@ rule deduplicate_coherence_terms:
     output:
         all_terms="results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv",
         representatives="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",
+        group_members="results/3a_coherence/{dataset}/dedup/coherence_group_members_long.tsv",
     params:
         jaccard_threshold=_COH_CFG.get("dedup_jaccard_threshold", 0.5),
         # Fallbacks must match the script's own defaults, or a config that dropped
@@ -326,7 +329,8 @@ rule deduplicate_coherence_terms:
             --scope {params.scope} \
             --force-representatives {params.force} \
             --output-all {output.all_terms} \
-            --output-representatives {output.representatives} &> {log}
+            --output-representatives {output.representatives} \
+            --output-group-members {output.group_members} &> {log}
         """
 
 

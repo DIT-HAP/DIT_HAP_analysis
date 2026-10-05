@@ -70,6 +70,17 @@ dedup_force_representatives overrides this for its cluster (recorded as
 representative_source="forced"); auto-picked ones are "auto". You always refine
 by hand afterwards — the full cluster membership is emitted so nothing is hidden.
 
+Moonlighting (a display-layer annotation on the same clusters)
+--------------------------------------------------------------
+A cluster's gene set is the UNION of its terms' members. Counting, per gene, how
+many clusters it falls in gives a breadth profile: the MODE of that distribution
+is the typical gene's group count, and a gene above the mode moonlights — it keeps
+turning up in clusters that are not redundant with each other (the de-duplication
+has already collapsed the aliases, so a high count is not GO nesting). Every row
+of the deduplicated/representatives tables then carries `moonlighting_fraction`:
+the share of that term's own members above the mode, i.e. how much of the term is
+carried by broadly-shared genes (the "several pathways at once" signal).
+
 Input
 -----
 - --combined: combined/coherence_metrics.parquet (source, group_id, group_name,
@@ -83,9 +94,15 @@ Output
   redundancy_cluster, cluster_size, dag_depth, is_representative,
   representative_group_id, representative_name, representative_source,
   non_representative_terms (the rest of the cluster, newline-joined, on every row
-  of that cluster). Sorted by (cluster's best z, then within-cluster z).
+  of that cluster), moonlighting_fraction. Sorted by (cluster's best z, then
+  within-cluster z).
 - --output-representatives: dedup/coherence_terms_representatives.tsv — only the
   is_representative rows (the de-duplicated view for figures/tables).
+- --output-group-members: dedup/coherence_group_members_long.tsv — one row per
+  (group, member gene): source / group_id / group_name identify the group by its
+  representative term, full_name is every term name in the group newline-joined
+  (representative first), then gene, n_groups (how many groups that gene is in)
+  and is_moonlighting (n_groups > the mode).
 
 Usage
 -----
@@ -95,11 +112,12 @@ Usage
         --overlap-threshold 0.5 --merge-dag-lineage --scope pooled \\
         --force-representatives GO:0042254 GO:0005762 \\
         --output-all results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
-        --output-representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv
+        --output-representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
+        --output-group-members results/3a_coherence/{dataset}/dedup/coherence_group_members_long.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-23
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -157,6 +175,11 @@ DEFAULT_SCOPE = "pooled"
 DEFAULT_LINKAGE = "complete"
 _LINKAGE_METHODS = ("single", "average", "complete")
 
+# Columns of the (group, gene) long table, in write order. `n_groups` /
+# `is_moonlighting` are per GENE and filled after the rows are collected.
+_GROUP_MEMBER_COLUMNS = ["source", "group_id", "group_name", "full_name", "gene",
+                         "n_groups", "is_moonlighting"]
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -168,6 +191,7 @@ class DedupConfig:
     obo: Path
     output_all: Path
     output_representatives: Path
+    output_group_members: Path
     jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD
     merge_dag_lineage: bool = DEFAULT_MERGE_DAG_LINEAGE
     linkage: str = DEFAULT_LINKAGE
@@ -194,7 +218,7 @@ class DedupConfig:
                 f"merge_dag_lineage needs linkage='single' (got {self.linkage!r}): "
                 "the DAG-ancestor edge is not a similarity and cannot be cut by a linkage"
             )
-        for out in [self.output_all, self.output_representatives]:
+        for out in [self.output_all, self.output_representatives, self.output_group_members]:
             out.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -452,6 +476,72 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
     return table
 
 
+def group_member_table(annotated: pd.DataFrame) -> pd.DataFrame:
+    """One row per (group, member gene), with the per-gene moonlighting count.
+
+    A group is one de-duplication cluster, identified by its representative term
+    (source + group_id + group_name) and labelled with every term it collapsed.
+    Its genes are the UNION over those terms, not the representative's own set: the
+    collapsed terms are one signal, so a gene only an alias carries still belongs to
+    the group, and it counts once for the group rather than once per alias.
+
+    `n_groups` is how many groups the gene is in; a gene above the MODE of that
+    distribution is flagged `is_moonlighting`. After de-duplication a high count can
+    no longer be GO nesting, so it means the gene keeps turning up in modules that
+    are not redundant with each other.
+    """
+    rows = []
+    for _cluster, sub in annotated.groupby("redundancy_cluster", sort=False):
+        representative = sub[sub["is_representative"]].iloc[0]
+        genes: set[str] = set()
+        for cell in sub["scored_member_names"]:
+            genes |= member_set(cell)
+        # The representative first, then everything it collapsed: the name reads as
+        # "what this group is" before the aliases it stands in for.
+        names = [str(representative["group_name"])]
+        names += [str(name) for name in sub.loc[~sub["is_representative"], "group_name"]]
+        rows.extend(
+            {
+                "source": representative["source"],
+                "group_id": representative["group_id"],
+                "group_name": representative["group_name"],
+                "full_name": "\n".join(names),
+                "gene": gene,
+            }
+            for gene in sorted(genes)
+        )
+
+    table = pd.DataFrame(rows, columns=_GROUP_MEMBER_COLUMNS)
+    if table.empty:
+        return table
+    # One row per group per gene, so a gene's row count IS its group count.
+    table["n_groups"] = table.groupby("gene")["gene"].transform("size")
+    # The mode is over GENES, not rows: a gene's row count grows with its own group
+    # count, so a row-weighted mode lands on the wrong value and the cut it defines
+    # stops meaning "more groups than the typical gene".
+    per_gene = table.drop_duplicates("gene")["n_groups"]
+    table["is_moonlighting"] = table["n_groups"] > int(per_gene.mode().iloc[0])
+    return table
+
+
+def moonlighting_shares(annotated: pd.DataFrame, group_members: pd.DataFrame) -> pd.Series:
+    """Per term: share of its OWN members that are moonlighting (count > mode)."""
+    # The cut is the same mode as `is_moonlighting`; counted per gene here, which is
+    # the same number because n_groups is constant within a gene.
+    counts = group_members.groupby("gene")["n_groups"].first()
+    if counts.empty:
+        return pd.Series(np.nan, index=annotated.index)
+    threshold = int(counts.mode().iloc[0])
+
+    def share(cell: object) -> float:
+        members = member_set(cell)
+        if not members:
+            return np.nan
+        return sum(counts.get(gene, 0) > threshold for gene in members) / len(members)
+
+    return annotated["scored_member_names"].map(share)
+
+
 def write_dedup_table(table: pd.DataFrame, path: Path) -> None:
     """Write a human-facing dedup TSV, flattening `scored_member_names` back to a string."""
     # `scored_member_names` is a real list column in the metrics Parquet (so the list
@@ -479,21 +569,27 @@ def run(config: DedupConfig) -> None:
         logger.warning("combined metrics table is empty; writing empty dedup outputs")
         write_dedup_table(table, config.output_all)
         write_dedup_table(table, config.output_representatives)
+        group_member_table(table).to_csv(config.output_group_members, sep="\t", index=False)
         return
 
     depth, ancestors = load_dag_depth_ancestors(config.obo, table["group_id"].tolist())
     annotated = deduplicate(table, config, depth, ancestors)
+    group_members = group_member_table(annotated)
+    annotated["moonlighting_fraction"] = moonlighting_shares(annotated, group_members)
     write_dedup_table(annotated, config.output_all)
+    group_members.to_csv(config.output_group_members, sep="\t", index=False)
 
     reps = annotated[annotated["is_representative"]].reset_index(drop=True)
     write_dedup_table(reps, config.output_representatives)
 
     n_clusters = annotated["redundancy_cluster"].nunique()
     n_forced = int((annotated["is_representative"] & (annotated["representative_source"] == "forced")).sum())
+    per_gene = group_members.drop_duplicates("gene")
     logger.success(
         f"{len(annotated):,} terms -> {n_clusters:,} non-redundant clusters "
         f"({len(annotated) - n_clusters:,} collapsed; {n_forced} forced representatives); "
-        f"wrote {config.output_representatives}"
+        f"{int(per_gene['is_moonlighting'].sum()):,}/{len(per_gene):,} genes above the mode "
+        f"(group count) in {len(group_members):,} (group, gene) rows; wrote {config.output_representatives}"
     )
 
 
@@ -520,6 +616,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-representatives", nargs="*", default=[], help="group_ids forced to be their cluster's representative")
     parser.add_argument("--output-all", type=Path, required=True, help="Output annotated (all terms) TSV")
     parser.add_argument("--output-representatives", type=Path, required=True, help="Output representatives-only TSV")
+    parser.add_argument("--output-group-members", type=Path, required=True,
+                        help="Output (group, gene) long table TSV with the moonlighting columns")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
@@ -534,6 +632,7 @@ def main() -> int:
             obo=args.obo,
             output_all=args.output_all,
             output_representatives=args.output_representatives,
+            output_group_members=args.output_group_members,
             jaccard_threshold=args.jaccard_threshold,
             merge_dag_lineage=args.merge_dag_lineage,
             linkage=args.linkage,

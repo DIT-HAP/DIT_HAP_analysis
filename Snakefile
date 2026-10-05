@@ -130,6 +130,7 @@ rule all:
         # dedup/ — the de-duplicated representative set as a first-class result: its
         # own terms table, coherence figure, attribution run and cohort workbook.
         f"results/3a_coherence/{_DATASET}/dedup/coherence_terms_representatives.tsv",
+        f"results/3a_coherence/{_DATASET}/dedup/coherence_group_members_long.tsv",
         f"results/3a_coherence/{_DATASET}/dedup/coherence.pdf",
         f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.tsv",
         f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.pdf",

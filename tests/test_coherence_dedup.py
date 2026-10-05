@@ -15,6 +15,8 @@ from deduplicate_terms import (
     candidate_pairs,
     build_clusters,
     deduplicate,
+    group_member_table,
+    moonlighting_shares,
     DedupConfig,
 )
 
@@ -142,6 +144,7 @@ def _cfg(tmp_path, **kw):
     return DedupConfig(
         combined=tmp_path / "c.tsv", obo=tmp_path / "o.obo",
         output_all=tmp_path / "all.tsv", output_representatives=tmp_path / "rep.tsv",
+        output_group_members=tmp_path / "members.tsv",
         **kw,
     )
 
@@ -326,3 +329,46 @@ def test_defaults_are_self_consistent(tmp_path):
     assert DEFAULT_LINKAGE == "complete"
     assert DEFAULT_MERGE_DAG_LINEAGE is False
     _existing_cfg(tmp_path).validate()   # no kwargs: exactly the defaults
+
+
+# --- group-member long table + moonlighting ---------------------------------
+def _annotated():
+    """Two clusters + one singleton; `c` is in all three, `a` in two."""
+    return pd.DataFrame({
+        "redundancy_cluster": ["all:1", "all:1", "all:2", "all:3"],
+        "is_representative": [True, False, True, True],
+        "source": ["go_bp", "go_bp", "go_cc", "go_cc"],
+        "group_id": ["GO:1", "GO:2", "GO:3", "GO:4"],
+        "group_name": ["rep one", "alias", "second", "third"],
+        "scored_member_names": [["a", "b"], ["c"], ["c", "d"], ["a", "c"]],
+    })
+
+
+def test_group_member_table_unions_the_cluster_and_names_it_by_the_representative():
+    long = group_member_table(_annotated())
+
+    assert list(long.columns) == ["source", "group_id", "group_name", "full_name",
+                                  "gene", "n_groups", "is_moonlighting"]
+    assert len(long) == 7  # {a,b,c} + {c,d} + {a,c}
+    # The group's genes are the UNION over its terms: `c` comes from the alias and
+    # still counts as a GO:1 gene, once.
+    assert set(long[long["group_id"] == "GO:1"]["gene"]) == {"a", "b", "c"}
+    rep = long[long["group_id"] == "GO:1"].iloc[0]
+    assert rep["group_name"] == "rep one"
+    assert rep["full_name"] == "rep one\nalias"  # representative first
+    assert rep["source"] == "go_bp"
+
+
+def test_moonlighting_flags_genes_above_the_mode_and_shares_are_per_term():
+    long = group_member_table(_annotated())
+    per_gene = long.drop_duplicates("gene").set_index("gene")
+
+    # Group counts: a in {all:1, all:3}, b in {all:1}, c in all three, d in {all:2}.
+    assert per_gene["n_groups"].to_dict() == {"a": 2, "b": 1, "c": 3, "d": 1}
+    # Mode of {2,1,3,1} is 1, so everything above it moonlights — strictly above,
+    # so a gene sitting ON the mode (b, d) is not flagged.
+    assert per_gene["is_moonlighting"].to_dict() == {"a": True, "b": False, "c": True, "d": False}
+
+    # Per term, over its own members: GO:1 {a,b} -> 1/2; GO:2 {c} -> 1;
+    # GO:3 {c,d} -> 1/2; GO:4 {a,c} -> 1.
+    assert moonlighting_shares(_annotated(), long).tolist() == [0.5, 1.0, 0.5, 1.0]
