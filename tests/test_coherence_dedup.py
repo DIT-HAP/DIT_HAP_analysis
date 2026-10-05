@@ -359,21 +359,21 @@ def test_group_member_table_unions_the_cluster_and_names_it_by_the_representativ
     assert rep["source"] == "go_bp"
 
 
-def test_moonlighting_flags_genes_above_the_mode_and_shares_are_per_term():
-    long, mode = group_member_table(_annotated())
-    assert mode == 1
+def test_moonlighting_flags_genes_above_the_views_cut_and_shares_are_per_term():
+    long, cut = group_member_table(_annotated())
     per_gene = long.drop_duplicates("gene").set_index("gene")
 
     # Group counts: a in {all:1, all:3}, b in {all:1}, c in all three, d in {all:2}.
     assert per_gene["n_groups"].to_dict() == {"a": 2, "b": 1, "c": 3, "d": 1}
-    # Mode of {2,1,3,1} is 1, so everything above it moonlights — strictly above,
-    # so a gene sitting ON the mode (b, d) is not flagged.
-    assert per_gene["is_moonlighting"].to_dict() == {"a": True, "b": False, "c": True, "d": False}
+    # The cut is the 75th percentile of {2,1,3,1} = 2.25, so only c (3) is above it
+    # — strictly above, which is what keeps a gene sitting ON the cut unflagged.
+    assert cut == pytest.approx(2.25)
+    assert per_gene["is_moonlighting"].to_dict() == {"a": False, "b": False, "c": True, "d": False}
 
-    # Per term, over its own members: GO:1 {a,b} -> 1/2; GO:2 {c} -> 1;
-    # GO:3 {c,d} -> 1/2; GO:4 {a,c} -> 1. The mapping run() does, over the shared
-    # helper — the same one the per-view figures use.
+    # Per term, over its own members, with `c` the only flagged gene: GO:1 {a,b} -> 0,
+    # GO:2 {c} -> 1, GO:3 {c,d} -> 1/2, GO:4 {a,c} -> 1/2. The mapping run() does,
+    # over the shared helper — the same one the per-view figures use.
     flagged = set(long.loc[long["is_moonlighting"], "gene"])
     shares = [moonlighting_fraction(members, flagged)
               for members in _annotated()["scored_member_names"]]
-    assert shares == [0.5, 1.0, 0.5, 1.0]
+    assert shares == [0.0, 1.0, 0.5, 0.5]

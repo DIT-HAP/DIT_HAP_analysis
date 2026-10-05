@@ -73,12 +73,12 @@ by hand afterwards — the full cluster membership is emitted so nothing is hidd
 Moonlighting (a display-layer annotation on the same clusters)
 --------------------------------------------------------------
 A cluster's gene set is the UNION of its terms' members. Counting, per gene, how
-many clusters it falls in gives a breadth profile: the MODE of that distribution
-is the typical gene's group count, and a gene above the mode moonlights — it keeps
+many clusters it falls in gives a breadth profile: a gene above that distribution's
+top quartile (coherence/fractions.py::MOONLIGHTING_QUANTILE) moonlights — it keeps
 turning up in clusters that are not redundant with each other (the de-duplication
 has already collapsed the aliases, so a high count is not GO nesting). Every row
 of the deduplicated/representatives tables then carries `moonlighting_fraction`:
-the share of that term's own members above the mode, i.e. how much of the term is
+the share of that term's own members above the cut, i.e. how much of the term is
 carried by broadly-shared genes (the "several pathways at once" signal).
 
 Input
@@ -230,7 +230,11 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
 from io_table import read_parquet  # noqa: E402
-from coherence.fractions import moonlighting_fraction, view_breadth  # noqa: E402
+from coherence.fractions import (  # noqa: E402
+    MOONLIGHTING_QUANTILE,
+    moonlighting_fraction,
+    view_breadth,
+)
 # =============================================================================
 # CORE LOGIC — redundancy graph (member overlap + optional DAG lineage)
 # =============================================================================
@@ -490,8 +494,8 @@ def group_member_table(annotated: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     The breadth columns come from coherence.fractions.view_breadth over this whole
     table (every cluster), which is the same computation the per-view figures run
     over a subset of the clusters — one definition, so the table and the figures
-    cannot drift. The mode is returned because the per-term fractions need the same
-    cut.
+    cannot drift. The cut is returned because the per-term fractions need the same
+    threshold.
     """
     rows = []
     for _cluster, sub in annotated.groupby("redundancy_cluster", sort=False):
@@ -518,11 +522,11 @@ def group_member_table(annotated: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     table = pd.DataFrame(rows, columns=_GROUP_MEMBER_COLUMNS)
     if table.empty:
         return table, 0
-    per_gene, mode = view_breadth(table, set(table["redundancy_cluster"]))
+    per_gene, cut = view_breadth(table, set(table["redundancy_cluster"]))
     breadth = per_gene.set_index("gene")
     table["n_groups"] = table["gene"].map(breadth["n_groups"]).astype("int64")
     table["is_moonlighting"] = table["gene"].map(breadth["is_moonlighting"]).astype(bool)
-    return table, mode
+    return table, cut
 
 
 def write_dedup_table(table: pd.DataFrame, path: Path) -> None:
@@ -557,7 +561,7 @@ def run(config: DedupConfig) -> None:
 
     depth, ancestors = load_dag_depth_ancestors(config.obo, table["group_id"].tolist())
     annotated = deduplicate(table, config, depth, ancestors)
-    group_members, mode = group_member_table(annotated)
+    group_members, cut = group_member_table(annotated)
     moonlighting_genes = set(group_members.loc[group_members["is_moonlighting"], "gene"])
     annotated["moonlighting_fraction"] = annotated["scored_member_names"].map(
         lambda cell: moonlighting_fraction(member_set(cell), moonlighting_genes)
@@ -574,8 +578,9 @@ def run(config: DedupConfig) -> None:
     logger.success(
         f"{len(annotated):,} terms -> {n_clusters:,} non-redundant clusters "
         f"({len(annotated) - n_clusters:,} collapsed; {n_forced} forced representatives); "
-        f"{int(per_gene['is_moonlighting'].sum()):,}/{len(per_gene):,} genes above the mode "
-        f"({mode}) in {len(group_members):,} (group, gene) rows; wrote {config.output_representatives}"
+        f"{int(per_gene['is_moonlighting'].sum()):,}/{len(per_gene):,} genes above the "
+        f"{MOONLIGHTING_QUANTILE:.0%} cut ({cut:g} groups/gene) in {len(group_members):,} "
+        f"(group, gene) rows; wrote {config.output_representatives}"
     )
 
 

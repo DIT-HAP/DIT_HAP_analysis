@@ -10,7 +10,7 @@ This is a pure renderer (ADR-0001): nothing is recomputed here, so the figure an
 the tables can never disagree.
 
 - A: per-term paralog fraction,
-- B: groups per gene, with the view's mode marked — the cut that defines moonlighting,
+- B: groups per gene, with the view's cut marked — the quantile that defines moonlighting,
 - C: per-term moonlighting fraction.
 
 The two fraction panels pin x to [0, 1], a share's own range, so the same panel can
@@ -19,7 +19,8 @@ own range, since a view with 1,400 terms reaches further than one with 170.
 
 Input
 -----
-- --terms: view_fractions.tsv (paralog_fraction, moonlighting_fraction, mode_n_groups).
+- --terms: view_fractions.tsv (paralog_fraction, moonlighting_fraction,
+  moonlighting_cut_n_groups).
 - --genes: view_gene_breadth.tsv (n_groups, is_moonlighting).
 - --view: names the figure in the log line only; the file already lives in that
   view's folder.
@@ -59,6 +60,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from coherence.fractions import MOONLIGHTING_QUANTILE  # noqa: E402
 from figure_render.histogram import draw_histogram_panel  # noqa: E402
 from figures import (  # noqa: E402
     FURNITURE_COLOR,
@@ -83,7 +85,7 @@ from logging_setup import setup_logger  # noqa: E402
 _FRACTION_BINS = 20
 _BREADTH_BINS = 30
 
-_MODE_LINEWIDTH = 1.0
+_CUT_LINEWIDTH = 1.0
 
 
 # =============================================================================
@@ -118,14 +120,14 @@ def plot_distributions(terms: pd.DataFrame, genes: pd.DataFrame) -> None:
         xlabel="Paralog fraction", ylabel="# terms", title="Paralog buffering",
     )
     # The cut the moonlighting column is taken with. Drawn as furniture, not as a
-    # fitted quantity: it is the mode of the panel's own data.
-    mode = int(terms["mode_n_groups"].iloc[0])
+    # fitted quantity: it is the quantile of the panel's own data.
+    cut = float(terms["moonlighting_cut_n_groups"].iloc[0])
     draw_histogram_panel(
         axes[1], genes["n_groups"], bins=_BREADTH_BINS,
         xlabel="Groups per gene", ylabel="# genes", title="Gene breadth",
     )
-    axes[1].axvline(mode, color=FURNITURE_COLOR, linestyle="--",
-                    linewidth=_MODE_LINEWIDTH, label=f"mode = {mode}")
+    axes[1].axvline(cut, color=FURNITURE_COLOR, linestyle="--", linewidth=_CUT_LINEWIDTH,
+                    label=f"P{MOONLIGHTING_QUANTILE * 100:g} = {cut:g}")
     axes[1].legend(loc="upper right")
 
     draw_histogram_panel(
@@ -156,7 +158,7 @@ def run(config: DistributionPlotConfig) -> None:
     save_dual(config.output.with_suffix(""))
     logger.success(
         f"[{config.view}] {len(terms):,} terms / {len(genes):,} genes; "
-        f"mode = {int(terms['mode_n_groups'].iloc[0])} groups/gene; wrote {config.output}"
+        f"cut = {float(terms['moonlighting_cut_n_groups'].iloc[0]):g} groups/gene; wrote {config.output}"
     )
 
 

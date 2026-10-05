@@ -60,18 +60,19 @@ def test_view_terms_slices_each_view_from_the_combined_table():
         view_terms(metrics, dedup, "go_bogus")
 
 
-def test_breadth_is_counted_within_the_view_and_the_mode_is_the_views_own():
+def test_breadth_is_counted_within_the_view_and_the_cut_is_the_views_own():
     """go_bp's terms touch both clusters, go_cc's only all:1 — so the counts differ.
 
-    Both views then have mode 1, but in go_bp `c` is in two groups and moonlights
-    while in go_cc nothing does; that difference IS the per-view rule.
+    Both views cut at their own 75th percentile, but in go_bp `c` (two groups) is
+    above it while in go_cc nothing is; that difference IS the per-view rule.
     """
     from compute_view_fractions import fractions_for_view, view_terms
 
     metrics, dedup, members = _metrics(), _dedup(), _group_members()
 
-    bp, bp_genes, bp_mode = fractions_for_view(view_terms(metrics, dedup, "go_bp"), members)
-    assert bp_mode == 1
+    bp, bp_genes, bp_cut = fractions_for_view(view_terms(metrics, dedup, "go_bp"), members)
+    # Q75 of {1,1,1,2} (linear interpolation) = 1.25.
+    assert bp_cut == pytest.approx(1.25)
     assert bp_genes.set_index("gene")["n_groups"].to_dict() == {"a": 1, "b": 1, "c": 2, "d": 1}
     assert set(bp_genes.loc[bp_genes["is_moonlighting"], "gene"]) == {"c"}
     # Per term, over its own members: GO:2 {a,c} -> 1/2 flagged; GO:3 {c,d} -> 1/2.
@@ -81,8 +82,8 @@ def test_breadth_is_counted_within_the_view_and_the_mode_is_the_views_own():
     # paralog_fraction rides through from the metrics table.
     assert bp.set_index("group_id")["paralog_fraction"].to_dict() == {"GO:2": 0.0, "GO:3": 1.0}
 
-    cc, cc_genes, cc_mode = fractions_for_view(view_terms(metrics, dedup, "go_cc"), members)
-    assert cc_mode == 1
+    cc, cc_genes, cc_cut = fractions_for_view(view_terms(metrics, dedup, "go_cc"), members)
+    assert cc_cut == pytest.approx(1.0)
     assert cc_genes.set_index("gene")["n_groups"].to_dict() == {"a": 1, "b": 1, "c": 1}
     assert not cc_genes["is_moonlighting"].any()
     assert cc["moonlighting_fraction"].iloc[0] == 0.0
@@ -94,12 +95,15 @@ def test_plot_fraction_distributions_draws_the_three_panels(tmp_path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from coherence.fractions import MOONLIGHTING_QUANTILE
     from plot_fraction_distributions import plot_distributions
+
+    assert MOONLIGHTING_QUANTILE == 0.75
 
     terms = pd.DataFrame({
         "paralog_fraction": [0.0, 0.5, 1.0, 0.25],
         "moonlighting_fraction": [0.0, 1.0, 1.0, 0.5],
-        "mode_n_groups": [2, 2, 2, 2],
+        "moonlighting_cut_n_groups": [2.0, 2.0, 2.0, 2.0],
     })
     genes = pd.DataFrame({"n_groups": [1, 1, 2, 3, 4], "is_moonlighting": [False] * 2 + [True] * 3})
 
@@ -108,7 +112,7 @@ def test_plot_fraction_distributions_draws_the_three_panels(tmp_path):
     titles = [ax.get_title() for ax in fig.axes if ax.get_visible()]
     assert len(fig.axes) == 3
     assert titles == ["Paralog buffering", "Gene breadth", "Moonlighting"]
-    # The mode line is labelled with its value, which is the cut the fraction uses.
+    # The cut line is labelled with its quantile and value — the cut the fraction uses.
     legends = [legend for ax in fig.axes if (legend := ax.get_legend()) is not None]
-    assert "mode = 2" in [text.get_text() for legend in legends for text in legend.get_texts()]
+    assert "P75 = 2" in [text.get_text() for legend in legends for text in legend.get_texts()]
     plt.close("all")

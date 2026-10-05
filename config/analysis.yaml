@@ -205,7 +205,8 @@ coherence:
   # Per-view fraction distributions (compute_view_fractions + plot_fraction_
   # distributions, one figure per view = the five sources + combined + dedup).
   # Both fractions are defined in workflow/src/coherence/fractions.py; the breadth
-  # cut is each view's OWN mode of groups-per-gene, so there is no threshold here.
+  # cut is each view's OWN top quartile of groups-per-gene (the module's
+  # MOONLIGHTING_QUANTILE, 0.75), applied per view, so there is no key here.
 
 # --- Per-gene annotation reference + annotated tables (1c_annotate.smk) ---
 annotate:

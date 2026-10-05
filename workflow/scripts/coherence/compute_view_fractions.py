@@ -14,8 +14,9 @@ profile behind the second one:
   compute_coherence.py through coherence/fractions.py).
 - gene breadth: per gene, how many of the view's de-duplication groups it sits in.
   A view's groups are the clusters its terms belong to, so the same gene gets a
-  different count in a different view; the mode of that per-view distribution is
-  the view's own cut, and a gene above it is flagged `is_moonlighting`.
+  different count in a different view; the cut is that per-view distribution's own
+  top quartile (coherence/fractions.py::MOONLIGHTING_QUANTILE), and a gene above it
+  is flagged `is_moonlighting`.
 - moonlighting_fraction: per term, the share of its own members that are flagged.
 
 These are descriptive per-view quantities, not a diagnosis of WHY a group is
@@ -38,8 +39,8 @@ Output
 ------
 - --output-terms: one row per term of the view — source, group_id, group_name,
   redundancy_cluster, n_scored_members, paralog_fraction, moonlighting_fraction,
-  mode_n_groups (the view's cut, carried so the fractions are readable on their
-  own).
+  moonlighting_cut_n_groups (the view's cut, carried so the fractions are readable
+  on their own).
 - --output-genes: one row per gene in the view's groups — gene, n_groups,
   is_moonlighting.
 
@@ -76,6 +77,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from coherence import fractions  # noqa: E402
 from coherence.fractions import moonlighting_fraction, view_breadth  # noqa: E402
 from io_table import read_file  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
@@ -92,12 +94,12 @@ _DEDUP = "dedup"
 
 _KEY_COLUMNS = ["source", "group_id"]
 
-# Column order of the two outputs. `mode_n_groups` rides on every term row (like
-# the metrics table's `*_cv_feature` columns): the fraction is only readable
-# against the cut it was taken with.
+# Column order of the two outputs. `moonlighting_cut_n_groups` rides on every term
+# row (like the metrics table's `*_cv_feature` columns): the fraction is only
+# readable against the cut it was taken with.
 _TERM_COLUMNS = ["source", "group_id", "group_name", "redundancy_cluster",
                  "n_scored_members", "paralog_fraction", "moonlighting_fraction",
-                 "mode_n_groups"]
+                 "moonlighting_cut_n_groups"]
 _GENE_COLUMNS = ["gene", "n_groups", "is_moonlighting"]
 
 
@@ -152,20 +154,20 @@ def view_terms(metrics: pd.DataFrame, dedup: pd.DataFrame, view: str) -> pd.Data
     return merged
 
 
-def fractions_for_view(terms: pd.DataFrame, group_members: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+def fractions_for_view(terms: pd.DataFrame, group_members: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """The view's per-term fractions and per-gene breadth, over the view's own clusters."""
-    # The gene sets stay each cluster's own, and the mode is this view's own: two
+    # The gene sets stay each cluster's own, and the cut is this view's own: two
     # views differ only in which groups they count, never in how a group is counted.
     clusters = set(terms["redundancy_cluster"].dropna())
-    per_gene, mode = view_breadth(group_members, clusters)
+    per_gene, cut = view_breadth(group_members, clusters)
     flagged = set(per_gene.loc[per_gene["is_moonlighting"], "gene"])
 
     table = terms.copy()
     table["moonlighting_fraction"] = [
         moonlighting_fraction(members, flagged) for members in table["scored_member_names"]
     ]
-    table["mode_n_groups"] = mode
-    return table, per_gene, mode
+    table["moonlighting_cut_n_groups"] = cut
+    return table, per_gene, cut
 
 
 # =============================================================================
@@ -189,12 +191,13 @@ def run(config: ViewFractionsConfig) -> None:
 
     terms = view_terms(metrics, read_file(config.dedup_terms), config.view)
     group_members = read_file(config.group_members)
-    table, per_gene, mode = fractions_for_view(terms, group_members)
+    table, per_gene, cut = fractions_for_view(terms, group_members)
 
     table[_TERM_COLUMNS].to_csv(config.output_terms, sep="\t", index=False)
     logger.success(
         f"[{config.view}] {len(table):,} terms, {len(per_gene):,} genes in "
-        f"{table['redundancy_cluster'].nunique():,} groups; mode = {mode} groups/gene, "
+        f"{table['redundancy_cluster'].nunique():,} groups; cut = {cut:g} groups/gene "
+        f"(top {1 - fractions.MOONLIGHTING_QUANTILE:.0%}), "
         f"{int(per_gene['is_moonlighting'].sum()):,} genes above it; wrote {config.output_terms}"
     )
     per_gene[_GENE_COLUMNS].to_csv(config.output_genes, sep="\t", index=False)

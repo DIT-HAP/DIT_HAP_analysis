@@ -42,8 +42,8 @@
 #                                     the per-view paralog / moonlighting fractions and
 #                                     the gene-breadth counts behind the latter.
 #   plot_fraction_distributions    -> {view}/fraction_distributions.pdf (paralog fraction,
-#                                     groups per gene with the mode marked, moonlighting
-#                                     fraction)
+#                                     groups per gene with the moonlighting cut marked,
+#                                     moonlighting fraction)
 #
 # Cross-source rules (the {source} fan-out re-aggregated):
 #   combine_coherence_metrics      -> combined/coherence_metrics.parquet (all sources;
