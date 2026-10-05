@@ -12,8 +12,9 @@ This is not a feature level — nothing merges it into the feature matrix. It is
 rule of its own because the parse is the awkward half (one `|`-joined cell per gene,
 the literal `NONE` for "none", a capital-Crick-strand `C` on the 2013 ids) and
 because the PAIRS are what a consumer usually wants; `collect_evolutionary_features`
-only needs the count, but the coherence attribution's paralog_fraction wants the
-gene set, and both would otherwise re-parse the sheet and re-run update_sysIDs().
+only needs the count, but the coherence stage's `paralog_fraction` wants the gene
+set (via that count), and any other consumer would otherwise re-parse the sheet and
+re-run update_sysIDs().
 
 Input
 -----

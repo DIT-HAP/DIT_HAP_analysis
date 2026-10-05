@@ -159,8 +159,7 @@ coherence:
   # Loosened from 1.0 to 0.5 (2026-09-29). Reads as: this end is a descriptive rank
   # cut on the same permutation z (no FDR, see above), so 0.5 admits ~15% of the
   # terms as "incoherent" — it selects a ranked tail, not evidence of dispersion.
-  # It also sets is_incoherent for the attribution stage and the FDR panel's label
-  # band; the top-N attribution panels still take the most dispersed groups first.
+  # It also sets the FDR panel's label band.
   incoherent_z_threshold: 0.5
   # FDR-vs-coherence panel: which groups get named. The coherent end draws on the
   # coherent cohort above; the top `fdr_panel_label_quantile` share of each end is
@@ -203,15 +202,10 @@ coherence:
   dedup_merge_dag_lineage: false
   dedup_scope: pooled               # "pooled" (collapse across sources) | "per_source"
   dedup_force_representatives: []    # group_ids you hand-pick as their cluster's representative
-  # Incoherence attribution: diagnose WHY a group is dispersed (major/minor split,
-  # shared subunits, paralog buffering, ...). Runs on every source: the split /
-  # shared-subunit signals are strongest for physical complexes (go_macrocomplex),
-  # but for the process / pathway sources they still discriminate a genuinely
-  # two-population term from one that is just broadly annotated.
-  attribution_sources: [go_macrocomplex, go_cc, go_bp, kegg_brite, kegg_pathway]
-  attribution_top_n_plot: 16         # how many top-incoherent complexes to scatter
-  attribution_shared_frac_threshold: 0.5   # frac_shared_members >= this -> shared-subunit label
-  attribution_paralog_frac_threshold: 0.5  # paralog_fraction >= this -> paralog-buffered label
+  # Per-view fraction distributions (compute_view_fractions + plot_fraction_
+  # distributions, one figure per view = the five sources + combined + dedup).
+  # Both fractions are defined in workflow/src/coherence/fractions.py; the breadth
+  # cut is each view's OWN mode of groups-per-gene, so there is no threshold here.
 
 # --- Per-gene annotation reference + annotated tables (1c_annotate.smk) ---
 annotate:

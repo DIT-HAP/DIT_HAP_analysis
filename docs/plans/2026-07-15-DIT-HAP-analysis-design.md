@@ -118,7 +118,7 @@ AlphaFold 数据保持引用仓库外部路径（如 `../../../resource/AlphaFol
 
 **`manual_paralogs.tsv` 的 "manual" 是 PomBase 自己的命名**，指 PomBase 人工整编的 paralog 家族（相对自动同源推断而言），**不是本项目手工注释的产物**。格式：每行一个家族，逗号分隔的系统 ID，行尾可带一列 `<TAB><curation date>`。
 
-**它目前没有任何规则在消费，也别拿它当 paralog 的通用口径**：2026-09-30 曾把特征表的 `paralog_count` 切到它，实测只覆盖 **66 个家族 / 201 个基因**（近期重复：亚端粒 + 交配型区那批，其中 90 个在 PomBase 里就没有基因名），而原口径是 Ensembl 导出的 2,436 个「有任何旁系同源」的基因 —— 窄了 12 倍，已撤回。paralog 的现行来源是 `resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv`（特征表 `paralog_count` 与 `3a_coherence` 的 attribution 都在读）。
+**它目前没有任何规则在消费，也别拿它当 paralog 的通用口径**：2026-09-30 曾把特征表的 `paralog_count` 切到它，实测只覆盖 **66 个家族 / 201 个基因**（近期重复：亚端粒 + 交配型区那批，其中 90 个在 PomBase 里就没有基因名），而原口径是 Ensembl 导出的 2,436 个「有任何旁系同源」的基因 —— 窄了 12 倍，已撤回。paralog 的现行来源由 `config/analysis.yaml` 的 `features.paralog_source` 决定（2026-10-02 起设为 `deletion_library`，即 Hayles-2013 的 `Paralogues` 列，经 `build_deletion_library_paralogs` 规则出成长表）；特征表 `paralog_count` 由它填充，`3a_coherence` 的 `paralog_fraction` 再读该列——三个下游（特征/ML/coherence）因此共用同一个开关。
 
 外部数据库下载脚本放 `workflow/scripts/reference/fetch_*.sh`，直接搬用 `DIT_HAP_snakemake` 里已有的 PomBase/STRING/KEGG 下载脚本并改路径，作为 Snakemake rule 的输入准备步骤，可重跑更新版本。
 

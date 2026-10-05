@@ -175,10 +175,11 @@ DEFAULT_SCOPE = "pooled"
 DEFAULT_LINKAGE = "complete"
 _LINKAGE_METHODS = ("single", "average", "complete")
 
-# Columns of the (group, gene) long table, in write order. `n_groups` /
-# `is_moonlighting` are per GENE and filled after the rows are collected.
+# Columns of the (group, gene) long table, in write order. `redundancy_cluster` is
+# what the per-view breadth counts slice on; `n_groups` / `is_moonlighting` are per
+# GENE and filled after the rows are collected.
 _GROUP_MEMBER_COLUMNS = ["source", "group_id", "group_name", "full_name", "gene",
-                         "n_groups", "is_moonlighting"]
+                         "redundancy_cluster", "n_groups", "is_moonlighting"]
 
 
 # =============================================================================
@@ -229,6 +230,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
 from io_table import read_parquet  # noqa: E402
+from coherence.fractions import moonlighting_fraction, view_breadth  # noqa: E402
 # =============================================================================
 # CORE LOGIC — redundancy graph (member overlap + optional DAG lineage)
 # =============================================================================
@@ -476,8 +478,8 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
     return table
 
 
-def group_member_table(annotated: pd.DataFrame) -> pd.DataFrame:
-    """One row per (group, member gene), with the per-gene moonlighting count.
+def group_member_table(annotated: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """One row per (group, member gene) + the per-gene moonlighting counts and the mode.
 
     A group is one de-duplication cluster, identified by its representative term
     (source + group_id + group_name) and labelled with every term it collapsed.
@@ -485,10 +487,11 @@ def group_member_table(annotated: pd.DataFrame) -> pd.DataFrame:
     collapsed terms are one signal, so a gene only an alias carries still belongs to
     the group, and it counts once for the group rather than once per alias.
 
-    `n_groups` is how many groups the gene is in; a gene above the MODE of that
-    distribution is flagged `is_moonlighting`. After de-duplication a high count can
-    no longer be GO nesting, so it means the gene keeps turning up in modules that
-    are not redundant with each other.
+    The breadth columns come from coherence.fractions.view_breadth over this whole
+    table (every cluster), which is the same computation the per-view figures run
+    over a subset of the clusters — one definition, so the table and the figures
+    cannot drift. The mode is returned because the per-term fractions need the same
+    cut.
     """
     rows = []
     for _cluster, sub in annotated.groupby("redundancy_cluster", sort=False):
@@ -507,39 +510,19 @@ def group_member_table(annotated: pd.DataFrame) -> pd.DataFrame:
                 "group_name": representative["group_name"],
                 "full_name": "\n".join(names),
                 "gene": gene,
+                "redundancy_cluster": sub["redundancy_cluster"].iloc[0],
             }
             for gene in sorted(genes)
         )
 
     table = pd.DataFrame(rows, columns=_GROUP_MEMBER_COLUMNS)
     if table.empty:
-        return table
-    # One row per group per gene, so a gene's row count IS its group count.
-    table["n_groups"] = table.groupby("gene")["gene"].transform("size")
-    # The mode is over GENES, not rows: a gene's row count grows with its own group
-    # count, so a row-weighted mode lands on the wrong value and the cut it defines
-    # stops meaning "more groups than the typical gene".
-    per_gene = table.drop_duplicates("gene")["n_groups"]
-    table["is_moonlighting"] = table["n_groups"] > int(per_gene.mode().iloc[0])
-    return table
-
-
-def moonlighting_shares(annotated: pd.DataFrame, group_members: pd.DataFrame) -> pd.Series:
-    """Per term: share of its OWN members that are moonlighting (count > mode)."""
-    # The cut is the same mode as `is_moonlighting`; counted per gene here, which is
-    # the same number because n_groups is constant within a gene.
-    counts = group_members.groupby("gene")["n_groups"].first()
-    if counts.empty:
-        return pd.Series(np.nan, index=annotated.index)
-    threshold = int(counts.mode().iloc[0])
-
-    def share(cell: object) -> float:
-        members = member_set(cell)
-        if not members:
-            return np.nan
-        return sum(counts.get(gene, 0) > threshold for gene in members) / len(members)
-
-    return annotated["scored_member_names"].map(share)
+        return table, 0
+    per_gene, mode = view_breadth(table, set(table["redundancy_cluster"]))
+    breadth = per_gene.set_index("gene")
+    table["n_groups"] = table["gene"].map(breadth["n_groups"]).astype("int64")
+    table["is_moonlighting"] = table["gene"].map(breadth["is_moonlighting"]).astype(bool)
+    return table, mode
 
 
 def write_dedup_table(table: pd.DataFrame, path: Path) -> None:
@@ -569,13 +552,16 @@ def run(config: DedupConfig) -> None:
         logger.warning("combined metrics table is empty; writing empty dedup outputs")
         write_dedup_table(table, config.output_all)
         write_dedup_table(table, config.output_representatives)
-        group_member_table(table).to_csv(config.output_group_members, sep="\t", index=False)
+        group_member_table(table)[0].to_csv(config.output_group_members, sep="\t", index=False)
         return
 
     depth, ancestors = load_dag_depth_ancestors(config.obo, table["group_id"].tolist())
     annotated = deduplicate(table, config, depth, ancestors)
-    group_members = group_member_table(annotated)
-    annotated["moonlighting_fraction"] = moonlighting_shares(annotated, group_members)
+    group_members, mode = group_member_table(annotated)
+    moonlighting_genes = set(group_members.loc[group_members["is_moonlighting"], "gene"])
+    annotated["moonlighting_fraction"] = annotated["scored_member_names"].map(
+        lambda cell: moonlighting_fraction(member_set(cell), moonlighting_genes)
+    )
     write_dedup_table(annotated, config.output_all)
     group_members.to_csv(config.output_group_members, sep="\t", index=False)
 
@@ -589,7 +575,7 @@ def run(config: DedupConfig) -> None:
         f"{len(annotated):,} terms -> {n_clusters:,} non-redundant clusters "
         f"({len(annotated) - n_clusters:,} collapsed; {n_forced} forced representatives); "
         f"{int(per_gene['is_moonlighting'].sum()):,}/{len(per_gene):,} genes above the mode "
-        f"(group count) in {len(group_members):,} (group, gene) rows; wrote {config.output_representatives}"
+        f"({mode}) in {len(group_members):,} (group, gene) rows; wrote {config.output_representatives}"
     )
 
 

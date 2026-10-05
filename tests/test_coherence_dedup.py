@@ -16,9 +16,9 @@ from deduplicate_terms import (
     build_clusters,
     deduplicate,
     group_member_table,
-    moonlighting_shares,
     DedupConfig,
 )
+from workflow.src.coherence.fractions import moonlighting_fraction
 
 
 # --- primitives -------------------------------------------------------------
@@ -345,10 +345,10 @@ def _annotated():
 
 
 def test_group_member_table_unions_the_cluster_and_names_it_by_the_representative():
-    long = group_member_table(_annotated())
+    long, _mode = group_member_table(_annotated())
 
     assert list(long.columns) == ["source", "group_id", "group_name", "full_name",
-                                  "gene", "n_groups", "is_moonlighting"]
+                                  "gene", "redundancy_cluster", "n_groups", "is_moonlighting"]
     assert len(long) == 7  # {a,b,c} + {c,d} + {a,c}
     # The group's genes are the UNION over its terms: `c` comes from the alias and
     # still counts as a GO:1 gene, once.
@@ -360,7 +360,8 @@ def test_group_member_table_unions_the_cluster_and_names_it_by_the_representativ
 
 
 def test_moonlighting_flags_genes_above_the_mode_and_shares_are_per_term():
-    long = group_member_table(_annotated())
+    long, mode = group_member_table(_annotated())
+    assert mode == 1
     per_gene = long.drop_duplicates("gene").set_index("gene")
 
     # Group counts: a in {all:1, all:3}, b in {all:1}, c in all three, d in {all:2}.
@@ -370,5 +371,9 @@ def test_moonlighting_flags_genes_above_the_mode_and_shares_are_per_term():
     assert per_gene["is_moonlighting"].to_dict() == {"a": True, "b": False, "c": True, "d": False}
 
     # Per term, over its own members: GO:1 {a,b} -> 1/2; GO:2 {c} -> 1;
-    # GO:3 {c,d} -> 1/2; GO:4 {a,c} -> 1.
-    assert moonlighting_shares(_annotated(), long).tolist() == [0.5, 1.0, 0.5, 1.0]
+    # GO:3 {c,d} -> 1/2; GO:4 {a,c} -> 1. The mapping run() does, over the shared
+    # helper — the same one the per-view figures use.
+    flagged = set(long.loc[long["is_moonlighting"], "gene"])
+    shares = [moonlighting_fraction(members, flagged)
+              for members in _annotated()["scored_member_names"]]
+    assert shares == [0.5, 1.0, 0.5, 1.0]

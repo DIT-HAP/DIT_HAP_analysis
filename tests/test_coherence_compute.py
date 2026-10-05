@@ -84,7 +84,8 @@ def test_compute_coherence_table_adds_q_value_column():
     )
 
     assert "q_value" in table.columns
-    assert "frac_shared_members" in table.columns
+    # features=None: no feature-derived annotation columns at all.
+    assert "abundance_cv" not in table.columns
     assert len(table) == 3
     # The funnel columns: annotated >= measured (>= scored) per group.
     assert table.set_index("group_id")["n_measured_members"].to_dict() == {
@@ -107,7 +108,7 @@ def test_compute_coherence_table_paralog_fraction_uses_scored_members():
     it is left out entirely when no features table was passed.
     """
     from compute_coherence import build_groups, compute_coherence_table, group_annotations
-    from workflow.src.coherence.attribution import paralog_ids_from_features
+    from workflow.src.coherence.fractions import paralog_ids_from_features
 
     bg = _background([f"g{i}" for i in range(10)])
     long = _long([("go_cc", "GO:1", "a", f"g{i}", f"n{i}", 4) for i in range(4)]

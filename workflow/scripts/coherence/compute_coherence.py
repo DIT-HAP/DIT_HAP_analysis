@@ -44,11 +44,11 @@ Output
   * test: for each method in _TABLE_ZSCORE_METHODS, `{method}_z` and
     `{method}_p`; n_permutations; and q_value (BH over the per-source p-values
     of the primary method, median_pairwise_distance).
-  * annotations: frac_shared_members, and — when --features is given —
-    abundance_cv / conservation_cv each with a `_feature` column naming the
-    feature column actually used, plus paralog_fraction (the share of the scored
-    members whose feature-matrix `paralog_count` is > 0, so it follows
-    `features.paralog_source` rather than naming a paralog source of its own).
+  * annotations: — when --features is given — abundance_cv / conservation_cv
+    each with a `_feature` column naming the feature column actually used, plus
+    paralog_fraction (the share of the scored members whose feature-matrix
+    `paralog_count` is > 0, so it follows `features.paralog_source` rather than
+    naming a paralog source of its own).
 
 Usage
 -----
@@ -85,10 +85,9 @@ from scipy.stats import false_discovery_control
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from coherence.attribution import (  # noqa: E402
+from coherence.fractions import (  # noqa: E402
     paralog_fraction,
     paralog_ids_from_features,
-    shared_subunit_fractions,
 )
 from coherence.io import load_fitting_results, load_long_table  # noqa: E402
 from coherence.metrics import coherence_metrics, compute_distance_zscores  # noqa: E402
@@ -196,20 +195,12 @@ def member_feature_cv(
 
 
 def group_annotations(long_table: pd.DataFrame, features: pd.DataFrame | None) -> pd.DataFrame:
-    """Per-group derived annotations, indexed by group_id."""
-    # `frac_shared_members` is always present; the feature-uniformity CVs only when
-    # a features table is supplied. Each is computed in one pass over every group
-    # (not per surviving group), then left-joined onto the metrics table so a group
-    # that failed the size filter simply does not appear.
-    #
-    # This stage runs once per source, so the source half of the (source, group_id)
-    # key `shared_subunit_fractions` returns is the same for every row and the frame
-    # is indexed by group_id alone. (The pair is what the pooled attribution needs;
-    # see attribution.py — group_id is not unique across sources.)
-    fractions = shared_subunit_fractions(long_table)
-    if "source" in long_table.columns:
-        fractions = {group_id: value for (_source, group_id), value in fractions.items()}
-    annotations = pd.DataFrame({"frac_shared_members": pd.Series(fractions)})
+    """Per-group derived annotations, indexed by group_id (empty without features)."""
+    # The feature-uniformity CVs only exist when a features table is supplied. Each
+    # is computed in one pass over every group (not per surviving group), then
+    # left-joined onto the metrics table so a group that failed the size filter
+    # simply does not appear.
+    annotations = pd.DataFrame()
     if features is None:
         return annotations
 

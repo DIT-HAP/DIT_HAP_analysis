@@ -9,7 +9,7 @@ with a title running into the panel next to it, or a row's axis labels sitting o
 top of the row below. Three separate instances turned up while porting these
 figures to cnsplots:
 
-- a panel title wider than its own 100 px axes (the attribution grid and the
+- a panel title wider than its own 100 px axes (the named-group grid and the
   coherence overview both had 30+ character titles);
 - a bottom row's x and tick labels overlapping the next row's titles, because
   multipanel measures only the left and top decorations after a draw;
@@ -99,7 +99,6 @@ def _coherence_table(n: int = 40) -> pd.DataFrame:
         "q_value": [0.001 * (i + 1) for i in range(n)],
         "geom_median_DR": [0.1 * (i % 7) for i in range(n)],
         "geom_median_DL": [0.1 * (i % 5) for i in range(n)],
-        "frac_shared_members": [(i % 10) / 10 for i in range(n)],
         "abundance_cv": [(i % 4) / 4 for i in range(n)],
         "conservation_cv": [(i % 6) / 6 for i in range(n)],
     })
@@ -116,7 +115,7 @@ def test_coherence_overview_layout_is_clean():
 def test_coherence_overview_without_biology_columns_is_clean():
     from plot_coherence import plot_coherence
 
-    plot_coherence(_coherence_table().drop(columns=["frac_shared_members", "abundance_cv", "conservation_cv"]))
+    plot_coherence(_coherence_table().drop(columns=["abundance_cv", "conservation_cv"]))
     assert_layout_is_clean(plt.gcf())
     plt.close("all")
 
@@ -185,11 +184,11 @@ def test_group_scatter_panels_share_both_axes():
 
 
 def test_coherence_biology_panels_share_the_zscore_axis():
-    """The three biology panels plot z-score on y, so each must show the full z range.
+    """The biology panels plot z-score on y, so each must show the full z range.
 
     The limits are asserted exactly, with no autoscale margin, because that is what
-    makes the three comparable. x is deliberately NOT shared: the panels plot three
-    different quantities (a fraction, and two CVs) on unrelated scales.
+    makes them comparable. x is deliberately NOT shared: the panels plot two
+    different CVs on unrelated scales.
     """
     from plot_coherence import plot_coherence
 
@@ -203,7 +202,6 @@ def test_coherence_biology_panels_share_the_zscore_axis():
         "q_value": np.linspace(0.001, 0.4, n),
         "geom_median_DR": np.linspace(-1.2, 0.0, n),
         "geom_median_DL": np.linspace(0.0, 0.9, n),
-        "frac_shared_members": np.linspace(0.0, 1.0, n),
         "abundance_cv": np.linspace(0.0, 3.0, n),
         "conservation_cv": np.linspace(0.0, 1.5, n),
     })
@@ -211,93 +209,16 @@ def test_coherence_biology_panels_share_the_zscore_axis():
     biology = [
         ax for ax in plt.gcf().axes
         if ax.get_visible() and ax.get_title().startswith(
-            ("Shared subunits", "Abundance uniformity", "Conservation uniformity")
+            ("Abundance uniformity", "Conservation uniformity")
         )
     ]
-    assert len(biology) == 3
+    assert len(biology) == 2
     expected = (float(z_scores.min()), float(z_scores.max()))
     assert {ax.get_ylim() for ax in biology} == {expected}
-    assert len({ax.get_xlim() for ax in biology}) == 3, "x is meant to stay per-panel"
+    assert len({ax.get_xlim() for ax in biology}) == 2, "x is meant to stay per-panel"
     plt.close("all")
 
 
-def test_attribution_layout_is_clean():
-    from plot_incoherence_attribution import plot_attribution
-
-    table = pd.DataFrame({
-        "group_id": [f"GO:{i:07d}" for i in range(17)],
-        "group_name": [f"eukaryotic translation initiation factor complex {i}" for i in range(17)],
-        "median_pairwise_distance_z": [3.33 - 0.1 * i for i in range(17)],
-        "gmm_silhouette": [0.76 - 0.01 * i for i in range(17)],
-        "is_incoherent": [True] * 17,
-        "attribution_label": ["conditional_module"] * 5 + ["major_minor_split"] * 4
-                               + ["shared_subunits"] * 4 + ["data_limited"] * 2 + ["paralog_buffered"] * 2,
-    })
-    points = pd.DataFrame([
-        {"group_id": f"GO:{i:07d}", "Systematic ID": f"g{j}", "norm_DR": -0.5, "norm_DL": 0.1,
-         "component": "core" if j % 2 else "minor"}
-        for i in range(17) for j in range(6)
-    ])
-    plot_attribution(table, points, _background_cloud(), top_n=16)
-    assert_layout_is_clean(plt.gcf())
-    plt.close("all")
-
-
-def test_attribution_layout_is_clean_with_no_incoherent_groups():
-    from plot_incoherence_attribution import plot_attribution
-
-    table = pd.DataFrame({
-        "group_id": ["GO:1"], "group_name": ["n"], "median_pairwise_distance_z": [-1.0],
-        "is_incoherent": [False], "attribution_label": ["intrinsic_heterogeneity"],
-    })
-    plot_attribution(
-        table,
-        pd.DataFrame(columns=["group_id", "norm_DR", "norm_DL", "component"]),
-        _background_cloud(),
-        top_n=16,
-    )
-    assert_layout_is_clean(plt.gcf())
-    plt.close("all")
-
-
-def test_attribution_panels_share_both_axes():
-    """Every panel draws the same DR-DL space, so all of them must be pinned to it."""
-    from plot_incoherence_attribution import plot_attribution
-
-    table = pd.DataFrame({
-        "group_id": [f"GO:{i:07d}" for i in range(3)],
-        "group_name": [f"complex {i}" for i in range(3)],
-        "median_pairwise_distance_z": [3.0, 2.0, 1.0],
-        "is_incoherent": [True] * 3,
-        "attribution_label": ["data_limited"] * 3,
-    })
-    # One group hugging the origin and one far out: autoscaled panels would render
-    # them identically, which is the defect this pins down.
-    points = pd.DataFrame([
-        {"group_id": "GO:0000000", "Systematic ID": "a", "norm_DR": -0.10, "norm_DL": 0.01, "component": "core"},
-        {"group_id": "GO:0000000", "Systematic ID": "b", "norm_DR": -0.12, "norm_DL": 0.02, "component": "core"},
-        {"group_id": "GO:0000001", "Systematic ID": "c", "norm_DR": -1.80, "norm_DL": 0.90, "component": "core"},
-        {"group_id": "GO:0000001", "Systematic ID": "d", "norm_DR": -1.70, "norm_DL": 0.85, "component": "core"},
-        {"group_id": "GO:0000002", "Systematic ID": "e", "norm_DR": -0.90, "norm_DL": 0.40, "component": "core"},
-        {"group_id": "GO:0000002", "Systematic ID": "f", "norm_DR": -0.80, "norm_DL": 0.45, "component": "core"},
-    ])
-    plot_attribution(table, points, _background_cloud(), top_n=16)
-    fig = plt.gcf()
-
-    scatter_panels = [ax for ax in fig.axes if ax.get_title().startswith(("complex", "GO:"))]
-    assert len(scatter_panels) == 3
-    limits = {(tuple(ax.get_xlim()), tuple(ax.get_ylim())) for ax in scatter_panels}
-    assert len(limits) == 1, f"scatter panels do not share one range: {limits}"
-    plt.close("all")
-
-
-def _background_cloud() -> pd.DataFrame:
-    """A gene-cloud frame with the two columns the attribution panels draw."""
-    return pd.DataFrame({"norm_DR": np.linspace(-2.0, 0.1, 50),
-                         "norm_DL": np.linspace(0.0, 0.9, 50)})
-
-
-# --- FDR panel: label selection and de-overlapping --------------------------
 def _fdr_table(rows: list[tuple[float, float]]) -> pd.DataFrame:
     """(z-score, q_value) pairs -> the minimum columns labelled_extremes reads."""
     return pd.DataFrame({"median_pairwise_distance_z": [z for z, _ in rows],
@@ -305,22 +226,25 @@ def _fdr_table(rows: list[tuple[float, float]]) -> pd.DataFrame:
 
 
 def test_labelled_extremes_caps_each_side():
-    from plot_coherence import labelled_extremes
+    from plot_coherence import LabelSettings, labelled_extremes
 
     # 400 significant groups: 5% would be 20, so the cap is what bites.
     table = _fdr_table([(-i / 100.0, 0.001) for i in range(400)])
-    coherent = labelled_extremes(table, "coherent", quantile=0.05, q_max=0.05, max_labels=5)
+    settings = LabelSettings(quantile=0.05, q_max=0.05, max_labels=5)
+    coherent = labelled_extremes(table, "coherent", settings)
     assert len(coherent) == 5
     # The most negative z first.
     assert list(coherent["median_pairwise_distance_z"]) == sorted(coherent["median_pairwise_distance_z"])
 
 
 def test_labelled_extremes_quantile_bites_below_the_cap():
-    from plot_coherence import labelled_extremes
+    from plot_coherence import LabelSettings, labelled_extremes
 
-    # 60 significant groups: 5% -> 3, which is fewer than the cap of 5.
-    table = _fdr_table([(-i / 10.0, 0.001) for i in range(60)])
-    assert len(labelled_extremes(table, "coherent", 0.05, 0.05, 5)) == 3
+    # 60 significant groups, every one past the default z floor: 5% -> 3, fewer
+    # than the cap of 5, so the quantile is what limits the count here.
+    table = _fdr_table([(-2.5 - i / 10.0, 0.001) for i in range(60)])
+    settings = LabelSettings(quantile=0.05, q_max=0.05, max_labels=5)
+    assert len(labelled_extremes(table, "coherent", settings)) == 3
 
 
 def test_labelled_extremes_ignores_fdr_on_the_incoherent_side():
@@ -330,12 +254,14 @@ def test_labelled_extremes_ignores_fdr_on_the_incoherent_side():
     near 1 by construction. Selecting that end by significance would return nothing,
     which is why it is selected by z alone.
     """
-    from plot_coherence import labelled_extremes
+    from plot_coherence import LabelSettings, labelled_extremes
 
     table = _fdr_table([(-6.0, 0.001), (1.0, 0.99), (2.0, 1.0), (3.0, 0.98)])
-    assert labelled_extremes(table, "coherent", 0.05, 0.05, 5)["median_pairwise_distance_z"].tolist() == [-6.0]
+    settings = LabelSettings(quantile=0.05, q_max=0.05, max_labels=5)
+    assert labelled_extremes(table, "coherent", settings)["median_pairwise_distance_z"].tolist() == [-6.0]
     # quantile=1.0 so the per-side cap is what limits the count, not the 5% share.
-    assert labelled_extremes(table, "incoherent", 1.0, 0.05, 2)["median_pairwise_distance_z"].tolist() == [3.0, 2.0]
+    capped = LabelSettings(quantile=1.0, q_max=0.05, max_labels=2)
+    assert labelled_extremes(table, "incoherent", capped)["median_pairwise_distance_z"].tolist() == [3.0, 2.0]
 
 
 def test_place_label_avoids_a_point_it_could_cover():
@@ -386,7 +312,6 @@ def test_fdr_label_text_does_not_overlap():
         "q_value": np.linspace(0.001, 0.05, 2 * n),
         "geom_median_DR": np.linspace(-1.2, 0.0, 2 * n),
         "geom_median_DL": np.linspace(0.0, 0.9, 2 * n),
-        "frac_shared_members": np.linspace(0.0, 1.0, 2 * n),
         "abundance_cv": np.linspace(0.0, 3.0, 2 * n),
         "conservation_cv": np.linspace(0.0, 1.5, 2 * n),
     })

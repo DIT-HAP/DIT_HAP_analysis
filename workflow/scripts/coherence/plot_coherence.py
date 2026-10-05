@@ -19,9 +19,9 @@ Input
 - coherence_metrics.parquet (or any table with the same columns): per-group
   metrics. Only these columns are read: n_scored_members,
   median_pairwise_distance_z, geom_median_DR, geom_median_DL, group_name,
-  q_value, and whichever of frac_shared_members / abundance_cv /
-  conservation_cv are present. Those last three gate the biology panels: an
-  absent (or all-NaN) column drops its panel rather than drawing an empty one.
+  q_value, and whichever of abundance_cv / conservation_cv are present. Those
+  two gate the biology panels: an absent (or all-NaN) column drops its panel
+  rather than drawing an empty one.
 
 Two optional modes change only the colour encoding, never the panel layout, so a
 comparison figure can be read panel-for-panel against a per-source one:
@@ -127,7 +127,6 @@ _CBAR_BOUNDS = (1.147, 0.02, 0.045, 0.42)
 # panel into its neighbour.
 # (column, x label, title)
 _BIOLOGY_PANELS = [
-    ("frac_shared_members", "Shared-subunit fraction", "Shared subunits"),
     ("abundance_cv", "Abundance CV", "Abundance uniformity"),
     ("conservation_cv", "Conservation CV", "Conservation uniformity"),
 ]
@@ -152,8 +151,8 @@ _REQUIRED_COLUMNS = ["n_scored_members", "median_pairwise_distance_z",
 
 # Panels are lettered explicitly so the FDR panels' letters are predictable whatever
 # number of biology columns the table carries: row 1 is A/B/C, the biology panels sit
-# under them as D/E/F, and the FDR panels take the letters after those.
-_BIOLOGY_LETTERS = ("D", "E", "F")
+# under them from D on, and the FDR panels take the letters after those.
+_BIOLOGY_LETTERS = ("D", "E")
 
 # cnsplots' own diverging scale, for the signed z-score. Resolved through
 # cns.palettes() because it is not registered with matplotlib's cmap registry.

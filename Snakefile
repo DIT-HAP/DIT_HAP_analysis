@@ -128,13 +128,12 @@ rule all:
         # a file belongs to, so each view exposes the same names where the artifact
         # exists for it. The view-neutral inputs live at the dataset root.
         # dedup/ — the de-duplicated representative set as a first-class result: its
-        # own terms table, coherence figure, attribution run and cohort workbook.
+        # own terms table, coherence figure, cohort workbook and fraction pair.
         f"results/3a_coherence/{_DATASET}/dedup/coherence_terms_representatives.tsv",
         f"results/3a_coherence/{_DATASET}/dedup/coherence_group_members_long.tsv",
         f"results/3a_coherence/{_DATASET}/dedup/coherence.pdf",
-        f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.tsv",
-        f"results/3a_coherence/{_DATASET}/dedup/incoherence_attribution.pdf",
         f"results/3a_coherence/{_DATASET}/dedup/coherence_cohorts.xlsx",
+        f"results/3a_coherence/{_DATASET}/dedup/fraction_distributions.pdf",
         # The de-duplication audit pages (Altair + pyvis, ~1-3 MB), and the
         # interactive explorer over both pooled views. The per-source explorer is
         # deliberately NOT here: it is the same page over one source's rows, and
@@ -159,11 +158,11 @@ rule all:
                source=_COHERENCE_SOURCES),
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/coherence_cohorts.xlsx",
                source=_COHERENCE_SOURCES),
-        # Incoherence attribution (why a group is dispersed), per configured source:
-        expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.tsv",
-               source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
-        expand(f"results/3a_coherence/{_DATASET}/{{source}}/incoherence_attribution.pdf",
-               source=config["coherence"].get("attribution_sources", ["go_macrocomplex"])),
+        f"results/3a_coherence/{_DATASET}/combined/fraction_distributions.pdf",
+        # Per-view fraction distributions (paralog fraction, groups per gene with
+        # the mode marked, moonlighting fraction), one figure per source.
+        expand(f"results/3a_coherence/{_DATASET}/{{source}}/fraction_distributions.pdf",
+               source=_COHERENCE_SOURCES),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
         # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",
