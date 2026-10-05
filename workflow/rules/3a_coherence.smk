@@ -59,7 +59,8 @@
 #   plot_coherence_for_combined    -> combined/coherence.pdf (every source + the
 #                                     representative set on one figure, coloured by source)
 #   export_coherence_cohorts_for_combined -> combined/coherence_cohorts.xlsx (the
-#                                     full term list on the pooled q, + in_dedup_set)
+#                                     full term list on the pooled q, + in_dedup_set,
+#                                     moonlighting_fraction)
 #   plot_coherence_for_dedup       -> dedup/coherence.pdf (the representative set alone)
 #   export_coherence_cohorts_for_dedup -> dedup/coherence_cohorts.xlsx
 #   compute_coherence_attribution_for_dedup -> dedup/incoherence_attribution.tsv
@@ -409,7 +410,11 @@ rule plot_coherence_for_combined:
 rule export_coherence_cohorts_for_combined:
     input:
         metrics="results/3a_coherence/{dataset}/combined/coherence_metrics.parquet",
-        representatives="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",
+        # The all-terms dedup table, not the representatives-only one: it carries
+        # is_representative (the in_dedup_set flag) AND moonlighting_fraction, which
+        # the workbook then shows for every term. Same upstream (the dedup rule),
+        # so this costs no new dependency.
+        dedup_terms="results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv",
     output:
         xlsx="results/3a_coherence/{dataset}/combined/coherence_cohorts.xlsx",
     params:
@@ -427,7 +432,7 @@ rule export_coherence_cohorts_for_combined:
         """
         python workflow/scripts/coherence/export_cohorts.py \
             --metrics {input.metrics} \
-            --representatives {input.representatives} \
+            --dedup-terms {input.dedup_terms} \
             --q-max {params.q_max} \
             --coherent-z {params.coherent_z} \
             --incoherent-z {params.incoherent_z} \
@@ -438,9 +443,10 @@ rule export_coherence_cohorts_for_combined:
 # The same cut applied to the de-duplicated representative set (957 groups pooled
 # over all sources) instead of the full 2,587. Reads the representatives TSV, whose
 # q_value is the pooled one carried through untouched, so this workbook and the
-# combined one call the same cohort for the same group. No --representatives flag
+# combined one call the same cohort for the same group. No --dedup-terms flag
 # here: every row of that table already IS a representative, so the column would be
-# a constant True.
+# a constant True (it still carries paralog_fraction and moonlighting_fraction, as
+# columns of the table itself).
 rule export_coherence_cohorts_for_dedup:
     input:
         metrics="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",

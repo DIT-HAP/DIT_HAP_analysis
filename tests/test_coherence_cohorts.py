@@ -67,18 +67,42 @@ def test_source_filter_keeps_one_source(tmp_path):
 
 
 def test_dedup_flag_joins_on_source_and_group_id(tmp_path):
-    """group_id is not unique across sources, so the join must key on (source, group_id)."""
-    from export_cohorts import attach_dedup_flag
+    """group_id is not unique across sources, so the join must key on (source, group_id).
+
+    A representatives-only table has no is_representative column: presence in it IS
+    the flag, which is the original contract this keeps.
+    """
+    from export_cohorts import attach_dedup_columns
 
     metrics = _metrics([("go_cc", "GO:1", -3.0, 0.01), ("go_bp", "GO:1", -3.0, 0.01)])
     representatives = tmp_path / "reps.tsv"
     # Only go_bp's GO:1 survived de-duplication.
     pd.DataFrame({"source": ["go_bp"], "group_id": ["GO:1"]}).to_csv(representatives, sep="\t", index=False)
 
-    flagged = attach_dedup_flag(metrics, representatives).set_index("source")
+    flagged = attach_dedup_columns(metrics, representatives).set_index("source")
 
     assert flagged.loc["go_bp", "in_dedup_set"]
     assert not flagged.loc["go_cc", "in_dedup_set"]
+
+
+def test_dedup_columns_carry_moonlighting_fraction_from_the_all_terms_table(tmp_path):
+    """The all-terms table drives the flag from is_representative and adds the fraction."""
+    from export_cohorts import attach_dedup_columns
+
+    metrics = _metrics([("go_cc", "GO:1", -3.0, 0.01), ("go_cc", "GO:2", -3.0, 0.01)])
+    dedup = tmp_path / "dedup.tsv"
+    pd.DataFrame({
+        "source": ["go_cc", "go_cc"],
+        "group_id": ["GO:1", "GO:2"],
+        "is_representative": [True, False],
+        "moonlighting_fraction": [0.25, 1.0],
+    }).to_csv(dedup, sep="\t", index=False)
+
+    merged = attach_dedup_columns(metrics, dedup).set_index("group_id")
+
+    assert merged.loc["GO:1", "in_dedup_set"]
+    assert not merged.loc["GO:2", "in_dedup_set"]
+    assert merged["moonlighting_fraction"].to_dict() == {"GO:1": 0.25, "GO:2": 1.0}
 
 
 def test_workbook_holds_one_sheet_per_cohort(tmp_path):

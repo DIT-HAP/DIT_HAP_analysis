@@ -27,14 +27,17 @@ Input
 - --source (optional): keep one source's rows only, writing that source's workbook
   into its own folder. The per-source rule runs this on that source's OWN
   coherence_metrics.parquet, so the cohort is called from the per-source BH family
-  and the workbook is self-contained — no `--representatives`, no de-duplication
+  and the workbook is self-contained — no `--dedup-terms`, no de-duplication
   column. Slicing the COMBINED table with this flag also works, giving the same
   cut on the pooled q instead (58 of the 322 coherent groups flip between the two,
   2026-09-29); that is the job of the combined/ workbook, not this one.
-- --representatives (optional): dedup/coherence_terms_representatives.tsv, used only to
-  add the `in_dedup_set` flag, so a reader can see which rows of a cohort survive
-  de-duplication. Joined on (source, group_id) — group_id alone is NOT unique
-  across sources (173 collide), so the pair is the key everywhere.
+- --dedup-terms (optional): dedup/coherence_terms_deduplicated.tsv — every term
+  with its cluster and representative flags. Adds `in_dedup_set` (the
+  is_representative column) so a reader can see which rows of a cohort survive
+  de-duplication, and carries `moonlighting_fraction` over with it. Joined on
+  (source, group_id) — group_id alone is NOT unique across sources (173 collide),
+  so the pair is the key everywhere. A table without is_representative (e.g. the
+  representatives-only TSV) still works: presence in it IS the flag.
 
 Output
 ------
@@ -45,13 +48,16 @@ Output
   List-valued cells (`scored_member_names`) are joined with ", " on the way out:
   Excel would otherwise render the raw numpy repr, quotes and line breaks included.
   The Parquet keeps the real list — it is only the display that flattens.
+  Every other column of the metrics table rides along untouched, so the descriptive
+  metrics appear without this script knowing them: `paralog_fraction` is already a
+  column there, and `moonlighting_fraction` arrives through --dedup-terms.
 
 Usage
 -----
     # The `combined` view: every source's rows, one q family.
     python export_cohorts.py \\
         --metrics results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
-        --representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
+        --dedup-terms results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
         --q-max 0.05 --coherent-z -2.0 --incoherent-z 1.0 \\
         --output results/3a_coherence/{dataset}/combined/coherence_cohorts.xlsx
 
@@ -123,7 +129,7 @@ class ExportConfig:
     """Inputs, cohort thresholds, source subset and output path for the cohort export."""
     metrics: Path
     output: Path
-    representatives: Path | None = None
+    dedup_terms: Path | None = None
     source: str | None = None
     q_max: float = 0.05
     coherent_z: float = -2.0
@@ -133,8 +139,8 @@ class ExportConfig:
         """Raise ValueError if an input is missing, then create the output dir."""
         if not self.metrics.exists():
             raise ValueError(f"Required input not found: {self.metrics}")
-        if self.representatives is not None and not self.representatives.exists():
-            raise ValueError(f"Required input not found: {self.representatives}")
+        if self.dedup_terms is not None and not self.dedup_terms.exists():
+            raise ValueError(f"Required input not found: {self.dedup_terms}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -160,18 +166,29 @@ def read_metrics(config: ExportConfig) -> pd.DataFrame:
     return table
 
 
-def attach_dedup_flag(table: pd.DataFrame, representatives: Path | None) -> pd.DataFrame:
-    """Add `in_dedup_set`, True for rows kept by the de-duplication stage."""
+def attach_dedup_columns(table: pd.DataFrame, dedup_terms: Path | None) -> pd.DataFrame:
+    """Add `in_dedup_set` and the dedup columns worth carrying (moonlighting_fraction)."""
     # Guard: a table without both key columns (e.g. a hand-made subset) has nothing
-    # to join on, so the flag is simply not added rather than silently mis-joined.
-    if representatives is None:
+    # to join on, so the columns are simply not added rather than silently mis-joined.
+    if dedup_terms is None:
         return table
     if not all(key in table.columns for key in _KEY_COLUMNS):
-        logger.warning(f"Skipping --representatives: no {_KEY_COLUMNS} in the metrics table")
+        logger.warning(f"Skipping --dedup-terms: no {_KEY_COLUMNS} in the metrics table")
         return table
 
-    kept = read_file(representatives)[_KEY_COLUMNS].drop_duplicates()
-    kept["in_dedup_set"] = True
+    dedup = read_file(dedup_terms)
+    # `paralog_fraction` needs no carrying: it is already a column of the metrics
+    # table itself. `moonlighting_fraction` exists only downstream, in the dedup
+    # table, so it is joined here or not at all. `is_representative` IS the flag when
+    # the all-terms table is passed; a representatives-only table has no such column,
+    # and presence in it IS the flag — hence the two branches below.
+    flag_column = "is_representative" if "is_representative" in dedup.columns else None
+    carried = [column for column in ("moonlighting_fraction",) if column in dedup.columns]
+    kept = dedup[_KEY_COLUMNS + [c for c in (flag_column, *carried) if c]].drop_duplicates(subset=_KEY_COLUMNS)
+    if flag_column is None:
+        kept["in_dedup_set"] = True
+    else:
+        kept = kept.rename(columns={flag_column: "in_dedup_set"})
     merged = table.merge(kept, on=_KEY_COLUMNS, how="left")
     merged["in_dedup_set"] = merged["in_dedup_set"].fillna(False).astype(bool)
     logger.info(f"{int(merged['in_dedup_set'].sum()):,} of {len(merged):,} groups are in the de-duplicated set")
@@ -255,8 +272,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Export threshold-filtered coherence cohort tables to Excel.")
     parser.add_argument("--metrics", type=Path, required=True, help="Coherence metrics table (parquet/tsv)")
-    parser.add_argument("--representatives", type=Path, default=None,
-                        help="De-duplicated representatives TSV; adds the in_dedup_set flag")
+    parser.add_argument("--dedup-terms", type=Path, default=None,
+                        help="dedup/coherence_terms_deduplicated.tsv; adds in_dedup_set + moonlighting_fraction")
     parser.add_argument("--source", default=None,
                         help="Keep one source's rows only (run this on the combined table)")
     parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q_value at or below this")
@@ -275,14 +292,14 @@ def main() -> int:
         config = ExportConfig(
             metrics=args.metrics,
             output=args.output,
-            representatives=args.representatives,
+            dedup_terms=args.dedup_terms,
             source=args.source,
             q_max=args.q_max,
             coherent_z=args.coherent_z,
             incoherent_z=args.incoherent_z,
         )
         config.validate()
-        table = attach_dedup_flag(read_metrics(config), config.representatives)
+        table = attach_dedup_columns(read_metrics(config), config.dedup_terms)
         write_workbook(build_sheets(label_cohorts(table, config), config), config.output)
     except Exception as e:
         logger.exception(f"Cohort export failed: {e}")
