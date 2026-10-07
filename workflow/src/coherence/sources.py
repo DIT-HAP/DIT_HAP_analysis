@@ -98,7 +98,7 @@ def _finalize(df: pd.DataFrame, source: str, gene_names: Mapping[str, str]) -> p
 
 
 def load_macrocomplex(
-    pombase_dir: Path, gene_names: Mapping[str, str], kegg_dir: Path | None = None
+    pombase_dir: Path, gene_names: Mapping[str, str], kegg_dir: Path | None = None,  # noqa: ARG001 - uniform registry signature
 ) -> pd.DataFrame:
     """Flat PomBase macromolecular_complex_annotation.tsv -> unified long-table."""
     path = Path(pombase_dir) / "ontologies_and_associations" / "macromolecular_complex_annotation.tsv"
@@ -114,7 +114,7 @@ def load_macrocomplex(
 
 
 def load_gaf_namespace(
-    pombase_dir: Path, namespace: str, gene_names: Mapping[str, str], kegg_dir: Path | None = None
+    pombase_dir: Path, namespace: str, gene_names: Mapping[str, str], kegg_dir: Path | None = None,  # noqa: ARG001 - uniform registry signature
 ) -> pd.DataFrame:
     """GO GAF for one namespace (CC/BP), goatools-propagated, -> unified long-table."""
     # Reuses enrichment/ontology.py's OBO+GAF loading (is_a/part_of propagation,
@@ -275,8 +275,8 @@ def load_kegg_brite(
 # GLOBAL CONSTANTS rather than an oversight.
 SOURCE_LOADERS = {
     "go_macrocomplex": load_macrocomplex,
-    "go_cc": lambda d, names, kegg=None: load_gaf_namespace(d, "CC", names),
-    "go_bp": lambda d, names, kegg=None: load_gaf_namespace(d, "BP", names),
+    "go_cc": lambda d, names, kegg=None: load_gaf_namespace(d, "CC", names),  # noqa: ARG005 - uniform registry signature
+    "go_bp": lambda d, names, kegg=None: load_gaf_namespace(d, "BP", names),  # noqa: ARG005 - uniform registry signature
     "kegg_pathway": lambda d, names, kegg: load_kegg_pathway(kegg, d, names),
     "kegg_brite": lambda d, names, kegg: load_kegg_brite(kegg, d, names),
 }

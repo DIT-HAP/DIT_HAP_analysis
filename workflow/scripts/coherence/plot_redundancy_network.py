@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Redundancy Network — an Altair HTML ledger of the de-duplication
@@ -23,7 +22,7 @@ The spanning tree, not the full similarity graph: a 169-term cluster has ~1,500
 pairs at or above the merge threshold, which is a hairball rather than a figure.
 The cluster is a connected component, so a spanning tree shows the same
 connectivity with n-1 edges. Edges below the threshold still appear when they are
-the strongest link available — that is the case the DAG-lineage rule produces.
+the strongest link available to a term.
 
 Clusters of one term were never merged and are not listed. Clusters above
 `_MAX_LABELLED` terms are drawn without node names, which at that size would be
@@ -88,6 +87,7 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 sys.path.append(str(SCRIPT_DIR))
 from deduplicate_terms import jaccard_index, member_set  # noqa: E402
 from figures import FURNITURE_COLOR, house_colors  # noqa: E402
+from coherence.palette import source_colors  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -139,10 +139,10 @@ _LAYOUT_ITERATIONS = 60
 _LAYOUT_MARGIN = 0.06
 
 # Term colour by source, so a cluster that collapsed terms across databases reads as
-# one at a glance. Taken from the house palette positions that stay distinguishable
-# in greyscale (teal / amber) plus the house red.
-_SOURCE_ORDER = ["go_bp", "go_cc", "go_macrocomplex"]
-_SOURCE_COLORS = dict(zip(_SOURCE_ORDER, house_colors((1, 2, 0))))
+# one at a glance. Shared with the comparison figure via coherence.palette, so a
+# source keeps its colour between the network page and the figures.
+_SOURCE_DOMAIN = ["go_bp", "go_cc", "go_macrocomplex"]
+_SOURCE_COLORS = source_colors(_SOURCE_DOMAIN)
 _HOUSE_RED = house_colors((0,))[0]
 
 # --- pyvis overview ---------------------------------------------------------
@@ -460,7 +460,10 @@ def network_frames(combined: pd.DataFrame, table: pd.DataFrame) -> tuple[pd.Data
             cluster.label, cluster.rows, cluster.names, cluster.edges, cluster.positions
         )
 
-        def overview(index: int) -> tuple[float, float]:
+        # Binds this iteration's state explicitly (`positions` included), so the
+        # closure cannot go stale whatever the caller does with the loop variable.
+        def overview(index: int, positions: dict = positions, centre_x: float = centre_x,
+                     centre_y: float = centre_y, radius: float = radius) -> tuple[float, float]:
             x, y = positions[index]
             return centre_x + (x - 0.5) * 2 * radius, centre_y + (y - 0.5) * 2 * radius
 
@@ -585,8 +588,8 @@ def build_chart(nodes: pd.DataFrame, edges: pd.DataFrame, labels: pd.DataFrame) 
                                           range=[_NODE_SIZE_MIN, _NODE_SIZE_MAX]),
                           legend=alt.Legend(orient="right", tickCount=5)),
             color=alt.Color("source:N", title="Source",
-                            scale=alt.Scale(domain=_SOURCE_ORDER,
-                                            range=[_SOURCE_COLORS[s] for s in _SOURCE_ORDER]),
+                            scale=alt.Scale(domain=_SOURCE_DOMAIN,
+                                            range=[_SOURCE_COLORS[s] for s in _SOURCE_DOMAIN]),
                             legend=alt.Legend(orient="right", columns=1)),
             stroke=alt.condition("datum.role === 'representative'",
                                  alt.value(_HOUSE_RED), alt.value("white")),

@@ -30,14 +30,14 @@ def _write_macrocomplex(tmp_path: Path) -> Path:
 
 
 def test_prepare_macrocomplex_returns_long_table(tmp_path):
-    from prepare_annotation import prepare
-    out = prepare("go_macrocomplex", _write_macrocomplex(tmp_path))
+    from prepare_annotation import load_source
+    out = load_source("go_macrocomplex", _write_macrocomplex(tmp_path))
     assert list(out.columns) == ["source", "group_id", "group_name",
                                  "Systematic ID", "Name", "n_annotated_members"]
     assert len(out) == 3
 
 
 def test_prepare_unknown_source_raises(tmp_path):
-    from prepare_annotation import prepare
+    from coherence.sources import load_source
     with pytest.raises(ValueError, match="unknown source"):
-        prepare("kegg_nope", tmp_path)
+        load_source("kegg_nope", tmp_path)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Cohort Export (threshold-filtered Excel tables) — Export Only
@@ -21,8 +20,7 @@ Input
 -----
 - --metrics: a coherence metrics table. The dataset-level
   combined/coherence_metrics.parquet is the intended one (all sources, q
-  re-derived over the union, which is the q the de-duplication and attribution
-  stages use); a per-source coherence_metrics.parquet works too — same columns,
+  re-derived over the union, which is the q the de-duplication stage ranks on); a per-source coherence_metrics.parquet works too — same columns,
   but its q is the per-source BH and not cross-source comparable.
 - --source (optional): keep one source's rows only, writing that source's workbook
   into its own folder. The per-source rule runs this on that source's OWN

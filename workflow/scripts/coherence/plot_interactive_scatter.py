@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Interactive Scatter — an Altair HTML explorer
@@ -106,9 +105,9 @@ _MEMBER_SIZE = 70
 _MEMBER_OPACITY = 0.85
 _BACKGROUND_SIZE = _MEMBER_SIZE
 
-# Floor for the DL axis, matching the attribution figure's. Most genes sit at
-# exactly DL = 0, so an axis ending at 0 draws half of those markers outside the
-# frame; DR has no such pile-up and keeps its own limits.
+# Floor for the DL axis. Most genes sit at exactly DL = 0, so an axis ending at 0
+# draws half of those markers outside the frame; DR has no such pile-up and keeps
+# its own limits.
 _DL_FLOOR = -0.05
 
 # Chart footprint in pixels, per panel. Two panels share the page, so each is

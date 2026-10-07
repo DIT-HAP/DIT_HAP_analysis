@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Gene-Group Coherence Analysis (source-agnostic) — Computation Only

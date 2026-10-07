@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Gene-Group Coherence — Visualization
@@ -10,9 +9,9 @@ z-score distributions, the centroid map in normalized fitness space, and — whe
 the metrics table carries them — the coherence-versus-biology panels.
 
 This is the plotting companion, split out per ADR-0001. It computes nothing:
-the shared-subunit fraction and the abundance/conservation uniformity terms are
-columns of the metrics Parquet, written by compute_coherence.py, so the figure is
-a pure renderer and every number it draws can be read back from the table.
+the abundance/conservation uniformity terms are columns of the metrics Parquet,
+written by compute_coherence.py, so the figure is a pure renderer and every
+number it draws can be read back from the table.
 
 Input
 -----
@@ -168,16 +167,11 @@ _DIVERGING_CMAP = "BuRd_custom"
 # actually is; the colourbar's end triangles still say the tails were clipped.
 _PANEL_C_PERCENTILE = 98.0
 
-# Blended alpha for the centroid points. Below 1 the white midpoint of the
-# diverging map lets the page through and washes out again, which is the second
-# half of the same problem; the grey hairline outline still separates overlaps.
-_PANEL_C_ALPHA = 1.0
+# Blended alpha for the centroid points: fully opaque. The white midpoint of the
+# diverging map would otherwise let the page through and wash out; the grey
+# hairline outline still separates overlaps.
 
-# --- FDR-vs-coherence panel -------------------------------------------------
-# x is -log10(q), not q: q spans 0.02..1 with a median near 0.1, so a linear axis
-# crushes every interesting point against the left edge, and the significance
-# boundary becomes a vertical line at -log10(q_max) instead of a judgement call.
-# --- FDR-vs-coherence panels ------------------------------------------------
+# --- FDR-vs-coherence panels -------------------------------------------------
 # Two panels over the SAME data with different x encodings, side by side, so the two
 # axis choices can be compared before one is dropped.
 #
@@ -774,7 +768,7 @@ def plot_coherence(
             ax_centroid.scatter(
                 rows["geom_median_DR"], rows["geom_median_DL"],
                 s=point_sizes(rows["n_scored_members"]), color=colors[source],
-                alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
+                alpha=1.0, edgecolors=cns.GRAY, linewidths=0.3,
             )
     else:
         z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
@@ -785,7 +779,7 @@ def plot_coherence(
             table["geom_median_DR"], table["geom_median_DL"],
             c=table["median_pairwise_distance_z"], s=sizes,
             cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
-            alpha=_PANEL_C_ALPHA, edgecolors=cns.GRAY, linewidths=0.3,
+            alpha=1.0, edgecolors=cns.GRAY, linewidths=0.3,
         )
     ax_centroid.set(
         xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions"

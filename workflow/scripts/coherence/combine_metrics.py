@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Metrics Combiner (per-source tables -> one cross-source table)
@@ -104,11 +103,10 @@ def combine(metrics_paths: list[Path]) -> pd.DataFrame:
             logger.warning(f"empty metrics table (no groups passed the filter): {path}")
             continue
         frames.append(frame)
-    non_empty = [f for f in frames if not f.empty]
-    if not non_empty:
+    if not frames:
         logger.warning("all per-source metrics tables were empty; writing an empty combined table")
         return pd.DataFrame()
-    combined = pd.concat(non_empty, ignore_index=True)
+    combined = pd.concat(frames, ignore_index=True)
     # The pooled family's own correction, replacing every per-source q. Indexing the
     # primary method's p column directly (no has-column guard) is deliberate: a
     # missing column is a schema break upstream, and raising here beats silently

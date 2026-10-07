@@ -52,7 +52,7 @@ FITTING_RESULTS_COLUMNS = ["Systematic ID", "DR", "DL"]
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def load_fitting_results(path: Path, *, dr_threshold: float | None = None) -> pd.DataFrame:
+def load_fitting_results(path: Path) -> pd.DataFrame:
     """Load upstream fitting_results.tsv into per-gene DR/DL fitness points."""
     # Handles the three upstream quirks in one place: the systematic id arrives as
     # the first column under whatever name the release used (the index here; see
@@ -67,8 +67,10 @@ def load_fitting_results(path: Path, *, dr_threshold: float | None = None) -> pd
     # DR sign on 2026-09-17 (negative = depleted), mirroring the space without
     # moving any z-score; only which side of the DR axis WT sits on changes.
     #
-    # dr_threshold keeps only genes with DR < dr_threshold (negative = depleted,
-    # matching the upstream sign convention) and logs the reduction.
+    # The DR<dr_threshold depletion filter is the CALLER's (compute_coherence.py
+    # applies it and logs the reduction) — the fitted-gene set itself is also a
+    # consumer (the n_measured_members layer), so no single filtered form serves
+    # both.
     fitting = pd.read_csv(path, sep="\t", index_col=0).reset_index()
     if "Systematic ID" not in fitting.columns:
         first_col = fitting.columns[0]
@@ -87,16 +89,7 @@ def load_fitting_results(path: Path, *, dr_threshold: float | None = None) -> pd
     fitting = fitting.replace([np.inf, -np.inf], np.nan).dropna(subset=["DR", "DL"]).copy()
     fitting["norm_DR"] = fitting["DR"].to_numpy(dtype=float) / DR_NORM_MAX
     fitting["norm_DL"] = fitting["DL"].to_numpy(dtype=float) / DL_NORM_MAX
-
-    if dr_threshold is None:
-        return fitting
-
-    background = fitting[fitting["DR"] < dr_threshold].copy()
-    logger.info(
-        f"fitting_results.tsv: {len(fitting):,} fitted genes -> "
-        f"{len(background):,} background genes with DR < {dr_threshold}"
-    )
-    return background
+    return fitting
 
 
 def load_long_table(path: Path) -> pd.DataFrame:

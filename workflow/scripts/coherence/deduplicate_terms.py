@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Term Redundancy Reducer (display-layer de-duplication)
@@ -27,16 +26,14 @@ Redundancy axis (config-driven, "both" by design)
   source spelled genes with the same identifier. Jaccard still rates real
   nesting highly (a child covering most of its parent scores high) but no longer
   rewards containment on its own.
-- DAG LINEAGE (optional, dedup_merge_dag_lineage — OFF by default): unite an
-  ancestor/descendant pair (is_a + part_of, via GODag.get_all_upper) — but ONLY
-  among term pairs that already share >=1 member, so disjoint sibling terms are
-  never merged. It is off because that rule is degenerate on propagated GO:
-  every term shares members with all of its ancestors, so transitivity chains the
-  whole DAG together. Measured on the current table it puts 2,046 of 2,097 terms
-  in one cluster, and raising the similarity threshold barely moves it
-  (0.5 -> 0.9 changes the largest cluster from 2,046 to 1,966).
 - DAG DEPTH (semantic tiebreak): a deeper GO term is more specific; used to break
   ties when selecting a cluster representative.
+
+An ancestor/descendant DAG-lineage merge rule (is_a + part_of) was tried and
+removed: with propagated GO every term shares members with all of its ancestors,
+so the rule chained the entire DAG into one cluster (2,046 of 2,097 terms in a
+single cluster, 2026-09-29 measurement) and the similarity threshold stopped
+mattering. Member-set Jaccard alone is the merge criterion.
 
 Clustering is transitive (union-find). Scope is `pooled` (default; clusters
 across all sources, so the same complex appearing in go_cc AND go_macrocomplex
@@ -57,9 +54,6 @@ PAIRS are redundant, and making a cluster out of that needs a linkage rule.
   becomes a real knob (it controls how much gets collapsed rather than how badly a
   chain runs away).
 - `average`: same machinery on the mean linkage, the middle ground.
-
-`single` is the only one that can carry the DAG-lineage edge (a similarity cannot
-express it), so `dedup_merge_dag_lineage` requires it — see DedupConfig.validate.
 
 Representative selection
 ------------------------
@@ -109,7 +103,7 @@ Usage
     python deduplicate_terms.py \\
         --combined results/3a_coherence/{dataset}/combined/coherence_metrics.parquet \\
         --obo resources/external/pombase/<version>/ontologies_and_associations/go-basic.obo \\
-        --overlap-threshold 0.5 --merge-dag-lineage --scope pooled \\
+        --overlap-threshold 0.5 --scope pooled \\
         --force-representatives GO:0042254 GO:0005762 \\
         --output-all results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
         --output-representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
@@ -149,11 +143,6 @@ from scipy.sparse.csgraph import connected_components
 # it: `DedupConfig.jaccard_threshold` is a member_descriptor, not 0.5, so
 # `default=DedupConfig.jaccard_threshold` silently hands argparse a descriptor.
 DEFAULT_JACCARD_THRESHOLD = 0.5
-# OFF, matching config/analysis.yaml and the docstring below. It was True, which
-# was already stale against both — and now that `complete` is the default linkage
-# the old value would make the bare defaults self-contradictory: validate() rejects
-# the lineage rule outside single linkage, so `DedupConfig()` would not validate.
-DEFAULT_MERGE_DAG_LINEAGE = False
 DEFAULT_SCOPE = "pooled"
 # How two terms that clear the threshold are grouped. `complete` is the default:
 #   single   - connected components. Fast and sparse, but transitive: A~B and B~C
@@ -170,8 +159,6 @@ DEFAULT_SCOPE = "pooled"
 #              the same range). Biggest cluster: 26 at 0.5.
 #   average  - same, on the mean linkage. The middle ground, offered because the
 #              call is identical.
-# `single` alone can carry the DAG-lineage edge rule (a similarity cannot express
-# it), so the two are mutually exclusive - see DedupConfig.validate.
 DEFAULT_LINKAGE = "complete"
 _LINKAGE_METHODS = ("single", "average", "complete")
 
@@ -194,7 +181,6 @@ class DedupConfig:
     output_representatives: Path
     output_group_members: Path
     jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD
-    merge_dag_lineage: bool = DEFAULT_MERGE_DAG_LINEAGE
     linkage: str = DEFAULT_LINKAGE
     scope: str = DEFAULT_SCOPE  # "pooled" | "per_source"
     force_representatives: list[str] = field(default_factory=list)
@@ -210,15 +196,6 @@ class DedupConfig:
             raise ValueError(f"scope must be 'pooled' or 'per_source': {self.scope!r}")
         if self.linkage not in _LINKAGE_METHODS:
             raise ValueError(f"linkage must be one of {_LINKAGE_METHODS}: {self.linkage!r}")
-        if self.linkage != "single" and self.merge_dag_lineage:
-            # The lineage rule adds an edge for a member-sharing ancestor/descendant
-            # pair whatever their Jaccard, which a similarity-based linkage cannot
-            # express. Silently dropping it would answer a different question than
-            # the one the config asked, so say so instead.
-            raise ValueError(
-                f"merge_dag_lineage needs linkage='single' (got {self.linkage!r}): "
-                "the DAG-ancestor edge is not a similarity and cannot be cut by a linkage"
-            )
         for out in [self.output_all, self.output_representatives, self.output_group_members]:
             out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -236,7 +213,7 @@ from coherence.fractions import (  # noqa: E402
     view_breadth,
 )
 # =============================================================================
-# CORE LOGIC — redundancy graph (member overlap + optional DAG lineage)
+# CORE LOGIC — redundancy graph (member overlap)
 # =============================================================================
 def candidate_pairs(member_sets: list[set[str]]) -> set[tuple[int, int]]:
     """All (i, j) term-index pairs that share >=1 member, via a gene->terms index."""
@@ -293,15 +270,10 @@ def condensed_index(i: int, j: int, n: int) -> int:
 def build_clusters(
     sub: pd.DataFrame,
     threshold: float,
-    merge_dag_lineage: bool,
-    ancestors: dict[str, set[str]],
     linkage_method: str = "single",
 ) -> list[int]:
     """Cluster the rows of `sub` (a single scope) -> a cluster label per row."""
-    # Two terms are united when their member-set Jaccard similarity >= threshold,
-    # OR (single linkage + merge_dag_lineage) one is a DAG ancestor of the other AND
-    # they share >=1 member — disjoint siblings are never merged.
-    # `ancestors[group_id]` is the is_a+part_of ancestor set.
+    # Two terms are united when their member-set Jaccard similarity >= threshold.
     #
     # `single` returns connected components; `average`/`complete` return a
     # hierarchical cut. The returned labels are small dense integers aligned to
@@ -313,16 +285,9 @@ def build_clusters(
         labels = hierarchical_labels(member_sets, threshold, linkage_method)
         return _relabel_by_first_appearance(labels)
 
-    group_ids = sub["group_id"].tolist()
     edges = []
     for i, j in candidate_pairs(member_sets):
-        united = jaccard_index(member_sets[i], member_sets[j]) >= threshold
-        if not united and merge_dag_lineage:
-            # Candidate pairs already share >=1 member, so an ancestor link here
-            # is a member-sharing parent/child (safe to merge), not a disjoint pair.
-            gi, gj = group_ids[i], group_ids[j]
-            united = gj in ancestors.get(gi, set()) or gi in ancestors.get(gj, set())
-        if united:
+        if jaccard_index(member_sets[i], member_sets[j]) >= threshold:
             edges.append((i, j))
 
     if not edges:
@@ -397,43 +362,32 @@ def pick_representative(cluster_rows: pd.DataFrame, forced: set[str]) -> tuple[i
 
 
 # =============================================================================
-# CORE LOGIC — DAG depth + ancestors
+# CORE LOGIC — DAG depth
 # =============================================================================
-def load_dag_depth_ancestors(obo: Path, group_ids: list[str]) -> tuple[dict[str, int], dict[str, set[str]]]:
-    """Load the GO DAG once -> {gid: depth} and {gid: is_a+part_of ancestor set}."""
-    # The `relationship` optional attr is loaded so get_all_upper() returns the
-    # is_a + part_of ancestors, matching how the coherence members were propagated.
-    # Terms absent from the DAG get depth 0 and no ancestors (they then only
-    # cluster by member overlap).
+def load_dag_depth(obo: Path, group_ids: list[str]) -> dict[str, int]:
+    """Load the GO DAG once -> {gid: depth}."""
+    # Terms absent from the DAG get depth 0 (they only rank last in the tiebreak).
     from goatools.obo_parser import GODag  # imported here: only this rule's env has goatools
 
-    dag = GODag(str(obo), optional_attrs={"relationship"}, prt=None)
+    dag = GODag(str(obo), prt=None)
     depth: dict[str, int] = {}
-    ancestors: dict[str, set[str]] = {}
     n_missing = 0
     for gid in set(group_ids):
         rec = dag.get(gid)
         if rec is None:
             depth[gid] = 0
-            ancestors[gid] = set()
             n_missing += 1
             continue
         depth[gid] = rec.depth
-        # get_all_upper() walks the `relationship` attr loaded above, i.e. is_a +
-        # part_of. get_all_parents() defaults to is_a only, so a fallback to it
-        # would silently drop part_of ancestors; goatools has had get_all_upper
-        # since well before the pinned version, so there is nothing to fall back to.
-        ancestors[gid] = rec.get_all_upper()
     if n_missing:
-        logger.warning(f"{n_missing} group_id(s) not found in the GO DAG; depth=0, no lineage for those")
-    return depth, ancestors
+        logger.warning(f"{n_missing} group_id(s) not found in the GO DAG; depth=0 for those")
+    return depth
 
 
 # =============================================================================
 # CORE LOGIC — orchestration
 # =============================================================================
-def deduplicate(table: pd.DataFrame, config: DedupConfig,
-                depth: dict[str, int], ancestors: dict[str, set[str]]) -> pd.DataFrame:
+def deduplicate(table: pd.DataFrame, config: DedupConfig, depth: dict[str, int]) -> pd.DataFrame:
     """Annotate `table` with cluster + representative columns (no rows dropped)."""
     table = table.copy()
     table["dag_depth"] = table["group_id"].map(depth).fillna(0).astype(int)
@@ -443,9 +397,7 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
     scopes = [("all", table)] if config.scope == "pooled" else list(table.groupby("source"))
     table["redundancy_cluster"] = pd.NA
     for scope_name, sub in scopes:
-        labels = build_clusters(
-            sub, config.jaccard_threshold, config.merge_dag_lineage, ancestors, config.linkage
-        )
+        labels = build_clusters(sub, config.jaccard_threshold, config.linkage)
         cluster_ids = [f"{scope_name}:{lab}" for lab in labels]
         table.loc[sub.index, "redundancy_cluster"] = cluster_ids
 
@@ -476,10 +428,9 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig,
 
     # Sort so each cluster's best (min) z leads, members grouped, best-first within.
     table["_cluster_best_z"] = table.groupby("redundancy_cluster")["median_pairwise_distance_z"].transform("min")
-    table = table.sort_values(
+    return table.sort_values(
         by=["_cluster_best_z", "redundancy_cluster", "median_pairwise_distance_z"],
     ).drop(columns="_cluster_best_z").reset_index(drop=True)
-    return table
 
 
 def group_member_table(annotated: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -559,8 +510,8 @@ def run(config: DedupConfig) -> None:
         group_member_table(table)[0].to_csv(config.output_group_members, sep="\t", index=False)
         return
 
-    depth, ancestors = load_dag_depth_ancestors(config.obo, table["group_id"].tolist())
-    annotated = deduplicate(table, config, depth, ancestors)
+    depth = load_dag_depth(config.obo, table["group_id"].tolist())
+    annotated = deduplicate(table, config, depth)
     group_members, cut = group_member_table(annotated)
     moonlighting_genes = set(group_members.loc[group_members["is_moonlighting"], "gene"])
     annotated["moonlighting_fraction"] = annotated["scored_member_names"].map(
@@ -597,9 +548,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--obo", type=Path, required=True, help="go-basic.obo (GO DAG for depth + lineage)")
     parser.add_argument("--jaccard-threshold", type=float, default=DEFAULT_JACCARD_THRESHOLD,
                         help="Member-set Jaccard similarity at or above which two terms are redundant")
-    parser.add_argument("--merge-dag-lineage", action=argparse.BooleanOptionalAction,
-                        default=DEFAULT_MERGE_DAG_LINEAGE,
-                        help="Also merge member-sharing ancestor/descendant pairs (--no-merge-dag-lineage to disable; single linkage only)")
     parser.add_argument("--linkage", choices=list(_LINKAGE_METHODS), default=DEFAULT_LINKAGE,
                         help="How to group terms that clear the threshold: single (connected components, chains), average or complete (hierarchical cut)")
     parser.add_argument("--scope", choices=["pooled", "per_source"], default=DEFAULT_SCOPE,
@@ -625,7 +573,6 @@ def main() -> int:
             output_representatives=args.output_representatives,
             output_group_members=args.output_group_members,
             jaccard_threshold=args.jaccard_threshold,
-            merge_dag_lineage=args.merge_dag_lineage,
             linkage=args.linkage,
             scope=args.scope,
             force_representatives=list(args.force_representatives),

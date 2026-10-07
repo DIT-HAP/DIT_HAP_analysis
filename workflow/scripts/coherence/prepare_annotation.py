@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Coherence Annotation Preparer (source -> unified long-table)
@@ -57,10 +56,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
-# 3. Third-party Imports
+# 2. Third-party Imports
 from loguru import logger
 
 # 4. Local Imports
@@ -70,22 +66,11 @@ from coherence.sources import SOURCE_LOADERS, load_source  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-# =============================================================================
-# CORE LOGIC
-# =============================================================================
-def prepare(source: str, pombase_dir: Path, kegg_dir: Path | None = None) -> pd.DataFrame:
-    """Dispatch to the source adapter and return the unified long-table."""
-    return load_source(source, Path(pombase_dir), kegg_dir)
-
-
 @logger.catch(reraise=True)
 def run(source: str, pombase_dir: Path, output: Path, kegg_dir: Path | None = None) -> None:
     """Prepare the long-table for one source and write it to output."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    table = prepare(source, pombase_dir, kegg_dir)
+    table = load_source(source, Path(pombase_dir), kegg_dir)
     table.to_csv(output, sep="\t", index=False)
     logger.success(f"[{source}] {len(table):,} rows, "
                    f"{table['group_id'].nunique():,} groups -> {output}")

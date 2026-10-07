@@ -298,13 +298,12 @@ rule deduplicate_coherence_terms:
         # Fallbacks must match the script's own defaults, or a config that dropped
         # the key would silently run a different algorithm than a bare CLI call.
         linkage=_COH_CFG.get("dedup_linkage", "complete"),
-        lineage_flag="--merge-dag-lineage" if _COH_CFG.get("dedup_merge_dag_lineage", False) else "--no-merge-dag-lineage",
         scope=_COH_CFG.get("dedup_scope", "pooled"),
         force=lambda wc: " ".join(_COH_CFG.get("dedup_force_representatives", []) or []),
     log:
         "logs/3a_coherence/dedup_{dataset}.log",
     conda:
-        # biopython.yml carries goatools (GO DAG depth + is_a/part_of lineage), pandas
+        # biopython.yml carries goatools (GO DAG depth), pandas
         # and scipy (the redundancy graph runs through scipy.sparse.csgraph).
         "../envs/biopython.yml"
     message:
@@ -316,7 +315,6 @@ rule deduplicate_coherence_terms:
             --obo {input.obo} \
             --jaccard-threshold {params.jaccard_threshold} \
             --linkage {params.linkage} \
-            {params.lineage_flag} \
             --scope {params.scope} \
             --force-representatives {params.force} \
             --output-all {output.all_terms} \

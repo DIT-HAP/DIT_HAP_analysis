@@ -133,7 +133,7 @@ def test_compute_coherence_table_paralog_fraction_uses_scored_members():
 
 
 def test_load_fitting_results_drops_inf_rows(tmp_path):
-    from compute_coherence import load_fitting_results
+    from coherence.io import load_fitting_results
     df = pd.DataFrame(
         {"DR": [0.5, 0.8, np.inf], "DL": [1.0, 2.0, 3.0]},
         index=["SPAC1", "SPAC2", "SPINF"],
@@ -141,6 +141,6 @@ def test_load_fitting_results_drops_inf_rows(tmp_path):
     df.index.name = "Systematic ID"
     p = tmp_path / "fitting_results.tsv"
     df.to_csv(p, sep="\t")
-    bg = load_fitting_results(p, dr_threshold=0.3)
+    bg = load_fitting_results(p)
     assert "SPINF" not in set(bg["Systematic ID"])
     assert np.isfinite(bg[["norm_DR", "norm_DL"]].to_numpy()).all()

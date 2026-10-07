@@ -85,7 +85,7 @@ def test_build_clusters_is_transitive():
         ("GO:3", {"a", "b", "c", "f"}),   # 3/4 with both, disjoint-ish otherwise
         ("GO:4", {"x", "y", "z"}),        # disjoint from all
     ])
-    labels = build_clusters(sub, threshold=0.5, merge_dag_lineage=False, ancestors={})
+    labels = build_clusters(sub, threshold=0.5)
     assert labels[0] == labels[1] == labels[2]
     assert labels[3] != labels[0]
     # dense labels numbered by first appearance, which the output sort keys on
@@ -99,38 +99,9 @@ def test_build_clusters_merges_high_overlap():
         ("GO:2", {"a", "b", "c", "e"}),   # 3/4 overlap with GO:1 -> merge at 0.5
         ("GO:3", {"x", "y", "z"}),        # disjoint
     ])
-    labels = build_clusters(sub, threshold=0.5, merge_dag_lineage=False, ancestors={})
+    labels = build_clusters(sub, threshold=0.5)
     assert labels[0] == labels[1]
     assert labels[2] != labels[0]
-
-
-def test_build_clusters_lineage_only_merges_member_sharing():
-    """DAG lineage unites an ancestor/descendant pair ONLY when they share a member.
-
-    GO:child shares one gene with GO:parent (overlap 1/3 < 0.5, so overlap alone
-    would NOT merge), but the lineage rule merges them. A same-lineage but
-    member-disjoint term must stay separate.
-    """
-    sub = _sub([
-        ("GO:parent", {"a", "b", "c"}),
-        ("GO:child", {"a", "m", "n"}),      # shares 'a' with parent; overlap 1/3
-        ("GO:cousin", {"p", "q", "r"}),     # in lineage but no shared member
-    ])
-    ancestors = {"GO:child": {"GO:parent"}, "GO:cousin": {"GO:parent"}, "GO:parent": set()}
-    labels = build_clusters(sub, threshold=0.5, merge_dag_lineage=True, ancestors=ancestors)
-    assert labels[0] == labels[1]          # parent + child merged via lineage
-    assert labels[2] != labels[0]          # cousin shares no member -> not merged
-
-
-def test_build_clusters_lineage_off_keeps_low_overlap_separate():
-    """With lineage off, the low-overlap parent/child pair stays in separate clusters."""
-    sub = _sub([
-        ("GO:parent", {"a", "b", "c"}),
-        ("GO:child", {"a", "m", "n"}),
-    ])
-    ancestors = {"GO:child": {"GO:parent"}, "GO:parent": set()}
-    labels = build_clusters(sub, threshold=0.5, merge_dag_lineage=False, ancestors=ancestors)
-    assert labels[0] != labels[1]
 
 
 # --- orchestration: representative selection --------------------------------
@@ -160,8 +131,7 @@ def test_deduplicate_picks_best_qvalue_representative(tmp_path):
          "scored_member_names": ["x", "y", "z"], "median_pairwise_distance_z": -3.0, "q_value": 0.2},
     ])
     depth = {"GO:1": 3, "GO:2": 6, "GO:9": 4}
-    ancestors = {"GO:1": set(), "GO:2": set(), "GO:9": set()}
-    out = deduplicate(table, _cfg(tmp_path, scope="pooled", merge_dag_lineage=False), depth, ancestors)
+    out = deduplicate(table, _cfg(tmp_path, scope="pooled"), depth)
     assert len(out) == 3  # nothing dropped
     reps = out[out["is_representative"]]
     # GO:1 & GO:2 are one cluster (overlap 3/4); GO:9 alone -> 2 clusters, 2 reps.
@@ -183,9 +153,8 @@ def test_deduplicate_force_representative_overrides(tmp_path):
          "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value": 0.01},
     ])
     depth = {"GO:1": 3, "GO:2": 6}
-    ancestors = {"GO:1": set(), "GO:2": set()}
-    cfg = _cfg(tmp_path, scope="pooled", merge_dag_lineage=False, force_representatives=["GO:1"])
-    out = deduplicate(table, cfg, depth, ancestors)
+    cfg = _cfg(tmp_path, scope="pooled", force_representatives=["GO:1"])
+    out = deduplicate(table, cfg, depth)
     rep = out[out["is_representative"]]
     assert list(rep["group_id"]) == ["GO:1"]
     assert rep["representative_source"].iloc[0] == "forced"
@@ -200,8 +169,7 @@ def test_deduplicate_exactly_one_representative_per_cluster(tmp_path):
         for i in range(6)
     ])
     depth = {f"GO:{i}": 5 for i in range(6)}
-    ancestors = {f"GO:{i}": set() for i in range(6)}
-    out = deduplicate(table, _cfg(tmp_path, scope="pooled", merge_dag_lineage=False), depth, ancestors)
+    out = deduplicate(table, _cfg(tmp_path, scope="pooled"), depth)
     per_cluster = out.groupby("redundancy_cluster")["is_representative"].sum()
     assert (per_cluster == 1).all()
 
@@ -215,8 +183,7 @@ def test_deduplicate_per_source_scope_keeps_sources_separate(tmp_path):
          "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value": 0.031},
     ])
     depth = {"GO:X": 4}
-    ancestors = {"GO:X": set()}
-    out = deduplicate(table, _cfg(tmp_path, scope="per_source", merge_dag_lineage=False), depth, ancestors)
+    out = deduplicate(table, _cfg(tmp_path, scope="per_source"), depth)
     # Same GO:X in two sources -> two clusters under per_source, both representatives.
     assert out["redundancy_cluster"].nunique() == 2
     assert out["is_representative"].sum() == 2
@@ -234,14 +201,14 @@ def _chain_sub():
 
 def test_single_linkage_chains_the_whole_line():
     """Default behaviour, pinned because it is what `complete` is being compared to."""
-    labels = build_clusters(_chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={})
+    labels = build_clusters(_chain_sub(), threshold=0.5)
     assert labels[0] == labels[1] == labels[2]
 
 
 def test_complete_linkage_breaks_the_chain():
     """A and C are not redundant with each other, so no cluster may hold both."""
     labels = build_clusters(
-        _chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={},
+        _chain_sub(), threshold=0.5,
         linkage_method="complete",
     )
     assert labels[0] == labels[1]          # A~B still merge
@@ -266,7 +233,7 @@ def test_complete_linkage_holds_at_every_threshold():
     members = [set(row) for row in sub["scored_member_names"]]
     for threshold in (0.3, 0.5, 0.6, 0.8):
         labels = build_clusters(
-            sub, threshold=threshold, merge_dag_lineage=False, ancestors={},
+            sub, threshold=threshold,
             linkage_method="complete",
         )
         for i, j in itertools.combinations(range(len(members)), 2):
@@ -280,7 +247,7 @@ def test_complete_linkage_holds_at_every_threshold():
 
 def test_complete_linkage_keeps_a_disjoint_term_alone():
     labels = build_clusters(
-        _chain_sub(), threshold=0.5, merge_dag_lineage=False, ancestors={},
+        _chain_sub(), threshold=0.5,
         linkage_method="complete",
     )
     assert len(set(labels)) == 2
@@ -293,41 +260,20 @@ def _existing_cfg(tmp_path, **kw):
     return _cfg(tmp_path, **kw)
 
 
-@pytest.mark.parametrize("method", ["average", "complete"])
-def test_lineage_rule_is_rejected_outside_single_linkage(tmp_path, method):
-    """A DAG-ancestor edge is not a similarity, so it cannot ride on a linkage cut.
-
-    Silently dropping it (or silently ignoring the linkage) would answer a different
-    question than the config asked, so the config refuses the pair outright.
-    """
-    cfg = _existing_cfg(tmp_path, linkage=method, merge_dag_lineage=True)
-    with pytest.raises(ValueError, match="merge_dag_lineage needs linkage='single'"):
-        cfg.validate()
-
-
 def test_unknown_linkage_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="linkage must be one of"):
         _existing_cfg(tmp_path, linkage="ward").validate()
 
 
-def test_single_linkage_still_carries_the_lineage_edge(tmp_path):
-    """The one combination that is allowed to set both must validate."""
-    _existing_cfg(tmp_path, linkage="single", merge_dag_lineage=True).validate()
-
-
 def test_defaults_are_self_consistent(tmp_path):
     """A bare DedupConfig() must validate, and its linkage must be `complete`.
 
-    `complete` and the DAG-lineage rule are mutually exclusive (a similarity cannot
-    express an ancestor edge), so a lineage default of True would make the
-    out-of-the-box config — and therefore the CLI's own --help — advertise a
-    combination that raises on the first call. The two constants have to move
-    together; this pins the pair.
+    `complete` is the pinned default: it is the linkage whose no-chaining property
+    the tests above hold up, so a bare CLI call must run it rather than `single`.
     """
-    from deduplicate_terms import DEFAULT_LINKAGE, DEFAULT_MERGE_DAG_LINEAGE
+    from deduplicate_terms import DEFAULT_LINKAGE
 
     assert DEFAULT_LINKAGE == "complete"
-    assert DEFAULT_MERGE_DAG_LINEAGE is False
     _existing_cfg(tmp_path).validate()   # no kwargs: exactly the defaults
 
 

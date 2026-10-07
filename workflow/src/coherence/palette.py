@@ -1,9 +1,9 @@
 """Colour and ordering vocabulary for the coherence stage's cross-source figures.
 
-Two plotting scripts now draw more than one source at once — the coherence
+Two plotting scripts draw more than one source at once — the coherence
 comparison figure (all sources + the de-duplicated representative set) and the
-pooled attribution figure's label-frequency bars. This module exists so they
-cannot drift apart on what colour `go_bp` is.
+redundancy network's node colours. This module exists so they cannot drift apart
+on what colour `go_bp` is.
 
 It deliberately does NOT live in `sources.py`: that module is imported by the
 compute stage, and a colour helper there would drag matplotlib into a

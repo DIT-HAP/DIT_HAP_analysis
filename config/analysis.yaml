@@ -173,8 +173,8 @@ coherence:
     kegg_brite: []
     kegg_pathway: []
   # Redundancy reduction (display layer; full-set q_value is untouched). Terms are
-  # clustered by member-gene similarity (+ optional GO DAG lineage), one
-  # representative kept per cluster; the full cluster is retained + flagged.
+  # clustered by member-gene similarity, one representative kept per cluster; the
+  # full cluster is retained + flagged.
   # Jaccard |A∩B|/|A∪B|, NOT the overlap coefficient |A∩B|/min(|A|,|B|): with min()
   # any term contained in a larger one scores 1.0, and since GO propagation makes
   # containment ubiquitous the redundancy graph became one blob (2,097 terms -> 2
@@ -191,15 +191,10 @@ coherence:
   # and mitochondrial ribosomes together); complete @0.5 caps it at 26 and puts the
   # two ribosomes in separate clusters. `average` is available as the middle ground.
   dedup_linkage: complete
-  # OFF by default. The lineage rule unites any member-sharing ancestor/descendant
-  # pair, and GO propagation guarantees every term shares members with all of its
-  # ancestors, so transitivity chains the entire DAG into one cluster: with it on,
-  # 2,046 of 2,097 terms land in a single cluster and the similarity threshold
-  # stops mattering (0.5 -> 0.9 moves the max cluster 2046 -> 1966). It looked
-  # harmless under the old overlap coefficient only because that metric had
-  # already merged every nested pair first. Turn it back on only alongside a
-  # rule that merges single parent/child steps rather than the whole ancestor set.
-  dedup_merge_dag_lineage: false
+  # (A GO DAG-lineage merge rule — unite member-sharing ancestor/descendant pairs —
+  # was tried and removed 2026-10-07: GO propagation guarantees every term shares
+  # members with all of its ancestors, so it chained the entire DAG into one
+  # cluster, 2,046 of 2,097 terms, and the similarity threshold stopped mattering.)
   dedup_scope: pooled               # "pooled" (collapse across sources) | "per_source"
   dedup_force_representatives: []    # group_ids you hand-pick as their cluster's representative
   # Per-view fraction distributions (compute_view_fractions + plot_fraction_

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Per-View Fractions (paralog + moonlighting) — Computation Only
@@ -77,8 +76,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from coherence import fractions  # noqa: E402
-from coherence.fractions import moonlighting_fraction, view_breadth  # noqa: E402
+from coherence.fractions import MOONLIGHTING_QUANTILE, moonlighting_fraction, view_breadth  # noqa: E402
 from io_table import read_file  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -197,7 +195,7 @@ def run(config: ViewFractionsConfig) -> None:
     logger.success(
         f"[{config.view}] {len(table):,} terms, {len(per_gene):,} genes in "
         f"{table['redundancy_cluster'].nunique():,} groups; cut = {cut:g} groups/gene "
-        f"(top {1 - fractions.MOONLIGHTING_QUANTILE:.0%}), "
+        f"(top {1 - MOONLIGHTING_QUANTILE:.0%}), "
         f"{int(per_gene['is_moonlighting'].sum()):,} genes above it; wrote {config.output_terms}"
     )
     per_gene[_GENE_COLUMNS].to_csv(config.output_genes, sep="\t", index=False)
