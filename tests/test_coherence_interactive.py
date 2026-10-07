@@ -59,10 +59,10 @@ def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
 def _scatter_pieces() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """(gene detail, members, centroids) — the frames run() hands to build_chart."""
-    from plot_interactive_scatter import centroid_table, gene_detail, member_table, term_labels
+    from plot_interactive_scatter import centroid_table, cohort_labels, gene_detail, member_table, term_labels
 
     metrics, long_table, fitting = _scatter_frames()
-    metrics = term_labels(metrics)
+    metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
     detail = gene_detail(fitting)
     members = member_table(metrics, long_table, detail, "s")
     return detail, members, centroid_table(members, detail, metrics)
@@ -86,7 +86,8 @@ def test_member_rows_carry_keys_only_so_the_cloud_is_embedded_once():
     # member repeats every field name 58k times in go_bp, which is what made the
     # page 24 MB. The gene columns must arrive by lookup into the cloud's own
     # dataset — so both references must resolve to ONE embedded dataset.
-    assert set(members.columns) == {"term", "Systematic ID"}
+    # (`cohort` rides along because the cohort dropdown filters this layer too.)
+    assert set(members.columns) == {"term", "cohort", "Systematic ID"}
     genes = spec["hconcat"][1]["layer"]
     cloud = genes[0]["data"]["name"]
     looked_up = genes[1]["transform"][0]["from"]["data"]["name"]
@@ -156,10 +157,10 @@ def test_pooled_terms_are_prefixed_with_their_source():
 
 
 def test_pooled_members_join_on_source_as_well_as_group_id():
-    from plot_interactive_scatter import centroid_table, gene_detail, member_table, term_labels
+    from plot_interactive_scatter import centroid_table, cohort_labels, gene_detail, member_table, term_labels
 
     metrics, long_table, fitting = _pooled_frames()
-    metrics = term_labels(metrics)
+    metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
     detail = gene_detail(fitting)
     members = member_table(metrics, long_table, detail, None)   # None = pooled
 
@@ -174,10 +175,10 @@ def test_pooled_members_join_on_source_as_well_as_group_id():
 
 
 def test_pooled_view_drops_the_other_sources_genes():
-    from plot_interactive_scatter import gene_detail, member_table, term_labels
+    from plot_interactive_scatter import cohort_labels, gene_detail, member_table, term_labels
 
     metrics, long_table, fitting = _pooled_frames()
-    metrics = term_labels(metrics)
+    metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
     detail = gene_detail(fitting)
     # The per-source pick must still work on a pooled annotation table — that is how
     # the script tells the three views apart.
@@ -201,9 +202,32 @@ def test_scatter_spec_is_serializable_and_carries_a_dropdown():
               if isinstance(p, dict)]
     pickers = [p for p in params if isinstance(p.get("bind"), dict)
                and p["bind"].get("input") == "select"]
-    assert len(pickers) == 1, f"expected exactly one dropdown, got {len(pickers)}"
-    assert pickers[0]["bind"]["options"] == options
-    assert pickers[0]["value"] == "coherent term", "the page must open on a term, not blank"
+    assert len(pickers) == 2, f"expected term + cohort dropdowns, got {len(pickers)}"
+    term = next(p for p in pickers if p["name"] == "term_pick")
+    cohort = next(p for p in pickers if p["name"] == "cohort_pick")
+    assert term["bind"]["options"] == options
+    assert term["value"] == "coherent term", "the page must open on a term, not blank"
+    assert cohort["bind"]["options"] == ["all", "coherent", "incoherent"]
+    assert cohort["value"] == "all", "'all' is the initial value that keeps the old default view"
+
+
+def test_member_rows_carry_cohort_so_the_cohort_filter_reaches_the_genes():
+    _, members, _ = _scatter_pieces()
+    assert "cohort" in members.columns, (
+        "without it an undefined datum empties the gene panel every cohort pick"
+    )
+
+
+def test_cohort_dropdown_compiles_onto_both_panels():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    genes = spec["hconcat"][1]["layer"][1]
+    filters = [str(f.get("filter", "")) for f in genes["transform"]]
+    # The cohort filter must sit on the member layer with the term picker, so
+    # narrowing the map narrows the highlighted genes to the same cohort too.
+    assert any("cohort_pick" in f for f in filters), filters
 
 
 def test_the_centroid_panel_can_set_the_dropdowns_selection():

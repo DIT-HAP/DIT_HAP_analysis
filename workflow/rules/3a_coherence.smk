@@ -36,7 +36,6 @@
 #   plot_coherence_group_scatter   -> group_scatter.pdf (named groups from config)
 #   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; term picker
 #                                     + per-gene tooltips over the genome-wide cloud)
-#
 # Per-view rules (fan out over {view}: the five sources + combined + dedup):
 #   compute_view_fractions         -> {view}/view_fractions.tsv + view_gene_breadth.tsv:
 #                                     the per-view paralog / moonlighting fractions and
@@ -44,6 +43,9 @@
 #   plot_fraction_distributions    -> {view}/fraction_distributions.pdf (paralog fraction,
 #                                     groups per gene with the moonlighting cut marked,
 #                                     moonlighting fraction)
+#   plot_cohort_scatter            -> {view}/cohort_scatter_{cohort}.pdf (one feature-space
+#                                     panel per coherent / incoherent term; the five
+#                                     sources + dedup, not combined — see the rule)
 #
 # Cross-source rules (the {source} fan-out re-aggregated):
 #   combine_coherence_metrics      -> combined/coherence_metrics.parquet (all sources;
@@ -559,6 +561,65 @@ rule plot_coherence_group_scatter:
         """
 
 
+# --- Cohort scatter grids ----------------------------------------------------
+# One feature-space panel per term of the view's coherent / incoherent cohort,
+# in the group_scatter format (grey genome cloud + the term's members in the
+# house red). The two figures fan out over {view}: the five sources (each reads
+# its own metrics table) plus dedup (the representatives TSV; its members span
+# every source, so the annotations are concatenated). combined/ carries the
+# per-source rows duplicated, so its own pair would repeat panels across
+# sources — deliberately not built.
+_COHORT_VIEWS = [*_COH_SOURCES, "dedup"]
+
+rule plot_cohort_scatter:
+    input:
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+        metrics=lambda wc: (
+            f"results/3a_coherence/{wc.dataset}/{wc.view}/coherence_metrics.parquet"
+            if wc.view in _COH_SOURCES else
+            f"results/3a_coherence/{wc.dataset}/dedup/coherence_terms_representatives.tsv"
+        ),
+        annotations=lambda wc: (
+            [f"results/3a_coherence/{wc.dataset}/{wc.view}/group_annotation_long.tsv"]
+            if wc.view in _COH_SOURCES else
+            expand(
+                f"results/3a_coherence/{wc.dataset}/{{source}}/group_annotation_long.tsv",
+                source=_COH_SOURCES,
+            )
+        ),
+    output:
+        figure="results/3a_coherence/{dataset}/{view}/cohort_scatter_{cohort}.pdf",
+        preview="results/3a_coherence/{dataset}/{view}/cohort_scatter_{cohort}.review.png",
+    wildcard_constraints:
+        view="|".join(_COHORT_VIEWS),
+        cohort="coherent|incoherent",
+    params:
+        q_max=_COH_COHERENT_Q_MAX,
+        coherent_z=_COH_COHERENT_Z,
+        incoherent_z=_COH_INCOHERENT_Z,
+    log:
+        "logs/3a_coherence/cohort_scatter_{dataset}_{view}_{cohort}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coherence] Plotting the {wildcards.cohort} cohort scatter for {wildcards.dataset} × {wildcards.view}..."
+    shell:
+        """
+        python workflow/scripts/coherence/plot_cohort_scatter.py \
+            --metrics {input.metrics} \
+            --annotation {input.annotations} \
+            --fitting-results {input.fitting_results} \
+            --cohort {wildcards.cohort} \
+            --q-max {params.q_max} \
+            --coherent-z {params.coherent_z} \
+            --incoherent-z {params.incoherent_z} \
+            --output {output.figure} &> {log}
+        """
+
+
 # --- Interactive HTML (Altair) ----------------------------------------------
 # These two emit .html rather than the .pdf + .review.png pair, and neither goes
 # through figures.py's save_dual(). They are exploration tools, not figure
@@ -585,6 +646,9 @@ rule plot_coherence_interactive_scatter:
         ),
     output:
         page=f"{_COH}/interactive_scatter.html",
+    params:
+        coherent_z=_COH_COHERENT_Z,
+        incoherent_z=_COH_INCOHERENT_Z,
     log:
         "logs/3a_coherence/interactive_scatter_{dataset}_{source}.log",
     conda:
@@ -598,6 +662,8 @@ rule plot_coherence_interactive_scatter:
             --annotation {input.annotation} \
             --fitting-results {input.fitting_results} \
             --source {wildcards.source} \
+            --coherent-z {params.coherent_z} \
+            --incoherent-z {params.incoherent_z} \
             --output {output.page} &> {log}
         """
 
@@ -632,6 +698,9 @@ rule plot_coherence_interactive_scatter_for_pooled:
         page="results/3a_coherence/{dataset}/{view}/interactive_scatter.html",
     wildcard_constraints:
         view="combined|dedup",
+    params:
+        coherent_z=_COH_COHERENT_Z,
+        incoherent_z=_COH_INCOHERENT_Z,
     log:
         "logs/3a_coherence/interactive_scatter_{dataset}_{view}.log",
     conda:
@@ -644,6 +713,8 @@ rule plot_coherence_interactive_scatter_for_pooled:
             --metrics {input.metrics} \
             --annotation {input.annotations} \
             --fitting-results {input.fitting_results} \
+            --coherent-z {params.coherent_z} \
+            --incoherent-z {params.incoherent_z} \
             --output {output.page} &> {log}
         """
 

@@ -25,6 +25,13 @@ or a click on a group marker. They are the same selection, so either route
 updates both panels — the dropdown's value follows a click, and the marker
 highlight follows the dropdown.
 
+A second dropdown next to the first narrows both panels to one cohort end:
+`all` (the default, today's view), `coherent` (q <= 0.05 AND z < --coherent-z)
+or `incoherent` (z > --incoherent-z) — the same cuts the cohort figures and
+workbooks label with. On the map the unselected markers carry the cohort on
+their colour, so the two ends are findable on sight before any picking; `other`
+keeps the original grey.
+
 The term list is every group in the source's metrics table, most coherent first,
 so the page opens on the strongest signal. Genes are the term's *scored* members
 (the DR<threshold set the coherence z-score was computed on), joined to the
@@ -60,8 +67,8 @@ Usage
         --output tmp/{source}/interactive_scatter.html
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
-Date:     2026-09-22
-Version:  2.1.0
+Date:     2026-09-22 (cohort dropdown + marker colours 2026-10-08)
+Version:  2.2.0
 """
 
 # =============================================================================
@@ -75,6 +82,7 @@ from pathlib import Path
 
 # 2. Data Processing Imports
 import altair as alt
+import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
@@ -125,6 +133,23 @@ _CENTROID_SELECTED_SIZE = 280
 _CENTROID_OPACITY = 0.4
 _CENTROID_STROKE = "#ffffff"
 
+# Cohort colouring for the centroid markers, so a reader can find the coherent
+# and incoherent terms on the map directly instead of reading z off a tooltip.
+# Both ends get a greyscale-separated house colour (positions 2 and 3, the pair
+# figures.py curates for that property) — position 0 is the highlight red and is
+# therefore already taken. Everything else (the bulk) recedes into the grey the
+# map already uses. The same vocabulary the cohort workbooks use
+# (export_cohorts.py's Cohort), cut with the same thresholds the figures label
+# with (--coherent-z/--incoherent-z, below).
+_COHORT_COLORS = dict(
+    zip(("coherent", "incoherent"), house_colors((2, 3)))
+)
+
+# The coherent cohort's FDR half. The z thresholds arrive through --label-*
+# style CLI flags (config/analysis.yaml's `coherence:` block drives them via the
+# rules); the q cutoff is the one constant this page shares with the workbooks.
+_COHERENT_Q_MAX = 0.05
+
 # Coordinates are rounded before they are embedded: the page carries one JSON row
 # per (term, member) pair — 58k of them for go_bp — and a full float64 prints
 # twice as long as it needs to. 4 dp is below what the tooltips display (3 dp), so
@@ -133,6 +158,10 @@ _ROUND_DP = 4
 _ROUND_COLUMNS = ["DR", "DL", "norm_DR", "norm_DL", "R2"]
 
 _REQUIRED_METRIC_COLUMNS = ["source", "group_id", "group_name", "median_pairwise_distance_z", "q_value"]
+
+# The cohort dropdown's choices, in order. `all` keeps the page's default view
+# unchanged; the two cohort entries narrow the map and the term list to that end.
+_COHORT_CHOICES = ["all", "coherent", "incoherent"]
 
 # Per-gene columns carried into the tooltip, in display order. Every one comes
 # from the upstream fitting table except the two normalized coordinates.
@@ -150,6 +179,7 @@ _GENE_TOOLTIP = [
 # What a group marker says about the group, not about any one gene.
 _TERM_TOOLTIP = [
     alt.Tooltip("term:N", title="Term"),
+    alt.Tooltip("cohort:N", title="Cohort"),
     alt.Tooltip("median_pairwise_distance_z:Q", title="z", format=".2f"),
     alt.Tooltip("q_value:Q", title="q (BH)", format=".3g"),
     alt.Tooltip("n_scored_members:Q", title="scored genes", format="d"),
@@ -223,6 +253,10 @@ class PlotConfig:
     fitting_results: Path
     # None pools every row of `metrics` (the combined / dedup views).
     source: str | None
+    # The cohort cuts, matching config/analysis.yaml's `coherence:` block — the
+    # same two numbers the static figures and workbooks label with.
+    coherent_z: float
+    incoherent_z: float
     output: Path
 
     def validate(self) -> None:
@@ -236,6 +270,24 @@ class PlotConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def cohort_labels(
+    metrics: pd.DataFrame, coherent_z: float, incoherent_z: float
+) -> pd.DataFrame:
+    """Add the `cohort` column the dropdown filters and the markers colour on.
+
+    Same cuts the figures and workbooks label with (config/analysis.yaml's
+    `coherence:` block): coherent = q <= 0.05 AND z < coherent_z; incoherent =
+    z > incoherent_z, a descriptive rank cut that carries no FDR (see
+    export_cohorts.py's docstring). Everything else is `other`.
+    """
+    z = metrics["median_pairwise_distance_z"]
+    coherent = (metrics["q_value"] <= _COHERENT_Q_MAX) & (z < coherent_z)
+    incoherent = z > incoherent_z
+    return metrics.assign(
+        cohort=np.where(coherent, "coherent", np.where(incoherent, "incoherent", "other"))
+    )
+
+
 def term_labels(metrics: pd.DataFrame) -> pd.DataFrame:
     """Add the `term` column both panels and the picker key on.
 
@@ -297,10 +349,12 @@ def member_table(
     # sources would otherwise merge two different groups' members. Neither key is
     # kept in the returned frame — the page only ever reads `term` and looks the
     # gene up by `Systematic ID`, and 58k repeated short strings is not nothing.
+    # `cohort` rides along because the cohort dropdown filters this layer too —
+    # without it an undefined datum would empty the gene panel on every pick.
     merged = members.merge(
-        metrics[["source", "group_id", "term"]], on=["source", "group_id"], how="inner"
+        metrics[["source", "group_id", "term", "cohort"]], on=["source", "group_id"], how="inner"
     )
-    return merged[["term", "Systematic ID"]]
+    return merged[["term", "cohort", "Systematic ID"]]
 
 
 def centroid_table(
@@ -310,7 +364,7 @@ def centroid_table(
     coords = members.merge(detail[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID")
     means = coords.groupby("term", as_index=False)[["norm_DR", "norm_DL"]].mean()
     stats = metrics[[
-        "term", "median_pairwise_distance_z", "q_value", "n_scored_members",
+        "term", "median_pairwise_distance_z", "q_value", "n_scored_members", "cohort",
     ]]
     return means.merge(stats, on="term", how="left")
 
@@ -322,9 +376,12 @@ def term_options(centroids: pd.DataFrame) -> list[str]:
 
 
 def build_chart(
-    background: pd.DataFrame, members: pd.DataFrame, centroids: pd.DataFrame, options: list[str]
+    background: pd.DataFrame, members: pd.DataFrame, centroids: pd.DataFrame,
+    options: list[str], cohort_colors: dict[str, str] | None = None,
 ) -> alt.Chart:
     """The two-panel page: the term map left, the picked term's genes right."""
+    if cohort_colors is None:
+        cohort_colors = _COHORT_COLORS
     # ONE selection, two ways to set it. `bind` renders the dropdown; `on="click"`
     # additionally lets a click on a centroid marker write the same value, so the
     # dropdown and the map can never disagree. The param is declared on the
@@ -339,6 +396,20 @@ def build_chart(
         clear=False,
         name="term_pick",
     )
+    # A second dropdown narrows both panels to one cohort end, so the coherent /
+    # incoherent terms are findable without scrolling a 1,400-entry term list.
+    # A plain variable param (`alt.param`), not a point selection: it has no
+    # click semantics, and `all` — its initial value — simply disables the
+    # filter, which keeps today's default view unchanged.
+    cohort_pick = alt.param(
+        bind=alt.binding_select(options=_COHORT_CHOICES, name="Cohort  "),
+        value=_COHORT_CHOICES[0],
+        name="cohort_pick",
+    )
+    # A plain string, not an `&`-composition: mixing a selection with an expression
+    # in one PredicateComposition raises SchemaValidationError at compile time, while
+    # separate .transform_filter() calls AND together cleanly.
+    cohort_filter = "cohort_pick === 'all' || datum.cohort === cohort_pick"
     highlight = house_colors((0,))[0]
     gene_x = alt.X("norm_DR:Q", title="norm DR")
     gene_y = alt.Y("norm_DL:Q", title="norm DL/10", scale=alt.Scale(domainMin=_DL_FLOOR))
@@ -349,23 +420,48 @@ def build_chart(
     # crowded cloud, and in a single layer the selected marker is drawn wherever its
     # row happens to fall — underneath whichever markers come after it. Splitting on
     # the selection puts the picked marker in a layer of its own, drawn last.
+    #
+    # Unselected markers are NOT one flat grey any more: the cohort end the term
+    # belongs to is carried on the marker colour, so the map answers "where are
+    # the coherent terms?" without a click. `other` keeps the old grey and the
+    # opacity, so the idle page reads exactly as it did before.
     def centroid_layer(picked: bool, sample: alt.Chart) -> alt.Chart:
+        # The picked layer stays `highlight`; the dimmed layer carries the cohort
+        # on its colour. `other` keeps the old grey, so the idle page reads as
+        # before apart from the two flagged ends.
+        color = (
+            alt.Color(
+                "cohort:N",
+                scale=alt.Scale(
+                    domain=["coherent", "incoherent", "other"],
+                    range=[cohort_colors["coherent"], cohort_colors["incoherent"],
+                           _BACKGROUND_LIGHT_GREY],
+                ),
+                legend=None,
+            )
+            if not picked else alt.value(highlight)
+        )
         return (
             sample.mark_circle(
                 stroke=_CENTROID_STROKE,
                 strokeWidth=0.6,
                 size=_CENTROID_SELECTED_SIZE if picked else _CENTROID_SIZE,
-                color=highlight if picked else _BACKGROUND_LIGHT_GREY,
                 opacity=1.0 if picked else _CENTROID_OPACITY,
             )
-            .encode(x=centroid_x, y=centroid_y, tooltip=_TERM_TOOLTIP)
+            .encode(x=centroid_x, y=centroid_y, tooltip=_TERM_TOOLTIP, color=color)
         )
 
-    dimmed = centroid_layer(False, alt.Chart(centroids).transform_filter(~picker))
-    picked = centroid_layer(True, alt.Chart(centroids).transform_filter(picker))
+    dimmed = centroid_layer(
+        False,
+        alt.Chart(centroids).transform_filter(~picker).transform_filter(cohort_filter),
+    )
+    picked = centroid_layer(
+        True,
+        alt.Chart(centroids).transform_filter(picker).transform_filter(cohort_filter),
+    )
     centroid = (
         (dimmed + picked)
-        .add_params(picker)
+        .add_params(picker, cohort_pick)
         .properties(
             width=_CHART_WIDTH,
             height=_CHART_HEIGHT,
@@ -390,11 +486,13 @@ def build_chart(
             ),
         )
         .transform_filter(picker)
+        .transform_filter(cohort_filter)
         .mark_circle(size=_MEMBER_SIZE, color=highlight, opacity=_MEMBER_OPACITY)
         .encode(x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP)
     )
     genes = (
         (cloud + highlighted)
+        .add_params(cohort_pick)
         .properties(
             width=_CHART_WIDTH,
             height=_CHART_HEIGHT,
@@ -428,6 +526,7 @@ def run(config: PlotConfig) -> None:
     fitting = load_fitting_results(config.fitting_results)
 
     metrics = term_labels(metrics)
+    metrics = cohort_labels(metrics, config.coherent_z, config.incoherent_z)
     detail = gene_detail(fitting)
     members = member_table(metrics, long_table, detail, config.source)
     centroids = centroid_table(members, detail, metrics)
@@ -440,7 +539,7 @@ def run(config: PlotConfig) -> None:
         f"{len(metrics):,} groups ({scope}), {len(members):,} member rows, "
         f"{len(fitting):,} background genes; opening on '{options[0]}'"
     )
-    chart = build_chart(detail, members, centroids, options)
+    chart = build_chart(detail, members, centroids, options, _COHORT_COLORS)
     chart.save(config.output)
     embed_page_css(config.output)
     logger.success(f"Wrote {config.output} ({len(members):,} member rows over {len(options):,} terms)")
@@ -459,6 +558,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv")
     parser.add_argument("--source", type=str,
                         help="One source's rows; omit to pool everything in --annotation (combined / dedup)")
+    parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
+    parser.add_argument("--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this")
     parser.add_argument("--output", type=Path, required=True, help="Output HTML page")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -474,6 +575,8 @@ def main() -> int:
             annotations=tuple(args.annotation),
             fitting_results=args.fitting_results,
             source=args.source,
+            coherent_z=args.coherent_z,
+            incoherent_z=args.incoherent_z,
             output=args.output,
         )
         run(config)
