@@ -63,6 +63,7 @@ from pathlib import Path
 
 # 2. Data Processing Imports
 import cnsplots as cns
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -95,6 +96,18 @@ _MAX_COLUMNS = 3
 # Panels are SQUARE; a 100 px box fits about 25 characters at the house title
 # size, so the title is split across three short lines rather than one long one.
 _TITLE_NAME_WIDTH = 22
+
+# The scored/unscored split the coherence computation draws on, shown in every
+# panel: the genome cloud stays a single grey, and a dashed line marks the DR
+# threshold — but the highlighted members are recoloured on either side of it,
+# since only the term's own genes are asked to read against the cut. A threshold
+# arrives via --dr-threshold; this is only the fallback, which must match
+# config/analysis.yaml's `coherence.dr_threshold` and compute_coherence.py's.
+_DR_THRESHOLD = -0.3
+# Scored side (left of the line): the house red. Not-scored side: the house
+# blue-teal, a genuinely different hue (not a lightness step) so the two stay
+# apart in greyscale print as well.
+_UNSCORED_MEMBER_COLOR = house_colors((1,))[0]
 
 
 # =============================================================================
@@ -187,10 +200,22 @@ def panel_title(group_id: str, group_name: str, n_members: int, metrics_row: pd.
     return f"{name}\n({group_id}), n={n_members}\n{metrics_caption(metrics_row)}"
 
 
+def draw_split_cloud(
+    fitting_df: pd.DataFrame, dr_threshold: float, member_color: str
+) -> None:
+    """The genome cloud on the current axes, in one grey, with the dashed threshold line."""
+    cns.scatterplot(fitting_df, "DR", "DL", ax=plt.gca(), color=FURNITURE_COLOR, legend=False)
+    plt.axvline(
+        dr_threshold, color=FURNITURE_COLOR, linestyle="--",
+        linewidth=plt.rcParams["lines.linewidth"] * 0.8, zorder=0.5,
+    )
+
+
 def plot_group_scatter_figure(
     fitting_df: pd.DataFrame,
     resolved_groups: list[tuple[str, str, list[str]]],
     metrics_df: pd.DataFrame,
+    dr_threshold: float = _DR_THRESHOLD,
 ) -> None:
     """One feature-space panel per resolved group, annotated with coherence metrics."""
     # Each panel: the genome-wide background cloud in furniture grey with the
@@ -225,9 +250,18 @@ def plot_group_scatter_figure(
     member_color = house_colors((0,))[0]
     scored = metrics_df.set_index("group_id")
     for ax, (group_id, group_name, members) in zip(axes, resolved_groups):
-        cns.scatterplot(fitting_df, "DR", "DL", ax=ax, color=FURNITURE_COLOR, legend=False)
+        plt.sca(ax)
+        draw_split_cloud(fitting_df, dr_threshold, member_color)
         highlighted = fitting_df[fitting_df["Systematic ID"].isin(members)]
-        cns.scatterplot(highlighted, "DR", "DL", ax=ax, color=member_color, legend=False)
+        # The term's own genes are the ones asked to read against the cut, so they
+        # carry the threshold split: scored members in red, not-scored ones in the
+        # blue-teal — both cns.scatterplot calls with legend=False, no legend needed.
+        scored_members = highlighted[highlighted["DR"] < dr_threshold]
+        unscored_members = highlighted[highlighted["DR"] >= dr_threshold]
+        if not unscored_members.empty:
+            cns.scatterplot(unscored_members, "DR", "DL", ax=ax,
+                            color=_UNSCORED_MEMBER_COLOR, legend=False)
+        cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
 
         metrics_row = scored.loc[group_id] if group_id in scored.index else None
         ax.set(
@@ -250,6 +284,7 @@ def run(
     source: str,
     groups: list[str],
     output_figure: Path,
+    dr_threshold: float = _DR_THRESHOLD,
 ) -> None:
     """Load -> resolve groups -> plot feature-space figure + write PDF."""
     for path in [fitting_results, annotation, metrics]:
@@ -264,7 +299,7 @@ def run(
     resolved = resolve_groups(long_table, source, groups)
     logger.info(f"Resolved {len(resolved)} groups from namelist of {len(groups)} entries")
 
-    plot_group_scatter_figure(fitting_df, resolved, metrics_df)
+    plot_group_scatter_figure(fitting_df, resolved, metrics_df, dr_threshold)
     save_dual(output_figure.with_suffix(""))
     logger.success(f"Wrote {output_figure}")
 
@@ -285,6 +320,8 @@ def parse_args() -> argparse.Namespace:
         "--groups", type=str, default="",
         help="List or dict literal of group names/ids (empty -> no groups, placeholder figure)"
     )
+    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
+                        help="The coherence scored/unscored cut, drawn as a dashed line")
     parser.add_argument("--output-figure", type=Path, required=True, help="Output scatter PDF")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -303,6 +340,7 @@ def main() -> int:
             source=args.source,
             groups=groups,
             output_figure=args.output_figure,
+            dr_threshold=args.dr_threshold,
         )
     except (ValueError, OSError) as e:
         logger.error(f"Error: {e}")

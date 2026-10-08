@@ -64,6 +64,7 @@ from pathlib import Path
 
 # 2. Data Processing Imports
 import cnsplots as cns
+import matplotlib.pyplot as plt
 import pandas as pd
 
 # 3. Third-party Imports
@@ -105,6 +106,17 @@ _MAX_COLUMNS = 3
 # panel. Same cap as plot_group_scatter.py's name line.
 _TITLE_WIDTH = 22
 
+# The scored/unscored split the coherence computation draws on: the genome cloud
+# stays a single grey, and a dashed line marks the DR threshold — but the
+# highlighted members are recoloured on either side of it, since only the term's
+# own genes are asked to read against the cut. Threshold arrives via
+# --dr-threshold; this fallback must match config/analysis.yaml's
+# `coherence.dr_threshold` and both other coherence scatter scripts' defaults.
+_DR_THRESHOLD = -0.3
+# Scored members: the house red. Not-scored members: the house blue-teal, a
+# different hue (not a lightness step) so the two stay apart in greyscale print.
+_UNSCORED_MEMBER_COLOR = house_colors((1,))[0]
+
 
 def _clip(text: str, width: int = _TITLE_WIDTH) -> str:
     """A panel-title line that fits a 100 px panel: truncated with an ellipsis."""
@@ -129,6 +141,7 @@ class CohortScatterConfig:
     q_max: float
     coherent_z: float
     incoherent_z: float
+    dr_threshold: float
     output: Path
 
     def validate(self) -> None:
@@ -161,11 +174,23 @@ def member_sets_by_group(long_table: pd.DataFrame) -> dict[str, set[str]]:
     return long_table.groupby("group_id")["Systematic ID"].apply(set).to_dict()
 
 
+def draw_split_cloud(
+    fitting: pd.DataFrame, dr_threshold: float
+) -> None:
+    """The genome cloud on the current axes, in one grey, with the dashed threshold line."""
+    cns.scatterplot(fitting, "DR", "DL", ax=plt.gca(), color=FURNITURE_COLOR, legend=False)
+    plt.axvline(
+        dr_threshold, color=FURNITURE_COLOR, linestyle="--",
+        linewidth=plt.rcParams["lines.linewidth"] * 0.8, zorder=0.5,
+    )
+
+
 def draw_grid(
     fitting: pd.DataFrame,
     members_by_group: dict[str, set[str]],
     cohort: pd.DataFrame,
     side: CohortSide,
+    dr_threshold: float = _DR_THRESHOLD,
 ) -> None:
     """One feature-space panel per cohort term, sharing both axes ranges."""
     apply_house_style()
@@ -191,11 +216,19 @@ def draw_grid(
 
     member_color = house_colors((0,))[0]
     for ax, (_, row) in zip(axes, cohort.iterrows()):
+        plt.sca(ax)
+        draw_split_cloud(fitting, dr_threshold)
         members = members_by_group.get(row["group_id"], set())
-        cns.scatterplot(fitting, "DR", "DL", ax=ax, color=FURNITURE_COLOR, legend=False)
         highlighted = fitting[fitting["Systematic ID"].isin(members)]
-        if not highlighted.empty:
-            cns.scatterplot(highlighted, "DR", "DL", ax=ax, color=member_color, legend=False)
+        # The term's own genes carry the threshold split: scored members in red,
+        # not-scored ones in the blue-teal.
+        scored_members = highlighted[highlighted["DR"] < dr_threshold]
+        unscored_members = highlighted[highlighted["DR"] >= dr_threshold]
+        if not unscored_members.empty:
+            cns.scatterplot(unscored_members, "DR", "DL", ax=ax,
+                            color=_UNSCORED_MEMBER_COLOR, legend=False)
+        if not scored_members.empty:
+            cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
         name = _clip(str(row["group_name"]))
         group_id = str(row["group_id"])
         if " > " in group_id:
@@ -239,7 +272,8 @@ def run(config: CohortScatterConfig) -> None:
         f"(z>{config.incoherent_z:g})"
     )
 
-    draw_grid(fitting, member_sets_by_group(long_table), cohort, config.cohort)
+    draw_grid(fitting, member_sets_by_group(long_table), cohort, config.cohort,
+              config.dr_threshold)
     save_dual(config.output.with_suffix(""))
     logger.success(f"[{config.cohort.value}] {len(cohort):,} panels -> {config.output}")
 
@@ -262,6 +296,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q at or below this")
     parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
     parser.add_argument("--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this")
+    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
+                        help="The coherence scored/unscored cut, drawn as a dashed line")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output cohort_scatter_{cohort}.pdf")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
@@ -281,6 +317,7 @@ def main() -> int:
             q_max=args.q_max,
             coherent_z=args.coherent_z,
             incoherent_z=args.incoherent_z,
+            dr_threshold=args.dr_threshold,
             output=args.output,
         )
         run(config)

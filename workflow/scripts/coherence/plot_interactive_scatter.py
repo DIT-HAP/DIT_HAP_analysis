@@ -92,7 +92,7 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from figures import house_colors  # noqa: E402
+from figures import FURNITURE_COLOR, house_colors  # noqa: E402
 from io_table import read_file  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -114,9 +114,28 @@ _MEMBER_OPACITY = 0.85
 _BACKGROUND_SIZE = _MEMBER_SIZE
 
 # Floor for the DL axis. Most genes sit at exactly DL = 0, so an axis ending at 0
-# draws half of those markers outside the frame; DR has no such pile-up and keeps
-# its own limits.
+# draws half of those markers outside the frame.
 _DL_FLOOR = -0.05
+
+# BOTH panels are pinned to ONE fixed range on each axis — the data's own global
+# extent (norm_DR = DR; norm_DL = DL/10), padded 5% so a marker at the very edge
+# is not clipped. Fixed, not autoscaled per panel: autoscale lets the centroid
+# panel and the gene panel disagree, and a pan/zoom on one silently rescales only
+# that panel, which is exactly the comparison the page is for.
+_DR_LIMITS = (-2.14, 0.22)
+_DL_LIMITS = (_DL_FLOOR, 1.0)
+
+# The scored/unscored split the coherence computation draws on, shown in the gene
+# panel: the genome cloud stays one grey, and a dashed vertical line marks the DR
+# threshold — but the highlighted members are recoloured on either side of it,
+# since only the term's own genes are asked to read against the cut. Threshold
+# arrives via --dr-threshold; this fallback must match config/analysis.yaml's
+# `coherence.dr_threshold` and the two static scatter scripts' defaults.
+_DR_THRESHOLD = -0.3
+# Scored members: the house red (the caller's `highlight`). Not-scored members:
+# the house blue-teal, a different hue (not a lightness step) so the two stay
+# apart in greyscale print as well.
+_UNSCORED_MEMBER_COLOR = house_colors((1,))[0]
 
 # Chart footprint in pixels, per panel. Two panels share the page, so each is
 # smaller than the single-panel version was: side by side they stay inside a
@@ -257,6 +276,8 @@ class PlotConfig:
     # same two numbers the static figures and workbooks label with.
     coherent_z: float
     incoherent_z: float
+    # The scored/unscored cut the gene panel's cloud is split and dashed-lined on.
+    dr_threshold: float
     output: Path
 
     def validate(self) -> None:
@@ -378,6 +399,7 @@ def term_options(centroids: pd.DataFrame) -> list[str]:
 def build_chart(
     background: pd.DataFrame, members: pd.DataFrame, centroids: pd.DataFrame,
     options: list[str], cohort_colors: dict[str, str] | None = None,
+    dr_threshold: float = _DR_THRESHOLD,
 ) -> alt.Chart:
     """The two-panel page: the term map left, the picked term's genes right."""
     if cohort_colors is None:
@@ -411,10 +433,13 @@ def build_chart(
     # separate .transform_filter() calls AND together cleanly.
     cohort_filter = "cohort_pick === 'all' || datum.cohort === cohort_pick"
     highlight = house_colors((0,))[0]
-    gene_x = alt.X("norm_DR:Q", title="norm DR")
-    gene_y = alt.Y("norm_DL:Q", title="norm DL/10", scale=alt.Scale(domainMin=_DL_FLOOR))
-    centroid_x = alt.X("norm_DR:Q", title="centroid norm DR")
-    centroid_y = alt.Y("norm_DL:Q", title="centroid norm DL/10", scale=alt.Scale(domainMin=_DL_FLOOR))
+    # One fixed domain per axis, shared by both panels.
+    x_scale = alt.Scale(domain=list(_DR_LIMITS))
+    y_scale = alt.Scale(domain=list(_DL_LIMITS))
+    gene_x = alt.X("norm_DR:Q", title="norm DR", scale=x_scale)
+    gene_y = alt.Y("norm_DL:Q", title="norm DL/10", scale=y_scale)
+    centroid_x = alt.X("norm_DR:Q", title="centroid norm DR", scale=x_scale)
+    centroid_y = alt.Y("norm_DL:Q", title="centroid norm DL/10", scale=y_scale)
 
     # Two layers, not one conditional mark: a source with 1,400 terms draws a
     # crowded cloud, and in a single layer the selected marker is drawn wherever its
@@ -470,10 +495,18 @@ def build_chart(
     )
     # No .interactive() here on purpose: a pan gesture on this panel would fight
     # the click that selects a term.
+    # The gene panel keeps a single grey cloud with a dashed rule marking the DR
+    # threshold; the highlighted members carry the split themselves — scored ones
+    # in red, not-scored ones in the blue-teal — via an if/else condition colour.
     cloud = (
         alt.Chart(background)
         .mark_circle(size=_BACKGROUND_SIZE, color=_BACKGROUND_LIGHT_GREY, opacity=_BACKGROUND_OPACITY)
         .encode(x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP)
+    )
+    threshold_rule = (
+        alt.Chart(pd.DataFrame({"dr_threshold": [dr_threshold]}))
+        .mark_rule(strokeDash=[4, 3], color=FURNITURE_COLOR)
+        .encode(x=alt.X("dr_threshold:Q", scale=x_scale))
     )
     highlighted = (
         alt.Chart(members)
@@ -485,13 +518,23 @@ def build_chart(
                 fields=["Name", "FYPOviability", "DR", "DL", "norm_DR", "norm_DL", "R2"],
             ),
         )
+        .transform_calculate(
+            unscored=alt.datum.norm_DR >= dr_threshold,
+        )
         .transform_filter(picker)
         .transform_filter(cohort_filter)
-        .mark_circle(size=_MEMBER_SIZE, color=highlight, opacity=_MEMBER_OPACITY)
-        .encode(x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP)
+        .mark_circle(size=_MEMBER_SIZE, opacity=_MEMBER_OPACITY)
+        .encode(
+            x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP,
+            color=alt.condition(
+                alt.datum.unscored,
+                alt.value(_UNSCORED_MEMBER_COLOR),
+                alt.value(highlight),
+            ),
+        )
     )
     genes = (
-        (cloud + highlighted)
+        (cloud + threshold_rule + highlighted)
         .add_params(cohort_pick)
         .properties(
             width=_CHART_WIDTH,
@@ -539,7 +582,8 @@ def run(config: PlotConfig) -> None:
         f"{len(metrics):,} groups ({scope}), {len(members):,} member rows, "
         f"{len(fitting):,} background genes; opening on '{options[0]}'"
     )
-    chart = build_chart(detail, members, centroids, options, _COHORT_COLORS)
+    chart = build_chart(detail, members, centroids, options, _COHORT_COLORS,
+                        config.dr_threshold)
     chart.save(config.output)
     embed_page_css(config.output)
     logger.success(f"Wrote {config.output} ({len(members):,} member rows over {len(options):,} terms)")
@@ -560,6 +604,8 @@ def parse_args() -> argparse.Namespace:
                         help="One source's rows; omit to pool everything in --annotation (combined / dedup)")
     parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
     parser.add_argument("--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this")
+    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
+                        help="The coherence scored/unscored cut, shown in the gene panel")
     parser.add_argument("--output", type=Path, required=True, help="Output HTML page")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -577,6 +623,7 @@ def main() -> int:
             source=args.source,
             coherent_z=args.coherent_z,
             incoherent_z=args.incoherent_z,
+            dr_threshold=args.dr_threshold,
             output=args.output,
         )
         run(config)

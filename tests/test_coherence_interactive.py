@@ -89,10 +89,18 @@ def test_member_rows_carry_keys_only_so_the_cloud_is_embedded_once():
     # (`cohort` rides along because the cohort dropdown filters this layer too.)
     assert set(members.columns) == {"term", "cohort", "Systematic ID"}
     genes = spec["hconcat"][1]["layer"]
-    cloud = genes[0]["data"]["name"]
-    looked_up = genes[1]["transform"][0]["from"]["data"]["name"]
-    assert cloud == looked_up
-    assert cloud in spec["datasets"]
+    # The gene panel is three layers (single grey cloud, threshold rule,
+    # highlighted members); the cloud and the parent view share ONE gene dataset
+    # and the highlighted layer looks its columns up in it — embedded once is what
+    # keeps go_bp's page small, so it must survive the threshold treatment.
+    highlighted = genes[-1]
+    looked_up = highlighted["transform"][0]["from"]["data"]["name"]
+    assert looked_up in spec["datasets"]
+    n_embedded = sum(
+        1 for rows in spec["datasets"].values()
+        if rows and "DR" in rows[0]   # the full gene record, not the member join keys
+    )
+    assert n_embedded == 1, f"the gene record is embedded more than once: {n_embedded}"
 
 
 def test_centroid_is_the_mean_of_its_members():
@@ -223,8 +231,9 @@ def test_cohort_dropdown_compiles_onto_both_panels():
 
     detail, members, centroids = _scatter_pieces()
     spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
-    genes = spec["hconcat"][1]["layer"][1]
-    filters = [str(f.get("filter", "")) for f in genes["transform"]]
+    genes = spec["hconcat"][1]["layer"]
+    highlighted = genes[-1]
+    filters = [str(f.get("filter", "")) for f in highlighted["transform"]]
     # The cohort filter must sit on the member layer with the term picker, so
     # narrowing the map narrows the highlighted genes to the same cohort too.
     assert any("cohort_pick" in f for f in filters), filters
@@ -246,9 +255,10 @@ def test_the_centroid_panel_can_set_the_dropdowns_selection():
     # it a click on the gene cloud, whose rows carry no `term`, would clear the pick.
     centroid_units = {layer.get("name") for layer in spec["hconcat"][0]["layer"]}
     assert set(picker["views"]) <= centroid_units, "the click must not listen on the gene panel"
-    # Filtering the gene layer by that selection is what redraws the genes when the
-    # map is clicked, with no re-render.
-    genes = spec["hconcat"][1]["layer"][1]
+    # Filtering the highlighted-gene layer (the panel's last, after the cloud split)
+    # by that selection is what redraws the genes when the map is clicked, with no
+    # re-render.
+    genes = spec["hconcat"][1]["layer"][-1]
     assert {"filter": {"param": picker["name"]}} in genes["transform"]
 
 
