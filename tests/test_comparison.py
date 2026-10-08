@@ -11,10 +11,12 @@ from comparison.core import (
     STATS_COLUMNS,
     build_fitness_table,
     clip_density_columns,
+    cluster_column_order,
     compute_correlation_stats,
     compute_correlations,
-    plot_pairwise_scatter,
+    correlation_matrix,
     plot_correlation_heatmap,
+    plot_pairwise_scatter,
     rename_metrics_for_comparison,
     select_fitness_columns,
 )
@@ -141,34 +143,66 @@ def test_min_pairs_constant():
     assert MIN_PAIRS_FOR_CORRELATION == 3
 
 
-def test_plot_pairwise_scatter_smoke(tmp_path):
-    """plot_pairwise_scatter renders one page PDF per <=4 pairs (house library)."""
-    rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "a": rng.normal(size=60),
-        "b": rng.normal(size=60),
-        "c": rng.normal(size=60),
-        "d": rng.normal(size=60),
-        "e": rng.normal(size=60),
+def _two_column_stats() -> pd.DataFrame:
+    """Minimal long-form stats over three columns, as compute_correlation_stats emits."""
+    return pd.DataFrame({
+        "col_x": ["a", "a", "b"],
+        "col_y": ["b", "c", "c"],
+        "pair": ["a vs b", "a vs c", "b vs c"],
+        "n": [10, 10, 10],
+        "r_pearson": [0.5, -0.2, 0.9],
+        "p_pearson": [0.1, 0.3, 0.01],
+        "p_fdr": [0.1, 0.3, 0.01],
+        "rho_spearman": [0.6, -0.3, 0.8],
+        "p_spearman": [0.05, 0.2, 0.02],
+        "p_spearman_fdr": [0.05, 0.2, 0.02],
     })
-    # a vs b, a vs c, a vs d, a vs e -> 4 pairs => exactly one page stem
-    plot_pairwise_scatter(df, [("a", "b"), ("a", "c"), ("a", "d"), ("a", "e")], tmp_path / "pairwise_fitness_comparison")
+
+
+def test_correlation_matrix_is_symmetric_with_unit_diagonal():
+    """Every coefficient lands in both triangles; the diagonal stays 1."""
+    matrix = correlation_matrix(_two_column_stats(), ["a", "b", "c"], "r_pearson")
+    assert list(matrix.index) == ["a", "b", "c"]
+    assert (np.diag(matrix.to_numpy()) == 1).all()
+    assert matrix.loc["a", "b"] == matrix.loc["b", "a"] == 0.5
+    assert matrix.loc["b", "c"] == 0.9
+
+
+def test_correlation_matrix_leaves_dropped_pairs_at_zero():
+    """A pair the stats TSV does not carry stays 0 rather than raising or NaN-ing."""
+    stats = _two_column_stats().iloc[:1]  # only a vs b survives
+    matrix = correlation_matrix(stats, ["a", "b", "c"], "r_pearson")
+    assert matrix.loc["a", "c"] == 0.0
+    assert (np.diag(matrix.to_numpy()) == 1).all()
+
+
+def test_cluster_column_order_places_similar_columns_together():
+    """The order groups the strongly correlated columns and returns a permutation."""
+    order = cluster_column_order(_two_column_stats(), ["a", "b", "c"])
+    assert sorted(order) == ["a", "b", "c"]
+    # b and c correlate at 0.9, against -0.2 / 0.5 for their pairs with a: they
+    # cluster first, so a cannot sit between them.
+    assert abs(order.index("b") - order.index("c")) == 1
+
+
+def test_plot_pairwise_scatter_smoke(tmp_path):
+    """plot_pairwise_scatter renders the n x n matrix as a single PDF + review PNG."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({column: rng.normal(size=60) for column in "abcd"})
+    columns = ["a", "b", "c", "d"]
+    stem = tmp_path / "pairwise_fitness_comparison"
+    plot_pairwise_scatter(df, columns, stem, order=["d", "b", "a", "c"])
     assert (tmp_path / "pairwise_fitness_comparison.pdf").exists()
     assert (tmp_path / "pairwise_fitness_comparison.review.png").exists()
-    assert not (tmp_path / "pairwise_fitness_comparison_p2.pdf").exists()
-
-    # 5 pairs => a second page
-    plot_pairwise_scatter(df, [("a", "b"), ("a", "c"), ("a", "d"), ("a", "e"), ("b", "c")], tmp_path / "pair2")
-    assert (tmp_path / "pair2_p2.pdf").exists()
+    # One figure, not one page per pair.
+    assert not list(tmp_path.glob("pairwise_fitness_comparison_p*.pdf"))
 
 
 def test_plot_correlation_heatmap_smoke(tmp_path):
-    """plot_correlation_heatmap renders a PDF for a small symmetric matrix."""
-    stats = pd.DataFrame({
-        "col_x": ["a"], "col_y": ["b"], "pair": ["a vs b"],
-        "n": [10], "r_pearson": [0.5], "p_pearson": [0.1], "p_fdr": [0.1],
-        "rho_spearman": [0.6], "p_spearman": [0.05], "p_spearman_fdr": [0.05],
-    })
-    columns = ["a", "b"]
-    plot_correlation_heatmap(stats, columns, "r_pearson", tmp_path / "heatmap.pdf", title="t")
-    assert (tmp_path / "heatmap.pdf").exists()
+    """plot_correlation_heatmap renders one two-panel figure for both coefficients."""
+    stats = _two_column_stats()
+    columns = ["a", "b", "c"]
+    output = tmp_path / "correlation_heatmap.pdf"
+    plot_correlation_heatmap(stats, columns, output, order=["b", "c", "a"])
+    assert output.exists()
+    assert output.stat().st_size > 0

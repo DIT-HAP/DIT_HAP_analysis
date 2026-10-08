@@ -11,9 +11,14 @@ therefore pass raw values, not pre-logged columns. ``"symlog"`` is the
 display-only variant for data containing zeros; its statistics stay in linear
 space.
 
+Three orchestrators sit on top of ``render_scatter_panel``: a row x col grid for
+one x/y pair (``render_grouped_regression_figure``), a flat grid of independent
+panels (``render_scatter_grid_figure``), and the n x n lower-triangle pairwise
+matrix (``render_pairwise_matrix_figure``).
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-09-01
-Version:  2.0.0
+Date:     2026-10-08
+Version:  2.1.0
 """
 
 # =============================================================================
@@ -163,6 +168,17 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
         ha="left",
         va="top",
     )
+
+
+def _annotate_compact_r(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
+    """Annotate the panel's r alone, for matrix panels too small for the n/r/P block."""
+    valid = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
+    if len(valid) < 2:
+        logger.warning(f"Not enough finite pairs ({len(valid)}) to compute r for {x!r} vs {y!r}")
+        return
+
+    r = pearsonr(valid[x], valid[y]).statistic
+    ax.text(0.04, 0.96, rf"$r={r:.2f}$", transform=ax.transAxes, ha="left", va="top")
 
 
 def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> None:
@@ -479,6 +495,100 @@ def render_grouped_regression_figure(
 
     if share_limits:
         _apply_shared_square_limits(axes, df, x=x, y=y, scale=scale)
+
+    fit_panels()
+
+    logger.info(f"Saving figure to {output_stem}...")
+    save_dual(output_stem)
+    logger.success("Figure rendering complete!")
+
+
+@logger.catch(reraise=True)
+@logger.catch(reraise=True)
+def render_pairwise_matrix_figure(
+    df: pd.DataFrame,
+    output_stem: Path,
+    *,
+    columns: Sequence[str],
+    labels: Mapping[str, str],
+    order: Sequence[str] | None = None,
+    scatter_kws: Mapping[str, object] | None = None,
+) -> None:
+    """Render an n x n lower-triangle scatter matrix for every pair of ``columns``.
+
+    The classic correlation-matrix reading: row i is the variable on the y axis,
+    column j the variable on the x axis, so only the lower triangle carries a
+    scatter and the diagonal cells name their row/column variable. Each column
+    shares one x scale and each row one y scale, with tick labels kept on the
+    outer edges only (matplotlib's own ``label_outer``), so a reader compares
+    panels against one scale per variable instead of 45 autoscaled ones.
+
+    ``order`` fixes the display order; callers that cluster their columns pass
+    their clustered order here (and to the companion heatmap) so both figures
+    read the same way. ``labels`` maps a column to its short display name.
+
+    Panels are house-size (``PanelShape.SQUARE``), so the page grows with n
+    rather than the panels shrinking.
+    """
+    ordered = list(columns if order is None else order)
+    logger.info(f"Rendering {len(ordered)}x{len(ordered)} pairwise matrix figure...")
+
+    require_columns(df, ordered, context="pairwise matrix input")
+    if df.empty:
+        logger.warning("No data to plot!")
+        return
+
+    apply_house_style()
+
+    n_cols = len(ordered)
+    # No A/B/... letters: the matrix is read by row and column, and the diagonal
+    # cells already carry the variable names.
+    axes = grid_axes(n_cols, n_cols, labels=[])
+    grid = [axes[row * n_cols:(row + 1) * n_cols] for row in range(n_cols)]
+
+    # One scale per variable: every panel in a column shares the column's x, every
+    # panel in a row its y. Sharing after the grid exists (not via fig.subplots'
+    # sharex) is what lets the reference be the bottom/left cell of that line.
+    for column_index in range(n_cols):
+        reference = grid[n_cols - 1][column_index]
+        for row_index in range(column_index, n_cols):
+            grid[row_index][column_index].sharex(reference)
+    for row_index in range(1, n_cols):
+        for column_index in range(row_index):
+            grid[row_index][column_index].sharey(grid[row_index][0])
+
+    for row_index in range(n_cols):
+        for column_index in range(row_index + 1):
+            ax = grid[row_index][column_index]
+            if row_index == column_index:
+                ax.text(
+                    0.5, 0.5, labels.get(ordered[column_index], ordered[column_index]),
+                    transform=ax.transAxes, ha="center", va="center",
+                )
+                # Names only: without data the cell would otherwise show its own
+                # meaningless 0-1 scale. The variable's scale is read off the
+                # panels that share its row and column.
+                ax.set_axis_off()
+                continue
+            panel = ScatterPanel(
+                x=ordered[column_index],
+                y=ordered[row_index],
+                # The diagonal names the variables, so per-panel axis labels would
+                # only repeat them 45 times.
+                xlabel="",
+                ylabel="",
+                title="",
+            )
+            logger.info(f"  Panel ({ordered[row_index]}, {ordered[column_index]})")
+            render_scatter_panel(
+                ax, df, panel,
+                scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
+                show_legend=False,
+            )
+            _annotate_compact_r(ax, df, x=panel.x, y=panel.y)
+            ax.label_outer()
+        for column_index in range(row_index + 1, n_cols):
+            grid[row_index][column_index].set_visible(False)
 
     fit_panels()
 

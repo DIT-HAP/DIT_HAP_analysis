@@ -29,7 +29,7 @@ Usage
     python workflow/scripts/comparison/prepare_fitness_table.py \\
         --protein-features results/1b_features/2026-06-01/pombe_coding_gene_protein_features.tsv \\
         --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
-        --output-fitness-table results/comparison/HD_DIT_HAP/_work/fitness_table.parquet
+        --output-fitness-table results/6a_comparison/HD_DIT_HAP/_work/fitness_table.parquet
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-08

@@ -122,7 +122,7 @@ rule all:
         # f"results/2b_verification/{_DATASET}/depletion_curves",
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
-        # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
+        # f"results/6a_comparison/{_DATASET}/fitness_correlation_stats.tsv",
         # 3a_coherence is organised as one folder per view — {source}/, combined/
         # and dedup/ — with the FOLDER name (never the file name) saying which view
         # a file belongs to, so each view exposes the same names where the artifact

@@ -6,33 +6,30 @@ Plot Comparison Figures
 ========================
 
 Stage 3 of the comparison split: read the prepared fitness_table parquet
-intermediate AND the fitness_correlation_stats.tsv (which pairs SURVIVED the
-per-pair overlap filter), then render
-- pairwise_fitness_comparison(_pN).pdf: multi-page scatter grid (4 panels per
-  page at the house 2-column cap), density-coloured, with n/r/P annotation;
-- correlation_pearson_heatmap.pdf / correlation_spearman_heatmap.pdf:
-  clustered 10x10 correlation matrices with study-category colour bands.
+intermediate AND the fitness_correlation_stats.tsv, then render
+- pairwise_fitness_comparison.pdf: ONE n x n scatter matrix (lower triangle,
+  every pair of the fitness columns, variables ordered by similarity);
+- correlation_heatmap.pdf: ONE figure holding the Pearson and Spearman
+  correlation matrices side by side, with study-category colour bands.
 
-Driving the pages from the stats TSV's surviving pairs (rather than
-recomputing them) keeps the PDF panels and TSV rows in permanent agreement
-even though the two rules now run independently.
+Both figures take the clustered column order from the stats TSV rather than
+recomputing it, so the two figures always read the same way.
 
 Output
 ------
-- pairwise_fitness_comparison.pdf (+ _p2.. for pages beyond the first):
-  pairwise scatter matrix, one page per 4 pairs.
-- correlation_pearson_heatmap.pdf, correlation_spearman_heatmap.pdf.
+- pairwise_fitness_comparison.pdf: n x n pairwise scatter matrix.
+- correlation_heatmap.pdf: Pearson | Spearman correlation heatmaps.
 
 Usage
 -----
     python workflow/scripts/comparison/plot_comparison_figures.py \\
-        --fitness-table results/comparison/HD_DIT_HAP/_work/fitness_table.parquet \\
-        --stats results/comparison/HD_DIT_HAP/fitness_correlation_stats.tsv \\
-        --output-dir results/comparison/HD_DIT_HAP
+        --fitness-table results/6a_comparison/HD_DIT_HAP/_work/fitness_table.parquet \\
+        --stats results/6a_comparison/HD_DIT_HAP/fitness_correlation_stats.tsv \\
+        --output-dir results/6a_comparison/HD_DIT_HAP
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-08
-Version:  3.0.0
+Version:  4.0.0
 """
 
 # =============================================================================
@@ -85,7 +82,7 @@ class PlotConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PlotConfig) -> None:
-    """Read parquet + stats TSV -> plot the surviving pairs + both heatmaps."""
+    """Read parquet + stats TSV -> plot the pairwise matrix + the correlation heatmap figure."""
     config.validate()
 
     fitness_table = read_parquet(config.fitness_table)
@@ -102,7 +99,7 @@ def run(config: PlotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Pairwise fitness comparison scatter pages + correlation heatmaps")
+    parser = argparse.ArgumentParser(description="Pairwise scatter matrix + correlation heatmap figure")
     parser.add_argument("--fitness-table", type=Path, required=True, help="Input fitness_table.parquet")
     parser.add_argument("--stats", type=Path, required=True, help="Input fitness_correlation_stats.tsv")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for figures")

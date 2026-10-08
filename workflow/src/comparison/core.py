@@ -17,14 +17,14 @@ Pipeline: build a fitness table (features spine + the two merged metrics,
 integration-density columns clipped), then correlate every unordered pair of
 available fitness columns with Pearson AND Spearman (the density columns stay
 heavy-tailed even after clipping, so rank correlation is the robust view) and
-BH-correct across all pairs. The figure stage renders the pairwise scatter
-matrix through the house render_scatter_grid_figure and a clustered correlation
-heatmap through cns.heatmapplot, so both figures read the same stats TSV the
-tables do.
+BH-correct across all pairs. The figure stage renders one n x n pairwise scatter
+matrix (lower triangle, variables clustered into a similarity order) through the
+house render_pairwise_matrix_figure and one two-panel correlation heatmap
+(Pearson | Spearman) through cns.heatmapplot, both in that same clustered order.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-08
-Version:  3.0.0
+Version:  4.0.0
 """
 
 # =============================================================================
@@ -38,6 +38,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.cluster.hierarchy import leaves_list, linkage
+from scipy.spatial.distance import squareform
 from scipy.stats import false_discovery_control, pearsonr, spearmanr
 
 import matplotlib
@@ -45,6 +47,11 @@ import matplotlib
 matplotlib.use("Agg")  # headless: builders only write figures, never display
 import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
+from matplotlib.axes import Axes  # noqa: E402
+from matplotlib.cm import ScalarMappable  # noqa: E402
+from matplotlib.colors import Normalize  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
 # Project path setup: sibling src/ modules (figures, figure_render.*) import by
 # bare name, which needs workflow/src itself on sys.path.
@@ -52,7 +59,14 @@ _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in sys.path:
     sys.path.append(str(_SRC_DIR))
 
-from figures import apply_house_style  # noqa: E402
+from figures import (  # noqa: E402
+    PanelShape,
+    house_colors,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    panel_labels,
+)
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -129,6 +143,10 @@ COLUMN_DISPLAY_NAMES = {
     GRNA_FITNESS_COLUMN: "gRNA DR",
 }
 
+# The two correlation coefficients, as (stats column, panel title) pairs: one
+# figure holds both, since they are the same matrix read two ways.
+HEATMAP_PANELS: tuple[tuple[str, str], ...] = (("r_pearson", "Pearson"), ("rho_spearman", "Spearman"))
+
 # Study category each column belongs to, for the heatmap row annotation bands.
 COLUMN_CATEGORIES = {
     "Barseq_from_dulab": "Bar-seq",
@@ -142,6 +160,24 @@ COLUMN_CATEGORIES = {
     DIT_HAP_FITNESS_COLUMN: "This study",
     GRNA_FITNESS_COLUMN: "This study",
 }
+
+# Study categories in the order they are keyed in the heatmap legend, and the
+# layout of that legend's own cell -- a value colourbar under, category key over,
+# both drawn by this module because cns.heatmapplot's own legends hang off the
+# last panel and get clipped by their axes (see plot_correlation_heatmap).
+STUDY_CATEGORIES = sorted(set(COLUMN_CATEGORIES.values()))
+
+# Correlation is bounded by -1/+1, so the diverging scale is fixed rather than
+# fitted to the data: a colour then means the same strength on every panel and
+# every run. RdBu_r is the house read of a signed scale (blue negative, red
+# positive); the sequential house map is for magnitudes, which this is not.
+CORRELATION_MIN = -1
+CORRELATION_MAX = 1
+HEATMAP_CMAP = "RdBu_r"
+# The legend cell is one panel wide, so the value bar lies along its bottom
+# (horizontal) and the category key sits above it: a vertical bar plus its rotated
+# label does not fit beside the key. Axes-fraction (x0, y0, width, height).
+HEATMAP_CBAR_BOUNDS = (0.04, 0.03, 0.72, 0.05)
 
 
 # Project path setup: src/ modules import their siblings by bare name, which
@@ -287,126 +323,168 @@ def compute_correlation_stats(fitness_table: pd.DataFrame, columns: list[str]) -
     return stats[STATS_COLUMNS]
 
 
+
+
 # =============================================================================
 # PLOTTING
 # =============================================================================
+def correlation_matrix(stats: pd.DataFrame, columns: list[str], metric: str) -> pd.DataFrame:
+    """Build the symmetric n x n coefficient matrix of ``columns`` from the long-form stats.
+
+    The diagonal is 1 (a variable against itself) and a pair absent from
+    ``stats`` -- one dropped by the overlap/degenerate guards -- keeps its 0
+    ("no measured correlation"), which is how the heatmap shows it as a blank
+    cell and how the clustering treats it as unrelated.
+    """
+    matrix = pd.DataFrame(np.eye(len(columns)), index=columns, columns=columns)
+    for _, row in stats.iterrows():
+        matrix.loc[row["col_x"], row["col_y"]] = row[metric]
+        matrix.loc[row["col_y"], row["col_x"]] = row[metric]
+    return matrix
+
+
+def cluster_column_order(
+    stats: pd.DataFrame, columns: list[str], metric: str = "r_pearson"
+) -> list[str]:
+    """Order ``columns`` so similar ones sit together, from the pairwise coefficients.
+
+    Average-linkage clustering on the 1 - r distance. Both the matrix figure and
+    the heatmap take this order, so the two figures read the same way instead of
+    each clustering on its own (Pearson and Spearman rank the columns slightly
+    differently, which would otherwise put the panels in different places).
+    """
+    distance = squareform(np.clip(1 - correlation_matrix(stats, columns, metric).to_numpy(), 0, None), checks=False)
+    return [columns[index] for index in leaves_list(linkage(distance, method="average"))]
+
+
 def plot_pairwise_scatter(
     fitness_table: pd.DataFrame,
-    pairs: list[tuple[str, str]],
+    columns: list[str],
     output_stem: Path | str,
+    *,
+    order: list[str],
 ) -> None:
-    """Render the surviving pairs as a multi-page scatter matrix via the house library.
+    """Render the n x n lower-triangle scatter matrix of every pair of ``columns``.
 
-    ``pairs`` is the list of (col_x, col_y) that SURVIVED the per-pair overlap
-    filter in compute_correlation_stats, so the PDF panel set always matches the
-    stats TSV row set. Pages are separate PDFs suffixed _p2, _p3, ... (a page
-    holds 4 pairs at the house 2-column cap); page 1 keeps the bare stem. Each
-    page's df is an inner join of its pairs' columns, so NaN-dropping stays
-    local and each panel's n matches its stats TSV row.
+    One figure, not one page per pair: at house panel size the page grows with n
+    so every panel stays legible. ``order`` is the clustered column order, which
+    also places the companion heatmap, so both figures read consistently.
     """
-    from figure_render.scatter import ScatterPanel, render_scatter_grid_figure
+    from figure_render.scatter import render_pairwise_matrix_figure
 
-    if not pairs:
-        logger.warning("No surviving pairs to plot")
-        return
+    render_pairwise_matrix_figure(
+        fitness_table, output_stem, columns=columns, labels=COLUMN_DISPLAY_NAMES, order=order,
+    )
 
-    output_stem = Path(output_stem)
-    for page_start in range(0, len(pairs), 4):
-        page_number = page_start // 4
-        stem = output_stem if page_number == 0 else output_stem.with_name(
-            f"{output_stem.stem}_p{page_number + 1}"
-        )
-        page_pairs = pairs[page_start:page_start + 4]
-        page_columns = sorted({c for pair in page_pairs for c in pair})
-        page_df = fitness_table[page_columns].dropna()
-        panels = [
-            ScatterPanel(
-                x=col_x,
-                y=col_y,
-                title="",
-                # Axis labels already carry the X-vs-Y reading; a "X vs Y"
-                # title collides with the neighbouring panel's on shared pages.
-                xlabel=COLUMN_DISPLAY_NAMES.get(col_x, col_x),
-                ylabel=COLUMN_DISPLAY_NAMES.get(col_y, col_y),
-                show_stats=True,
-                density=True,
-            )
-            for col_x, col_y in page_pairs
-        ]
-        render_scatter_grid_figure(page_df, stem, panels=panels)
+
+def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figure) -> None:
+    """Draw the shared value colourbar and Study category key inside ``cell``."""
+    import cnsplots as cns
+
+    cell.set_axis_off()
+
+    colorbar_axes = cell.inset_axes(HEATMAP_CBAR_BOUNDS)
+    colorbar = fig.colorbar(
+        ScalarMappable(norm=Normalize(vmin=CORRELATION_MIN, vmax=CORRELATION_MAX), cmap=HEATMAP_CMAP),
+        cax=colorbar_axes,
+        orientation="horizontal",
+        ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
+    )
+    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
+    colorbar.set_label("Correlation", labelpad=cns.settings.axes_labelpad)
+
+    handles = [
+        Patch(facecolor=color, edgecolor="none", label=category)
+        for category, color in study_colors.items()
+    ]
+    legend = cell.legend(
+        handles=handles,
+        title="Study",
+        loc="upper left",
+        bbox_to_anchor=(HEATMAP_CBAR_BOUNDS[0], 1.0),
+        frameon=cns.settings.legend_frameon,
+        alignment="left",
+    )
+    legend.get_title().set_ha("left")
+    legend.get_title().set_position((0, 0))
 
 
 def plot_correlation_heatmap(
     stats: pd.DataFrame,
     columns: list[str],
-    metric: str,
     output_path: Path | str,
     *,
-    title: str,
+    order: list[str],
 ) -> None:
-    """Clustered square correlation heatmap with category row/col annotation.
+    """Render Pearson and Spearman as two panels of one figure, with one shared legend.
 
-    ``metric`` picks the rho/r column of ``stats``; a full symmetric matrix is
-    built from the long-form pairs (diagonal = 1). cns.heatmapplot only takes
-    category annotations from AnnData, and its lazy imports below
-    (anndata/cnsplots) keep the stats-only import path of this module free of
-    the plotting stack.
+    Both coefficients are the same matrix read two ways, so they belong side by
+    side and share one value colourbar and one Study category key. Panels are
+    house-size (the page is derived from them, so the house font sizes stay
+    proportionate) and the legend gets a cell of its own to the right.
+
+    Both legends are drawn here rather than by cns.heatmapplot: the plotter's own
+    legends hang off the last panel's right edge of its axes and get clipped by
+    them, whichever page width they are given. Drawing them means owning the
+    category colours, which is why they are passed to the heatmap explicitly.
     """
     import anndata as ad
     import cnsplots as cns
 
     apply_house_style()
 
-    labels = [COLUMN_DISPLAY_NAMES.get(c, c) for c in columns]
-    matrix = pd.DataFrame(np.eye(len(columns)), index=labels, columns=labels)
-    for _, row in stats.iterrows():
-        matrix.loc[
-            COLUMN_DISPLAY_NAMES.get(row["col_x"], row["col_x"]),
-            COLUMN_DISPLAY_NAMES.get(row["col_y"], row["col_y"]),
-        ] = row[metric]
-        matrix.loc[
-            COLUMN_DISPLAY_NAMES.get(row["col_y"], row["col_y"]),
-            COLUMN_DISPLAY_NAMES.get(row["col_x"], row["col_x"]),
-        ] = row[metric]
-
+    order_labels = [COLUMN_DISPLAY_NAMES.get(c, c) for c in order]
+    study_colors = dict(zip(STUDY_CATEGORIES, house_colors(range(len(STUDY_CATEGORIES))), strict=True))
     categories = pd.Categorical(
-        [COLUMN_CATEGORIES.get(c, "Other") for c in columns],
-        categories=sorted({COLUMN_CATEGORIES[c] for c in columns if c in COLUMN_CATEGORIES}),
+        [COLUMN_CATEGORIES.get(c, "Other") for c in order],
+        categories=STUDY_CATEGORIES,
     )
-    var = pd.DataFrame({"Study": categories}, index=labels)
-    data = ad.AnnData(matrix.to_numpy(), obs=pd.DataFrame(index=labels), var=var)
 
-    # ~45 px per row/col of data plus margins for the tick labels; a little
-    # savefig padding keeps the annotation legend (drawn at the canvas edge by
-    # PyComplexHeatmap) inside the tight bbox instead of clipped.
-    side_px = 45 * len(columns) + 230
-    cns.figure(width=side_px, height=side_px + 120)
-    cns.heatmapplot(
-        data,
-        col_annotation=["Study"],
-        row_cluster=True,
-        col_cluster=True,
-        cmap="RdBu_r",
-        vmin=-1,
-        vmax=1,
-        label="Correlation",
-        xlabel="",
-        ylabel="",
-        xticklabels_rotation=45,
-        show_rownames=True,
-        show_colnames=True,
-        # Push the annotation legend below the correlation colourbar: both are
-        # anchored top-right and would overlap at the default offset.
-        legend_vpad=120,
-    )
-    fig = plt.gcf()
-    fig.suptitle(title, y=1.02)
-    cns.settings.savefig_pad_inches = 0.4
-    try:
+    # The legend gets a cell of its own, the way the matrix figure keeps the cells
+    # it does not draw: an empty cell holds its share of the page width.
+    axes = grid_axes(1, len(HEATMAP_PANELS) + 1, labels=panel_labels(len(HEATMAP_PANELS)), shape=PanelShape.SQUARE)
+    legend_cell = axes[-1]
+
+    for index, (ax, (metric, name)) in enumerate(zip(axes[: len(HEATMAP_PANELS)], HEATMAP_PANELS, strict=True)):
+        panel_matrix = correlation_matrix(stats, columns, metric).rename(
+            index=COLUMN_DISPLAY_NAMES, columns=COLUMN_DISPLAY_NAMES
+        ).loc[order_labels, order_labels]
+        data = ad.AnnData(
+            panel_matrix.to_numpy(),
+            obs=pd.DataFrame(index=order_labels),
+            var=pd.DataFrame({"Study": categories}, index=order_labels),
+        )
+        cns.heatmapplot(
+            data,
+            col_annotation=["Study"],
+            # Ordered by the caller, so both panels share one order rather than
+            # each clustering on its own coefficient.
+            row_cluster=False,
+            col_cluster=False,
+            cmap=HEATMAP_CMAP,
+            vmin=CORRELATION_MIN,
+            vmax=CORRELATION_MAX,
+            label="Correlation",
+            xlabel="",
+            ylabel="",
+            xticklabels_rotation=45,
+            show_rownames=True,
+            show_colnames=True,
+            # Explicit colours so the annotation bands match the key drawn below
+            # (both panels share the scale, so neither carries its own legend).
+            colors={"Study": study_colors},
+            plot_legend=False,
+            ax=ax,
+        )
+        ax.set_title(name)
+
+    _draw_heatmap_legend(legend_cell, study_colors, fig=plt.gcf())
+    fit_panels()
+    # The legends are their own axes, which the default tight export bbox drops --
+    # saving the full canvas is what keeps them in the figure.
+    with cns.settings.context(savefig_bbox="standard"):
         cns.savefig(str(output_path))
-    finally:
-        cns.settings.savefig_pad_inches = 0.01
-    plt.close(fig)
+    plt.close(plt.gcf())
 
 
 def plot_comparison_figures(
@@ -415,23 +493,12 @@ def plot_comparison_figures(
     columns: list[str],
     output_dir: Path | str,
 ) -> None:
-    """Render the scatter grid + both correlation heatmaps into ``output_dir``."""
+    """Render the pairwise matrix figure + the two-coefficient heatmap into ``output_dir``."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    surviving_pairs = [
-        (str(col_x), str(col_y))
-        for col_x, col_y in zip(stats["col_x"], stats["col_y"], strict=True)
-    ]
+    order = cluster_column_order(stats, columns)
+
     # save_dual() appends .pdf/.review.png itself, so pass the bare stem.
-    plot_pairwise_scatter(fitness_table, surviving_pairs, output_dir / "pairwise_fitness_comparison")
-    plot_correlation_heatmap(
-        stats, columns, "r_pearson",
-        output_dir / "correlation_pearson_heatmap.pdf",
-        title="Pearson correlation across large-scale studies",
-    )
-    plot_correlation_heatmap(
-        stats, columns, "rho_spearman",
-        output_dir / "correlation_spearman_heatmap.pdf",
-        title="Spearman correlation across large-scale studies",
-    )
+    plot_pairwise_scatter(fitness_table, columns, output_dir / "pairwise_fitness_comparison", order=order)
+    plot_correlation_heatmap(stats, columns, output_dir / "correlation_heatmap.pdf", order=order)
