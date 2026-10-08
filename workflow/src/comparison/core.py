@@ -20,11 +20,12 @@ heavy-tailed even after clipping, so rank correlation is the robust view) and
 BH-correct across all pairs. The figure stage renders one n x n pairwise scatter
 matrix (lower triangle, variables clustered into a similarity order) through the
 house render_pairwise_matrix_figure and one two-panel correlation heatmap
-(Pearson | Spearman) through cns.heatmapplot, both in that same clustered order.
+(Pearson | Spearman) through cns.heatmapplot, both in that same clustered order --
+the heatmap is handed the very tree it is ordered by, so it can draw it.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-08
-Version:  4.0.0
+Version:  4.1.0
 """
 
 # =============================================================================
@@ -60,12 +61,8 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.append(str(_SRC_DIR))
 
 from figures import (  # noqa: E402
-    PanelShape,
-    house_colors,
     apply_house_style,
-    fit_panels,
-    grid_axes,
-    panel_labels,
+    house_colors,
 )
 
 # =============================================================================
@@ -174,9 +171,35 @@ STUDY_CATEGORIES = sorted(set(COLUMN_CATEGORIES.values()))
 CORRELATION_MIN = -1
 CORRELATION_MAX = 1
 HEATMAP_CMAP = "RdBu_r"
-# The legend cell is one panel wide, so the value bar lies along its bottom
-# (horizontal) and the category key sits above it: a vertical bar plus its rotated
-# label does not fit beside the key. Axes-fraction (x0, y0, width, height).
+# This figure sets its page directly instead of deriving it from a PanelShape,
+# because the heatmap is a composite plotter: it lays its body -- matrix, row
+# dendrogram, annotation bands, row names -- out against the page and ignores the
+# axes box it was handed. A fitted grid_axes panel therefore does not hold a
+# house-sized panel, it holds the whole composite, and pushes the page past the
+# journal width. Measured with no panel shape in the way, the matrix body comes
+# out 100 x 100 (the house panel exactly) at this page, 2 columns, and the rect
+# below. Change the column count or the rect and it has to be re-measured.
+HEATMAP_PAGE_PX = (520, 145)
+
+# A white annotation track padded between the Study band and the matrix: the
+# plotter packs its annotations straight against the heatmap and has no gap
+# setting of its own, so the gap is one more (blank) annotation. The plotter
+# labels every track with its column name and offers no way to switch that off,
+# hence the blank name and value.
+SPACER_COLUMN = " "
+SPACER_VALUE = " "
+BACKGROUND_COLOR = "#FFFFFF"
+
+# Both legends live in a strip down the right of the page, not inside a panel, so
+# neither costs the matrices any width. The strip is reserved with a tight_layout
+# rect and the legend axes is placed in that figure-fraction space.
+HEATMAP_LEGEND_STRIP_LEFT = 0.84
+HEATMAP_LAYOUT_RECT = (0, 0, HEATMAP_LEGEND_STRIP_LEFT, 1)
+HEATMAP_LEGEND_BOUNDS = (0.85, 0.02, 0.14, 0.96)
+
+# The value bar lies along the bottom of the strip (horizontal, so it reads under
+# its own width) and the category key sits above it: a vertical bar plus its
+# rotated label does not fit beside the key. Legend-axes fraction (x0, y0, w, h).
 HEATMAP_CBAR_BOUNDS = (0.04, 0.03, 0.72, 0.05)
 
 
@@ -343,18 +366,23 @@ def correlation_matrix(stats: pd.DataFrame, columns: list[str], metric: str) -> 
     return matrix
 
 
+def correlation_linkage(stats: pd.DataFrame, columns: list[str], metric: str = "r_pearson"):
+    """Average-linkage tree over the 1 - r distances between ``columns``."""
+    distance = squareform(np.clip(1 - correlation_matrix(stats, columns, metric).to_numpy(), 0, None), checks=False)
+    return linkage(distance, method="average")
+
+
 def cluster_column_order(
     stats: pd.DataFrame, columns: list[str], metric: str = "r_pearson"
 ) -> list[str]:
     """Order ``columns`` so similar ones sit together, from the pairwise coefficients.
 
-    Average-linkage clustering on the 1 - r distance. Both the matrix figure and
-    the heatmap take this order, so the two figures read the same way instead of
-    each clustering on its own (Pearson and Spearman rank the columns slightly
-    differently, which would otherwise put the panels in different places).
+    Both the matrix figure and the heatmap take this order, so the two figures
+    read the same way instead of each clustering on its own (Pearson and Spearman
+    rank the columns slightly differently, which would otherwise put the panels
+    in different places). The heatmap draws the same tree it is ordered by.
     """
-    distance = squareform(np.clip(1 - correlation_matrix(stats, columns, metric).to_numpy(), 0, None), checks=False)
-    return [columns[index] for index in leaves_list(linkage(distance, method="average"))]
+    return [columns[index] for index in leaves_list(correlation_linkage(stats, columns, metric))]
 
 
 def plot_pairwise_scatter(
@@ -378,7 +406,7 @@ def plot_pairwise_scatter(
 
 
 def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figure) -> None:
-    """Draw the shared value colourbar and Study category key inside ``cell``."""
+    """Draw the shared value colourbar and Study category key inside ``cell`` (the legend strip)."""
     import cnsplots as cns
 
     cell.set_axis_off()
@@ -419,9 +447,12 @@ def plot_correlation_heatmap(
     """Render Pearson and Spearman as two panels of one figure, with one shared legend.
 
     Both coefficients are the same matrix read two ways, so they belong side by
-    side and share one value colourbar and one Study category key. Panels are
-    house-size (the page is derived from them, so the house font sizes stay
-    proportionate) and the legend gets a cell of its own to the right.
+    side and share one value colourbar and one Study category key. Each matrix is
+    the house panel size, square, with the row dendrogram to its left and the
+    column names dropped (they repeat the row names of the same symmetric matrix).
+
+    The page is chosen rather than derived -- see ``HEATMAP_PAGE_PX`` -- and the
+    legends go in a strip down its right edge.
 
     Both legends are drawn here rather than by cns.heatmapplot: the plotter's own
     legends hang off the last panel's right edge of its axes and get clipped by
@@ -439,27 +470,34 @@ def plot_correlation_heatmap(
         [COLUMN_CATEGORIES.get(c, "Other") for c in order],
         categories=STUDY_CATEGORIES,
     )
+    # A white annotation track is what separates the Study band from the matrix:
+    # the plotter packs its annotations straight against the heatmap and has no
+    # gap setting of its own.
+    spacer = pd.Categorical([SPACER_VALUE] * len(order), categories=[SPACER_VALUE])
+    annotation_colors = {"Study": study_colors, SPACER_COLUMN: {SPACER_VALUE: BACKGROUND_COLOR}}
 
-    # The legend gets a cell of its own, the way the matrix figure keeps the cells
-    # it does not draw: an empty cell holds its share of the page width.
-    axes = grid_axes(1, len(HEATMAP_PANELS) + 1, labels=panel_labels(len(HEATMAP_PANELS)), shape=PanelShape.SQUARE)
-    legend_cell = axes[-1]
+    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1])
+    figure = plt.gcf()
+    panel_axes = figure.subplots(1, len(HEATMAP_PANELS), squeeze=False)[0]
 
-    for index, (ax, (metric, name)) in enumerate(zip(axes[: len(HEATMAP_PANELS)], HEATMAP_PANELS, strict=True)):
+    for ax, (metric, name) in zip(panel_axes, HEATMAP_PANELS, strict=True):
         panel_matrix = correlation_matrix(stats, columns, metric).rename(
             index=COLUMN_DISPLAY_NAMES, columns=COLUMN_DISPLAY_NAMES
         ).loc[order_labels, order_labels]
         data = ad.AnnData(
             panel_matrix.to_numpy(),
             obs=pd.DataFrame(index=order_labels),
-            var=pd.DataFrame({"Study": categories}, index=order_labels),
+            var=pd.DataFrame({"Study": categories, SPACER_COLUMN: spacer}, index=order_labels),
         )
-        cns.heatmapplot(
+        plotter = cns.heatmapplot(
             data,
-            col_annotation=["Study"],
-            # Ordered by the caller, so both panels share one order rather than
-            # each clustering on its own coefficient.
-            row_cluster=False,
+            col_annotation=["Study", SPACER_COLUMN],
+            # Clustering is the caller's (both panels are then in one order, and it
+            # is the tree the matrix figure is ordered by too), so the tree is
+            # handed to the plotter rather than computed per coefficient.
+            row_cluster=True,
+            row_dendrogram=True,
+            row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
             col_cluster=False,
             cmap=HEATMAP_CMAP,
             vmin=CORRELATION_MIN,
@@ -469,17 +507,20 @@ def plot_correlation_heatmap(
             ylabel="",
             xticklabels_rotation=45,
             show_rownames=True,
-            show_colnames=True,
+            show_colnames=False,
             # Explicit colours so the annotation bands match the key drawn below
             # (both panels share the scale, so neither carries its own legend).
-            colors={"Study": study_colors},
+            colors=annotation_colors,
             plot_legend=False,
             ax=ax,
         )
-        ax.set_title(name)
+        # The host axes is covered by the heatmap body, so the panel name goes on
+        # the annotation band above it, which is where the composite leaves room.
+        plotter.ax_top_annotation.set_title(name)
 
-    _draw_heatmap_legend(legend_cell, study_colors, fig=plt.gcf())
-    fit_panels()
+    # Lay the composite out inside the part of the page that is not the legend strip.
+    figure.tight_layout(rect=HEATMAP_LAYOUT_RECT)
+    _draw_heatmap_legend(figure.add_axes(HEATMAP_LEGEND_BOUNDS), study_colors, fig=figure)
     # The legends are their own axes, which the default tight export bbox drops --
     # saving the full canvas is what keeps them in the figure.
     with cns.settings.context(savefig_bbox="standard"):
