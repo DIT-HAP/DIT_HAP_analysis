@@ -203,12 +203,14 @@ BACKGROUND_COLOR = "#FFFFFF"
 HEATMAP_LAYOUT_RECT = (0, 0, 0.84, 1)
 HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 
-# The category key sits at the top of the strip against its left edge and the value
-# bar under it, thin and upright: at this width a horizontal bar would have to be
-# either short or wider than the strip. The bar's x0 is the one offset the key's
-# own swatch has from its box edge, so the bar lines up with the swatches rather
-# than with the box. Legend-axes fraction (x0, y0, w, h).
-HEATMAP_CBAR_BOUNDS = (0.045, 0.02, 0.03, 0.40)
+# The category key sits at the top of the strip and the value bar under it, thin and
+# upright: at this width a horizontal bar would have to be either short or wider
+# than the strip. Both are centred on the strip's mid-line -- the bar's ticks sit to
+# its right and its label to its left, so centring the bar centres the block. The
+# bar's vertical span is what keeps it inside the panels' own extent: its bottom end
+# is the one tick label that would otherwise hang below the matrices.
+# Legend-axes fraction (x0, y0, w, h).
+HEATMAP_CBAR_BOUNDS = (0.485, 0.24, 0.03, 0.22)
 
 # The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
 # next to the 8 pt type it sits beside.
@@ -478,22 +480,22 @@ def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figur
         ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
     )
     colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
+    # Ticks right, label left, so the bar is the middle of its own block and can be
+    # centred on the same line as the key.
+    colorbar.ax.yaxis.set_label_position("left")
     colorbar.set_label("Correlation", labelpad=cns.settings.axes_labelpad)
 
     handles = [
         Patch(facecolor=color, edgecolor="none", label=category)
         for category, color in study_colors.items()
     ]
-    legend = cell.legend(
+    cell.legend(
         handles=handles,
         title="Study",
-        loc="upper left",
-        bbox_to_anchor=(0.0, 1.0),
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.0),
         frameon=cns.settings.legend_frameon,
-        alignment="left",
     )
-    legend.get_title().set_ha("left")
-    legend.get_title().set_position((0, 0))
 
 
 def plot_correlation_heatmap(
