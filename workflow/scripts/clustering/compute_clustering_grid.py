@@ -57,7 +57,15 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from clustering.grid_search import METHODS, fit_method, score_labels, sort_labels_by_dr  # noqa: E402
+from clustering.grid_search import (  # noqa: E402
+    METHODS,
+    axis_shares,
+    bootstrap_stability,
+    fit_method,
+    gap_statistic,
+    score_labels,
+    sort_labels_by_dr,
+)
 from sklearn.metrics import silhouette_samples  # noqa: E402
 from io_table import read_parquet, write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
@@ -106,11 +114,17 @@ def run(config: GridConfig) -> None:
     coordinates = scaled.to_numpy()
     logger.info(f"Scaled matrix: {scaled.shape[0]} genes x {scaled.shape[1]} features")
 
+    # Gap statistic is a property of (dataset, k) — one sweep, broadcast to every method.
+    gaps = gap_statistic(coordinates, config.k_min, config.k_max, random_state=config.random_state)
+
     label_rows: list[pd.DataFrame] = []
     metric_rows: list[pd.DataFrame] = []
     profile_rows: list[pd.DataFrame] = []
     for method in config.methods:
         logger.info(f"Method {method}: sweeping k={config.k_min}..{config.k_max}")
+        # Raw (0-based) labels kept per k for the bootstrap refits, sorted used for output.
+        raw_by_k: dict[int, np.ndarray] = {}
+        sorted_by_k: dict[int, pd.Series] = {}
         for k in range(config.k_min, config.k_max + 1):
             raw_labels = pd.Series(
                 fit_method(method, coordinates, k, config.random_state), index=scaled.index
@@ -118,6 +132,8 @@ def run(config: GridConfig) -> None:
             # All methods get the same DR-ascending 1..k ids so cluster labels
             # are trend-comparable across methods (and k=9 matches the WT=9 contract).
             sorted_labels = sort_labels_by_dr(annotated, raw_labels)
+            raw_by_k[k] = raw_labels.to_numpy()
+            sorted_by_k[k] = sorted_labels
 
             label_rows.append(
                 pd.DataFrame({"method": method, "k": k, "gene": sorted_labels.index, "cluster": sorted_labels.to_numpy()})
@@ -140,8 +156,23 @@ def run(config: GridConfig) -> None:
             )
             profile_rows.append(prof)
 
+            # What the partition cuts: DR vs DL share of the between-cluster SS.
+            dr_share, dl_share = axis_shares(coordinates, raw_labels.to_numpy())
+            metric_rows[-1]["dr_share"] = dr_share
+            metric_rows[-1]["dl_share"] = dl_share
+
+        # Bootstrap ARI (mean/sd per k) — the stability columns of this method's rows.
+        stability = bootstrap_stability(coordinates, raw_by_k, method=method, random_state=config.random_state)
+        for row in metric_rows:
+            if row["method"].iloc[0] == method and int(row["k"].iloc[0]) in stability:
+                row["ari_mean"], row["ari_sd"] = stability[int(row["k"].iloc[0])]
+
     labels = pd.concat(label_rows, ignore_index=True)
     metrics = pd.concat(metric_rows, ignore_index=True)
+
+    # Gap is the same numbers for every method at a k; broadcast into columns.
+    metrics["gap"] = metrics["k"].map({k: g for k, (g, _) in gaps.items()})
+    metrics["gap_sd"] = metrics["k"].map({k: s for k, (_, s) in gaps.items()})
 
     profile = pd.concat(profile_rows, ignore_index=True).groupby(["method", "k", "cluster"], as_index=False).agg(
         n_genes=("silhouette", "size"),

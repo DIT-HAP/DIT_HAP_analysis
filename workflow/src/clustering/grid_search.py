@@ -45,6 +45,7 @@ import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage as scipy_linkage
 from sklearn.cluster import KMeans
 from sklearn.metrics import (
+    adjusted_rand_score,
     calinski_harabasz_score,
     davies_bouldin_score,
     silhouette_samples,
@@ -173,16 +174,6 @@ def fit_method(method: str, coordinates: np.ndarray, k: int, random_state: int =
 # =============================================================================
 # CORE LOGIC — scoring + DR-sorted labelling
 # =============================================================================
-def score_labels(coordinates: np.ndarray, labels: np.ndarray) -> dict:
-    """Silhouette / CH / DB / n_clusters for one partition (unrounded)."""
-    return {
-        "silhouette_score": silhouette_score(coordinates, labels),
-        "calinski_harabasz_score": calinski_harabasz_score(coordinates, labels),
-        "davies_bouldin_score": davies_bouldin_score(coordinates, labels),
-        "n_clusters": len(np.unique(labels)),
-    }
-
-
 def label_grid(
     coordinates: np.ndarray, methods: list[str], k_min: int, k_max: int, random_state: int
 ) -> pd.DataFrame:
@@ -201,6 +192,150 @@ def label_grid(
                 partitions = fit(coordinates, k, random_state)
                 rows.append(pd.DataFrame({"method": method, "k": k, "cluster": pd.Series(partitions)}))
     return pd.concat(rows, ignore_index=True)
+
+
+# =============================================================================
+# CORE LOGIC — extended QC metrics (v2 k_selection lineage)
+# =============================================================================
+# Dunn reads only extremes (min between-gap over max diameter), so a fixed-seed
+# subsample reproduces it; the full 4513² matrix would cost ~160 MB for no gain.
+DUNN_MAX_POINTS = 3000
+# Uniform reference draws for the gap statistic (Tibshirani's own default order).
+GAP_REFERENCE_DRAWS = 50
+# Bootstrap replicates for the stability ARI; k-medoids runs PAM per replicate,
+# so it pays a reduced count. A flat 50 would dominate the sweep runtime.
+BOOTSTRAP_REPLICATES = 50
+BOOTSTRAP_REPLICATES_BY_METHOD = {"kmedoids": 20}
+BOOTSTRAP_FRACTION = 0.8
+
+
+def dunn_index(coordinates: np.ndarray, labels: np.ndarray, *, seed: int = 0) -> float:
+    """Smallest between-cluster distance over largest within-cluster diameter."""
+    if len(np.unique(labels)) < 2:
+        return float("nan")
+    if len(coordinates) > DUNN_MAX_POINTS:
+        picked = np.random.default_rng(seed).choice(len(coordinates), size=DUNN_MAX_POINTS, replace=False)
+        coordinates, labels = coordinates[picked], labels[picked]
+
+    groups = [coordinates[labels == label] for label in np.unique(labels)]
+    largest_diameter = 0.0
+    for group in groups:
+        if len(group) < 2:
+            continue
+        spread = np.sqrt(((group[:, None, :] - group[None, :, :]) ** 2).sum(axis=-1))
+        largest_diameter = max(largest_diameter, float(spread.max()))
+    if largest_diameter == 0:
+        return float("nan")
+
+    smallest_gap = np.inf
+    for i, first in enumerate(groups):
+        for second in groups[i + 1:]:
+            gap = float(np.sqrt(((first[:, None, :] - second[None, :, :]) ** 2).sum(axis=-1)).min())
+            smallest_gap = min(smallest_gap, gap)
+    return smallest_gap / largest_diameter
+
+
+def axis_shares(coordinates: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
+    """Fraction of the between-cluster SS carried by (DR, DL) — what the partition cuts."""
+    overall = coordinates.mean(axis=0)
+    between = np.zeros(coordinates.shape[1])
+    for label in np.unique(labels):
+        members = coordinates[labels == label]
+        between += len(members) * (members.mean(axis=0) - overall) ** 2
+    total = between.sum()
+    if total <= 0:
+        return float("nan"), float("nan")
+    return float(between[0] / total), float(between[1] / total)
+
+
+def score_labels(coordinates: np.ndarray, labels: np.ndarray) -> dict:
+    """Full QC metric row for one partition (v2 k_selection lineage, unrounded)."""
+    n_clusters = len(np.unique(labels))
+    # Degenerate partitions (1 cluster, or k == n points) break every metric below;
+    # NaN keeps the sweep alive and the table honest about it.
+    if n_clusters < 2 or n_clusters >= len(labels):
+        return {name: float("nan") for name in
+                ("silhouette_score", "calinski_harabasz_score", "davies_bouldin_score", "dunn",
+                 "min_cluster_silhouette", "min_cluster_share", "max_cluster_share", "n_clusters")}
+    samples = silhouette_samples(coordinates, labels)
+    per_cluster = np.array([samples[labels == label].mean() for label in np.unique(labels)])
+    sizes = np.array([(labels == label).sum() for label in np.unique(labels)])
+    return {
+        "silhouette_score": float(silhouette_score(coordinates, labels)),
+        "calinski_harabasz_score": float(calinski_harabasz_score(coordinates, labels)),
+        "davies_bouldin_score": float(davies_bouldin_score(coordinates, labels)),
+        "dunn": dunn_index(coordinates, labels),
+        "min_cluster_silhouette": float(per_cluster.min()),
+        "min_cluster_share": float(sizes.min() / len(labels)),
+        "max_cluster_share": float(sizes.max() / len(labels)),
+        "n_clusters": n_clusters,
+    }
+
+
+def gap_statistic(
+    coordinates: np.ndarray, k_min: int, k_max: int, *, random_state: int = 42
+) -> dict[int, tuple[float, float]]:
+    """Tibshirani's gap at each k: observed log-inertia against a uniform null on the bounding box.
+
+    A property of the predictors (dataset, k), not of any method — kmeans costs
+    only one fit plus the null draws, so it is computed once per (dataset, k).
+    """
+    lows, highs = coordinates.min(axis=0), coordinates.max(axis=0)
+    rng = np.random.default_rng(random_state)
+    references = [rng.uniform(lows, highs, size=coordinates.shape) for _ in range(GAP_REFERENCE_DRAWS)]
+    gaps: dict[int, tuple[float, float]] = {}
+    for k in range(k_min, k_max + 1):
+        observed = float(np.log(KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(coordinates).inertia_))
+        reference_logs = np.log(
+            [KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(ref).inertia_ for ref in references]
+        )
+        # Mean-of-logs is what the statistic is defined on; SE per Tibshirani 2001 eq. 4.
+        gaps[k] = (float(reference_logs.mean() - observed), float(reference_logs.std(ddof=1) * np.sqrt(1 + 1 / GAP_REFERENCE_DRAWS)))
+    return gaps
+
+
+def partitioner(method: str, coordinates: np.ndarray, *, random_state: int = 42) -> Callable[[int], np.ndarray]:
+    """A `k -> labels` closure for one method on one sample.
+
+    Whatever the method needs before any k (a merge tree, a distance matrix) is
+    paid here once — a bootstrap resample or a k sweep cuts it many times.
+    """
+    if method in HC_METRICS:
+        spec = HC_METRICS[method]
+        tree = scipy_linkage(coordinates, method=spec["linkage"], metric=spec["metric"])
+        return lambda k: fcluster(tree, k, criterion="maxclust") - 1
+    fit = FIT_FUNCTIONS.get(method)
+    if fit is None:
+        raise ValueError(f"Unknown clustering method: {method!r} (expected one of {METHODS})")
+    return lambda k: fit(coordinates, k, random_state)
+
+
+def bootstrap_stability(
+    coordinates: np.ndarray,
+    labels_by_k: dict[int, np.ndarray],
+    *,
+    method: str,
+    random_state: int = 42,
+) -> dict[int, tuple[float, float]]:
+    """Mean/sd ARI of bootstrap refits vs the full-data labels, per k.
+
+    Both loops inverted: one preparation per resample (HC tree / kmedoids
+    distance matrix), then every k cut on it — hierarchical refits are the cost.
+    """
+    replicates = BOOTSTRAP_REPLICATES_BY_METHOD.get(method, BOOTSTRAP_REPLICATES)
+    rng = np.random.default_rng(random_state)
+    n = len(coordinates)
+    size = int(n * BOOTSTRAP_FRACTION)
+    scores: dict[int, list[float]] = {k: [] for k in labels_by_k}
+    for _ in range(replicates):
+        picked = rng.choice(n, size=size, replace=False)
+        cut = partitioner(method, coordinates[picked], random_state=random_state)
+        for k, full_labels in labels_by_k.items():
+            scores[k].append(adjusted_rand_score(full_labels[picked], cut(k)))
+    return {
+        k: (float(np.asarray(v).mean()), float(np.asarray(v).std(ddof=1)))
+        for k, v in scores.items()
+    }
 
 
 def sort_labels_by_dr(

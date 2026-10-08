@@ -466,10 +466,15 @@ rule plot_clusters_grid:
     input:
         labels=f"{_CWORK}/grid_labels.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        curated=_GRID.get("curated", "tmp/manual_curated_clusters.tsv"),
     output:
-        scatter="results/clustering/{dataset}/clusters_grid.pdf",
+        # One PDF per k (stem + _k<k>), not a merged multipage figure.
+        scatter=touch("results/clustering/{dataset}/clusters_grid_plots.done"),
     params:
+        stem="results/clustering/{dataset}/clusters_grid",
         dataset=lambda wc: wc.dataset,
+        reference_k=_GFINAL_K,
         col_num=_GRID.get("col_num", 3),
     log:
         "logs/clustering/plot_clusters_grid_{dataset}.log",
@@ -482,8 +487,11 @@ rule plot_clusters_grid:
         python workflow/scripts/clustering/plot_clusters_grid.py \
             --labels {input.labels} \
             --scaled {input.scaled} \
-            --output {output.scatter} \
+            --annotated {input.annotated} \
+            --output-stem {params.stem} \
             --dataset {params.dataset} \
+            --reference-k {params.reference_k} \
+            --curated {input.curated} \
             --col-num {params.col_num} &> {log}
         """
 
@@ -495,6 +503,7 @@ rule plot_k_selection:
         figure="results/clustering/{dataset}/k_selection.pdf",
     params:
         k_reference=_GFINAL_K,
+        col_num=_GRID.get("ksel_col_num", 3),
     log:
         "logs/clustering/plot_k_selection_{dataset}.log",
     conda:
@@ -506,7 +515,58 @@ rule plot_k_selection:
         python workflow/scripts/clustering/plot_k_selection.py \
             --metrics {input.metrics} \
             --output {output.figure} \
-            --k-reference {params.k_reference} &> {log}
+            --k-reference {params.k_reference} \
+            --col-num {params.col_num} &> {log}
+        """
+
+
+rule plot_cluster_sizes:
+    input:
+        profile=f"{_CWORK}/k_selection_profile.tsv",
+    output:
+        table=f"{_CWORK}/cluster_sizes.tsv",
+        figure="results/clustering/{dataset}/cluster_sizes.pdf",
+    params:
+        col_num=_GRID.get("col_num", 3),
+    log:
+        "logs/clustering/plot_cluster_sizes_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting per-(method, k) cluster gene counts for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_cluster_sizes.py \
+            --profile {input.profile} \
+            --output-table {output.table} \
+            --output-figure {output.figure} \
+            --col-num {params.col_num} &> {log}
+        """
+
+
+rule plot_clustering_distribution:
+    input:
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+    output:
+        stats="results/clustering/{dataset}/distribution_stats.tsv",
+        figure="results/clustering/{dataset}/distribution.pdf",
+    params:
+        bins=_GRID.get("distribution_bins", 60),
+    log:
+        "logs/clustering/plot_clustering_distribution_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting DR/DL input-space diagnostics for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_clustering_distribution.py \
+            --annotated {input.annotated} \
+            --scaled {input.scaled} \
+            --output-stats {output.stats} \
+            --output-figure {output.figure} \
+            --bins {params.bins} &> {log}
         """
 
 

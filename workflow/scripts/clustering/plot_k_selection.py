@@ -57,15 +57,25 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# The metrics to panel, in reading order, with a human axis title each.
-# (silhouette / CH / DB are the three the old variant metrics table carried;
-# plotting them per method turns the single-build table into a comparison.)
+# The metrics to panel, in reading order, with a human axis title each — the
+# v2 k_selection set (silhouette / CH / DB / min cluster silhouette / shares)
+# plus this sweep's additions (dunn, gap, bootstrap ARI, axis shares).
 PANELS: tuple[tuple[str, str], ...] = (
-    ("silhouette_score", "Silhouette (↑ better)"),
-    ("calinski_harabasz_score", "Calinski-Harabasz (↑ better)"),
-    ("davies_bouldin_score", "Davies-Bouldin (↓ better)"),
-    ("n_clusters", "Clusters found"),
+    ("silhouette_score", "Silhouette (↑)"),
+    ("calinski_harabasz_score", "Calinski-Harabasz (↑)"),
+    ("davies_bouldin_score", "Davies-Bouldin (↓)"),
+    ("dunn", "Dunn index (↑)"),
+    ("min_cluster_silhouette", "Worst-cluster silhouette (↑)"),
+    ("max_cluster_share", "Largest cluster share (↓)"),
+    ("min_cluster_share", "Smallest cluster share (↑)"),
+    ("ari_mean", "Bootstrap ARI (↑)"),
+    ("gap", "Gap statistic (↑)"),
+    ("dr_share", "DR share of between-SS"),
 )
+
+# Panels driven by a single line instead of one line per method: the gap
+# statistic and the axis share are properties of (dataset, k), not the method.
+SINGLE_LINE_PANELS = {"gap", "dr_share"}
 
 
 # =============================================================================
@@ -109,16 +119,27 @@ def run(config: KSelConfig) -> None:
     fig.subplots_adjust(hspace=0.45, wspace=0.35)
 
     for (column, title), ax in zip(PANELS, axes):
-        for method in methods:
-            subset = metrics[metrics["method"] == method].sort_values("k")
-            ax.plot(subset["k"], subset[column], marker="o", markersize=2.5, label=method)
+        if column in SINGLE_LINE_PANELS:
+            subset = metrics[metrics["method"] == methods[0]].sort_values("k")
+            ax.plot(subset["k"], subset[column], marker="o", markersize=2.5, color="grey")
+            ax.set_title(title)
+        else:
+            for method in methods:
+                subset = metrics[metrics["method"] == method].sort_values("k")
+                ax.plot(subset["k"], subset[column], marker="o", markersize=2.5, label=method)
+                if column == "ari_mean":  # bootstrap spread as a band around the mean
+                    ax.fill_between(subset["k"], subset["ari_mean"] - subset["ari_sd"], subset["ari_mean"] + subset["ari_sd"], alpha=0.15)
         ax.set_title(title)
         ax.set_xlabel("k")
         ax.set_ylabel("")
         if config.k_reference is not None:
             ax.axvline(config.k_reference, color="grey", linestyle=":", linewidth=0.8)
 
+    for ax in axes[n_panels:]:  # hide the unused grid cells
+        ax.set_visible(False)
+
     handles, names = axes[0].get_legend_handles_labels()
+    fig = plt.gcf()
     fig.legend(handles, names, loc="outside upper right", ncols=len(methods), fontsize=6)
     save_dual(config.output.with_suffix(""))
     logger.success(
