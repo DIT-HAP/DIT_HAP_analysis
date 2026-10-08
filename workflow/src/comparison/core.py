@@ -36,6 +36,7 @@ import sys
 import warnings
 from itertools import combinations
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -63,6 +64,7 @@ if str(_SRC_DIR) not in sys.path:
 from figures import (  # noqa: E402
     apply_house_style,
     house_colors,
+    panel_labels,
 )
 
 # =============================================================================
@@ -177,9 +179,11 @@ HEATMAP_CMAP = "RdBu_r"
 # axes box it was handed. A fitted grid_axes panel therefore does not hold a
 # house-sized panel, it holds the whole composite, and pushes the page past the
 # journal width. Measured with no panel shape in the way, the matrix body comes
-# out 100 x 100 (the house panel exactly) at this page, 2 columns, and the rect
-# below. Change the column count or the rect and it has to be re-measured.
-HEATMAP_PAGE_PX = (520, 145)
+# out 97 x 100 -- the house panel, within the 3 px the left annotation band takes
+# from the matrix -- at this page, 2 columns, and the rect below. The page is at
+# the journal cap: any wider and it is scaled down at typesetting. Change the
+# column count or the rect and it has to be re-measured.
+HEATMAP_PAGE_PX = (540, 136)
 
 # A white annotation track padded between the Study band and the matrix: the
 # plotter packs its annotations straight against the heatmap and has no gap
@@ -197,10 +201,10 @@ HEATMAP_LEGEND_STRIP_LEFT = 0.84
 HEATMAP_LAYOUT_RECT = (0, 0, HEATMAP_LEGEND_STRIP_LEFT, 1)
 HEATMAP_LEGEND_BOUNDS = (0.85, 0.02, 0.14, 0.96)
 
-# The value bar lies along the bottom of the strip (horizontal, so it reads under
-# its own width) and the category key sits above it: a vertical bar plus its
-# rotated label does not fit beside the key. Legend-axes fraction (x0, y0, w, h).
-HEATMAP_CBAR_BOUNDS = (0.04, 0.03, 0.72, 0.05)
+# The category key sits at the top of the strip and the value bar under it, thin
+# and upright: at this width a horizontal bar would have to be either short or
+# wider than the strip. Legend-axes fraction (x0, y0, w, h).
+HEATMAP_CBAR_BOUNDS = (0.22, 0.02, 0.07, 0.40)
 
 
 # Project path setup: src/ modules import their siblings by bare name, which
@@ -405,6 +409,51 @@ def plot_pairwise_scatter(
     )
 
 
+def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
+    """Drop every spine of one composite panel, and label it above its own content box.
+
+    The plotter frames the heatmap body with the axes spines and frames one side of
+    its annotation bands, which reads as a border that stops halfway. With them off
+    the colour cells are the panel. The name and letter cannot go on an axes either:
+    the plotter lays its axes out over the same area, so an axes title ends up under
+    the body, and the panel's left edge is too close to the page edge for
+    ``cns.add_panel_label``'s right-aligned offset. Both are drawn in figure space
+    from the panel's own bounding box instead.
+    """
+    import cnsplots as cns
+
+    figure = plotter.ax.figure
+    # Every axes in the figure at this point is the composite's (the legend strip is
+    # added afterwards), including the four empty placeholders it keeps for the
+    # dendrograms and annotations it is not drawing -- the border is spread over all
+    # of them, so the spines are dropped figure-wide rather than by name.
+    for member in figure.axes:
+        for side in ("left", "right", "top", "bottom"):
+            member.spines[side].set_visible(False)
+
+    boxes = [
+        member.get_position()
+        for member in (plotter.ax_heatmap, plotter.ax_row_dendrogram, plotter.ax_left_annotation)
+        if member is not None
+    ]
+    left, right = min(box.x0 for box in boxes), max(box.x1 for box in boxes)
+    top = max(box.y1 for box in boxes)
+    above = top + cns.settings.panel_pad_top / (figure.get_size_inches()[1] * 72)
+
+    figure.text(
+        left, above, letter,
+        ha="left", va="bottom",
+        fontsize=cns.settings.title_fontsize,
+        fontweight=cns.settings.panel_label_fontweight,
+    )
+    figure.text(
+        (left + right) / 2, above, name,
+        ha="center", va="bottom",
+        fontsize=cns.settings.title_fontsize,
+        fontweight=plt.rcParams["axes.titleweight"],
+    )
+
+
 def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figure) -> None:
     """Draw the shared value colourbar and Study category key inside ``cell`` (the legend strip)."""
     import cnsplots as cns
@@ -415,7 +464,6 @@ def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figur
     colorbar = fig.colorbar(
         ScalarMappable(norm=Normalize(vmin=CORRELATION_MIN, vmax=CORRELATION_MAX), cmap=HEATMAP_CMAP),
         cax=colorbar_axes,
-        orientation="horizontal",
         ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
     )
     colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
@@ -472,13 +520,15 @@ def plot_correlation_heatmap(
     )
     # A white annotation track is what separates the Study band from the matrix:
     # the plotter packs its annotations straight against the heatmap and has no
-    # gap setting of its own.
+    # gap setting of its own. Row annotation, so the band runs down the side of
+    # the matrix where the row labels are, not across the top.
     spacer = pd.Categorical([SPACER_VALUE] * len(order), categories=[SPACER_VALUE])
     annotation_colors = {"Study": study_colors, SPACER_COLUMN: {SPACER_VALUE: BACKGROUND_COLOR}}
 
     cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1])
     figure = plt.gcf()
     panel_axes = figure.subplots(1, len(HEATMAP_PANELS), squeeze=False)[0]
+    plotters = []
 
     for ax, (metric, name) in zip(panel_axes, HEATMAP_PANELS, strict=True):
         panel_matrix = correlation_matrix(stats, columns, metric).rename(
@@ -486,40 +536,46 @@ def plot_correlation_heatmap(
         ).loc[order_labels, order_labels]
         data = ad.AnnData(
             panel_matrix.to_numpy(),
-            obs=pd.DataFrame(index=order_labels),
-            var=pd.DataFrame({"Study": categories, SPACER_COLUMN: spacer}, index=order_labels),
+            obs=pd.DataFrame({"Study": categories, SPACER_COLUMN: spacer}, index=order_labels),
+            var=pd.DataFrame(index=order_labels),
         )
-        plotter = cns.heatmapplot(
-            data,
-            col_annotation=["Study", SPACER_COLUMN],
-            # Clustering is the caller's (both panels are then in one order, and it
-            # is the tree the matrix figure is ordered by too), so the tree is
-            # handed to the plotter rather than computed per coefficient.
-            row_cluster=True,
-            row_dendrogram=True,
-            row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
-            col_cluster=False,
-            cmap=HEATMAP_CMAP,
-            vmin=CORRELATION_MIN,
-            vmax=CORRELATION_MAX,
-            label="Correlation",
-            xlabel="",
-            ylabel="",
-            xticklabels_rotation=45,
-            show_rownames=True,
-            show_colnames=False,
-            # Explicit colours so the annotation bands match the key drawn below
-            # (both panels share the scale, so neither carries its own legend).
-            colors=annotation_colors,
-            plot_legend=False,
-            ax=ax,
+        plotters.append(
+            cns.heatmapplot(
+                data,
+                row_annotation=["Study", SPACER_COLUMN],
+                # Clustering is the caller's (both panels are then in one order, and it
+                # is the tree the matrix figure is ordered by too), so the tree is
+                # handed to the plotter rather than computed per coefficient.
+                row_cluster=True,
+                row_dendrogram=True,
+                row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
+                col_cluster=False,
+                cmap=HEATMAP_CMAP,
+                vmin=CORRELATION_MIN,
+                vmax=CORRELATION_MAX,
+                label="Correlation",
+                xlabel="",
+                ylabel="",
+                xticklabels_rotation=45,
+                show_rownames=True,
+                show_colnames=False,
+                # Explicit colours so the annotation bands match the key drawn below
+                # (both panels share the scale, so neither carries its own legend).
+                colors=annotation_colors,
+                plot_legend=False,
+                ax=ax,
+            )
         )
-        # The host axes is covered by the heatmap body, so the panel name goes on
-        # the annotation band above it, which is where the composite leaves room.
-        plotter.ax_top_annotation.set_title(name)
 
     # Lay the composite out inside the part of the page that is not the legend strip.
     figure.tight_layout(rect=HEATMAP_LAYOUT_RECT)
+    # Each composite places its own axes during the draw, so the panel labels can
+    # only be measured from the boxes they end up in.
+    figure.canvas.draw()
+    labels = panel_labels(len(HEATMAP_PANELS))
+    for plotter, label, (_, name) in zip(plotters, labels, HEATMAP_PANELS, strict=True):
+        _frame_heatmap_panel(plotter, name, label)
+
     _draw_heatmap_legend(figure.add_axes(HEATMAP_LEGEND_BOUNDS), study_colors, fig=figure)
     # The legends are their own axes, which the default tight export bbox drops --
     # saving the full canvas is what keeps them in the figure.

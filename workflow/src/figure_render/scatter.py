@@ -96,6 +96,11 @@ DENSITY_SCATTER_KWS: dict[str, Any] = {
 DENSITY_CBAR_BOUNDS = (0.82, 0.02, 0.035, 0.30)
 DENSITY_CBAR_LABEL = "Density"
 
+# Every off-diagonal panel of the n x n matrix repeats the same bar, so it is drawn
+# at 60% of the default: the density scale is per panel anyway (see
+# _add_density_colorbar), so a smaller bar loses only readability, not meaning.
+MATRIX_DENSITY_CBAR_SCALE = 0.6
+
 # Panels per row in render_scatter_grid_figure. See the comment at the n_cols
 # assignment for the measurement behind 2.
 MAX_GRID_COLUMNS = 2
@@ -132,6 +137,9 @@ class ScatterPanel:
     scale: Literal["linear", "log", "symlog"] = "linear"
     show_stats: bool = False
     density: bool = False
+    # Multiplier on DENSITY_CBAR_BOUNDS, for grids where every panel repeats the
+    # same bar and the default size would be the loudest thing in the panel.
+    density_cbar_scale: float = 1.0
 
 
 # =============================================================================
@@ -237,9 +245,11 @@ def _apply_shared_square_limits(
             ax.set_ylim(low - margin, high + margin)
 
 
-def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
+def _add_density_colorbar(ax: Axes, mappable: PathCollection, *, scale: float = 1.0) -> None:
     """Inset a thin vertical colorbar labelled low/high inside the panel's bottom-right corner."""
-    cax = ax.inset_axes(DENSITY_CBAR_BOUNDS)
+    x0, y0, width, height = DENSITY_CBAR_BOUNDS
+    # Scaled about the bottom-right corner, which is the corner the bar is anchored to.
+    cax = ax.inset_axes((x0 + width * (1 - scale), y0, width * scale, height * scale))
     colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
 
     # Only the ordering is meaningful: density is renormalised per panel, so
@@ -303,7 +313,7 @@ def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bo
     mappable = ax.scatter(
         x, y, c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
     )
-    _add_density_colorbar(ax, mappable)
+    _add_density_colorbar(ax, mappable, scale=panel.density_cbar_scale)
 
     return True
 
@@ -578,6 +588,11 @@ def render_pairwise_matrix_figure(
                 xlabel="",
                 ylabel="",
                 title="",
+                # Overplotting is the norm in these pairs (tens of thousands of
+                # genes in a 100 px panel), so density is the reading that shows
+                # where the cloud actually is.
+                density=True,
+                density_cbar_scale=MATRIX_DENSITY_CBAR_SCALE,
             )
             logger.info(f"  Panel ({ordered[row_index]}, {ordered[column_index]})")
             render_scatter_panel(
