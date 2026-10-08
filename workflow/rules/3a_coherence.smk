@@ -29,14 +29,20 @@
 #                                     conservation uniformity CVs and the
 #                                     paralog_fraction of the scored members —
 #                                     all computed here so the figure only renders)
-#   export_coherence_cohorts       -> {source}/coherence_cohorts.xlsx (thresholded
-#                                     straight off the table above — this source's
-#                                     own q, no de-duplication columns)
-#   plot_coherence                 -> coherence.pdf (reads the metrics table alone)
 #   plot_coherence_group_scatter   -> group_scatter.pdf (named groups from config)
 #   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; term picker
-#                                     + per-gene tooltips over the genome-wide cloud)
+#                                     + cohort picker, marker colour = cohort, per-gene
+#                                     tooltips over the genome-wide cloud)
 # Per-view rules (fan out over {view}: the five sources + combined + dedup):
+#   plot_coherence                 -> {view}/coherence.pdf (the metrics table of that
+#                                     view; combined/ adds --color-by source
+#                                     --dedup-series, the representative set as a sixth
+#                                     series coloured by source)
+#   export_coherence_cohorts       -> {view}/coherence_cohorts.xlsx (thresholded off that
+#                                     view's table: per-source views keep their own BH q
+#                                     and carry no de-duplication columns; combined/ adds
+#                                     in_dedup_set + moonlighting_fraction from the dedup
+#                                     table; dedup/ reads the representatives TSV)
 #   compute_view_fractions         -> {view}/view_fractions.tsv + view_gene_breadth.tsv:
 #                                     the per-view paralog / moonlighting fractions and
 #                                     the gene-breadth counts behind the latter.
@@ -60,13 +66,6 @@
 #                                     collapse redundant terms by member overlap + GO DAG
 #                                     (display layer; the combined q_value is carried
 #                                     through untouched, all terms kept)
-#   plot_coherence_for_combined    -> combined/coherence.pdf (every source + the
-#                                     representative set on one figure, coloured by source)
-#   export_coherence_cohorts_for_combined -> combined/coherence_cohorts.xlsx (the
-#                                     full term list on the pooled q, + in_dedup_set,
-#                                     moonlighting_fraction)
-#   plot_coherence_for_dedup       -> dedup/coherence.pdf (the representative set alone)
-#   export_coherence_cohorts_for_dedup -> dedup/coherence_cohorts.xlsx
 #   plot_coherence_redundancy_network_for_dedup -> dedup/redundancy_network.html (Altair; the merge
 #                                     backbone of each redundancy cluster, edge = Jaccard)
 #   plot_coherence_interactive_scatter_for_pooled -> combined|dedup/interactive_scatter.html (the
@@ -112,6 +111,10 @@ _COH_SOURCES = _COH_CFG.get("sources", ["go_macrocomplex", "go_cc", "go_bp"])
 _COH_COHERENT_Q_MAX = _COH_CFG.get("coherent_q_max", 0.05)
 _COH_COHERENT_Z = _COH_CFG.get("coherent_z_threshold", -2.0)
 _COH_INCOHERENT_Z = _COH_CFG.get("incoherent_z_threshold", 1.0)
+# The scored/unscored cut the compute stage filters on; the scatter figures draw
+# it as a dashed line and split their clouds on it, so every renderer must show
+# the SAME cut the z-scores were computed with.
+_COH_DR_THRESHOLD = _COH_CFG.get("dr_threshold", -0.3)
 _COH_FEATURES_PANELS = _COH_CFG.get("features_panels", True)
 _COH_FEATURES = (
     f"results/1b_features/{DATASETS['reference']['pombase_version']}"
@@ -122,6 +125,22 @@ _COH_FEATURES = (
 # optional-input idiom as compute_coherence's features).
 _COH_KEGG_DIR = _COH_CFG.get("kegg_dir", "resources/external/kegg/data/derived")
 _COH_KEGG_SOURCES = {src for src in _COH_SOURCES if src.startswith("kegg_")}
+
+# The two view lists, defined once here so a reader checking what a rule fans out
+# over does not hunt through the middle of the file:
+#   _VIEWS        the five sources + combined + dedup — every view a per-view
+#                 artifact lands in (figures, cohort workbooks, fraction tables)
+#   _COHORT_VIEWS _VIEWS minus combined: the pooled table carries each source's rows
+#                 duplicated, so per-term-cohort figures over it would repeat panels
+_VIEWS = [*_COH_SOURCES, "combined", "dedup"]
+_COHORT_VIEWS = [*_COH_SOURCES, "dedup"]
+
+# _COH is the per-source path template ({source} wildcard); _COH_BASE/_COH_VIEW
+# give the {view} rules the same directory contract without a second wildcard in
+# the tail: results/3a_coherence/{dataset}/{view}/, where a view's folder name
+# says which row set its files hold.
+_COH_BASE = "results/3a_coherence/{dataset}"
+_COH_VIEW = _COH_BASE + "/{view}"
 
 wildcard_constraints:
     source="|".join(_COH_SOURCES),
@@ -197,31 +216,63 @@ rule compute_coherence:
         """
 
 
-# The cohort workbook for one source, straight off the metrics table just computed
-# above — no combine step in between. Its q is that source's own BH family, so the
-# workbook is NOT a slice of combined/'s (58 of the 322 coherent groups flip
-# cohort between the two q families, 2026-09-29), and being one source's raw term
-# list it carries no de-duplication column either.
+# The cohort workbook over any view, straight off that view's metrics table —
+# the same {view} fan-out as plot_coherence. One command, two per-view choices
+# expressed as empty-or-not flags:
+# - --source: the per-source workbooks read that source's OWN metrics table, so
+#   their q is the per-source BH family — the per-source workbook is NOT a slice
+#   of combined/'s (58 of the 322 coherent groups flip cohort between the two q
+#   families, 2026-09-29), and being one source's raw term list it carries no
+#   de-duplication column either.
+# - --dedup-terms: only combined/ takes the all-terms dedup table (it carries
+#   is_representative and moonlighting_fraction, which the workbook shows for
+#   every term). dedup/ needs no flag: every row of its table already IS a
+#   representative, so the column would be a constant True (it still carries
+#   paralog_fraction and moonlighting_fraction as columns of the table itself).
+_EXPORT_METRICS = {
+    # The source name is INTERPOLATED into the key's path (a concrete file, not a
+    # template): the rule's output carries {view}, from which Snakemake could
+    # never infer a {source} wildcard.
+    **{source: _COH_BASE + f"/{source}/coherence_metrics.parquet" for source in _COH_SOURCES},
+    "combined": _COH_BASE + "/combined/coherence_metrics.parquet",
+    "dedup": _COH_BASE + "/dedup/coherence_terms_representatives.tsv",
+}
+
 rule export_coherence_cohorts:
     input:
-        metrics=f"{_COH}/coherence_metrics.parquet",
+        metrics=lambda wc: _EXPORT_METRICS[wc.view],
+        dedup_terms=lambda wc: (
+            _COH_BASE + "/dedup/coherence_terms_deduplicated.tsv"
+            if wc.view == "combined" else []
+        ),
     output:
-        xlsx=f"{_COH}/coherence_cohorts.xlsx",
+        xlsx=f"{_COH_VIEW}/coherence_cohorts.xlsx",
+    wildcard_constraints:
+        view="|".join(_VIEWS),
     params:
         q_max=_COH_COHERENT_Q_MAX,
         coherent_z=_COH_COHERENT_Z,
         incoherent_z=_COH_INCOHERENT_Z,
+        source_flag=lambda wc: (
+            "--source " + wc.view if wc.view in _COH_SOURCES else ""
+        ),
+        dedup_flag=lambda wc, input: (
+            "--dedup-terms " + str(input.dedup_terms)
+            if wc.view == "combined" else ""
+        ),
     log:
-        "logs/3a_coherence/export_cohorts_{dataset}_{source}.log",
+        "logs/3a_coherence/export_cohorts_{dataset}_{view}.log",
     conda:
+        # stats env: openpyxl for the workbook is in this recipe.
         "../envs/statistics_and_figure_plotting.yml"
     message:
-        "*** [coherence] Exporting cohort tables for {wildcards.dataset} × {wildcards.source}..."
+        "*** [coherence] Exporting cohort tables for {wildcards.dataset} × {wildcards.view}..."
     shell:
         """
         python workflow/scripts/coherence/export_cohorts.py \
             --metrics {input.metrics} \
-            --source {wildcards.source} \
+            {params.source_flag} \
+            {params.dedup_flag} \
             --q-max {params.q_max} \
             --coherent-z {params.coherent_z} \
             --incoherent-z {params.incoherent_z} \
@@ -229,28 +280,55 @@ rule export_coherence_cohorts:
         """
 
 
+# The coherence figure over any view: the five per-source tables, the pooled
+# combined table, or the representative set. One rule, because the shell command
+# is identical and only the input file differs — the same {view} fan-out
+# compute_view_fractions uses. combined/ is the one view with extra flags
+# (--color-by source --dedup-series, which need the representatives table as a
+# second input); the other views get an empty extras string.
+_PLOT_VIEWS = {
+    # Same as _EXPORT_METRICS: per-source keys carry CONCRETE paths (the source
+    # name interpolated), since the rule's wildcard is {view}, not {source}.
+    **{source: _COH_BASE + f"/{source}/coherence_metrics.parquet" for source in _COH_SOURCES},
+    "combined": _COH_BASE + "/combined/coherence_metrics.parquet",
+    "dedup": _COH_BASE + "/dedup/coherence_terms_representatives.tsv",
+}
+
 rule plot_coherence:
     input:
-        metrics=f"{_COH}/coherence_metrics.parquet",
+        metrics=lambda wc: _PLOT_VIEWS[wc.view],
+        # Only read for combined; an empty entry costs nothing and keeps the DAG
+        # honest about why dedup's table is already an input upstream.
+        dedup_series=lambda wc: (
+            _COH_BASE + "/dedup/coherence_terms_representatives.tsv"
+            if wc.view == "combined" else []
+        ),
     output:
-        figure=f"{_COH}/coherence.pdf",
-        preview=f"{_COH}/coherence.review.png",
+        figure=f"{_COH_VIEW}/coherence.pdf",
+        preview=f"{_COH_VIEW}/coherence.review.png",
+    wildcard_constraints:
+        view="|".join(_VIEWS),
     params:
         label_q_max=_COH_COHERENT_Q_MAX,
         label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
         label_max=_COH_CFG.get("fdr_panel_label_max", 5),
         label_coherent_z=_COH_COHERENT_Z,
         label_incoherent_z=_COH_INCOHERENT_Z,
+        extras=lambda wc, input: (
+            "--color-by source --dedup-series " + str(input.dedup_series)
+            if wc.view == "combined" else ""
+        ),
     log:
-        "logs/3a_coherence/plot_{dataset}_{source}.log",
+        "logs/3a_coherence/plot_{dataset}_{view}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
-        "*** [coherence] Plotting coherence figure for {wildcards.dataset} × {wildcards.source}..."
+        "*** [coherence] Plotting the coherence figure for {wildcards.dataset} × {wildcards.view}..."
     shell:
         """
         python workflow/scripts/coherence/plot_coherence.py \
             --input {input.metrics} \
+            {params.extras} \
             --label-q-max {params.label_q_max} \
             --label-quantile {params.label_quantile} \
             --label-max {params.label_max} \
@@ -327,140 +405,12 @@ rule deduplicate_coherence_terms:
 
 # --- The de-duplicated set as a first-class result --------------------------
 # The representative set is the cross-source end product, so it gets its own
-# coherence figure and cohort workbook. The
-# TSV's pooled q_value is carried through untouched from the combined table — see
+# coherence figure and cohort workbook (both under the {view} rules). The TSV's
+# pooled q_value is carried through untouched from the combined table — see
 # combine_metrics.py's FDR note for why re-correcting over the representatives
-# would be anti-conservative rather than merely redundant.
-
-rule plot_coherence_for_dedup:
-    input:
-        representatives="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",
-    output:
-        figure="results/3a_coherence/{dataset}/dedup/coherence.pdf",
-        preview="results/3a_coherence/{dataset}/dedup/coherence.review.png",
-    params:
-        label_q_max=_COH_COHERENT_Q_MAX,
-        label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
-        label_max=_COH_CFG.get("fdr_panel_label_max", 5),
-        label_coherent_z=_COH_COHERENT_Z,
-        label_incoherent_z=_COH_INCOHERENT_Z,
-    log:
-        "logs/3a_coherence/plot_dedup_{dataset}.log",
-    conda:
-        "../envs/cnsplots.yml"
-    message:
-        "*** [coherence] Plotting the de-duplicated representative set for {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/coherence/plot_coherence.py \
-            --input {input.representatives} \
-            --label-q-max {params.label_q_max} \
-            --label-quantile {params.label_quantile} \
-            --label-max {params.label_max} \
-            --label-coherent-z {params.label_coherent_z} \
-            --label-incoherent-z {params.label_incoherent_z} \
-            --output {output.figure} &> {log}
-        """
-
-
-rule plot_coherence_for_combined:
-    input:
-        combined="results/3a_coherence/{dataset}/combined/coherence_metrics.parquet",
-        representatives="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",
-    output:
-        figure="results/3a_coherence/{dataset}/combined/coherence.pdf",
-        preview="results/3a_coherence/{dataset}/combined/coherence.review.png",
-    params:
-        label_q_max=_COH_COHERENT_Q_MAX,
-        label_quantile=_COH_CFG.get("fdr_panel_label_quantile", 0.05),
-        label_max=_COH_CFG.get("fdr_panel_label_max", 5),
-        label_coherent_z=_COH_COHERENT_Z,
-        label_incoherent_z=_COH_INCOHERENT_Z,
-    log:
-        "logs/3a_coherence/plot_by_source_{dataset}.log",
-    conda:
-        "../envs/cnsplots.yml"
-    message:
-        "*** [coherence] Plotting the cross-source comparison for {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/coherence/plot_coherence.py \
-            --input {input.combined} \
-            --color-by source \
-            --dedup-series {input.representatives} \
-            --label-q-max {params.label_q_max} \
-            --label-quantile {params.label_quantile} \
-            --label-max {params.label_max} \
-            --label-coherent-z {params.label_coherent_z} \
-            --label-incoherent-z {params.label_incoherent_z} \
-            --output {output.figure} &> {log}
-        """
-
-
-rule export_coherence_cohorts_for_combined:
-    input:
-        metrics="results/3a_coherence/{dataset}/combined/coherence_metrics.parquet",
-        # The all-terms dedup table, not the representatives-only one: it carries
-        # is_representative (the in_dedup_set flag) AND moonlighting_fraction, which
-        # the workbook then shows for every term. Same upstream (the dedup rule),
-        # so this costs no new dependency.
-        dedup_terms="results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv",
-    output:
-        xlsx="results/3a_coherence/{dataset}/combined/coherence_cohorts.xlsx",
-    params:
-        q_max=_COH_COHERENT_Q_MAX,
-        coherent_z=_COH_COHERENT_Z,
-        incoherent_z=_COH_INCOHERENT_Z,
-    log:
-        "logs/3a_coherence/export_cohorts_{dataset}.log",
-    conda:
-        # stats env: openpyxl for the workbook is in this recipe.
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [coherence] Exporting threshold-filtered cohort tables for {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/coherence/export_cohorts.py \
-            --metrics {input.metrics} \
-            --dedup-terms {input.dedup_terms} \
-            --q-max {params.q_max} \
-            --coherent-z {params.coherent_z} \
-            --incoherent-z {params.incoherent_z} \
-            --output {output.xlsx} &> {log}
-        """
-
-
-# The same cut applied to the de-duplicated representative set (957 groups pooled
-# over all sources) instead of the full 2,587. Reads the representatives TSV, whose
-# q_value is the pooled one carried through untouched, so this workbook and the
-# combined one call the same cohort for the same group. No --dedup-terms flag
-# here: every row of that table already IS a representative, so the column would be
-# a constant True (it still carries paralog_fraction and moonlighting_fraction, as
-# columns of the table itself).
-rule export_coherence_cohorts_for_dedup:
-    input:
-        metrics="results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv",
-    output:
-        xlsx="results/3a_coherence/{dataset}/dedup/coherence_cohorts.xlsx",
-    params:
-        q_max=_COH_COHERENT_Q_MAX,
-        coherent_z=_COH_COHERENT_Z,
-        incoherent_z=_COH_INCOHERENT_Z,
-    log:
-        "logs/3a_coherence/export_cohorts_dedup_{dataset}.log",
-    conda:
-        "../envs/statistics_and_figure_plotting.yml"
-    message:
-        "*** [coherence] Exporting cohort tables for the de-duplicated set of {wildcards.dataset}..."
-    shell:
-        """
-        python workflow/scripts/coherence/export_cohorts.py \
-            --metrics {input.metrics} \
-            --q-max {params.q_max} \
-            --coherent-z {params.coherent_z} \
-            --incoherent-z {params.incoherent_z} \
-            --output {output.xlsx} &> {log}
-        """
+# would be anti-conservative rather than merely redundant. The dedup workbook's
+# cut is the same pooled q applied to that table, so it and the combined one call
+# the same cohort for the same group.
 
 
 # --- Per-view fraction distributions ----------------------------------------
@@ -471,8 +421,6 @@ rule export_coherence_cohorts_for_dedup:
 # over `view` because the computation is identical for all of them — a view is a
 # slice of the combined table plus the set of de-duplication clusters its terms
 # belong to, and the breadth counts run over the (group, gene) long table.
-_VIEWS = [*_COH_SOURCES, "combined", "dedup"]
-
 rule compute_view_fractions:
     input:
         metrics="results/3a_coherence/{dataset}/combined/coherence_metrics.parquet",
@@ -543,6 +491,7 @@ rule plot_coherence_group_scatter:
         # names contain spaces). JSON is double-quoted, so the '...' shell wrapper
         # below stays intact; plot_group_scatter.py parses it with ast.literal_eval.
         groups=lambda wc: json.dumps(_COH_CFG.get("scatter_groups", {}).get(wc.source, [])),
+        dr_threshold=_COH_DR_THRESHOLD,
     log:
         "logs/3a_coherence/scatter_{dataset}_{source}.log",
     conda:
@@ -557,6 +506,7 @@ rule plot_coherence_group_scatter:
             --metrics {input.metrics} \
             --source {wildcards.source} \
             --groups '{params.groups}' \
+            --dr-threshold {params.dr_threshold} \
             --output-figure {output.figure} &> {log}
         """
 
@@ -569,7 +519,6 @@ rule plot_coherence_group_scatter:
 # every source, so the annotations are concatenated). combined/ carries the
 # per-source rows duplicated, so its own pair would repeat panels across
 # sources — deliberately not built.
-_COHORT_VIEWS = [*_COH_SOURCES, "dedup"]
 
 rule plot_cohort_scatter:
     input:
@@ -600,6 +549,7 @@ rule plot_cohort_scatter:
         q_max=_COH_COHERENT_Q_MAX,
         coherent_z=_COH_COHERENT_Z,
         incoherent_z=_COH_INCOHERENT_Z,
+        dr_threshold=_COH_DR_THRESHOLD,
     log:
         "logs/3a_coherence/cohort_scatter_{dataset}_{view}_{cohort}.log",
     conda:
@@ -616,6 +566,7 @@ rule plot_cohort_scatter:
             --q-max {params.q_max} \
             --coherent-z {params.coherent_z} \
             --incoherent-z {params.incoherent_z} \
+            --dr-threshold {params.dr_threshold} \
             --output {output.figure} &> {log}
         """
 
@@ -649,6 +600,7 @@ rule plot_coherence_interactive_scatter:
     params:
         coherent_z=_COH_COHERENT_Z,
         incoherent_z=_COH_INCOHERENT_Z,
+        dr_threshold=_COH_DR_THRESHOLD,
     log:
         "logs/3a_coherence/interactive_scatter_{dataset}_{source}.log",
     conda:
@@ -664,6 +616,7 @@ rule plot_coherence_interactive_scatter:
             --source {wildcards.source} \
             --coherent-z {params.coherent_z} \
             --incoherent-z {params.incoherent_z} \
+            --dr-threshold {params.dr_threshold} \
             --output {output.page} &> {log}
         """
 
@@ -701,6 +654,7 @@ rule plot_coherence_interactive_scatter_for_pooled:
     params:
         coherent_z=_COH_COHERENT_Z,
         incoherent_z=_COH_INCOHERENT_Z,
+        dr_threshold=_COH_DR_THRESHOLD,
     log:
         "logs/3a_coherence/interactive_scatter_{dataset}_{view}.log",
     conda:
@@ -715,6 +669,7 @@ rule plot_coherence_interactive_scatter_for_pooled:
             --fitting-results {input.fitting_results} \
             --coherent-z {params.coherent_z} \
             --incoherent-z {params.incoherent_z} \
+            --dr-threshold {params.dr_threshold} \
             --output {output.page} &> {log}
         """
 
