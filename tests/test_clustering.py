@@ -26,7 +26,6 @@ from workflow.src.clustering.candidates import (
 )
 from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.scripts.clustering.cluster_one_method import MethodConfig
-from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
 from workflow.scripts.clustering.finalize_direct_clusters import FinalizeDirectConfig, run as run_finalize_direct
 from workflow.scripts.clustering.finalize_auto_merge_clusters import FinalizeAutoMergeConfig, run as run_finalize_auto_merge
 from workflow.scripts.clustering.finalize_grid_clusters import FinalizeGridConfig, run as run_finalize_grid
@@ -108,19 +107,6 @@ def test_kmeans_is_deterministic_given_seed():
     assert np.array_equal(r1, r2)
 
 
-def test_combine_metrics_stacks_ksweep_then_rounded_methods():
-    """combine_metrics concatenates the unrounded k-sweep and 3dp-rounded method rows."""
-    ksweep = pd.DataFrame({"k": [2], "inertia": [1.23456], "silhouette": [0.5]})
-    methods = pd.DataFrame(
-        {"method": ["kmeans"], "silhouette_score": [0.4531111], "n_clusters": [64]}
-    )
-    combined = combine_metrics(ksweep, methods)
-    assert list(combined["table"]) == ["k_sweep", "method_comparison"]
-    # k-sweep row keeps full precision; method row is rounded to 3 dp.
-    assert combined.loc[0, "inertia"] == 1.23456
-    assert combined.loc[1, "silhouette_score"] == 0.453
-
-
 def test_prepare_config_rejects_missing_input(tmp_path):
     """PrepareConfig.validate raises ValueError when a required input file is absent."""
     cfg = PrepareConfig(
@@ -139,7 +125,9 @@ def test_finalize_direct_config_rejects_missing_input(tmp_path):
     cfg = FinalizeDirectConfig(
         annotated_data=tmp_path / "nope.parquet",
         scaled_data=tmp_path / "also_nope.parquet",
+        labels=tmp_path / "missing.parquet",
         output=tmp_path / "out" / "final_clusters.tsv",
+        metrics_output=tmp_path / "out" / "metrics.tsv",
     )
     with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
@@ -153,23 +141,8 @@ def test_method_config_rejects_unknown_method(tmp_path):
         method="spectral",
         scaled_data=scaled,
         output_labels=tmp_path / "w" / "l.parquet",
-        output_metrics=tmp_path / "w" / "m.parquet",
     )
     with pytest.raises(ValueError, match="Unknown clustering method"):
-        cfg.validate()
-
-
-def test_select_config_rejects_missing_input(tmp_path):
-    """SelectConfig.validate raises ValueError when a required input is absent."""
-    cfg = SelectConfig(
-        annotated_data=tmp_path / "ann.parquet",
-        ksweep=tmp_path / "ksweep.parquet",
-        best_labels=tmp_path / "labels.parquet",
-        method_metrics=[tmp_path / "m.parquet"],
-        output_clusters=tmp_path / "out" / "candidate_clusters.tsv",
-        output_metrics=tmp_path / "out" / "clustering_metrics.tsv",
-    )
-    with pytest.raises(ValueError, match="Required input not found"):
         cfg.validate()
 
 
@@ -192,7 +165,8 @@ def _toy_annotated_scaled(n_per=20, seed=0):
 
 def test_finalize_direct_produces_k_clusters_labelled_1_to_9():
     annotated, scaled = _toy_annotated_scaled()
-    out = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index)
+    out = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
     assert "cluster" in out.columns
     assert "raw_cluster" not in out.columns          # direct has no pre-merge labels
     assert sorted(out["cluster"].unique()) == list(range(1, 10))
@@ -202,17 +176,19 @@ def test_finalize_direct_produces_k_clusters_labelled_1_to_9():
 
 def test_finalize_direct_assigns_lowest_DR_to_wt_cluster():
     annotated, scaled = _toy_annotated_scaled()
-    out = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index)
+    out = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
     means = out.groupby("cluster")["DR"].mean()
-    assert means.idxmin() == 9                       # WT = lowest DR
+    assert means.idxmax() == 9                       # WT = highest DR (2026-09-17 sign flip)
     non_wt = means.drop(index=9).sort_index()
     assert non_wt.is_monotonic_increasing            # ids 1..8 ascend in DR
 
 
 def test_finalize_direct_is_deterministic():
     annotated, scaled = _toy_annotated_scaled()
-    a = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
-    b = finalize_direct(annotated, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index)
+    a = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
+    b = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
     pd.testing.assert_series_equal(a["cluster"], b["cluster"])
 
 
@@ -222,17 +198,19 @@ def test_finalize_direct_only_labels_scaled_genes():
     extra = pd.DataFrame({"DR": [np.nan], "DL": [np.nan], "A": [1.0]}, index=["ghost"])
     extra.index.name = "Systematic ID"
     annotated2 = pd.concat([annotated, extra])
-    out = finalize_direct(annotated2, scaled, method="kmeans", n_clusters=9, random_state=42, wt_cluster=9)
+    labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index)
+    out = finalize_direct(annotated2, labels, n_clusters=9, wt_cluster=9)
     assert pd.isna(out.loc["ghost", "cluster"])
     assert out.loc["g0_0", "cluster"] in range(1, 10)
 
 
 def test_finalize_direct_defaults_to_best_method():
-    """Omitting `method` uses BEST_METHOD (kmeans) — byte-identical to the old auto path."""
+    """BEST_METHOD is still kmeans, the method the direct driver defaults to."""
+    assert BEST_METHOD == "kmeans"
     annotated, scaled = _toy_annotated_scaled()
-    a = finalize_direct(annotated, scaled, n_clusters=9, random_state=42, wt_cluster=9)
-    b = finalize_direct(annotated, scaled, method=BEST_METHOD, n_clusters=9, random_state=42, wt_cluster=9)
-    pd.testing.assert_series_equal(a["cluster"], b["cluster"])
+    labels = pd.Series(cluster_one_method(BEST_METHOD, scaled, 9, 42), index=scaled.index)
+    out = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
+    assert sorted(out["cluster"].dropna().unique()) == list(range(1, 10))
 
 
 def test_renumber_by_dr_tiebreak_on_dl_then_raw_id():
@@ -260,7 +238,7 @@ def test_renumber_by_dr_tiebreak_on_dl_then_raw_id():
     final2 = renumber_by_dr(annotated, raw, n_clusters=3, wt_cluster=3)
     pd.testing.assert_series_equal(final1, final2)          # reproducible
 
-    assert final1.loc["A0"] == 3                             # lowest DR -> WT id 3
+    assert final1.loc["C0"] == 3                             # highest DR -> WT id 3
     b_id, c_id = final1.loc["B0"], final1.loc["C0"]
     assert b_id < c_id                                       # lower mean DL -> lower final id
 
@@ -289,7 +267,7 @@ def test_finalize_auto_merge_recovers_known_groups():
     assert "raw_cluster" in out.columns
     assert out["raw_cluster"].nunique() == 64
     means = out.groupby("cluster")["DR"].mean()
-    assert means.idxmin() == 9
+    assert means.idxmax() == 9
     assert means.drop(index=9).sort_index().is_monotonic_increasing
 
 
@@ -299,7 +277,7 @@ def test_finalize_auto_merge_raises_when_too_few_candidates():
         cluster_one_method("kmeans", scaled, n_clusters=5, random_state=42),
         index=scaled.index,
     )
-    with pytest.raises(ValueError, match="needs >= 9 candidate clusters"):
+    with pytest.raises(ValueError, match="needs >= 9 transitional"):
         finalize_auto_merge(annotated, scaled, raw, n_clusters=9, wt_cluster=9)
 
 
@@ -329,7 +307,7 @@ def test_finalize_grid_assigns_cells_and_numbers_by_dr():
         n_clusters=9, wt_cluster=9,
     )
     assert sorted(out["cluster"].dropna().unique()) == list(range(1, 10))
-    assert out.groupby("cluster")["DR"].mean().idxmin() == 9
+    assert out.groupby("cluster")["DR"].mean().idxmax() == 9
 
 
 def test_finalize_grid_raises_on_cell_count_mismatch():
@@ -343,10 +321,14 @@ def test_finalize_direct_driver_writes_final_tsv(tmp_path):
     ap, sp = tmp_path / "annotated.parquet", tmp_path / "scaled.parquet"
     write_parquet(annotated, ap)
     write_parquet(scaled, sp)
+    labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index, name="cluster")
+    lp = tmp_path / "labels.parquet"
+    write_parquet(labels, lp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeDirectConfig(
-        annotated_data=ap, scaled_data=sp, output=out,
-        method="kmeans", n_clusters=9, random_state=42, wt_cluster=9,
+        annotated_data=ap, scaled_data=sp, labels=lp,
+        output=out, metrics_output=tmp_path / "metrics.tsv",
+        n_clusters=9, wt_cluster=9,
     )
     run_finalize_direct(cfg)
     df = pd.read_csv(out, sep="\t")
@@ -368,7 +350,8 @@ def test_finalize_auto_merge_driver_writes_final_tsv(tmp_path):
     write_parquet(raw64, lp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeAutoMergeConfig(
-        annotated_data=ap, scaled_data=sp, candidate_labels=lp, output=out,
+        annotated_data=ap, scaled_data=sp, labels=lp,
+        output=out, metrics_output=tmp_path / "metrics.tsv",
         n_clusters=9, wt_cluster=9,
     )
     run_finalize_auto_merge(cfg)
@@ -385,7 +368,8 @@ def test_finalize_grid_driver_writes_final_tsv(tmp_path):
     write_parquet(scaled, sp)
     out = tmp_path / "final_clusters.tsv"
     cfg = FinalizeGridConfig(
-        annotated_data=ap, scaled_data=sp, output=out,
+        annotated_data=ap, scaled_data=sp,
+        output=out, metrics_output=tmp_path / "metrics.tsv",
         dr_cuts=[0.4, 0.8], dl_cuts=[0.4, 0.8], n_clusters=9, wt_cluster=9,
     )
     run_finalize_grid(cfg)

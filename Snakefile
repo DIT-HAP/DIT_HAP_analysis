@@ -8,7 +8,7 @@ import yaml
 
 min_version("9.0")
 
-workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis"
+workdir: "/data/c/yangyusheng_optimized/DIT_HAP_analysis/.claude/worktrees/clustering-improvement"
 
 # This project's analysis parameters (clustering k, enrichment thresholds, ml
 # splits, ...). Unlike datasets.yaml (a data registry read directly below), these
@@ -47,7 +47,7 @@ wildcard_constraints:
 # and library directories keep the unprefixed stage name (workflow/scripts/
 # coherence/, workflow/src/coherence/).
 #
-# Included in prefix order. clustering.smk must stay ahead of enrichment /
+# Included in prefix order. 3b_clustering.smk must stay ahead of enrichment /
 # ml / comparison — they call its selected_variant() / final_clusters_path();
 # 1c_annotate.smk must stay ahead of 2a_coverage.smk — coverage reads _ANNOT_REF.
 include: "workflow/rules/1a_pcr_qc.smk"
@@ -56,14 +56,14 @@ include: "workflow/rules/1c_annotate.smk"
 include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/2b_verification.smk"
 include: "workflow/rules/3a_coherence.smk"
-include: "workflow/rules/clustering.smk"
-include: "workflow/rules/enrichment.smk"
-include: "workflow/rules/enrichment_network.smk"
-include: "workflow/rules/ml.smk"
-include: "workflow/rules/noncoding_rna.smk"
-include: "workflow/rules/comparison.smk"
-include: "workflow/rules/utr.smk"
-include: "workflow/rules/domain_differences.smk"
+include: "workflow/rules/3b_clustering.smk"
+include: "workflow/rules/3c_enrichment.smk"
+include: "workflow/rules/3d_enrichment_network.smk"
+include: "workflow/rules/4a_domain_differences.smk"
+include: "workflow/rules/4b_utr.smk"
+include: "workflow/rules/4c_noncoding_rna.smk"
+include: "workflow/rules/5a_ml.smk"
+include: "workflow/rules/6a_comparison.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
