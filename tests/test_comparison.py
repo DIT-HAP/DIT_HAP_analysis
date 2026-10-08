@@ -7,8 +7,10 @@ import pytest
 from comparison.core import (
     CLIP_UPPER,
     DENSITY_COLUMNS,
+    DISTRIBUTION_SCALES,
     MIN_PAIRS_FOR_CORRELATION,
     STATS_COLUMNS,
+    build_distribution_frame,
     build_fitness_table,
     clip_density_columns,
     cluster_column_order,
@@ -16,6 +18,7 @@ from comparison.core import (
     compute_correlations,
     correlation_matrix,
     plot_correlation_heatmap,
+    plot_fitness_distributions,
     plot_pairwise_scatter,
     rename_metrics_for_comparison,
     select_fitness_columns,
@@ -206,3 +209,26 @@ def test_plot_correlation_heatmap_smoke(tmp_path):
     plot_correlation_heatmap(stats, columns, output, order=["b", "c", "a"])
     assert output.exists()
     assert output.stat().st_size > 0
+
+
+def test_build_distribution_frame_pairs_each_column_with_its_log10():
+    """Every column appears under both scales; the log10 half drops non-positive values."""
+    fitness_table = pd.DataFrame({"a": [1.0, 10.0, 100.0, -5.0, np.nan], "b": [2.0, 4.0, 8.0, 16.0, 32.0]})
+    frame = build_distribution_frame(fitness_table, ["a", "b"])
+    assert list(dict.fromkeys(frame["phenotype"])) == ["a", "b"]
+    assert list(dict.fromkeys(frame["scale"])) == list(DISTRIBUTION_SCALES)
+
+    raw_a = frame[(frame["phenotype"] == "a") & (frame["scale"] == DISTRIBUTION_SCALES[0])]
+    log_a = frame[(frame["phenotype"] == "a") & (frame["scale"] == DISTRIBUTION_SCALES[1])]
+    assert raw_a["value"].tolist() == [1.0, 10.0, 100.0, -5.0]  # NaN dropped, sign kept
+    assert log_a["value"].tolist() == [0.0, 1.0, 2.0]  # -5 and NaN have no log10
+
+
+def test_plot_fitness_distributions_smoke(tmp_path):
+    """plot_fitness_distributions renders the raw | log10 row-per-column QC figure."""
+    rng = np.random.default_rng(0)
+    fitness_table = pd.DataFrame({column: np.abs(rng.normal(size=40)) for column in "abc"})
+    stem = tmp_path / "fitness_distributions_qc"
+    plot_fitness_distributions(fitness_table, stem, order=["c", "a", "b"])
+    assert (tmp_path / "fitness_distributions_qc.pdf").exists()
+    assert (tmp_path / "fitness_distributions_qc.review.png").exists()

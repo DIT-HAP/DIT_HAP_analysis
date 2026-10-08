@@ -23,9 +23,13 @@ house render_pairwise_matrix_figure and one two-panel correlation heatmap
 (Pearson | Spearman) through cns.heatmapplot, both in that same clustered order --
 the heatmap is handed the very tree it is ordered by, so it can draw it.
 
+A separate QC figure draws every correlated column's own distribution raw and
+log10-transformed, so the heavy-tailed columns -- and so the ones whose Pearson r
+is carried by their tail -- are visible rather than assumed.
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-10-08
-Version:  4.1.0
+Date:     2026-10-09
+Version:  4.2.0
 """
 
 # =============================================================================
@@ -209,12 +213,28 @@ HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 # its right and its label to its left, so centring the bar centres the block. The
 # bar's vertical span is what keeps it inside the panels' own extent: its bottom end
 # is the one tick label that would otherwise hang below the matrices.
-# Legend-axes fraction (x0, y0, w, h).
-HEATMAP_CBAR_BOUNDS = (0.485, 0.24, 0.03, 0.22)
+# Legend-axes fraction (x0, y0, w, h). The bar sits clear of the key above it -- at
+# this y0 the two are ~13 layout px apart, where hugging the key left 1 px -- and its
+# bottom stays inside the matrices' own vertical extent.
+HEATMAP_CBAR_BOUNDS = (0.485, 0.15, 0.03, 0.22)
 
 # The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
 # next to the 8 pt type it sits beside.
 HEATMAP_TREE_LINEWIDTH = 1.0
+
+# The distribution QC figure: every analysed column gets a panel of its own
+# distribution and a panel of the same values log10-transformed, so a row of the
+# grid is one phenotype read both ways. The log panel can only carry positive
+# values, so non-positive ones are dropped from it and counted (logged) rather
+# than offset or shifted -- a shifted log would put a spike at an arbitrary
+# place and read as data.
+DISTRIBUTION_PHENOTYPE_COLUMN = "phenotype"
+DISTRIBUTION_SCALE_COLUMN = "scale"
+DISTRIBUTION_VALUE_COLUMN = "value"
+DISTRIBUTION_SCALES = ("Raw value", "log10(value)")
+DISTRIBUTION_BINS = 30
+DISTRIBUTION_XLABEL = "Value"
+DISTRIBUTION_YLABEL = "Number of genes"
 
 
 # Project path setup: src/ modules import their siblings by bare name, which
@@ -419,6 +439,69 @@ def plot_pairwise_scatter(
     )
 
 
+def build_distribution_frame(fitness_table: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Long-form (phenotype, scale, value) frame: every column raw and log10-transformed.
+
+    A long frame is what the house grouped-histogram renderer takes, and it is
+    also the honest shape for this QC: each value appears once under each scale,
+    so the two panels of a phenotype are drawing the same genes. Rows are named
+    by display name: the renderer writes the row key down the side of the first
+    panel, where a full "Integration density, in-vivo (integrations/kb/million
+    inserts)" is longer than the panel and runs into the row above it.
+    """
+    frames = []
+    for column in columns:
+        phenotype = COLUMN_DISPLAY_NAMES.get(column, column)
+        values = fitness_table[column].dropna()
+        positive = values[values > 0]
+        dropped = len(values) - len(positive)
+        if dropped:
+            logger.info(
+                f"{column}: {dropped:,} of {len(values):,} values are <= 0, "
+                f"not drawn in the log10 panel"
+            )
+        for scale, scaled in (
+            (DISTRIBUTION_SCALES[0], values.to_numpy()),
+            (DISTRIBUTION_SCALES[1], np.log10(positive.to_numpy())),
+        ):
+            frames.append(
+                pd.DataFrame({
+                    DISTRIBUTION_PHENOTYPE_COLUMN: phenotype,
+                    DISTRIBUTION_SCALE_COLUMN: scale,
+                    DISTRIBUTION_VALUE_COLUMN: scaled,
+                })
+            )
+    return pd.concat(frames, ignore_index=True)
+
+
+def plot_fitness_distributions(
+    fitness_table: pd.DataFrame,
+    output_stem: Path | str,
+    *,
+    order: list[str],
+) -> None:
+    """Render one row of histogram panels per fitness column: raw, then log10.
+
+    The QC behind the correlation's own choice of statistic: if a column is
+    heavy-tailed, its raw and log panels do not look alike, and a Pearson r on it
+    is being carried by the tail while the Spearman rho is not. Rows run in
+    ``order`` -- the clustered order both comparison figures use -- so a
+    phenotype's row sits where its matrix row does.
+    """
+    from figure_render.histogram import render_grouped_histogram_figure
+
+    render_grouped_histogram_figure(
+        build_distribution_frame(fitness_table, order),
+        output_stem,
+        value_column=DISTRIBUTION_VALUE_COLUMN,
+        row_key=DISTRIBUTION_PHENOTYPE_COLUMN,
+        col_key=DISTRIBUTION_SCALE_COLUMN,
+        bins=DISTRIBUTION_BINS,
+        xlabel=DISTRIBUTION_XLABEL,
+        ylabel=DISTRIBUTION_YLABEL,
+    )
+
+
 def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
     """Drop every spine of one composite panel, and label it above its own content box.
 
@@ -559,13 +642,25 @@ def plot_correlation_heatmap(
                 # Clustering is the caller's (both panels are then in one order, and it
                 # is the tree the matrix figure is ordered by too), so the tree is
                 # handed to the plotter rather than computed per coefficient.
+                #
+                # Both axes are clustered, with the same tree, even though the matrix is
+                # symmetric and only one tree is drawn. The plotter orders each axis by
+                # applying the tree's leaf permutation to that axis' own index, and
+                # clustering the rows alone permutes them away from the columns: the
+                # rows then disagree with the columns, the 1.0 diagonal scatters off the
+                # diagonal and the matrix is no longer symmetric. Clustering both axes
+                # with the same linkage applies the same permutation to both.
                 row_cluster=True,
                 row_dendrogram=True,
                 row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
+                col_cluster=True,
+                # The column tree is redundant with the row one: no top dendrogram, and
+                # the column names are dropped, so the permutation is all that is used.
+                col_dendrogram=False,
+                col_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
                 # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
                 # which reads as a hairline beside 8 pt type.
                 tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
-                col_cluster=False,
                 cmap=HEATMAP_CMAP,
                 vmin=CORRELATION_MIN,
                 vmax=CORRELATION_MAX,

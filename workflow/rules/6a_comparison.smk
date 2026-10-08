@@ -8,6 +8,8 @@
 #   plot_comparison_figures  -> pairwise_fitness_comparison.pdf (one n x n scatter
 #                               matrix) + correlation_heatmap.pdf (Pearson |
 #                               Spearman panels)
+#   qc_fitness_distributions -> fitness_distributions_qc.pdf (raw | log10
+#                               distribution of every correlated column)
 # plot_comparison_figures reads BOTH the prepared parquet (for the actual data)
 # and compute_comparison_stats's stats TSV (for the coefficient matrix and the
 # similarity order both figures are drawn in), so the figures cannot disagree
@@ -87,6 +89,28 @@ rule plot_comparison_figures:
     shell:
         """
         python workflow/scripts/comparison/plot_comparison_figures.py \
+            --fitness-table {input.fitness_table} \
+            --stats {input.stats} \
+            --output-dir results/6a_comparison/{wildcards.dataset} &> {log}
+        """
+
+
+rule qc_fitness_distributions:
+    input:
+        fitness_table=f"{_CWORK}/fitness_table.parquet",
+        stats="results/6a_comparison/{dataset}/fitness_correlation_stats.tsv",
+    output:
+        figure="results/6a_comparison/{dataset}/fitness_distributions_qc.pdf",
+        preview="results/6a_comparison/{dataset}/fitness_distributions_qc.review.png",
+    log:
+        "logs/comparison/qc_fitness_distributions_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [comparison] Plotting fitness distribution QC for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/comparison/qc_fitness_distributions.py \
             --fitness-table {input.fitness_table} \
             --stats {input.stats} \
             --output-dir results/6a_comparison/{wildcards.dataset} &> {log}
