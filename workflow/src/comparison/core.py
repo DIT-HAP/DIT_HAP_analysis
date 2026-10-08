@@ -195,16 +195,24 @@ SPACER_VALUE = " "
 BACKGROUND_COLOR = "#FFFFFF"
 
 # Both legends live in a strip down the right of the page, not inside a panel, so
-# neither costs the matrices any width. The strip is reserved with a tight_layout
-# rect and the legend axes is placed in that figure-fraction space.
-HEATMAP_LEGEND_STRIP_LEFT = 0.84
-HEATMAP_LAYOUT_RECT = (0, 0, HEATMAP_LEGEND_STRIP_LEFT, 1)
-HEATMAP_LEGEND_BOUNDS = (0.85, 0.02, 0.14, 0.96)
+# neither costs the matrices any width. The rect is the width the panels are laid
+# out in; the strip starts where the second panel's content actually ends, which is
+# its longest row name ("Integration density (in-vivo)", to 0.82 of the page), not
+# where the rect leaves off -- the names are drawn outside the axes, so the rect
+# knows nothing about them and the legends would otherwise float in the gap.
+HEATMAP_LAYOUT_RECT = (0, 0, 0.84, 1)
+HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 
-# The category key sits at the top of the strip and the value bar under it, thin
-# and upright: at this width a horizontal bar would have to be either short or
-# wider than the strip. Legend-axes fraction (x0, y0, w, h).
-HEATMAP_CBAR_BOUNDS = (0.22, 0.02, 0.07, 0.40)
+# The category key sits at the top of the strip against its left edge and the value
+# bar under it, thin and upright: at this width a horizontal bar would have to be
+# either short or wider than the strip. The bar's x0 is the one offset the key's
+# own swatch has from its box edge, so the bar lines up with the swatches rather
+# than with the box. Legend-axes fraction (x0, y0, w, h).
+HEATMAP_CBAR_BOUNDS = (0.045, 0.02, 0.03, 0.40)
+
+# The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
+# next to the 8 pt type it sits beside.
+HEATMAP_TREE_LINEWIDTH = 1.0
 
 
 # Project path setup: src/ modules import their siblings by bare name, which
@@ -438,7 +446,10 @@ def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
     ]
     left, right = min(box.x0 for box in boxes), max(box.x1 for box in boxes)
     top = max(box.y1 for box in boxes)
-    above = top + cns.settings.panel_pad_top / (figure.get_size_inches()[1] * 72)
+    # axes.titlepad rather than the house panel-label pad: that one is 25 px, sized
+    # to clear a panel's tick labels and title, and this panel has neither above the
+    # matrix -- the band is on its side. The name sits where an axes title would.
+    above = top + plt.rcParams["axes.titlepad"] / (figure.get_size_inches()[1] * 72)
 
     figure.text(
         left, above, letter,
@@ -477,7 +488,7 @@ def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figur
         handles=handles,
         title="Study",
         loc="upper left",
-        bbox_to_anchor=(HEATMAP_CBAR_BOUNDS[0], 1.0),
+        bbox_to_anchor=(0.0, 1.0),
         frameon=cns.settings.legend_frameon,
         alignment="left",
     )
@@ -549,6 +560,9 @@ def plot_correlation_heatmap(
                 row_cluster=True,
                 row_dendrogram=True,
                 row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
+                # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
+                # which reads as a hairline beside 8 pt type.
+                tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
                 col_cluster=False,
                 cmap=HEATMAP_CMAP,
                 vmin=CORRELATION_MIN,
@@ -556,7 +570,10 @@ def plot_correlation_heatmap(
                 label="Correlation",
                 xlabel="",
                 ylabel="",
-                xticklabels_rotation=45,
+                # 0 keeps the Study band's own label upright: cns passes this
+                # rotation to the annotation label too, and the column names it is
+                # meant for are not drawn.
+                xticklabels_rotation=0,
                 show_rownames=True,
                 show_colnames=False,
                 # Explicit colours so the annotation bands match the key drawn below
