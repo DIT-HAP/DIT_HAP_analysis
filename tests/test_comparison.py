@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.cluster.hierarchy import is_valid_linkage, leaves_list
 
 from comparison.core import (
     CLIP_UPPER,
@@ -13,9 +14,10 @@ from comparison.core import (
     build_distribution_frame,
     build_fitness_table,
     clip_density_columns,
-    cluster_column_order,
+    comparison_column_order,
     compute_correlation_stats,
     compute_correlations,
+    constrained_linkage,
     correlation_matrix,
     plot_correlation_heatmap,
     plot_fitness_distributions,
@@ -198,13 +200,30 @@ def test_correlation_matrix_leaves_dropped_pairs_at_zero():
     assert (np.diag(matrix.to_numpy()) == 1).all()
 
 
-def test_cluster_column_order_places_similar_columns_together():
-    """The order groups the strongly correlated columns and returns a permutation."""
-    order = cluster_column_order(_two_column_stats(), ["a", "b", "c"])
-    assert sorted(order) == ["a", "b", "c"]
-    # b and c correlate at 0.9, against -0.2 / 0.5 for their pairs with a: they
-    # cluster first, so a cannot sit between them.
-    assert abs(order.index("b") - order.index("c")) == 1
+def test_constrained_linkage_leaves_come_out_in_the_given_order():
+    """The tree's leaves are the requested order, as 0..n-1, whatever the data say."""
+    # a and c correlate at 0.5 and b/c at 0.9, so the free tree would put b by c;
+    # the requested order puts them at the two ends, and it has to survive that.
+    linkage_matrix = constrained_linkage(_two_column_stats(), ["b", "a", "c"])
+    assert is_valid_linkage(linkage_matrix)
+    assert np.array_equal(leaves_list(linkage_matrix), np.arange(3))
+
+
+def test_constrained_linkage_merges_neighbours_at_their_own_distance():
+    """The closer adjacent pair goes first, then the group joins at the mean over all pairs."""
+    linkage_matrix = constrained_linkage(_two_column_stats(), ["a", "b", "c"])
+    # b/c correlate at 0.9 against a/b at 0.5, so b/c is the closer adjacent pair
+    assert list(linkage_matrix[0, :2]) == [1.0, 2.0]
+    assert linkage_matrix[0, 2] == pytest.approx(0.1)
+    # a then joins {b, c} at the mean of a/b (1 - 0.5) and a/c (1 - -0.2)
+    assert list(linkage_matrix[1, :2]) == [0.0, 3.0]
+    assert linkage_matrix[1, 2] == pytest.approx(0.85)
+
+
+def test_comparison_column_order_keeps_unnamed_columns():
+    """A column outside COLUMN_ORDER is appended rather than dropped; the rest follow it."""
+    order = comparison_column_order(["b", "uipkm", "a"])
+    assert order == ["uipkm", "b", "a"]
 
 
 def test_plot_pairwise_scatter_smoke(tmp_path):

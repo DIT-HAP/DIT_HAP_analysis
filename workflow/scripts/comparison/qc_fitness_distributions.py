@@ -13,7 +13,7 @@ A column whose two panels do not look alike is heavy-tailed, and its Pearson r
 is carried by the tail where its Spearman rho is not. Non-positive values are
 dropped from the log10 panels (and counted in the log) rather than shifted.
 
-Rows run in the clustered order both comparison figures use.
+Rows run in the order both comparison figures use.
 
 Output
 ------
@@ -57,7 +57,7 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 from comparison.core import (  # noqa: E402
-    cluster_column_order,
+    comparison_column_order,
     plot_fitness_distributions,
 )
 
@@ -95,7 +95,7 @@ def run(config: QcConfig) -> None:
     plot_fitness_distributions(
         fitness_table,
         config.output_dir / "fitness_distributions_qc",
-        order=cluster_column_order(stats, columns),
+        order=comparison_column_order(columns),
     )
 
     logger.success(f"Fitness distribution QC: {len(columns)} columns into {config.output_dir}")

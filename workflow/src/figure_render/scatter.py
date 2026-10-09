@@ -535,9 +535,9 @@ def render_pairwise_matrix_figure(
     (matplotlib's own ``label_outer``), so a reader compares panels against one
     scale per variable instead of 45 autoscaled ones.
 
-    ``order`` fixes the display order; callers that cluster their columns pass
-    their clustered order here (and to the companion heatmap) so both figures
-    read the same way. ``labels`` maps a column to its short display name.
+    ``order`` fixes the display order; callers pass the same order here (and to
+    the companion heatmap) so both figures read the same way. ``labels`` maps a
+    column to its short display name.
 
     Panels are house-size (``PanelShape.SQUARE``), so the page grows with n
     rather than the panels shrinking.

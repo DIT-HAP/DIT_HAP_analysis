@@ -18,10 +18,10 @@ integration-density columns clipped), then correlate every unordered pair of
 available fitness columns with Pearson AND Spearman (the density columns stay
 heavy-tailed even after clipping, so rank correlation is the robust view) and
 BH-correct across all pairs. The figure stage renders one n x n pairwise scatter
-matrix (lower triangle, variables clustered into a similarity order) through the
+matrix (lower triangle, variables in COLUMN_ORDER) through the
 house render_pairwise_matrix_figure and one two-panel correlation heatmap
-(Pearson | Spearman) through cns.heatmapplot, both in that same clustered order --
-the heatmap is handed the very tree it is ordered by, so it can draw it.
+(Pearson | Spearman) through cns.heatmapplot, both in that same order -- the
+heatmap is handed a tree built under that order, so what it draws agrees with it.
 
 A separate QC figure draws every correlated column's own distribution raw and
 log10-transformed, so the heavy-tailed columns -- and so the ones whose Pearson r
@@ -29,7 +29,7 @@ is carried by their tail -- are visible rather than assumed.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-09
-Version:  4.3.0
+Version:  4.4.0
 """
 
 # =============================================================================
@@ -44,8 +44,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import leaves_list, linkage
-from scipy.spatial.distance import squareform
 from scipy.stats import false_discovery_control, pearsonr, spearmanr
 
 import matplotlib
@@ -188,6 +186,24 @@ COLUMN_CATEGORIES = {
 # last panel and get clipped by their axes (see plot_correlation_heatmap).
 STUDY_CATEGORIES = sorted(set(COLUMN_CATEGORIES.values()))
 
+# The order BOTH comparison figures present the columns in, top to bottom (row
+# order on the heatmap, row/column order on the matrix). It is not the
+# clustering's: no rotation of the free average-linkage tree reaches it -- that
+# tree pairs ipkm with uipkm and Colony size with Max growth rate, and this order
+# separates both -- so the tree is built UNDER the order rather than ordering by
+# the tree (see constrained_linkage). Re-ordering is editing this list.
+COLUMN_ORDER = [
+    "colony_size_Malecki2016",
+    "uipkm",
+    "Integration density, in-vivo (integrations/kb/million inserts)",
+    "ipkm",
+    "Barseq_from_dulab",
+    DIT_HAP_FITNESS_COLUMN,
+    GRNA_FITNESS_COLUMN,
+    "Max Growth Rate",
+    "Barseq_from_koch",
+]
+
 # Correlation is bounded by -1/+1, so the diverging scale is fixed rather than
 # fitted to the data: a colour then means the same strength on every panel and
 # every run. RdBu_r is the house read of a signed scale (blue negative, red
@@ -200,12 +216,21 @@ HEATMAP_CMAP = "RdBu_r"
 # dendrogram, annotation bands, row names -- out against the page and ignores the
 # axes box it was handed. A fitted grid_axes panel therefore does not hold a
 # house-sized panel, it holds the whole composite, and pushes the page past the
-# journal width. Measured with no panel shape in the way, the matrix body comes
-# out 97 x 100 -- the house panel, within the 3 px the left annotation band takes
-# from the matrix -- at this page, 2 columns, and the rect below. The page is at
-# the journal cap: any wider and it is scaled down at typesetting. Change the
-# column count or the rect and it has to be re-measured.
-HEATMAP_PAGE_PX = (540, 136)
+# journal width. The page is at the journal cap: any wider and it is scaled down
+# at typesetting.
+#
+# The height is set to keep the matrix as square as the legend strip allows. The
+# width is the binding constraint: two panels share the page minus the rect, and
+# each spends its share on the dendrogram, the Study band, the row names (the
+# longest ~117 px) and their padding, which leaves the body 82 px wide -- so
+# square would be an 82 px body, a page of ~106. The strip cannot go that short:
+# its key takes the top 66 px from the page top and the value bar under it needs
+# ~29 px more inside the body's extent, so ~124 is the minimum with a gap between
+# them (measured: cells 9.1 x 11.2, against 9.1 x 12.6 at the ten-column page).
+# Squaring the cells means moving the bar alongside the key instead of under it.
+# Change the column count, the rect, or the row names and this has to be
+# re-measured.
+HEATMAP_PAGE_PX = (540, 124)
 
 # A white annotation track padded between the Study band and the matrix: the
 # plotter packs its annotations straight against the heatmap and has no gap
@@ -231,10 +256,10 @@ HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 # its right and its label to its left, so centring the bar centres the block. The
 # bar's vertical span is what keeps it inside the panels' own extent: its bottom end
 # is the one tick label that would otherwise hang below the matrices.
-# Legend-axes fraction (x0, y0, w, h). The bar sits clear of the key above it -- at
-# this y0 the two are ~13 layout px apart, where hugging the key left 1 px -- and its
-# bottom stays inside the matrices' own vertical extent.
-HEATMAP_CBAR_BOUNDS = (0.485, 0.15, 0.03, 0.22)
+# Legend-axes fraction (x0, y0, w, h). The bar sits clear of the key above it and
+# its bottom stays inside the matrices' own vertical extent; the two constraints
+# meet at this y0 and they are what stops the page getting any shorter.
+HEATMAP_CBAR_BOUNDS = (0.485, 0.11, 0.03, 0.22)
 
 # The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
 # next to the 8 pt type it sits beside.
@@ -433,23 +458,70 @@ def correlation_matrix(stats: pd.DataFrame, columns: list[str], metric: str) -> 
     return matrix
 
 
-def correlation_linkage(stats: pd.DataFrame, columns: list[str], metric: str = "r_pearson"):
-    """Average-linkage tree over the 1 - r distances between ``columns``."""
-    distance = squareform(np.clip(1 - correlation_matrix(stats, columns, metric).to_numpy(), 0, None), checks=False)
-    return linkage(distance, method="average")
+def comparison_column_order(columns: list[str]) -> list[str]:
+    """COLUMN_ORDER restricted to the columns this run has, plus any it does not name.
 
-
-def cluster_column_order(
-    stats: pd.DataFrame, columns: list[str], metric: str = "r_pearson"
-) -> list[str]:
-    """Order ``columns`` so similar ones sit together, from the pairwise coefficients.
-
-    Both the matrix figure and the heatmap take this order, so the two figures
-    read the same way instead of each clustering on its own (Pearson and Spearman
-    rank the columns slightly differently, which would otherwise put the panels
-    in different places). The heatmap draws the same tree it is ordered by.
+    A column missing from the run is dropped rather than raising (the order is a
+    presentation choice, and a release with a column absent is still plottable);
+    a column the order does not name is appended, so a new fitness column is
+    plotted last instead of silently disappearing. Both cases are logged.
     """
-    return [columns[index] for index in leaves_list(correlation_linkage(stats, columns, metric))]
+    placed = [column for column in COLUMN_ORDER if column in columns]
+    unplaced = [column for column in columns if column not in COLUMN_ORDER]
+    if unplaced:
+        logger.warning(f"COLUMN_ORDER does not name {unplaced}; plotted after the ordered columns")
+    if len(placed) < len(COLUMN_ORDER):
+        logger.warning(
+            f"{len(COLUMN_ORDER) - len(placed)} column(s) of COLUMN_ORDER are not in this "
+            f"comparison: {[c for c in COLUMN_ORDER if c not in columns]}"
+        )
+    return placed + unplaced
+
+
+def constrained_linkage(stats: pd.DataFrame, order: list[str], metric: str = "r_pearson") -> np.ndarray:
+    """Average-linkage tree that may only merge neighbours in ``order``.
+
+    The comparison presents its columns in COLUMN_ORDER, and no rotation of the
+    free tree reaches that order -- the free tree pairs ipkm with uipkm and
+    Colony size with Max growth rate, both of which the order separates, so
+    reaching it would take crossing branches (measured: the closest rotation is
+    9 of 36 ordered pairs away). The tree is therefore built under the order
+    instead: at each step only the closest pair of ADJACENT clusters merges, so
+    the leaves come out as 0..n-1 -- exactly ``order`` -- which is what the
+    heatmap plotter needs, since it applies the tree's leaf order to its rows.
+
+    Heights are the mean 1 - r across every pair between the two clusters, as in
+    the free average linkage, so the tree still says how similar its groups are.
+    What it can no longer say is that two columns are similar when the order put
+    them apart: any such pair merges only late, at the height of the split it
+    cannot escape.
+    """
+    count = len(order)
+    distance = np.clip(1 - correlation_matrix(stats, list(order), metric).to_numpy(), 0, None)
+    np.fill_diagonal(distance, 0.0)
+
+    # Adjacency-constrained UPGMA: ``nodes``/``members`` are the current sequence
+    # of clusters left to right, and each step merges one adjacent pair.
+    nodes: list[int] = list(range(count))
+    members: list[set[int]] = [{index} for index in range(count)]
+    rows: list[list[float]] = []
+    next_id = count
+    while len(nodes) > 1:
+        gaps = [
+            float(distance[np.ix_(sorted(left), sorted(right))].mean())
+            for left, right in zip(members[:-1], members[1:])
+        ]
+        index = int(np.argmin(gaps))
+        merged = members[index] | members[index + 1]
+        # Running maximum. Unconstrained average linkage is monotone, this is not:
+        # measured here, one merge lands 0.008 below its predecessor, which draws
+        # as a child above its parent. The height is a similarity read either way.
+        height = max(gaps[index], rows[-1][2]) if rows else gaps[index]
+        rows.append([nodes[index], nodes[index + 1], height, len(merged)])
+        nodes[index:index + 2] = [next_id]
+        members[index:index + 2] = [merged]
+        next_id += 1
+    return np.array(rows)
 
 
 def plot_pairwise_scatter(
@@ -462,7 +534,7 @@ def plot_pairwise_scatter(
     """Render the n x n lower-triangle scatter matrix of every pair of ``columns``.
 
     One figure, not one page per pair: at house panel size the page grows with n
-    so every panel stays legible. ``order`` is the clustered column order, which
+    so every panel stays legible. ``order`` is the comparison's column order, which
     also places the companion heatmap, so both figures read consistently.
     """
     from figure_render.scatter import render_pairwise_matrix_figure
@@ -518,7 +590,7 @@ def plot_fitness_distributions(
     The QC behind the correlation's own choice of statistic: if a column is
     heavy-tailed, its raw and log panels do not look alike, and a Pearson r on it
     is being carried by the tail while the Spearman rho is not. Rows run in
-    ``order`` -- the clustered order both comparison figures use -- so a
+    ``order`` -- the order both comparison figures use -- so a
     phenotype's row sits where its matrix row does.
     """
     from figure_render.histogram import render_grouped_histogram_figure
@@ -685,12 +757,12 @@ def plot_correlation_heatmap(
                 # with the same linkage applies the same permutation to both.
                 row_cluster=True,
                 row_dendrogram=True,
-                row_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
+                row_dendrogram_kws={"linkage": constrained_linkage(stats, order)},
                 col_cluster=True,
                 # The column tree is redundant with the row one: no top dendrogram, and
                 # the column names are dropped, so the permutation is all that is used.
                 col_dendrogram=False,
-                col_dendrogram_kws={"linkage": correlation_linkage(stats, columns)},
+                col_dendrogram_kws={"linkage": constrained_linkage(stats, order)},
                 # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
                 # which reads as a hairline beside 8 pt type.
                 tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
@@ -741,7 +813,7 @@ def plot_comparison_figures(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    order = cluster_column_order(stats, columns)
+    order = comparison_column_order(columns)
 
     # save_dual() appends .pdf/.review.png itself, so pass the bare stem.
     plot_pairwise_scatter(fitness_table, columns, output_dir / "pairwise_fitness_comparison", order=order)
