@@ -120,12 +120,12 @@ def run(config: KSelConfig) -> None:
     for (column, title), ax in zip(PANELS, axes):
         if column in SINGLE_LINE_PANELS:
             subset = metrics[metrics["method"] == methods[0]].sort_values("k")
-            ax.plot(subset["k"], subset[column], marker="o", markersize=2.5, color="grey")
+            ax.plot(subset["k"], subset[column], marker="o", markersize=4, color="grey")
             ax.set_title(title)
         else:
             for method in methods:
                 subset = metrics[metrics["method"] == method].sort_values("k")
-                ax.plot(subset["k"], subset[column], marker="o", markersize=2.5, label=method)
+                ax.plot(subset["k"], subset[column], marker="o", markersize=4, label=method)
                 if column == "ari_mean":  # bootstrap spread as a band around the mean
                     ax.fill_between(subset["k"], subset["ari_mean"] - subset["ari_sd"], subset["ari_mean"] + subset["ari_sd"], alpha=0.15)
         ax.set_title(title)
