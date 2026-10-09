@@ -68,11 +68,11 @@ GENEALOGY_COLUMNS: tuple[str, ...] = (
 MIN_LINK_SHARE = 0.05
 
 # Alluvial geometry (v2 render_genealogy_panel values): bar width in k units,
-# the column share a bar must reach before it is worth numbering, its type size,
-# and the band alpha (barely-filled bands so 15 columns of them don't pile up).
+# the column share a bar must reach before it is worth numbering, and the band
+# alpha (barely-filled bands so 15 columns of them don't pile up). Type sizes
+# come from the house style.
 BAR_HALF_WIDTH = 0.16
 LABEL_MIN_SHARE = 0.07
-LABEL_FONTSIZE = 5
 BAND_ALPHA = 0.25
 
 
@@ -202,7 +202,7 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
                     scale(start + (child_start - start) * weight),
                     scale(start + float(row["child_genes"]) + (child_start + float(row["n_genes"]) - start - float(row["child_genes"])) * weight),
                     color=cluster_color(child),
-                    alpha=BAND_ALPHA, linewidth=0,
+                    alpha=BAND_ALPHA,
                 )
                 outgoing_cursor[(parent_k, parent)] = start + float(row["child_genes"])
                 incoming_cursor[(child_k, child)] = child_start + float(row["n_genes"])
@@ -218,7 +218,7 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
         # Only bars with room for a label get one; at k=15 most are slivers the
         # reader takes by position.
         if high - low > LABEL_MIN_SHARE * total:
-            ax.text(x_lookup[k], scale((low + high) / 2), str(cluster), ha="center", va="center", fontsize=LABEL_FONTSIZE)
+            ax.text(x_lookup[k], scale((low + high) / 2), str(cluster), ha="center", va="center")
 
     ax.set(
         xlabel="k", ylabel="Share of genes",

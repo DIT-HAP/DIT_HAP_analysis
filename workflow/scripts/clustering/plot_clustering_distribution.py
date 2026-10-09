@@ -59,7 +59,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import cnsplots as cns  # noqa: E402
@@ -95,10 +94,6 @@ DR_COLUMN = "DR"
 DL_COLUMN = "DL"
 DL_DIVISOR = 10  # prepare_clustering_data's DL scaling (dr_clamp is a no-op on the CDF panel: clamped tail)
 COORDINATE_COLUMNS = (DR_COLUMN, DL_COLUMN)
-
-# Density markers, enlarged from the shared style: ~4.5k genes pack into a
-# 100 px panel, and at the shared s the crowd reads as a wash.
-DENSITY_SCATTER_KWS_LARGE = {**DENSITY_SCATTER_KWS, "s": 4}
 
 # The density bar's inset, outside the axes on the right (the cloud's densest
 # corner is the DL=0 point mass at high DR — where the default would sit).
@@ -209,7 +204,7 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
         span = np.ptp(ranked)
         scaled = (ranked - ranked.min()) / span if span > 0 else np.zeros_like(ranked)
         mappable = ax.scatter(
-            x[finite][order], y[finite][order], c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS_LARGE
+            x[finite][order], y[finite][order], c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
         )
         # scatter.py's helper draws its inset on the cloud's densest corner; for
         # THIS panel the bar belongs in the empty upper-right margin instead
@@ -219,8 +214,8 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
         labels = colorbar.ax.set_yticklabels(["low", "high"])
         labels[0].set_verticalalignment("bottom")
         labels[-1].set_verticalalignment("top")
-        colorbar.ax.tick_params(length=0, pad=1)
-        colorbar.ax.set_title(DENSITY_CBAR_LABEL, loc="center", fontsize=plt.rcParams["ytick.labelsize"])
+        colorbar.ax.tick_params(length=0)
+        colorbar.ax.set_title(DENSITY_CBAR_LABEL, loc="center")
     ax.set(xlabel=DR_COLUMN, ylabel=DL_COLUMN, title=title)
 
 

@@ -98,14 +98,11 @@ class PlotGridConfig:
 def scatter_clusters(ax: plt.Axes, df: pd.DataFrame, colors: dict[int, str]) -> None:
     """One method's DR/DL scatter on one axes: per-cluster color + centroid id chip."""
     for cluster, cluster_df in df.groupby("cluster"):
-        ax.scatter(
-            cluster_df["DR"], cluster_df["DL"], c=colors[int(cluster)], s=3, linewidths=0, rasterized=True
-        )
+        ax.scatter(cluster_df["DR"], cluster_df["DL"], c=colors[int(cluster)], s=3, rasterized=True)
         ax.annotate(
             f"{cluster}",
             (cluster_df["DR"].mean(), cluster_df["DL"].mean()),
             fontweight="bold",
-            fontsize=6,
             ha="center",
             va="center",
             bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.8),
@@ -165,10 +162,10 @@ def run(config: PlotGridConfig) -> None:
                 df = labels[(labels["method"] == name) & (labels["k"] == k)]
                 plot_df = scaled.loc[df["gene"]].assign(cluster=df["cluster"].to_numpy())
             scatter_clusters(ax, plot_df, colors)
-            ax.set_title(f"{name} (k={k}, n={len(plot_df)})", fontsize=7)
+            ax.set_title(f"{name} (k={k}, n={len(plot_df)})")
         for ax in axes[len(names):]:
             ax.set_visible(False)
-        fig.suptitle(f"{config.dataset} — all methods at k={k}", fontsize=10)
+        fig.suptitle(f"{config.dataset} — all methods at k={k}")
         save_dual(config.output_stem.parent / f"{config.output_stem.name}_k{k}")
         plt.close(fig)
     logger.success(f"Wrote {labels['k'].nunique()} per-k PDFs -> {config.output_stem}_k*.pdf")

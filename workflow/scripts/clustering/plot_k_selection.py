@@ -43,7 +43,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # headless
-import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 from loguru import logger  # noqa: E402
 
@@ -119,19 +118,19 @@ def run(config: KSelConfig) -> None:
     for (column, title), ax in zip(PANELS, axes):
         if column in SINGLE_LINE_PANELS:
             subset = metrics[metrics["method"] == methods[0]].sort_values("k")
-            ax.plot(subset["k"], subset[column], marker="o", markersize=4, color="grey")
+            ax.plot(subset["k"], subset[column], marker="o", color="grey")
             ax.set_title(title)
         else:
             for method in methods:
                 subset = metrics[metrics["method"] == method].sort_values("k")
-                ax.plot(subset["k"], subset[column], marker="o", markersize=4, label=method)
+                ax.plot(subset["k"], subset[column], marker="o", label=method)
                 if column == "ari_mean":  # bootstrap spread as a band around the mean
                     ax.fill_between(subset["k"], subset["ari_mean"] - subset["ari_sd"], subset["ari_mean"] + subset["ari_sd"], alpha=0.15)
         ax.set_title(title)
         ax.set_xlabel("k")
         ax.set_ylabel("")
         if config.k_reference is not None:
-            ax.axvline(config.k_reference, color="grey", linestyle=":", linewidth=0.8)
+            ax.axvline(config.k_reference, color="grey", linestyle=":")
 
     for ax in axes[n_panels:]:  # hide the unused grid cells
         ax.set_visible(False)
@@ -143,7 +142,7 @@ def run(config: KSelConfig) -> None:
     spare = next((ax for ax in axes[n_panels:] if not ax.get_visible()), None) or axes[-1]
     spare.set_visible(True)
     spare.axis("off")
-    spare.legend(handles, names, loc="center left", fontsize=6, frameon=False)
+    spare.legend(handles, names, loc="center left", frameon=False)
     fit_panels()  # after all panels drawn: it measures rendered text
     save_dual(config.output.with_suffix(""))
     logger.success(
