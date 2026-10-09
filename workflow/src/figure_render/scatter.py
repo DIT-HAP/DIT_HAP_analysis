@@ -17,8 +17,8 @@ panels (``render_scatter_grid_figure``), and the n x n lower-triangle pairwise
 matrix (``render_pairwise_matrix_figure``).
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-10-08
-Version:  2.1.0
+Date:     2026-10-09
+Version:  2.2.0
 """
 
 # =============================================================================
@@ -528,10 +528,12 @@ def render_pairwise_matrix_figure(
 
     The classic correlation-matrix reading: row i is the variable on the y axis,
     column j the variable on the x axis, so only the lower triangle carries a
-    scatter and the diagonal cells name their row/column variable. Each column
-    shares one x scale and each row one y scale, with tick labels kept on the
-    outer edges only (matplotlib's own ``label_outer``), so a reader compares
-    panels against one scale per variable instead of 45 autoscaled ones.
+    scatter and the diagonal cells stay blank. Each variable is named once, on
+    the outer edge of its own row (left) and column (bottom), so any panel is
+    identified by the two names on its edges. Each column shares one x scale and
+    each row one y scale, with tick labels kept on the outer edges only
+    (matplotlib's own ``label_outer``), so a reader compares panels against one
+    scale per variable instead of 45 autoscaled ones.
 
     ``order`` fixes the display order; callers that cluster their columns pass
     their clustered order here (and to the companion heatmap) so both figures
@@ -571,13 +573,9 @@ def render_pairwise_matrix_figure(
         for column_index in range(row_index + 1):
             ax = grid[row_index][column_index]
             if row_index == column_index:
-                ax.text(
-                    0.5, 0.5, labels.get(ordered[column_index], ordered[column_index]),
-                    transform=ax.transAxes, ha="center", va="center",
-                )
-                # Names only: without data the cell would otherwise show its own
-                # meaningless 0-1 scale. The variable's scale is read off the
-                # panels that share its row and column.
+                # Without data the cell would otherwise show its own meaningless
+                # 0-1 scale. The variable's scale is read off the panels that
+                # share its row and column.
                 ax.set_axis_off()
                 continue
             panel = ScatterPanel(
@@ -604,6 +602,20 @@ def render_pairwise_matrix_figure(
             ax.label_outer()
         for column_index in range(row_index + 1, n_cols):
             grid[row_index][column_index].set_visible(False)
+
+    # Names on the outer edges, not on the diagonal. Writing each variable once,
+    # on its own row and column, is what says which pair a panel is: with names
+    # only on the diagonal a reader has to trace left and up across a 9 x 9 grid
+    # to identify the panel in front of them. The lower triangle gives every
+    # variable both edges -- column j has a cell in the bottom row for every
+    # j < n-1, and row i a cell in the left column for every i > 0, so the two
+    # ends (the first column and the last row) are named by the other axis.
+    for index in range(n_cols):
+        name = labels.get(ordered[index], ordered[index])
+        if index < n_cols - 1:
+            grid[n_cols - 1][index].set_xlabel(name)
+        if index > 0:
+            grid[index][0].set_ylabel(name)
 
     fit_panels()
 

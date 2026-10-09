@@ -29,7 +29,7 @@ is carried by their tail -- are visible rather than assumed.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-09
-Version:  4.2.0
+Version:  4.3.0
 """
 
 # =============================================================================
@@ -84,6 +84,15 @@ DENSITY_COLUMNS = [
     "uipkm",
 ]
 
+# The comparison reads the density columns in log10, not raw. The QC figure is
+# what decides this: raw they span three orders of magnitude with the mass piled
+# against zero, so a Pearson r between them is carried by the tail; logged they
+# are the roughly symmetric distributions. This is where the transform lives --
+# applied to the table the stats and the scatter are computed from, NOT stored in
+# the prepared parquet, which stays the raw (clipped) values so the QC can still
+# show the raw and logged distributions side by side.
+LOG10_COLUMNS = DENSITY_COLUMNS
+
 # The other large-scale study fitness/depletion columns to correlate against,
 # byte-faithful to the notebook's fitness_data column list. These live on the
 # protein-features table. Column selection at runtime is DEFENSIVE — only those
@@ -96,7 +105,6 @@ STUDY_FITNESS_COLUMNS = [
     "uipkm",
     "colony_size_Malecki2016",
     "Max Growth Rate",
-    "Colony Formation",
 ]
 
 # The two merged metric columns after build_fitness_table, renamed to short
@@ -132,18 +140,29 @@ STATS_COLUMNS = [
     "p_spearman_fdr",
 ]
 
-# Short display names for heatmap tick labels, keyed by full column name.
+# Short display names for heatmap tick labels and scatter axes, keyed by full
+# column name. A column the comparison logs says so: the figure draws the
+# transformed values, and the name is the only place that can say which scale it
+# is. LOG10_PREFIX is a constant rather than the literal repeated three times,
+# because the QC figure strips it back off (see DISTRIBUTION_DISPLAY_NAMES).
+LOG10_PREFIX = "log10 "
 COLUMN_DISPLAY_NAMES = {
     "Barseq_from_dulab": "Barseq (dulab)",
     "Barseq_from_koch": "Barseq (koch)",
-    "Integration density, in-vivo (integrations/kb/million inserts)": "Integration density (in-vivo)",
-    "ipkm": "ipkm",
-    "uipkm": "uipkm",
+    "Integration density, in-vivo (integrations/kb/million inserts)": f"{LOG10_PREFIX}Integration density (in-vivo)",
+    "ipkm": f"{LOG10_PREFIX}ipkm",
+    "uipkm": f"{LOG10_PREFIX}uipkm",
     "colony_size_Malecki2016": "Colony size",
     "Max Growth Rate": "Max growth rate",
-    "Colony Formation": "Colony formation",
     DIT_HAP_FITNESS_COLUMN: "DIT-HAP DR",
     GRNA_FITNESS_COLUMN: "gRNA DR",
+}
+
+# The distribution QC draws each column raw AND logged, so its rows are named
+# without the prefix: the transform is the panel's own title there, and a raw
+# panel labelled "log10 ipkm" would be naming the wrong thing.
+DISTRIBUTION_DISPLAY_NAMES = {
+    column: name.removeprefix(LOG10_PREFIX) for column, name in COLUMN_DISPLAY_NAMES.items()
 }
 
 # The two correlation coefficients, as (stats column, panel title) pairs: one
@@ -159,7 +178,6 @@ COLUMN_CATEGORIES = {
     "uipkm": "Density",
     "colony_size_Malecki2016": "Colony",
     "Max Growth Rate": "Growth",
-    "Colony Formation": "Growth",
     DIT_HAP_FITNESS_COLUMN: "This study",
     GRNA_FITNESS_COLUMN: "This study",
 }
@@ -277,6 +295,21 @@ def clip_density_columns(df: pd.DataFrame, clip_upper: float = CLIP_UPPER) -> pd
     for column in DENSITY_COLUMNS:
         if column in result.columns:
             result[column] = result[column].clip(upper=clip_upper)
+    return result
+
+
+def transform_fitness_columns(fitness_table: pd.DataFrame) -> pd.DataFrame:
+    """Return the fitness table as the comparison reads it: LOG10_COLUMNS in log10.
+
+    Applied by the stats and by the scatter matrix, so the coefficient the TSV
+    reports is the coefficient the figure draws. A value at or below zero has no
+    log: it becomes NaN, which is what drops it from both -- the correlation
+    already pairs on complete observations, and the scatter draws the rest.
+    """
+    result = fitness_table.copy()
+    for column in LOG10_COLUMNS:
+        if column in result.columns:
+            result[column] = np.log10(result[column].where(result[column] > 0))
     return result
 
 
@@ -451,7 +484,7 @@ def build_distribution_frame(fitness_table: pd.DataFrame, columns: list[str]) ->
     """
     frames = []
     for column in columns:
-        phenotype = COLUMN_DISPLAY_NAMES.get(column, column)
+        phenotype = DISTRIBUTION_DISPLAY_NAMES.get(column, column)
         values = fitness_table[column].dropna()
         positive = values[values > 0]
         dropped = len(values) - len(positive)

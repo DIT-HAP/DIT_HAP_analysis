@@ -22,6 +22,7 @@ from comparison.core import (
     plot_pairwise_scatter,
     rename_metrics_for_comparison,
     select_fitness_columns,
+    transform_fitness_columns,
 )
 
 
@@ -50,6 +51,24 @@ def test_clip_density_columns_caps_at_200():
     assert result["uipkm"].max() == 200.0
     # other_col untouched
     assert result["other_col"].max() == 3000.0
+
+
+def test_transform_fitness_columns_logs_only_the_density_columns():
+    """Density columns come back as log10 with non-positive values NaN-ed; others are untouched."""
+    df = pd.DataFrame({
+        "ipkm": [0.0, 1.0, 100.0, np.nan],
+        "DIT-HAP DR": [-1.0, 0.0, 2.0, np.nan],
+    })
+    transformed = transform_fitness_columns(df)
+    # 0 has no log10, so it leaves the comparison rather than becoming -inf
+    assert pd.isna(transformed["ipkm"].iloc[0])
+    assert transformed["ipkm"].iloc[1] == pytest.approx(0.0)
+    assert transformed["ipkm"].iloc[2] == pytest.approx(2.0)
+    assert pd.isna(transformed["ipkm"].iloc[3])
+    # The phenotype metrics are signed and are correlated as they are
+    assert transformed["DIT-HAP DR"].tolist()[:3] == [-1.0, 0.0, 2.0]
+    # The caller's frame is left alone
+    assert df["ipkm"].iloc[0] == 0.0
 
 
 def test_compute_correlations_returns_both_coefficients():

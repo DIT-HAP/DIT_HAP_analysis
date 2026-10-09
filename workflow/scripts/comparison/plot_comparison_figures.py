@@ -56,7 +56,7 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-from comparison.core import plot_comparison_figures  # noqa: E402
+from comparison.core import plot_comparison_figures, transform_fitness_columns  # noqa: E402
 
 
 # =============================================================================
@@ -82,10 +82,14 @@ class PlotConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PlotConfig) -> None:
-    """Read parquet + stats TSV -> plot the pairwise matrix + the correlation heatmap figure."""
+    """Read parquet + stats TSV -> plot the pairwise matrix + the correlation heatmap figure.
+
+    The table is transformed the same way the stats rule transformed it, so the
+    scatter matrix draws exactly the values the TSV's coefficients describe.
+    """
     config.validate()
 
-    fitness_table = read_parquet(config.fitness_table)
+    fitness_table = transform_fitness_columns(read_parquet(config.fitness_table))
     stats = pd.read_csv(config.stats, sep="\t")
     columns = list(dict.fromkeys([*stats["col_x"], *stats["col_y"]]))
 
