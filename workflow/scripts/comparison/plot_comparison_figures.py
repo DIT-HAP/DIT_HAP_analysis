@@ -12,8 +12,9 @@ intermediate AND the fitness_correlation_stats.tsv, then render
 - correlation_heatmap.pdf: ONE figure holding the Pearson and Spearman
   correlation matrices side by side, with study-category colour bands.
 
-Both figures take the comparison's column order (core.COLUMN_ORDER) rather than
-each deriving one, so the two figures always read the same way.
+Both figures take the order one average-linkage tree on 1 - r puts the columns
+in (core.cluster_comparison_columns), read once and shared, so the two figures
+always read the same way.
 
 Output
 ------

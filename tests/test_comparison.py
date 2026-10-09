@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.cluster.hierarchy import is_valid_linkage, leaves_list
+from scipy.cluster.hierarchy import is_valid_linkage, leaves_list, linkage
 
 from comparison.core import (
     CLIP_UPPER,
@@ -14,10 +14,10 @@ from comparison.core import (
     build_distribution_frame,
     build_fitness_table,
     clip_density_columns,
-    comparison_column_order,
+    cluster_comparison_columns,
+    comparison_linkage,
     compute_correlation_stats,
     compute_correlations,
-    constrained_linkage,
     correlation_matrix,
     plot_correlation_heatmap,
     plot_fitness_distributions,
@@ -200,30 +200,30 @@ def test_correlation_matrix_leaves_dropped_pairs_at_zero():
     assert (np.diag(matrix.to_numpy()) == 1).all()
 
 
-def test_constrained_linkage_leaves_come_out_in_the_given_order():
-    """The tree's leaves are the requested order, as 0..n-1, whatever the data say."""
-    # a and c correlate at 0.5 and b/c at 0.9, so the free tree would put b by c;
-    # the requested order puts them at the two ends, and it has to survive that.
-    linkage_matrix = constrained_linkage(_two_column_stats(), ["b", "a", "c"])
-    assert is_valid_linkage(linkage_matrix)
-    assert np.array_equal(leaves_list(linkage_matrix), np.arange(3))
+def test_comparison_linkage_is_average_on_the_correlation_distance():
+    """The first merge is the closest pair, at 1 - r."""
+    # a/b correlate at 0.5 and b/c at 0.9, so b/c is the closest pair
+    tree = comparison_linkage(_two_column_stats(), ["a", "b", "c"])
+    assert is_valid_linkage(tree)
+    assert list(tree[0, :2]) == [1.0, 2.0]
+    assert tree[0, 2] == pytest.approx(0.1)
 
 
-def test_constrained_linkage_merges_neighbours_at_their_own_distance():
-    """The closer adjacent pair goes first, then the group joins at the mean over all pairs."""
-    linkage_matrix = constrained_linkage(_two_column_stats(), ["a", "b", "c"])
-    # b/c correlate at 0.9 against a/b at 0.5, so b/c is the closer adjacent pair
-    assert list(linkage_matrix[0, :2]) == [1.0, 2.0]
-    assert linkage_matrix[0, 2] == pytest.approx(0.1)
-    # a then joins {b, c} at the mean of a/b (1 - 0.5) and a/c (1 - -0.2)
-    assert list(linkage_matrix[1, :2]) == [0.0, 3.0]
-    assert linkage_matrix[1, 2] == pytest.approx(0.85)
+def test_comparison_linkage_treats_an_unmeasured_pair_as_unrelated():
+    """A pair the stats TSV does not carry is the maximum distance, not a free pass."""
+    stats = _two_column_stats().iloc[:1]  # only a vs b survives; a/c and b/c are absent
+    tree = comparison_linkage(stats, ["a", "b", "c"])
+    # a/b merge first at 1 - 0.5; c is unrelated to both, so it joins at 1 - 0
+    assert tree[0, 2] == pytest.approx(0.5)
+    assert tree[1, 2] == pytest.approx(1.0)
 
 
-def test_comparison_column_order_keeps_unnamed_columns():
-    """A column outside COLUMN_ORDER is appended rather than dropped; the rest follow it."""
-    order = comparison_column_order(["b", "uipkm", "a"])
-    assert order == ["uipkm", "b", "a"]
+def test_cluster_comparison_columns_order_is_the_trees_leaf_order():
+    """The returned order is what the heatmap plotter will draw, and matches the tree."""
+    columns = ["a", "b", "c"]
+    order, tree = cluster_comparison_columns(_two_column_stats(), columns)
+    assert order == [columns[int(leaf)] for leaf in leaves_list(tree)]
+    assert sorted(order) == sorted(columns)
 
 
 def test_plot_pairwise_scatter_smoke(tmp_path):
@@ -244,7 +244,19 @@ def test_plot_correlation_heatmap_smoke(tmp_path):
     stats = _two_column_stats()
     columns = ["a", "b", "c"]
     output = tmp_path / "correlation_heatmap.pdf"
-    plot_correlation_heatmap(stats, columns, output, order=["b", "c", "a"])
+    plot_correlation_heatmap(stats, columns, output)
+    assert output.exists()
+    assert output.stat().st_size > 0
+
+
+def test_plot_correlation_heatmap_accepts_a_caller_supplied_tree(tmp_path):
+    """A caller-supplied linkage is drawn and orders the matrix instead of the default."""
+    stats = _two_column_stats()
+    columns = ["a", "b", "c"]
+    # Distances off the stats above: a/b 0.5, a/c 1.2, b/c 0.1 -- b and c join first.
+    tree = linkage([0.5, 1.2, 0.1], method="average")
+    output = tmp_path / "correlation_heatmap.pdf"
+    plot_correlation_heatmap(stats, columns, output, tree=tree)
     assert output.exists()
     assert output.stat().st_size > 0
 

@@ -57,7 +57,7 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 from comparison.core import (  # noqa: E402
-    comparison_column_order,
+    cluster_comparison_columns,
     plot_fitness_distributions,
 )
 
@@ -95,7 +95,7 @@ def run(config: QcConfig) -> None:
     plot_fitness_distributions(
         fitness_table,
         config.output_dir / "fitness_distributions_qc",
-        order=comparison_column_order(columns),
+        order=cluster_comparison_columns(stats, columns)[0],
     )
 
     logger.success(f"Fitness distribution QC: {len(columns)} columns into {config.output_dir}")
