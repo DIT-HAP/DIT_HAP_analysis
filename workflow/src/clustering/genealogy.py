@@ -33,14 +33,18 @@ Version:  1.0.0
 from collections.abc import Sequence
 
 # 2. Data Processing Imports
-import cnsplots as cns
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 
 # 4. Local Imports
-from figures import HOUSE_PALETTE
+from plotting.gene_level import CLUSTER_COLORS
+
+
+def cluster_color(cluster: int) -> str:
+    """One colour per cluster ID within its column (same mapping as the scatter pages)."""
+    return CLUSTER_COLORS[(int(cluster) - 1) % len(CLUSTER_COLORS)]
 
 
 # =============================================================================
@@ -120,18 +124,6 @@ def cluster_genealogy(labels: pd.DataFrame, k_values: Sequence[int]) -> pd.DataF
 # =============================================================================
 # CORE LOGIC — alluvial panel
 # =============================================================================
-def _house_palette() -> list[str]:
-    """Every colour in the house qualitative palette, in order (v2 probe loop)."""
-    colors: list[str] = []
-    index = 0
-    while True:
-        try:
-            colors.append(cns.get_hexcolors_from_apalette([index], HOUSE_PALETTE)[0])
-        except IndexError:
-            return colors
-        index += 1
-
-
 def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Sequence[int], method: str) -> None:
     """Render how one method's clusters split from k to k, as a stacked alluvial."""
     # Each column is one k; a column's bars are that partition's clusters, sized
@@ -144,26 +136,10 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
         return
 
     # Cluster ids are only unique WITHIN a k, so every lookup is keyed by
-    # (k, cluster). Lineage colour = the root cluster at the smallest k each
-    # bar descends from, carried along dominant-parent links.
+    # (k, cluster). Bars and bands take the CLUSTER's own id colour (the same
+    # per-id mapping as the scatter pages), so at one k each cluster reads in
+    # its own hue and a split visibly hands over to the children's colours.
     x_lookup = {k: position for position, k in enumerate(k_values)}
-    palette = _house_palette()
-
-    ancestry = {(k_values[0], int(c)): int(c) for c in genealogy.loc[genealogy["k"] == k_values[0], "cluster"].unique()}
-    for parent_k, child_k in zip(k_values, k_values[1:], strict=False):
-        links = genealogy[genealogy["k"] == parent_k]
-        for child in genealogy.loc[genealogy["k"] == child_k, "child_cluster"].unique():
-            rows = links[links["child_cluster"] == child]
-            if rows.empty:
-                # No parent above the threshold: start the cluster's own lineage.
-                ancestry.setdefault((child_k, int(child)), int(child))
-            else:
-                parent = int(rows.iloc[0]["cluster"])
-                ancestry.setdefault((child_k, int(child)), ancestry.get((parent_k, parent), int(child)))
-
-    def lineage(k: int, cluster: int) -> int:
-        """The palette index for one bar: the root cluster of its lineage."""
-        return ancestry.get((k, int(cluster)), int(cluster))
 
     # Columns are ordered by where each cluster's parent sat in the previous
     # column, NOT by cluster id — id order makes sibling bands cross the column.
@@ -225,7 +201,7 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
                     steps,
                     scale(start + (child_start - start) * weight),
                     scale(start + float(row["child_genes"]) + (child_start + float(row["n_genes"]) - start - float(row["child_genes"])) * weight),
-                    color=palette[lineage(child_k, child) % len(palette)],
+                    color=cluster_color(child),
                     alpha=BAND_ALPHA, linewidth=0,
                 )
                 outgoing_cursor[(parent_k, parent)] = start + float(row["child_genes"])
@@ -235,7 +211,7 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
         ax.add_patch(
             Rectangle(
                 (x_lookup[k] - BAR_HALF_WIDTH, scale(low)), 2 * BAR_HALF_WIDTH, scale(high - low),
-                facecolor=palette[lineage(k, cluster) % len(palette)],
+                facecolor=cluster_color(cluster),
                 edgecolor="none",
             )
         )
