@@ -137,9 +137,14 @@ def run(config: KSelConfig) -> None:
     for ax in axes[n_panels:]:  # hide the unused grid cells
         ax.set_visible(False)
 
+    # The legend lives in the last spare grid cell, beside the final panel:
+    # a horizontal strip on top forces every panel down and detaches the
+    # colour key from the grid; a cell keeps both on one layout.
     handles, names = axes[0].get_legend_handles_labels()
-    fig = plt.gcf()
-    fig.legend(handles, names, loc="outside upper center", ncols=len(methods), fontsize=6)
+    spare = next((ax for ax in axes[n_panels:] if not ax.get_visible()), None) or axes[-1]
+    spare.set_visible(True)
+    spare.axis("off")
+    spare.legend(handles, names, loc="center left", fontsize=6, frameon=False)
     save_dual(config.output.with_suffix(""))
     logger.success(
         f"k_selection -> {config.output} ({n_panels} metric panels, {len(methods)} methods, "
