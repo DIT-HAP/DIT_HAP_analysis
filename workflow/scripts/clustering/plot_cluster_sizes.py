@@ -2,36 +2,38 @@
 # -*- coding: utf-8 -*-
 
 """
-Plot Cluster Sizes — how many genes per cluster, per method and k
-=================================================================
+Plot Cluster Genealogy — how clusters relate from k=4 to k=15 per method
+========================================================================
 
-Renders the per-(method, k, cluster) gene counts from compute_clustering_grid's
-profile table as one figure: a matrix per method (rows = k, columns = cluster
-id, colour/annotated value = gene count), so a reader can see at a glance which
-methods split the gene set into comparable blocks and which spawn slivers
-(1-2 gene clusters) that the internal metrics average away. Also writes the
-counts as a tidy TSV beside the figure.
+Replaces the flat count matrices of the first cluster-sizes figure: one
+alluvial ("sankey") panel per method. Each column is a k; the bars in it are
+that k's clusters, stacked by size; a band joins a cluster to the cluster at
+the next k that holds most of its genes. Reading across, a bar that stays one
+band survived the finer k; a bar that fans into several is where the extra
+clusters came from — the question the flat matrix could only half answer.
+
+Links above the minimum overlap are table-computed (see
+clustering.genealogy.cluster_genealogy); the render is the same stacked
+alluvial the v2 sweep shipped, ported onto the grid-search label table.
 
 Input
 -----
-- k_selection_profile.tsv (from compute_clustering_grid)
+- grid_labels.parquet (from compute_clustering_grid)
 
 Output
 ------
-- cluster_sizes.tsv: one row per (method, k, cluster) with n_genes / share
-- cluster_sizes.pdf + .review.png (via save_dual): one panel per method
+- cluster_genealogy.pdf + .review.png (via save_dual): one panel per method
 
 Usage
 -----
     python plot_cluster_sizes.py \\
-        --profile results/clustering/{dataset}/_work/k_selection_profile.tsv \\
-        --output-table results/clustering/{dataset}/_work/cluster_sizes.tsv \\
-        --output-figure results/clustering/{dataset}/cluster_sizes.pdf \\
+        --labels results/clustering/{dataset}/_work/grid_labels.parquet \\
+        --output results/clustering/{dataset}/cluster_genealogy.pdf \\
         --col-num 3
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
-Date:     2026-10-08
-Version:  1.0.0
+Date:     2026-10-09
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -47,14 +49,14 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 from loguru import logger  # noqa: E402
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, grid_axes, panel_labels, save_dual  # noqa: E402
+from clustering.genealogy import cluster_genealogy, render_genealogy_panel  # noqa: E402
+from figures import PanelShape, apply_house_style, fit_panels, grid_axes, panel_labels, save_dual  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -62,74 +64,50 @@ from logging_setup import setup_logger  # noqa: E402
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
-class SizesConfig:
-    """Profile table in; a tidy counts TSV + one panel-per-method figure out."""
-    profile: Path
-    output_table: Path
-    output_figure: Path
+class GenealogyConfig:
+    """Label table in; one alluvial panel per method out."""
+    labels: Path
+    output: Path
     col_num: int = 3
 
     def validate(self) -> None:
-        """Raise ValueError if the input is missing or lacks the count column, then ensure output dirs exist."""
-        if not self.profile.exists():
-            raise ValueError(f"Required input not found: {self.profile}")
-        header = pd.read_csv(self.profile, sep="\t", nrows=1)
-        if "n_genes" not in header.columns:
-            raise ValueError(f"Profile table lacks the n_genes column: {header.columns.tolist()}")
-        self.output_table.parent.mkdir(parents=True, exist_ok=True)
-        self.output_figure.parent.mkdir(parents=True, exist_ok=True)
+        """Raise ValueError if the label table is missing or malformed, then ensure the output dir exists."""
+        if not self.labels.exists():
+            raise ValueError(f"Required input not found: {self.labels}")
+        schema = pd.read_parquet(self.labels, columns=["method", "k", "cluster"]).pipe(lambda frame: frame.head(0))
+        missing = [name for name in ("method", "k", "cluster") if name not in schema.columns]
+        if missing:
+            raise ValueError(f"Label table lacks columns: {missing}")
+        self.output.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def run(config: SizesConfig) -> None:
-    """Write the tidy counts table and render one count-matrix panel per method."""
+def run(config: GenealogyConfig) -> None:
+    """Compute the per-method genealogy and render one alluvial panel per method."""
     config.validate()
 
-    profile = pd.read_csv(config.profile, sep="\t")
-    sizes = profile[["method", "k", "cluster", "n_genes", "share"]]
-    sizes.sort_values(["method", "k", "cluster"]).to_csv(config.output_table, sep="\t", index=False)
-    methods = sorted(profile["method"].unique())
-    max_k = int(profile["k"].max())
+    labels = pd.read_parquet(config.labels)
+    k_values = sorted(labels["k"].unique())
+    methods = sorted(labels["method"].unique())
 
     apply_house_style()
     col_num = min(config.col_num, len(methods))
     row_num = -(-len(methods) // col_num)
-    labels = panel_labels(len(methods))
-    axes = grid_axes(row_num, col_num, labels=labels)
-    fig = plt.gcf()
-    fig.subplots_adjust(hspace=0.55, wspace=0.30)
+    axes = grid_axes(row_num, col_num, labels=panel_labels(len(methods)), shape=PanelShape.WIDE)
 
     for method, ax in zip(methods, axes):
-        matrix = (
-            profile[profile["method"] == method]
-            .pivot_table(index="k", columns="cluster", values="n_genes")
-            .reindex(columns=range(1, max_k + 1))
-        )
-        # imshow with a linear scale: counts span ~1..3000, and the slivers the
-        # figure exists to expose are the LOW end — linear keeps them visible
-        # where a log ramp would flatten everything above ~10 together.
-        image = ax.imshow(matrix.to_numpy(), aspect="auto", cmap="viridis", vmin=0)
-        ax.set_xticks(range(max_k), [str(c) for c in range(1, max_k + 1)], fontsize=5)
-        ax.set_yticks(range(len(matrix.index)), [str(k) for k in matrix.index], fontsize=5)
-        ax.set_title(f"{method}", fontsize=7)
-        ax.set_xlabel("cluster id (DR-ascending)")
-        ax.set_ylabel("k")
+        genealogy = cluster_genealogy(labels[labels["method"] == method], k_values)
+        render_genealogy_panel(ax, genealogy, k_values=k_values, method=method)
 
-    # One shared colorbar in its own inset on the last (unused) grid cell —
-    # anchoring to the panel axes list resizes every panel past fixing.
-    cax = axes[-1]
-    cax.axis("off")
-    cbar = fig.colorbar(image, ax=cax, fraction=0.9, shrink=0.85, pad=0.0)
-    cbar.set_label("genes per cluster")
+    for ax in axes[len(methods):]:  # hide the unused grid cells
+        ax.set_visible(False)
 
-    save_dual(config.output_figure.with_suffix(""))
-    logger.success(
-        f"cluster sizes -> {config.output_table} + {config.output_figure} "
-        f"({len(methods)} method panels, k up to {max_k})"
-    )
+    fit_panels()
+    save_dual(config.output.with_suffix(""))
+    logger.success(f"cluster genealogy -> {config.output} ({len(methods)} method panels, k={k_values[0]}..{k_values[-1]})")
 
 
 # =============================================================================
@@ -137,26 +115,20 @@ def run(config: SizesConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Render per-method cluster-count matrices")
-    parser.add_argument("--profile", type=Path, required=True, help="k_selection_profile.tsv from compute_clustering_grid")
-    parser.add_argument("--output-table", type=Path, required=True, help="Output cluster_sizes.tsv")
-    parser.add_argument("--output-figure", type=Path, required=True, help="Output cluster_sizes.pdf")
+    parser = argparse.ArgumentParser(description="Render per-method cluster genealogy alluvials")
+    parser.add_argument("--labels", type=Path, required=True, help="grid_labels.parquet from compute_clustering_grid")
+    parser.add_argument("--output", type=Path, required=True, help="Output cluster_genealogy.pdf")
     parser.add_argument("--col-num", type=int, default=3, help="Panel columns (default 3)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: build config, write table, render figure."""
+    """Main orchestrator: build config, render panels, report results."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        config = SizesConfig(
-            profile=args.profile,
-            output_table=args.output_table,
-            output_figure=args.output_figure,
-            col_num=args.col_num,
-        )
+        config = GenealogyConfig(labels=args.labels, output=args.output, col_num=args.col_num)
         run(config)
     except ValueError as e:
         logger.error(f"Error: {e}")

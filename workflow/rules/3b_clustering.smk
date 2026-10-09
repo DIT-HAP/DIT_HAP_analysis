@@ -520,26 +520,24 @@ rule plot_k_selection:
         """
 
 
-rule plot_cluster_sizes:
+rule plot_cluster_genealogy:
     input:
-        profile=f"{_CWORK}/k_selection_profile.tsv",
+        labels=f"{_CWORK}/grid_labels.parquet",
     output:
-        table=f"{_CWORK}/cluster_sizes.tsv",
-        figure="results/clustering/{dataset}/cluster_sizes.pdf",
+        figure="results/clustering/{dataset}/cluster_genealogy.pdf",
     params:
         col_num=_GRID.get("col_num", 3),
     log:
-        "logs/clustering/plot_cluster_sizes_{dataset}.log",
+        "logs/clustering/plot_cluster_genealogy_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
-        "*** [clustering] Plotting per-(method, k) cluster gene counts for {wildcards.dataset}..."
+        "*** [clustering] Plotting per-method cluster genealogy alluvials for {wildcards.dataset}..."
     shell:
         """
         python workflow/scripts/clustering/plot_cluster_sizes.py \
-            --profile {input.profile} \
-            --output-table {output.table} \
-            --output-figure {output.figure} \
+            --labels {input.labels} \
+            --output {output.figure} \
             --col-num {params.col_num} &> {log}
         """
 
