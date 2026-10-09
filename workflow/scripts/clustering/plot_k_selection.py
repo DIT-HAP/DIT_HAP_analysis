@@ -50,7 +50,7 @@ from loguru import logger  # noqa: E402
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, fit_panels, grid_axes, save_dual  # noqa: E402
+from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -114,7 +114,7 @@ def run(config: KSelConfig) -> None:
     row_num = -(-n_panels // col_num)
 
     apply_house_style()
-    axes = grid_axes(row_num, col_num)
+    axes = grid_axes(row_num, col_num, shape=PanelShape.WIDE)
     fit_panels()
 
     for (column, title), ax in zip(PANELS, axes):
