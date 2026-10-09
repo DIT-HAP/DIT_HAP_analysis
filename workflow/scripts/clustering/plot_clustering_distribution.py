@@ -307,7 +307,6 @@ def run(config: DistributionConfig) -> None:
     apply_house_style()
     labels = panel_labels(6)
     axes = grid_axes(2, 3, labels=labels, shape=PanelShape.WIDE)
-    fit_panels()
 
     render_axis_histogram_panel(axes[0], annotated[DR_COLUMN], bins=config.bins, xlabel=DR_COLUMN, title="Depletion rate")
     render_axis_histogram_panel(axes[1], frame[DL_COLUMN], bins=config.bins, xlabel=DL_COLUMN, title="Depletion lag (scaled)")
@@ -319,6 +318,7 @@ def run(config: DistributionConfig) -> None:
     render_variance_share_panel(axes[4], coordinate_variance_share(scaled), title="Coordinate variance")
     render_essentiality_scatter_panel(axes[5], frame, title="DR vs DL by essentiality")
 
+    fit_panels()  # after all panels drawn: it measures rendered text
     save_dual(config.output_figure.with_suffix(""))
     logger.success(f"distribution -> {config.output_figure} (+ stats {config.output_stats})")
 

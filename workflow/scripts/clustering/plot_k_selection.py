@@ -115,7 +115,6 @@ def run(config: KSelConfig) -> None:
 
     apply_house_style()
     axes = grid_axes(row_num, col_num, shape=PanelShape.WIDE)
-    fit_panels()
 
     for (column, title), ax in zip(PANELS, axes):
         if column in SINGLE_LINE_PANELS:
@@ -145,6 +144,7 @@ def run(config: KSelConfig) -> None:
     spare.set_visible(True)
     spare.axis("off")
     spare.legend(handles, names, loc="center left", fontsize=6, frameon=False)
+    fit_panels()  # after all panels drawn: it measures rendered text
     save_dual(config.output.with_suffix(""))
     logger.success(
         f"k_selection -> {config.output} ({n_panels} metric panels, {len(methods)} methods, "
