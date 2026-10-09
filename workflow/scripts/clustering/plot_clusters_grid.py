@@ -61,10 +61,9 @@ from loguru import logger  # noqa: E402
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, grid_axes, save_dual  # noqa: E402
+from figures import apply_house_style, cluster_color, grid_axes, save_dual  # noqa: E402
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-from plotting.gene_level import CLUSTER_COLORS  # noqa: E402
 
 
 # =============================================================================
@@ -137,7 +136,7 @@ def run(config: PlotGridConfig) -> None:
     # Colours beyond the palette wrap (large k): ids stay distinguishable by their
     # centroid chip even when a colour repeats.
     max_cluster = int(labels["cluster"].max())
-    colors = {c: CLUSTER_COLORS[(c - 1) % len(CLUSTER_COLORS)] for c in range(1, max_cluster + 1)}
+    colors = {c: cluster_color(c) for c in range(1, max_cluster + 1)}
 
     apply_house_style()
     panel_names = list(methods) + (["manual"] if config.reference_k is not None else [])

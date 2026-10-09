@@ -39,12 +39,7 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 
 # 4. Local Imports
-from plotting.gene_level import CLUSTER_COLORS
-
-
-def cluster_color(cluster: int) -> str:
-    """One colour per cluster ID within its column (same mapping as the scatter pages)."""
-    return CLUSTER_COLORS[(int(cluster) - 1) % len(CLUSTER_COLORS)]
+from figures import cluster_color
 
 
 # =============================================================================

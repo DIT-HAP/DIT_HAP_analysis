@@ -381,6 +381,22 @@ def house_colors(indices: Sequence[int]) -> list[str]:
     return cns.get_hexcolors_from_apalette(list(indices), HOUSE_PALETTE)
 
 
+def house_palette_length() -> int:
+    """How many colors HOUSE_PALETTE holds — probed, never hardcoded."""
+    length = 0
+    while True:
+        try:
+            cns.get_hexcolors_from_apalette([length], HOUSE_PALETTE)
+        except IndexError:
+            return length
+        length += 1
+
+
+def cluster_color(cluster: int) -> str:
+    """The house color for a 1-based cluster id, wrapping past the palette end."""
+    return house_colors([(int(cluster) - 1) % house_palette_length()])[0]
+
+
 def observed_fitted_colors() -> tuple[str, str]:
     """Return the (observed, fitted) pair for measurement-versus-model figures."""
     observed, fitted = house_colors((_OBSERVED_INDEX, _FITTED_INDEX))
