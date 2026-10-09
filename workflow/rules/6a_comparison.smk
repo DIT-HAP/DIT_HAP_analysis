@@ -3,38 +3,36 @@
 # =============================================================================
 #
 # Split into 3 rules so each analysis step is independently re-runnable:
-#   prepare_fitness_table   -> fitness_table.parquet intermediate (the merge)
-#   compute_comparison_stats -> fitness_correlation_stats.tsv (Pearson r/p/n)
-#   plot_comparison_figures  -> pairwise_fitness_comparison.pdf
+#   prepare_fitness_table    -> fitness_table.parquet intermediate (the merge)
+#   compute_comparison_stats -> fitness_correlation_stats.tsv (Pearson + Spearman, BH-FDR)
+#   plot_comparison_figures  -> pairwise_fitness_comparison.pdf (one n x n scatter
+#                               matrix) + correlation_heatmap.pdf (Pearson |
+#                               Spearman panels)
+#   qc_fitness_distributions -> fitness_distributions_qc.pdf (raw | log10
+#                               distribution of every correlated column)
 # plot_comparison_figures reads BOTH the prepared parquet (for the actual data)
-# and compute_comparison_stats's stats TSV (for the col_x/col_y pairs that
-# survived the per-pair overlap filter), so the PDF panels always match the
-# TSV rows even though the two rules now run independently.
+# and compute_comparison_stats's stats TSV (for the coefficient matrix and the
+# similarity order both figures are drawn in), so the figures cannot disagree
+# with the TSV even though the two rules run independently.
 #
-# Batch B. Sources the DIT-HAP gene fitness table from the clustering
-# finalize-variant system: final_clusters_path(dataset, selected_variant(dataset))
-# (clustering.smk). Buildable variants (direct/auto_merge/grid) produce it under
-# results/clustering/final/...; the manual_merge variant needs its curated tsv
-# first. Only Systematic ID / A / DR / DL are read here (never the cluster id),
-# so any variant's table gives identical results.
-# Per-dataset: merges DIT-HAP data with gRNA, Barseq, integration density,
-# colony size, growth rate. Pairwise scatter with KDE overlay + Pearson r stats.
-# Ported from compare_with_other_large_scale_studies.ipynb.
+# Data sources are the shared upstream tables, not per-stage recomputations:
+# the DIT-HAP (HD_DIT_HAP_DR) and gRNA (gRNA_DR, sign-flipped by the annotation
+# stage itself) metrics come from the 1c_annotate gene annotation reference,
+# and the other studies' fitness/depletion columns from the 1b_features merged
+# protein-features table. Per-dataset via the annotation reference is not
+# applicable (it is HD_DIT_HAP-frozen), so this stage effectively analyses the
+# HD_DIT_HAP release regardless of {dataset}.
 
 # Parquet intermediate shared by the stats + figures rules.
-_CWORK = "results/comparison/{dataset}/_work"
+_CWORK = "results/6a_comparison/{dataset}/_work"
 
 
 rule prepare_fitness_table:
     input:
-        final_clusters=lambda wc: final_clusters_path(wc.dataset, selected_variant(wc.dataset)),
-        protein_features=lambda wc: (
+        annotation_reference=_ANNOT_REF,
+        protein_features=(
             f"results/1b_features/{DATASETS['reference']['pombase_version']}/"
             "pombe_coding_gene_protein_features.tsv"
-        ),
-        gRNA_data=config.get("comparison", {}).get(
-            "gRNA_data_file",
-            "resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv"
         ),
     output:
         fitness_table=f"{_CWORK}/fitness_table.parquet",
@@ -43,15 +41,14 @@ rule prepare_fitness_table:
     log:
         "logs/comparison/prepare_fitness_table_{dataset}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
         "*** [comparison] Preparing fitness table for {wildcards.dataset}..."
     shell:
         """
         python workflow/scripts/comparison/prepare_fitness_table.py \
-            --final-clusters {input.final_clusters} \
+            --annotation-reference {input.annotation_reference} \
             --protein-features {input.protein_features} \
-            --grna-data {input.gRNA_data} \
             --clip-upper {params.clip_upper} \
             --output-fitness-table {output.fitness_table} &> {log}
         """
@@ -61,11 +58,11 @@ rule compute_comparison_stats:
     input:
         fitness_table=f"{_CWORK}/fitness_table.parquet",
     output:
-        stats="results/comparison/{dataset}/fitness_correlation_stats.tsv",
+        stats="results/6a_comparison/{dataset}/fitness_correlation_stats.tsv",
     log:
         "logs/comparison/compute_comparison_stats_{dataset}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
         "*** [comparison] Computing correlation stats for {wildcards.dataset}..."
     shell:
@@ -76,20 +73,13 @@ rule compute_comparison_stats:
         """
 
 
-
-# -----------------------------------------------------------------------------
-# Stage 3: Plot figures
-# -----------------------------------------------------------------------------
-# Moved to figure.smk: rule plot_comparison_figures
-# Reads fitness_table.parquet + fitness_correlation_stats.tsv -> pairwise_fitness_comparison.pdf
-
-
 rule plot_comparison_figures:
     input:
         fitness_table=f"{_CWORK}/fitness_table.parquet",
-        stats="results/comparison/{dataset}/fitness_correlation_stats.tsv",
+        stats="results/6a_comparison/{dataset}/fitness_correlation_stats.tsv",
     output:
-        figures="results/comparison/{dataset}/pairwise_fitness_comparison.pdf",
+        figures="results/6a_comparison/{dataset}/pairwise_fitness_comparison.pdf",
+        heatmap="results/6a_comparison/{dataset}/correlation_heatmap.pdf",
     log:
         "logs/comparison/plot_comparison_figures_{dataset}.log",
     conda:
@@ -101,5 +91,27 @@ rule plot_comparison_figures:
         python workflow/scripts/comparison/plot_comparison_figures.py \
             --fitness-table {input.fitness_table} \
             --stats {input.stats} \
-            --output-figures {output.figures} &> {log}
+            --output-dir results/6a_comparison/{wildcards.dataset} &> {log}
+        """
+
+
+rule qc_fitness_distributions:
+    input:
+        fitness_table=f"{_CWORK}/fitness_table.parquet",
+        stats="results/6a_comparison/{dataset}/fitness_correlation_stats.tsv",
+    output:
+        figure="results/6a_comparison/{dataset}/fitness_distributions_qc.pdf",
+        preview="results/6a_comparison/{dataset}/fitness_distributions_qc.review.png",
+    log:
+        "logs/comparison/qc_fitness_distributions_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [comparison] Plotting fitness distribution QC for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/comparison/qc_fitness_distributions.py \
+            --fitness-table {input.fitness_table} \
+            --stats {input.stats} \
+            --output-dir results/6a_comparison/{wildcards.dataset} &> {log}
         """

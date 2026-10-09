@@ -1,58 +1,76 @@
 """
 Pairwise Fitness Comparison — Core Logic
-=========================================
+========================================
 
 Shared constants, loaders, merge/stats functions, and figure builders for the
-large-scale-study comparison stage. Ported from
-DIT_HAP_pipeline/workflow/notebooks/compare_with_other_large_scale_studies.ipynb
-and factored out of the original single-script port so the stage can be split
-into independent Snakemake rules (prepare fitness table -> compute stats ->
-plot figures), each re-runnable on its own.
+large-scale-study comparison stage.
 
-This is a simplified port: the notebook's altair repeat-grid, the KEGG BRITE
-pathway jitter charts, and the per-GO-term feature-space PDFs are out of scope
-here — only the clip-and-correlate fitness comparison + KDE scatter the task
-calls for. The pairwise column selection is defensive: only fitness columns
-actually present (with enough non-NaN data) are correlated/plotted, so the
-downstream scripts never KeyError on a schema that ships a subset of the
-study columns.
+Data sources (the "annotated + curated inputs" contract):
 
-Usage
------
-    from comparison.core import (
-        load_final_clusters, build_fitness_table, select_fitness_columns,
-        compute_correlation_stats, plot_pairwise_comparison,
-    )
+- gene_annotation_reference.protein.parquet (1c_annotate) — the DIT-HAP metric
+  ``HD_DIT_HAP_DR`` and the gRNA metric ``gRNA_DR`` (sign-flipped to the DIT-HAP
+  convention by the annotation stage itself, so no flip happens here).
+- pombe_coding_gene_protein_features.tsv (1b_features merge) — the other
+  large-scale study fitness/depletion columns (STUDY_FITNESS_COLUMNS).
+
+Pipeline: build a fitness table (features spine + the two merged metrics,
+integration-density columns clipped), then correlate every unordered pair of
+available fitness columns with Pearson AND Spearman (the density columns stay
+heavy-tailed even after clipping, so rank correlation is the robust view) and
+BH-correct across all pairs. The figure stage renders one n x n pairwise scatter
+matrix (lower triangle) through the house render_pairwise_matrix_figure and one
+two-panel correlation heatmap (Pearson | Spearman) through cns.heatmapplot, both
+in the order one average-linkage tree on 1 - r puts the columns in: the order is
+read off the tree once and the tree itself is handed to the heatmap, so the two
+figures agree by construction.
+
+A separate QC figure draws every correlated column's own distribution raw and
+log10-transformed, so the heavy-tailed columns -- and so the ones whose Pearson r
+is carried by their tail -- are visible rather than assumed.
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-10-09
+Version:  5.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
+import sys
+import warnings
 from itertools import combinations
 from pathlib import Path
+from typing import Any
 
-# 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-from scipy.stats import gaussian_kde, pearsonr
+from scipy.cluster.hierarchy import leaves_list, linkage
+from scipy.spatial.distance import squareform
+from scipy.stats import false_discovery_control, pearsonr, spearmanr
 
-# 3. Third-party Imports
 import matplotlib
 
-matplotlib.use("Agg")  # headless: builders only write PDFs, never display
+matplotlib.use("Agg")  # headless: builders only write figures, never display
 import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
+from matplotlib.axes import Axes  # noqa: E402
+from matplotlib.cm import ScalarMappable  # noqa: E402
+from matplotlib.colors import Normalize  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
-# 4. Local Imports
-from release_schema import GRNA_METRIC_SIGN, LEGACY_METRIC_RENAME  # noqa: E402
-# Single-panel figure size and the categorical colour cycle, as matplotlib defines
-# them at import — the house style is applied later, inside run(), so these are the
-# stock values the retired plotting.style constants of the same name also captured.
-# Kept local rather than imported from figures.py: that module imports cnsplots,
-# which not every rule that uses these runs with.
-AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
-COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+# Project path setup: sibling src/ modules (figures, figure_render.*) import by
+# bare name, which needs workflow/src itself on sys.path.
+_SRC_DIR = Path(__file__).resolve().parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.append(str(_SRC_DIR))
+
+from figures import (  # noqa: E402
+    apply_house_style,
+    house_colors,
+    panel_labels,
+)
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -67,10 +85,18 @@ DENSITY_COLUMNS = [
     "uipkm",
 ]
 
+# The comparison reads the density columns in log10, not raw. The QC figure is
+# what decides this: raw they span three orders of magnitude with the mass piled
+# against zero, so a Pearson r between them is carried by the tail; logged they
+# are the roughly symmetric distributions. This is where the transform lives --
+# applied to the table the stats and the scatter are computed from, NOT stored in
+# the prepared parquet, which stays the raw (clipped) values so the QC can still
+# show the raw and logged distributions side by side.
+LOG10_COLUMNS = DENSITY_COLUMNS
+
 # The other large-scale study fitness/depletion columns to correlate against,
 # byte-faithful to the notebook's fitness_data column list. These live on the
-# protein-features table; the DIT-HAP metric (DR) and gRNA metric (um_gRNA) are
-# merged in separately. Column selection at runtime is DEFENSIVE — only those
+# protein-features table. Column selection at runtime is DEFENSIVE — only those
 # actually present with enough non-NaN data are used (see select_fitness_columns).
 STUDY_FITNESS_COLUMNS = [
     "Barseq_from_dulab",
@@ -80,35 +106,201 @@ STUDY_FITNESS_COLUMNS = [
     "uipkm",
     "colony_size_Malecki2016",
     "Max Growth Rate",
-    "Colony Formation",
 ]
 
-# The DIT-HAP and gRNA fitness metrics after merge (see build_fitness_table).
-DIT_HAP_FITNESS_COLUMN = "um_DIT_HAP"
-GRNA_FITNESS_COLUMN = "um_gRNA"
+# The two merged metric columns after build_fitness_table, renamed to short
+# display names. The DIT-HAP metric comes from the annotation reference's
+# gene-level HD_DIT_HAP block; the gRNA metric from its gRNA block (already
+# sign-flipped there).
+DIT_HAP_FITNESS_COLUMN = "DIT-HAP DR"
+GRNA_FITNESS_COLUMN = "gRNA DR"
+METRIC_COLUMNS = (DIT_HAP_FITNESS_COLUMN, GRNA_FITNESS_COLUMN)
 
+# Annotation-reference columns the metrics map from.
+_SOURCE_METRIC_COLUMNS = {
+    "HD_DIT_HAP_DR": DIT_HAP_FITNESS_COLUMN,
+    "gRNA_DR": GRNA_FITNESS_COLUMN,
+}
 
-# A Pearson correlation needs at least this many complete (non-NaN) pairs to be
-# meaningful; pairs below this are skipped (logged) rather than emitting a
-# degenerate r/p that scipy warns or NaNs on.
+# A Pearson/Spearman correlation needs at least this many complete (non-NaN)
+# pairs to be meaningful; pairs below this are skipped (logged) rather than
+# emitting a degenerate r/p that scipy warns or NaNs on.
 MIN_PAIRS_FOR_CORRELATION = 3
+
+# Correlation stats TSV columns in output order.
+STATS_COLUMNS = [
+    "col_x",
+    "col_y",
+    "pair",
+    "n",
+    "r_pearson",
+    "p_pearson",
+    "p_fdr",
+    "rho_spearman",
+    "p_spearman",
+    "p_spearman_fdr",
+]
+
+# Short display names for heatmap tick labels and scatter axes, keyed by full
+# column name. A column the comparison logs says so: the figure draws the
+# transformed values, and the name is the only place that can say which scale it
+# is. LOG10_PREFIX is a constant rather than the literal repeated three times,
+# because the QC figure strips it back off (see DISTRIBUTION_DISPLAY_NAMES).
+LOG10_PREFIX = "log10 "
+COLUMN_DISPLAY_NAMES = {
+    "Barseq_from_dulab": "Barseq (dulab)",
+    "Barseq_from_koch": "Barseq (koch)",
+    "Integration density, in-vivo (integrations/kb/million inserts)": f"{LOG10_PREFIX}Integration density (in-vivo)",
+    "ipkm": f"{LOG10_PREFIX}ipkm",
+    "uipkm": f"{LOG10_PREFIX}uipkm",
+    "colony_size_Malecki2016": "Colony size",
+    "Max Growth Rate": "Max growth rate",
+    DIT_HAP_FITNESS_COLUMN: "DIT-HAP DR",
+    GRNA_FITNESS_COLUMN: "gRNA DR",
+}
+
+# The distribution QC draws each column raw AND logged, so its rows are named
+# without the prefix: the transform is the panel's own title there, and a raw
+# panel labelled "log10 ipkm" would be naming the wrong thing.
+DISTRIBUTION_DISPLAY_NAMES = {
+    column: name.removeprefix(LOG10_PREFIX) for column, name in COLUMN_DISPLAY_NAMES.items()
+}
+
+# The two correlation coefficients, as (stats column, panel title) pairs: one
+# figure holds both, since they are the same matrix read two ways.
+HEATMAP_PANELS: tuple[tuple[str, str], ...] = (("r_pearson", "Pearson"), ("rho_spearman", "Spearman"))
+
+# Study category each column belongs to, for the heatmap row annotation bands.
+COLUMN_CATEGORIES = {
+    "Barseq_from_dulab": "Bar-seq",
+    "Barseq_from_koch": "Bar-seq",
+    "Integration density, in-vivo (integrations/kb/million inserts)": "Density",
+    "ipkm": "Density",
+    "uipkm": "Density",
+    "colony_size_Malecki2016": "Colony",
+    "Max Growth Rate": "Growth",
+    DIT_HAP_FITNESS_COLUMN: "This study",
+    GRNA_FITNESS_COLUMN: "This study",
+}
+
+# Study categories in the order they are keyed in the heatmap legend, and the
+# layout of that legend's own cell -- a value colourbar under, category key over,
+# both drawn by this module because cns.heatmapplot's own legends hang off the
+# last panel and get clipped by their axes (see plot_correlation_heatmap).
+STUDY_CATEGORIES = sorted(set(COLUMN_CATEGORIES.values()))
+
+# The order all three comparison figures present the columns in is the
+# clustering's: one average-linkage tree on 1 - r (Pearson), whose leaves are the
+# row order of the heatmap and the row/column order of the matrix. Both constants
+# come from a measured survey (5 methods x 4 distances x 2 missing-pair fills,
+# kept beside the results): 8 of the 20 combinations give this same leaf order --
+# average, complete and ward all do -- and they take in the highest cophenetic
+# correlation of the lot (1 - rho / average / zero, 0.940, against 0.931 here).
+# Average is also the default the heatmap plotter itself clusters with. Changing
+# either constant re-orders all three figures at once.
+COMPARISON_LINKAGE_METHOD = "average"
+COMPARISON_LINKAGE_METRIC = "r_pearson"
+
+# Correlation is bounded by -1/+1, so the diverging scale is fixed rather than
+# fitted to the data: a colour then means the same strength on every panel and
+# every run. RdBu_r is the house read of a signed scale (blue negative, red
+# positive); the sequential house map is for magnitudes, which this is not.
+CORRELATION_MIN = -1
+CORRELATION_MAX = 1
+HEATMAP_CMAP = "RdBu_r"
+# This figure sets its page directly instead of deriving it from a PanelShape,
+# because the heatmap is a composite plotter: it lays its body -- matrix, row
+# dendrogram, annotation bands, row names -- out against the page and ignores the
+# axes box it was handed. A fitted grid_axes panel therefore does not hold a
+# house-sized panel, it holds the whole composite, and pushes the page past the
+# journal width. The page is at the journal cap: any wider and it is scaled down
+# at typesetting.
+#
+# The height is set to keep the matrix as square as the legend strip allows. The
+# width is the binding constraint: two panels share the page minus the rect, and
+# each spends its share on the dendrogram, the Study band, the row names (the
+# longest ~117 px) and their padding, which leaves the body 82 px wide -- so
+# square would be an 82 px body, a page of ~106. The strip cannot go that short:
+# its key takes the top 66 px from the page top and the value bar under it needs
+# ~29 px more inside the body's extent, so ~124 is the minimum with a gap between
+# them (measured: cells 9.1 x 11.2, against 9.1 x 12.6 at the ten-column page).
+# Squaring the cells means moving the bar alongside the key instead of under it.
+# Change the column count, the rect, or the row names and this has to be
+# re-measured.
+HEATMAP_PAGE_PX = (540, 124)
+
+# A white annotation track padded between the Study band and the matrix: the
+# plotter packs its annotations straight against the heatmap and has no gap
+# setting of its own, so the gap is one more (blank) annotation. The plotter
+# labels every track with its column name and offers no way to switch that off,
+# hence the blank name and value.
+SPACER_COLUMN = " "
+SPACER_VALUE = " "
+BACKGROUND_COLOR = "#FFFFFF"
+
+# Both legends live in a strip down the right of the page, not inside a panel, so
+# neither costs the matrices any width. The rect is the width the panels are laid
+# out in; the strip starts where the second panel's content actually ends, which is
+# its longest row name ("Integration density (in-vivo)", to 0.82 of the page), not
+# where the rect leaves off -- the names are drawn outside the axes, so the rect
+# knows nothing about them and the legends would otherwise float in the gap.
+HEATMAP_LAYOUT_RECT = (0, 0, 0.84, 1)
+HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
+
+# The category key sits at the top of the strip and the value bar under it, thin and
+# upright: at this width a horizontal bar would have to be either short or wider
+# than the strip. Both are centred on the strip's mid-line -- the bar's ticks sit to
+# its right and its label to its left, so centring the bar centres the block. The
+# bar's vertical span is what keeps it inside the panels' own extent: its bottom end
+# is the one tick label that would otherwise hang below the matrices.
+# Legend-axes fraction (x0, y0, w, h). The bar sits clear of the key above it and
+# its bottom stays inside the matrices' own vertical extent; the two constraints
+# meet at this y0 and they are what stops the page getting any shorter.
+HEATMAP_CBAR_BOUNDS = (0.485, 0.11, 0.03, 0.22)
+
+# The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
+# next to the 8 pt type it sits beside.
+HEATMAP_TREE_LINEWIDTH = 1.0
+
+# The distribution QC figure: every analysed column gets a panel of its own
+# distribution and a panel of the same values log10-transformed, so a row of the
+# grid is one phenotype read both ways. The log panel can only carry positive
+# values, so non-positive ones are dropped from it and counted (logged) rather
+# than offset or shifted -- a shifted log would put a spike at an arbitrary
+# place and read as data.
+DISTRIBUTION_PHENOTYPE_COLUMN = "phenotype"
+DISTRIBUTION_SCALE_COLUMN = "scale"
+DISTRIBUTION_VALUE_COLUMN = "value"
+DISTRIBUTION_SCALES = ("Raw value", "log10(value)")
+DISTRIBUTION_BINS = 30
+DISTRIBUTION_XLABEL = "Value"
+DISTRIBUTION_YLABEL = "Number of genes"
+
+
+# Project path setup: src/ modules import their siblings by bare name, which
+# needs workflow/src itself on sys.path. Library modules import comparison.core
+# as comparison.core only, but the sibling imports (figures, figure_render.*)
+# below resolve through this append.
+_SRC_DIR = Path(__file__).resolve().parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.append(str(_SRC_DIR))
 
 
 # =============================================================================
 # LOADERS
 # =============================================================================
-def load_final_clusters(final_clusters_path: Path) -> pd.DataFrame:
-    """Load the curated cluster table, normalizing legacy um/lam -> DR/DL columns."""
-    clusters = pd.read_csv(final_clusters_path, sep="\t")
-    rename = {
-        old: new
-        for old, new in LEGACY_METRIC_RENAME.items()
-        if old in clusters.columns and new not in clusters.columns
-    }
-    if rename:
-        logger.info(f"Normalizing legacy metric columns: {rename}")
-        clusters = clusters.rename(columns=rename)
-    return clusters
+def rename_metrics_for_comparison(annotation_reference: pd.DataFrame) -> pd.DataFrame:
+    """Return the annotation reference's two metric columns under short display names.
+
+    Raises if either source column is missing so schema drift surfaces loudly
+    instead of silently dropping a metric from the comparison.
+    """
+    missing = [c for c in _SOURCE_METRIC_COLUMNS if c not in annotation_reference.columns]
+    if missing:
+        raise KeyError(f"annotation reference is missing metric columns: {missing}")
+    return annotation_reference[list(_SOURCE_METRIC_COLUMNS)].rename(
+        columns=_SOURCE_METRIC_COLUMNS
+    )
 
 
 # =============================================================================
@@ -128,78 +320,58 @@ def clip_density_columns(df: pd.DataFrame, clip_upper: float = CLIP_UPPER) -> pd
     return result
 
 
-def compute_pearson_r(x: pd.Series, y: pd.Series) -> tuple[float, float]:
-    """Pearson (r, p_value) over the pairs where both x and y are non-NaN.
+def transform_fitness_columns(fitness_table: pd.DataFrame) -> pd.DataFrame:
+    """Return the fitness table as the comparison reads it: LOG10_COLUMNS in log10.
 
-    Drops any pair with a NaN in either series before calling scipy's pearsonr
+    Applied by the stats and by the scatter matrix, so the coefficient the TSV
+    reports is the coefficient the figure draws. A value at or below zero has no
+    log: it becomes NaN, which is what drops it from both -- the correlation
+    already pairs on complete observations, and the scatter draws the rest.
+    """
+    result = fitness_table.copy()
+    for column in LOG10_COLUMNS:
+        if column in result.columns:
+            result[column] = np.log10(result[column].where(result[column] > 0))
+    return result
+
+
+def compute_correlations(x: pd.Series, y: pd.Series) -> tuple[float, float, float, float]:
+    """(Pearson r, Pearson p, Spearman rho, Spearman p) over non-NaN (x, y) pairs.
+
+    Drops any pair with a NaN in either series before calling scipy
     (matches the notebook, which correlates only complete observations).
     """
     paired = pd.DataFrame({"x": x.to_numpy(), "y": y.to_numpy()}).dropna()
-    r, p_value = pearsonr(paired["x"], paired["y"])
-    return float(r), float(p_value)
+    with warnings.catch_warnings():
+        # Constant input -> nan stats, guarded by the caller.
+        warnings.simplefilter("ignore")
+        r, p_value = pearsonr(paired["x"], paired["y"])
+        rho, rho_p_value = spearmanr(paired["x"], paired["y"])
+    return float(r), float(p_value), float(rho), float(rho_p_value)
 
 
 # =============================================================================
 # CORE LOGIC — merge + assembly
 # =============================================================================
 def build_fitness_table(
-    final_clusters: pd.DataFrame,
+    annotation_reference: pd.DataFrame,
     protein_features: pd.DataFrame,
-    grna_data: pd.DataFrame,
     clip_upper: float = CLIP_UPPER,
 ) -> pd.DataFrame:
-    """Merge protein-features + DIT-HAP clusters + gRNA into one fitness table.
+    """Merge the features spine with the annotation reference's two DR metrics.
 
-    Mirrors the notebook's merged_fitness_data: the protein-features table
-    (keyed on gene_systematic_id) is the spine, left-joined to the curated
-    DIT-HAP metric and the gRNA metric on Systematic ID. Both metric columns
-    are the fitting `DR`/`um` column, disambiguated to um_DIT_HAP / um_gRNA;
-    the gRNA metric is sign-flipped (see GRNA_METRIC_SIGN) so the two agree in
-    direction. The integration-density columns are clipped at clip_upper on the
-    way out.
+    The features table (keyed on gene_systematic_id) is the spine, left-joined
+    to the DIT-HAP and gRNA metrics on the same key. The integration-density
+    columns are clipped at clip_upper on the way out.
     """
-    dit_hap_metric = _dit_hap_metric_column(final_clusters)
-    grna_metric = _grna_metric_column(grna_data)
-
+    metrics = rename_metrics_for_comparison(annotation_reference)
     merged = protein_features.merge(
-        final_clusters[["Systematic ID", dit_hap_metric]].rename(
-            columns={dit_hap_metric: DIT_HAP_FITNESS_COLUMN}
-        ),
+        metrics,
         left_on="gene_systematic_id",
-        right_on="Systematic ID",
+        right_index=True,
         how="left",
-    ).merge(
-        grna_data[["Systematic ID", grna_metric]].rename(
-            columns={grna_metric: GRNA_FITNESS_COLUMN}
-        ),
-        left_on="gene_systematic_id",
-        right_on="Systematic ID",
-        how="left",
-        suffixes=("_dithap", "_grna"),
     )
-    merged[GRNA_FITNESS_COLUMN] = merged[GRNA_FITNESS_COLUMN] * GRNA_METRIC_SIGN
     return clip_density_columns(merged, clip_upper=clip_upper)
-
-
-def _dit_hap_metric_column(final_clusters: pd.DataFrame) -> str:
-    """Pick the DIT-HAP fitness metric column from the curated cluster table.
-
-    Prefers the current `DR` name (load_final_clusters normalizes legacy `um`);
-    falls back to `um` if a caller passed a raw frame. Raises if neither exists
-    so a schema drift surfaces loudly instead of silently dropping the metric.
-    """
-    for candidate in ("DR", "um"):
-        if candidate in final_clusters.columns:
-            return candidate
-    raise KeyError("final_clusters must contain a 'DR' (or legacy 'um') fitness column")
-
-
-def _grna_metric_column(grna_data: pd.DataFrame) -> str:
-    """Pick the gRNA fitness metric column (native `um`, or normalized `DR`)."""
-    for candidate in ("um", "DR"):
-        if candidate in grna_data.columns:
-            return candidate
-    raise KeyError("grna_data must contain a 'um' (or 'DR') fitness column")
 
 
 def select_fitness_columns(fitness_table: pd.DataFrame) -> list[str]:
@@ -210,7 +382,7 @@ def select_fitness_columns(fitness_table: pd.DataFrame) -> list[str]:
     MIN_PAIRS_FOR_CORRELATION non-NaN values are kept. Missing/too-sparse columns
     are logged and skipped so the pairwise loop can't KeyError at runtime.
     """
-    candidates = STUDY_FITNESS_COLUMNS + [DIT_HAP_FITNESS_COLUMN, GRNA_FITNESS_COLUMN]
+    candidates = STUDY_FITNESS_COLUMNS + list(METRIC_COLUMNS)
     available, missing = [], []
     for column in candidates:
         if column in fitness_table.columns and fitness_table[column].notna().sum() >= MIN_PAIRS_FOR_CORRELATION:
@@ -224,10 +396,12 @@ def select_fitness_columns(fitness_table: pd.DataFrame) -> list[str]:
 
 
 def compute_correlation_stats(fitness_table: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Long-form Pearson r/p_value/n for every unordered pair of ``columns``.
+    """Long-form Pearson + Spearman stats for every unordered pair of ``columns``.
 
     Pairs with fewer than MIN_PAIRS_FOR_CORRELATION complete observations are
-    skipped (logged) rather than emitting a degenerate r/p.
+    skipped (logged) rather than emitting a degenerate r/p. Both families'
+    p-values are BH-corrected across the surviving pairs (pearson -> ``p_fdr``,
+    spearman -> ``p_spearman_fdr``), so the two FDR columns align row-for-row.
     """
     rows = []
     for col_x, col_y in combinations(columns, 2):
@@ -236,84 +410,389 @@ def compute_correlation_stats(fitness_table: pd.DataFrame, columns: list[str]) -
         if n < MIN_PAIRS_FOR_CORRELATION:
             logger.warning(f"Skipping pair ({col_x} vs {col_y}): only {n} complete pairs")
             continue
-        r, p_value = compute_pearson_r(paired[col_x], paired[col_y])
+        r, p_value, rho, rho_p_value = compute_correlations(paired[col_x], paired[col_y])
+        if not all(np.isfinite(v) for v in (r, p_value, rho, rho_p_value)):
+            # Constant column(s): the coefficient is undefined, and a NaN p would
+            # poison the BH correction downstream.
+            logger.warning(f"Skipping pair ({col_x} vs {col_y}): degenerate (constant column)")
+            continue
         rows.append({
             "col_x": col_x,
             "col_y": col_y,
             "pair": f"{col_x} vs {col_y}",
-            "r": r,
-            "p_value": p_value,
             "n": n,
+            "r_pearson": r,
+            "p_pearson": p_value,
+            "rho_spearman": rho,
+            "p_spearman": rho_p_value,
         })
-    return pd.DataFrame(rows, columns=["col_x", "col_y", "pair", "r", "p_value", "n"])
+    stats = pd.DataFrame(rows, columns=[c for c in STATS_COLUMNS if c not in ("p_fdr", "p_spearman_fdr")])
+    if stats.empty:
+        return pd.DataFrame(columns=STATS_COLUMNS)
+
+    stats["p_fdr"] = false_discovery_control(stats["p_pearson"].to_numpy(), method="bh")
+    stats["p_spearman_fdr"] = false_discovery_control(stats["p_spearman"].to_numpy(), method="bh")
+    return stats[STATS_COLUMNS]
+
+
 
 
 # =============================================================================
 # PLOTTING
 # =============================================================================
-def _plot_pair(ax: plt.Axes, fitness_table: pd.DataFrame, col_x: str, col_y: str) -> None:
-    """Scatter of col_x vs col_y with a Gaussian-KDE density overlay + r/p/n text.
+def correlation_matrix(stats: pd.DataFrame, columns: list[str], metric: str) -> pd.DataFrame:
+    """Build the symmetric n x n coefficient matrix of ``columns`` from the long-form stats.
 
-    Guarded by MIN_PAIRS_FOR_CORRELATION on the PAIRWISE overlap (not the
-    per-column count select_fitness_columns uses): two columns can each be dense
-    on their own yet share zero rows (e.g. real Barseq vs Max Growth Rate),
-    which would make compute_pearson_r's scipy.pearsonr raise. Below-threshold
-    panels are blanked instead — this also suppresses the misleading n=2 -> r=1
-    panel. plot_pairwise_comparison already iterates only the surviving stats
-    pairs, so this guard is belt-and-suspenders for direct callers.
+    The diagonal is 1 (a variable against itself) and a pair absent from
+    ``stats`` -- one dropped by the overlap/degenerate guards -- keeps its 0
+    ("no measured correlation"), which is how the heatmap shows it as a blank
+    cell and how the clustering treats it as unrelated.
     """
-    paired = fitness_table[[col_x, col_y]].dropna()
-    if len(paired) < MIN_PAIRS_FOR_CORRELATION:
-        ax.axis("off")
-        return
-    x = paired[col_x].to_numpy()
-    y = paired[col_y].to_numpy()
-
-    ax.scatter(x, y, s=8, alpha=0.3, color=COLORS[0], edgecolors="none", zorder=1)
-
-    # KDE contour overlay: needs >2 points and non-degenerate spread; a constant
-    # column makes the covariance singular, so fall back to the bare scatter.
-    if len(paired) > 2 and np.ptp(x) > 0 and np.ptp(y) > 0:
-        try:
-            xy = np.vstack([x, y])
-            kde = gaussian_kde(xy)
-            xi, yi = np.mgrid[x.min():x.max():60j, y.min():y.max():60j]
-            zi = kde(np.vstack([xi.ravel(), yi.ravel()])).reshape(xi.shape)
-            ax.contour(xi, yi, zi, levels=6, colors=COLORS[1], linewidths=0.6, zorder=2)
-        except np.linalg.LinAlgError:
-            logger.debug(f"KDE overlay skipped for ({col_x} vs {col_y}): singular covariance")
-
-    r, p_value = compute_pearson_r(paired[col_x], paired[col_y])
-    ax.set_title(f"r={r:.2f}, p={p_value:.1e}\nn={len(paired)}", fontsize=7)
-    ax.set_xlabel(col_x, fontsize=6)
-    ax.set_ylabel(col_y, fontsize=6)
-    ax.tick_params(labelsize=6)
+    matrix = pd.DataFrame(np.eye(len(columns)), index=columns, columns=columns)
+    for _, row in stats.iterrows():
+        matrix.loc[row["col_x"], row["col_y"]] = row[metric]
+        matrix.loc[row["col_y"], row["col_x"]] = row[metric]
+    return matrix
 
 
-def plot_pairwise_comparison(fitness_table: pd.DataFrame, pairs: list[tuple[str, str]]) -> plt.Figure:
-    """Scatter matrix (one panel per pair) with KDE overlay + r/p/n.
+def comparison_linkage(
+    stats: pd.DataFrame,
+    columns: list[str],
+    metric: str = COMPARISON_LINKAGE_METRIC,
+    method: str = COMPARISON_LINKAGE_METHOD,
+) -> np.ndarray:
+    """Average-linkage tree over ``columns`` on the distance 1 - coefficient.
 
-    ``pairs`` is the list of (col_x, col_y) that SURVIVED the per-pair overlap
-    filter in compute_correlation_stats, so the PDF panel set always matches the
-    stats TSV row set — the two outputs can't silently disagree. Grid is packed
-    row-major so a non-square pair count leaves trailing axes blank (turned off)
-    rather than skewing the layout.
+    The distance is one minus the coefficient read off the stats table, which
+    makes a pair with no measured correlation -- one the overlap or degenerate
+    guard dropped, e.g. Max growth rate against either Barseq column, which share
+    no genes -- a 0 coefficient and so the maximum distance. That is the
+    conservative reading: nothing measured is not the same as known to be similar.
     """
-    n_pairs = max(len(pairs), 1)
-    n_cols = min(4, n_pairs)
-    n_rows = int(np.ceil(n_pairs / n_cols))
+    distance = 1 - correlation_matrix(stats, columns, metric).to_numpy()
+    np.fill_diagonal(distance, 0.0)
+    return linkage(squareform(distance, checks=False), method=method)
 
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(AX_WIDTH * n_cols, AX_HEIGHT * n_rows),
-        squeeze=False,
+
+def cluster_comparison_columns(
+    stats: pd.DataFrame, columns: list[str]
+) -> tuple[list[str], np.ndarray]:
+    """Order ``columns`` by ``comparison_linkage`` and return that order with the tree.
+
+    One call so the order and the tree cannot disagree: the heatmap draws the tree
+    and the other two figures lay out on the order, and a mismatch would put the
+    figures in different orders. ``leaves_list`` is how the plotter itself reads a
+    tree, so the order here is exactly what the heatmap will draw.
+    """
+    tree = comparison_linkage(stats, columns)
+    return [columns[int(leaf)] for leaf in leaves_list(tree)], tree
+
+
+def plot_pairwise_scatter(
+    fitness_table: pd.DataFrame,
+    columns: list[str],
+    output_stem: Path | str,
+    *,
+    order: list[str],
+) -> None:
+    """Render the n x n lower-triangle scatter matrix of every pair of ``columns``.
+
+    One figure, not one page per pair: at house panel size the page grows with n
+    so every panel stays legible. ``order`` is the comparison's column order, which
+    also places the companion heatmap, so both figures read consistently.
+    """
+    from figure_render.scatter import render_pairwise_matrix_figure
+
+    render_pairwise_matrix_figure(
+        fitness_table, output_stem, columns=columns, labels=COLUMN_DISPLAY_NAMES, order=order,
     )
-    flat_axes = axes.ravel()
-    for ax, (col_x, col_y) in zip(flat_axes, pairs):
-        _plot_pair(ax, fitness_table, col_x, col_y)
-    for ax in flat_axes[len(pairs):]:
-        ax.axis("off")
 
-    fig.suptitle("Pairwise fitness comparison across large-scale studies", y=1.01)
-    fig.tight_layout()
-    return fig
+
+def build_distribution_frame(fitness_table: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Long-form (phenotype, scale, value) frame: every column raw and log10-transformed.
+
+    A long frame is what the house grouped-histogram renderer takes, and it is
+    also the honest shape for this QC: each value appears once under each scale,
+    so the two panels of a phenotype are drawing the same genes. Rows are named
+    by display name: the renderer writes the row key down the side of the first
+    panel, where a full "Integration density, in-vivo (integrations/kb/million
+    inserts)" is longer than the panel and runs into the row above it.
+    """
+    frames = []
+    for column in columns:
+        phenotype = DISTRIBUTION_DISPLAY_NAMES.get(column, column)
+        values = fitness_table[column].dropna()
+        positive = values[values > 0]
+        dropped = len(values) - len(positive)
+        if dropped:
+            logger.info(
+                f"{column}: {dropped:,} of {len(values):,} values are <= 0, "
+                f"not drawn in the log10 panel"
+            )
+        for scale, scaled in (
+            (DISTRIBUTION_SCALES[0], values.to_numpy()),
+            (DISTRIBUTION_SCALES[1], np.log10(positive.to_numpy())),
+        ):
+            frames.append(
+                pd.DataFrame({
+                    DISTRIBUTION_PHENOTYPE_COLUMN: phenotype,
+                    DISTRIBUTION_SCALE_COLUMN: scale,
+                    DISTRIBUTION_VALUE_COLUMN: scaled,
+                })
+            )
+    return pd.concat(frames, ignore_index=True)
+
+
+def plot_fitness_distributions(
+    fitness_table: pd.DataFrame,
+    output_stem: Path | str,
+    *,
+    order: list[str],
+) -> None:
+    """Render one row of histogram panels per fitness column: raw, then log10.
+
+    The QC behind the correlation's own choice of statistic: if a column is
+    heavy-tailed, its raw and log panels do not look alike, and a Pearson r on it
+    is being carried by the tail while the Spearman rho is not. Rows run in
+    ``order`` -- the order both comparison figures use -- so a
+    phenotype's row sits where its matrix row does.
+    """
+    from figure_render.histogram import render_grouped_histogram_figure
+
+    render_grouped_histogram_figure(
+        build_distribution_frame(fitness_table, order),
+        output_stem,
+        value_column=DISTRIBUTION_VALUE_COLUMN,
+        row_key=DISTRIBUTION_PHENOTYPE_COLUMN,
+        col_key=DISTRIBUTION_SCALE_COLUMN,
+        bins=DISTRIBUTION_BINS,
+        xlabel=DISTRIBUTION_XLABEL,
+        ylabel=DISTRIBUTION_YLABEL,
+    )
+
+
+def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
+    """Drop every spine of one composite panel, and label it above its own content box.
+
+    The plotter frames the heatmap body with the axes spines and frames one side of
+    its annotation bands, which reads as a border that stops halfway. With them off
+    the colour cells are the panel. The name and letter cannot go on an axes either:
+    the plotter lays its axes out over the same area, so an axes title ends up under
+    the body, and the panel's left edge is too close to the page edge for
+    ``cns.add_panel_label``'s right-aligned offset. Both are drawn in figure space
+    from the panel's own bounding box instead.
+    """
+    import cnsplots as cns
+
+    figure = plotter.ax.figure
+    # Every axes in the figure at this point is the composite's (the legend strip is
+    # added afterwards), including the four empty placeholders it keeps for the
+    # dendrograms and annotations it is not drawing -- the border is spread over all
+    # of them, so the spines are dropped figure-wide rather than by name.
+    for member in figure.axes:
+        for side in ("left", "right", "top", "bottom"):
+            member.spines[side].set_visible(False)
+
+    boxes = [
+        member.get_position()
+        for member in (plotter.ax_heatmap, plotter.ax_row_dendrogram, plotter.ax_left_annotation)
+        if member is not None
+    ]
+    left, right = min(box.x0 for box in boxes), max(box.x1 for box in boxes)
+    top = max(box.y1 for box in boxes)
+    # axes.titlepad rather than the house panel-label pad: that one is 25 px, sized
+    # to clear a panel's tick labels and title, and this panel has neither above the
+    # matrix -- the band is on its side. The name sits where an axes title would.
+    above = top + plt.rcParams["axes.titlepad"] / (figure.get_size_inches()[1] * 72)
+
+    figure.text(
+        left, above, letter,
+        ha="left", va="bottom",
+        fontsize=cns.settings.title_fontsize,
+        fontweight=cns.settings.panel_label_fontweight,
+    )
+    figure.text(
+        (left + right) / 2, above, name,
+        ha="center", va="bottom",
+        fontsize=cns.settings.title_fontsize,
+        fontweight=plt.rcParams["axes.titleweight"],
+    )
+
+
+def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figure) -> None:
+    """Draw the shared value colourbar and Study category key inside ``cell`` (the legend strip)."""
+    import cnsplots as cns
+
+    cell.set_axis_off()
+
+    colorbar_axes = cell.inset_axes(HEATMAP_CBAR_BOUNDS)
+    colorbar = fig.colorbar(
+        ScalarMappable(norm=Normalize(vmin=CORRELATION_MIN, vmax=CORRELATION_MAX), cmap=HEATMAP_CMAP),
+        cax=colorbar_axes,
+        ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
+    )
+    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
+    # Ticks right, label left, so the bar is the middle of its own block and can be
+    # centred on the same line as the key.
+    colorbar.ax.yaxis.set_label_position("left")
+    colorbar.set_label("Correlation", labelpad=cns.settings.axes_labelpad)
+
+    handles = [
+        Patch(facecolor=color, edgecolor="none", label=category)
+        for category, color in study_colors.items()
+    ]
+    cell.legend(
+        handles=handles,
+        title="Study",
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.0),
+        frameon=cns.settings.legend_frameon,
+    )
+
+
+def plot_correlation_heatmap(
+    stats: pd.DataFrame,
+    columns: list[str],
+    output_path: Path | str,
+    *,
+    tree: np.ndarray | None = None,
+) -> None:
+    """Render Pearson and Spearman as two panels of one figure, with one shared legend.
+
+    Both coefficients are the same matrix read two ways, so they belong side by
+    side and share one value colourbar and one Study category key. Each matrix is
+    the house panel size, square, with the row dendrogram to its left and the
+    column names dropped (they repeat the row names of the same symmetric matrix).
+
+    The page is chosen rather than derived -- see ``HEATMAP_PAGE_PX`` -- and the
+    legends go in a strip down its right edge.
+
+    The matrix is built in ``columns`` order -- the tree's own index space -- and
+    the tree is what orders it for drawing: the plotter permutes each axis by
+    applying ``leaves_list(tree)`` to that axis' own index, so handing it data in
+    the order the tree was built over is what makes its permutation mean the
+    leaves. ``tree`` overrides the default (``comparison_linkage``); the order the
+    other two comparison figures are laid out in is ``cluster_comparison_columns``,
+    which reads the same tree, so all three agree.
+
+    Both legends are drawn here rather than by cns.heatmapplot: the plotter's own
+    legends hang off the last panel's right edge of its axes and get clipped by
+    them, whichever page width they are given. Drawing them means owning the
+    category colours, which is why they are passed to the heatmap explicitly.
+    """
+    import anndata as ad
+    import cnsplots as cns
+
+    apply_house_style()
+
+    if tree is None:
+        tree = comparison_linkage(stats, columns)
+    order_labels = [COLUMN_DISPLAY_NAMES.get(c, c) for c in columns]
+    study_colors = dict(zip(STUDY_CATEGORIES, house_colors(range(len(STUDY_CATEGORIES))), strict=True))
+    categories = pd.Categorical(
+        [COLUMN_CATEGORIES.get(c, "Other") for c in columns],
+        categories=STUDY_CATEGORIES,
+    )
+    # A white annotation track is what separates the Study band from the matrix:
+    # the plotter packs its annotations straight against the heatmap and has no
+    # gap setting of its own. Row annotation, so the band runs down the side of
+    # the matrix where the row labels are, not across the top.
+    spacer = pd.Categorical([SPACER_VALUE] * len(columns), categories=[SPACER_VALUE])
+    annotation_colors = {"Study": study_colors, SPACER_COLUMN: {SPACER_VALUE: BACKGROUND_COLOR}}
+
+    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1])
+    figure = plt.gcf()
+    panel_axes = figure.subplots(1, len(HEATMAP_PANELS), squeeze=False)[0]
+    plotters = []
+
+    for ax, (metric, name) in zip(panel_axes, HEATMAP_PANELS, strict=True):
+        panel_matrix = correlation_matrix(stats, columns, metric).rename(
+            index=COLUMN_DISPLAY_NAMES, columns=COLUMN_DISPLAY_NAMES
+        ).loc[order_labels, order_labels]
+        data = ad.AnnData(
+            panel_matrix.to_numpy(),
+            obs=pd.DataFrame({"Study": categories, SPACER_COLUMN: spacer}, index=order_labels),
+            var=pd.DataFrame(index=order_labels),
+        )
+        plotters.append(
+            cns.heatmapplot(
+                data,
+                row_annotation=["Study", SPACER_COLUMN],
+                # Clustering is the caller's (both panels are then in one order, and it
+                # is the tree the matrix figure is ordered by too), so the tree is
+                # handed to the plotter rather than computed per coefficient.
+                #
+                # Both axes are clustered, with the same tree, even though the matrix is
+                # symmetric and only one tree is drawn. The plotter orders each axis by
+                # applying the tree's leaf permutation to that axis' own index, and
+                # clustering the rows alone permutes them away from the columns: the
+                # rows then disagree with the columns, the 1.0 diagonal scatters off the
+                # diagonal and the matrix is no longer symmetric. Clustering both axes
+                # with the same linkage applies the same permutation to both.
+                row_cluster=True,
+                row_dendrogram=True,
+                row_dendrogram_kws={"linkage": tree},
+                col_cluster=True,
+                # The column tree is redundant with the row one: no top dendrogram, and
+                # the column names are dropped, so the permutation is all that is used.
+                col_dendrogram=False,
+                col_dendrogram_kws={"linkage": tree},
+                # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
+                # which reads as a hairline beside 8 pt type.
+                tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
+                cmap=HEATMAP_CMAP,
+                vmin=CORRELATION_MIN,
+                vmax=CORRELATION_MAX,
+                label="Correlation",
+                xlabel="",
+                ylabel="",
+                # 0 keeps the Study band's own label upright: cns passes this
+                # rotation to the annotation label too, and the column names it is
+                # meant for are not drawn.
+                xticklabels_rotation=0,
+                show_rownames=True,
+                show_colnames=False,
+                # Explicit colours so the annotation bands match the key drawn below
+                # (both panels share the scale, so neither carries its own legend).
+                colors=annotation_colors,
+                plot_legend=False,
+                ax=ax,
+            )
+        )
+
+    # Lay the composite out inside the part of the page that is not the legend strip.
+    figure.tight_layout(rect=HEATMAP_LAYOUT_RECT)
+    # Each composite places its own axes during the draw, so the panel labels can
+    # only be measured from the boxes they end up in.
+    figure.canvas.draw()
+    labels = panel_labels(len(HEATMAP_PANELS))
+    for plotter, label, (_, name) in zip(plotters, labels, HEATMAP_PANELS, strict=True):
+        _frame_heatmap_panel(plotter, name, label)
+
+    _draw_heatmap_legend(figure.add_axes(HEATMAP_LEGEND_BOUNDS), study_colors, fig=figure)
+    # The legends are their own axes, which the default tight export bbox drops --
+    # saving the full canvas is what keeps them in the figure.
+    with cns.settings.context(savefig_bbox="standard"):
+        cns.savefig(str(output_path))
+    plt.close(plt.gcf())
+
+
+def plot_comparison_figures(
+    fitness_table: pd.DataFrame,
+    stats: pd.DataFrame,
+    columns: list[str],
+    output_dir: Path | str,
+) -> None:
+    """Render the pairwise matrix figure + the two-coefficient heatmap into ``output_dir``.
+
+    Both figures take the same clustering's order -- the tree is read once here and
+    handed to the heatmap, which draws it, so the two cannot read differently.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    order, tree = cluster_comparison_columns(stats, columns)
+
+    # save_dual() appends .pdf/.review.png itself, so pass the bare stem.
+    plot_pairwise_scatter(fitness_table, columns, output_dir / "pairwise_fitness_comparison", order=order)
+    plot_correlation_heatmap(stats, columns, output_dir / "correlation_heatmap.pdf", tree=tree)

@@ -128,10 +128,17 @@ def test_load_grna_timepoints_none_returns_none():
 
 
 def test_grna_sign_constant_matches_comparison():
-    """verification and comparison must agree on the curated gRNA table's sign convention."""
-    from workflow.src.comparison.core import GRNA_METRIC_SIGN as COMPARISON_SIGN
+    """verification and comparison must agree on the curated gRNA table's sign convention.
 
-    assert COMPARISON_SIGN == GRNA_METRIC_SIGN
+    The comparison stage no longer reads the curated gRNA table itself: it takes
+    the already-flipped gRNA_DR from the 1c_annotate reference, so the only
+    surviving copy of the convention is this one -- asserted here so a change
+    there is a deliberate one.
+    """
+    from workflow.src.comparison.core import _SOURCE_METRIC_COLUMNS
+
+    assert "gRNA_DR" in _SOURCE_METRIC_COLUMNS  # flipped upstream, not here
+    assert GRNA_METRIC_SIGN == -1
 
 
 def test_load_deletion_library_normalizes_the_legacy_id_column(tmp_path):

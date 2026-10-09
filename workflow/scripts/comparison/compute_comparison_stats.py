@@ -41,6 +41,7 @@ from logging_setup import setup_logger  # noqa: E402
 from comparison.core import (  # noqa: E402
     compute_correlation_stats,
     select_fitness_columns,
+    transform_fitness_columns,
 )
 
 
@@ -65,10 +66,10 @@ class StatsConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: StatsConfig) -> None:
-    """Read parquet -> select columns -> compute correlation stats -> write TSV."""
+    """Read parquet -> log10 the density columns -> select columns -> correlate -> write TSV."""
     config.validate()
 
-    fitness_table = read_parquet(config.fitness_table)
+    fitness_table = transform_fitness_columns(read_parquet(config.fitness_table))
     columns = select_fitness_columns(fitness_table)
 
     stats = compute_correlation_stats(fitness_table, columns)

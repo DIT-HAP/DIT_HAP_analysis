@@ -11,9 +11,14 @@ therefore pass raw values, not pre-logged columns. ``"symlog"`` is the
 display-only variant for data containing zeros; its statistics stay in linear
 space.
 
+Three orchestrators sit on top of ``render_scatter_panel``: a row x col grid for
+one x/y pair (``render_grouped_regression_figure``), a flat grid of independent
+panels (``render_scatter_grid_figure``), and the n x n lower-triangle pairwise
+matrix (``render_pairwise_matrix_figure``).
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-09-01
-Version:  2.0.0
+Date:     2026-10-09
+Version:  2.2.0
 """
 
 # =============================================================================
@@ -91,6 +96,11 @@ DENSITY_SCATTER_KWS: dict[str, Any] = {
 DENSITY_CBAR_BOUNDS = (0.82, 0.02, 0.035, 0.30)
 DENSITY_CBAR_LABEL = "Density"
 
+# Every off-diagonal panel of the n x n matrix repeats the same bar, so it is drawn
+# at 60% of the default: the density scale is per panel anyway (see
+# _add_density_colorbar), so a smaller bar loses only readability, not meaning.
+MATRIX_DENSITY_CBAR_SCALE = 0.6
+
 # Panels per row in render_scatter_grid_figure. See the comment at the n_cols
 # assignment for the measurement behind 2.
 MAX_GRID_COLUMNS = 2
@@ -127,6 +137,9 @@ class ScatterPanel:
     scale: Literal["linear", "log", "symlog"] = "linear"
     show_stats: bool = False
     density: bool = False
+    # Multiplier on DENSITY_CBAR_BOUNDS, for grids where every panel repeats the
+    # same bar and the default size would be the loudest thing in the panel.
+    density_cbar_scale: float = 1.0
 
 
 # =============================================================================
@@ -163,6 +176,17 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
         ha="left",
         va="top",
     )
+
+
+def _annotate_compact_r(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
+    """Annotate the panel's r alone, for matrix panels too small for the n/r/P block."""
+    valid = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
+    if len(valid) < 2:
+        logger.warning(f"Not enough finite pairs ({len(valid)}) to compute r for {x!r} vs {y!r}")
+        return
+
+    r = pearsonr(valid[x], valid[y]).statistic
+    ax.text(0.04, 0.96, rf"$r={r:.2f}$", transform=ax.transAxes, ha="left", va="top")
 
 
 def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> None:
@@ -221,9 +245,11 @@ def _apply_shared_square_limits(
             ax.set_ylim(low - margin, high + margin)
 
 
-def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
+def _add_density_colorbar(ax: Axes, mappable: PathCollection, *, scale: float = 1.0) -> None:
     """Inset a thin vertical colorbar labelled low/high inside the panel's bottom-right corner."""
-    cax = ax.inset_axes(DENSITY_CBAR_BOUNDS)
+    x0, y0, width, height = DENSITY_CBAR_BOUNDS
+    # Scaled about the bottom-right corner, which is the corner the bar is anchored to.
+    cax = ax.inset_axes((x0 + width * (1 - scale), y0, width * scale, height * scale))
     colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
 
     # Only the ordering is meaningful: density is renormalised per panel, so
@@ -287,7 +313,7 @@ def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bo
     mappable = ax.scatter(
         x, y, c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
     )
-    _add_density_colorbar(ax, mappable)
+    _add_density_colorbar(ax, mappable, scale=panel.density_cbar_scale)
 
     return True
 
@@ -479,6 +505,117 @@ def render_grouped_regression_figure(
 
     if share_limits:
         _apply_shared_square_limits(axes, df, x=x, y=y, scale=scale)
+
+    fit_panels()
+
+    logger.info(f"Saving figure to {output_stem}...")
+    save_dual(output_stem)
+    logger.success("Figure rendering complete!")
+
+
+@logger.catch(reraise=True)
+@logger.catch(reraise=True)
+def render_pairwise_matrix_figure(
+    df: pd.DataFrame,
+    output_stem: Path,
+    *,
+    columns: Sequence[str],
+    labels: Mapping[str, str],
+    order: Sequence[str] | None = None,
+    scatter_kws: Mapping[str, object] | None = None,
+) -> None:
+    """Render an n x n lower-triangle scatter matrix for every pair of ``columns``.
+
+    The classic correlation-matrix reading: row i is the variable on the y axis,
+    column j the variable on the x axis, so only the lower triangle carries a
+    scatter and the diagonal cells stay blank. Each variable is named once, on
+    the outer edge of its own row (left) and column (bottom), so any panel is
+    identified by the two names on its edges. Each column shares one x scale and
+    each row one y scale, with tick labels kept on the outer edges only
+    (matplotlib's own ``label_outer``), so a reader compares panels against one
+    scale per variable instead of 45 autoscaled ones.
+
+    ``order`` fixes the display order; callers pass the same order here (and to
+    the companion heatmap) so both figures read the same way. ``labels`` maps a
+    column to its short display name.
+
+    Panels are house-size (``PanelShape.SQUARE``), so the page grows with n
+    rather than the panels shrinking.
+    """
+    ordered = list(columns if order is None else order)
+    logger.info(f"Rendering {len(ordered)}x{len(ordered)} pairwise matrix figure...")
+
+    require_columns(df, ordered, context="pairwise matrix input")
+    if df.empty:
+        logger.warning("No data to plot!")
+        return
+
+    apply_house_style()
+
+    n_cols = len(ordered)
+    # No A/B/... letters: the matrix is read by row and column, and the diagonal
+    # cells already carry the variable names.
+    axes = grid_axes(n_cols, n_cols, labels=[])
+    grid = [axes[row * n_cols:(row + 1) * n_cols] for row in range(n_cols)]
+
+    # One scale per variable: every panel in a column shares the column's x, every
+    # panel in a row its y. Sharing after the grid exists (not via fig.subplots'
+    # sharex) is what lets the reference be the bottom/left cell of that line.
+    for column_index in range(n_cols):
+        reference = grid[n_cols - 1][column_index]
+        for row_index in range(column_index, n_cols):
+            grid[row_index][column_index].sharex(reference)
+    for row_index in range(1, n_cols):
+        for column_index in range(row_index):
+            grid[row_index][column_index].sharey(grid[row_index][0])
+
+    for row_index in range(n_cols):
+        for column_index in range(row_index + 1):
+            ax = grid[row_index][column_index]
+            if row_index == column_index:
+                # Without data the cell would otherwise show its own meaningless
+                # 0-1 scale. The variable's scale is read off the panels that
+                # share its row and column.
+                ax.set_axis_off()
+                continue
+            panel = ScatterPanel(
+                x=ordered[column_index],
+                y=ordered[row_index],
+                # The diagonal names the variables, so per-panel axis labels would
+                # only repeat them 45 times.
+                xlabel="",
+                ylabel="",
+                title="",
+                # Overplotting is the norm in these pairs (tens of thousands of
+                # genes in a 100 px panel), so density is the reading that shows
+                # where the cloud actually is.
+                density=True,
+                density_cbar_scale=MATRIX_DENSITY_CBAR_SCALE,
+            )
+            logger.info(f"  Panel ({ordered[row_index]}, {ordered[column_index]})")
+            render_scatter_panel(
+                ax, df, panel,
+                scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
+                show_legend=False,
+            )
+            _annotate_compact_r(ax, df, x=panel.x, y=panel.y)
+            ax.label_outer()
+        for column_index in range(row_index + 1, n_cols):
+            grid[row_index][column_index].set_visible(False)
+
+    # Names on the outer edges, not on the diagonal. Writing each variable once,
+    # on its own row and column, is what says which pair a panel is: with names
+    # only on the diagonal a reader has to trace left and up across a 9 x 9 grid
+    # to identify the panel in front of them. The lower triangle gives every
+    # variable both edges -- column j has a cell in the bottom row for every
+    # j < n-1, and row i a cell in the left column for every i > 0, so the two
+    # ends (the first column and the last row) are named by the other axis.
+    for index in range(n_cols):
+        name = labels.get(ordered[index], ordered[index])
+        if index < n_cols - 1:
+            grid[n_cols - 1][index].set_xlabel(name)
+        if index > 0:
+            grid[index][0].set_ylabel(name)
 
     fit_panels()
 

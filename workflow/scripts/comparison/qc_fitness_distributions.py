@@ -2,35 +2,34 @@
 # -*- coding: utf-8 -*-
 
 """
-Plot Comparison Figures
+QC Fitness Distributions
 ========================
 
-Stage 3 of the comparison split: read the prepared fitness_table parquet
-intermediate AND the fitness_correlation_stats.tsv, then render
-- pairwise_fitness_comparison.pdf: ONE n x n scatter matrix (lower triangle,
-  every pair of the fitness columns, variables ordered by similarity);
-- correlation_heatmap.pdf: ONE figure holding the Pearson and Spearman
-  correlation matrices side by side, with study-category colour bands.
+Distribution QC for the comparison stage: every fitness column the comparison
+correlates is drawn twice -- raw and log10-transformed -- so the choice of
+statistic can be checked against the data.
 
-Both figures take the order one average-linkage tree on 1 - r puts the columns
-in (core.cluster_comparison_columns), read once and shared, so the two figures
-always read the same way.
+A column whose two panels do not look alike is heavy-tailed, and its Pearson r
+is carried by the tail where its Spearman rho is not. Non-positive values are
+dropped from the log10 panels (and counted in the log) rather than shifted.
+
+Rows run in the order both comparison figures use.
 
 Output
 ------
-- pairwise_fitness_comparison.pdf: n x n pairwise scatter matrix.
-- correlation_heatmap.pdf: Pearson | Spearman correlation heatmaps.
+- fitness_distributions_qc.pdf: one row of panels per column (raw | log10).
+- fitness_distributions_qc.review.png: the same figure, for review.
 
 Usage
 -----
-    python workflow/scripts/comparison/plot_comparison_figures.py \\
+    python workflow/scripts/comparison/qc_fitness_distributions.py \\
         --fitness-table results/6a_comparison/HD_DIT_HAP/_work/fitness_table.parquet \\
         --stats results/6a_comparison/HD_DIT_HAP/fitness_correlation_stats.tsv \\
         --output-dir results/6a_comparison/HD_DIT_HAP
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-10-08
-Version:  4.0.0
+Date:     2026-10-09
+Version:  1.0.0
 """
 
 # =============================================================================
@@ -57,15 +56,18 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from io_table import read_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
-from comparison.core import plot_comparison_figures, transform_fitness_columns  # noqa: E402
+from comparison.core import (  # noqa: E402
+    cluster_comparison_columns,
+    plot_fitness_distributions,
+)
 
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 @dataclass(kw_only=True, frozen=True, slots=True)
-class PlotConfig:
-    """Parquet + stats TSV inputs and the output directory for the comparison figures."""
+class QcConfig:
+    """Parquet + stats TSV inputs and the output directory for the distribution QC."""
     fitness_table: Path
     stats: Path
     output_dir: Path
@@ -82,21 +84,21 @@ class PlotConfig:
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def run(config: PlotConfig) -> None:
-    """Read parquet + stats TSV -> plot the pairwise matrix + the correlation heatmap figure.
-
-    The table is transformed the same way the stats rule transformed it, so the
-    scatter matrix draws exactly the values the TSV's coefficients describe.
-    """
+def run(config: QcConfig) -> None:
+    """Read parquet + stats TSV -> plot every correlated column's raw and log10 distribution."""
     config.validate()
 
-    fitness_table = transform_fitness_columns(read_parquet(config.fitness_table))
+    fitness_table = read_parquet(config.fitness_table)
     stats = pd.read_csv(config.stats, sep="\t")
     columns = list(dict.fromkeys([*stats["col_x"], *stats["col_y"]]))
 
-    plot_comparison_figures(fitness_table, stats, columns, config.output_dir)
+    plot_fitness_distributions(
+        fitness_table,
+        config.output_dir / "fitness_distributions_qc",
+        order=cluster_comparison_columns(stats, columns)[0],
+    )
 
-    logger.success(f"Comparison figures: {len(stats):,} pairs plotted into {config.output_dir}")
+    logger.success(f"Fitness distribution QC: {len(columns)} columns into {config.output_dir}")
 
 
 # =============================================================================
@@ -104,20 +106,20 @@ def run(config: PlotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Pairwise scatter matrix + correlation heatmap figure")
+    parser = argparse.ArgumentParser(description="Raw and log10 distribution QC per fitness column")
     parser.add_argument("--fitness-table", type=Path, required=True, help="Input fitness_table.parquet")
     parser.add_argument("--stats", type=Path, required=True, help="Input fitness_correlation_stats.tsv")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for figures")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for the QC figure")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: build config, run the plotting, report results."""
+    """Main orchestrator: build config, run the QC plotting, report results."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        config = PlotConfig(
+        config = QcConfig(
             fitness_table=args.fitness_table,
             stats=args.stats,
             output_dir=args.output_dir,

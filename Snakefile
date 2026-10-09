@@ -56,14 +56,14 @@ include: "workflow/rules/1c_annotate.smk"
 include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/2b_verification.smk"
 include: "workflow/rules/3a_coherence.smk"
-include: "workflow/rules/clustering.smk"
-include: "workflow/rules/enrichment.smk"
-include: "workflow/rules/enrichment_network.smk"
-include: "workflow/rules/ml.smk"
-include: "workflow/rules/noncoding_rna.smk"
-include: "workflow/rules/comparison.smk"
-include: "workflow/rules/utr.smk"
-include: "workflow/rules/domain_differences.smk"
+include: "workflow/rules/3b_clustering.smk"
+include: "workflow/rules/3c_enrichment.smk"
+include: "workflow/rules/3d_enrichment_network.smk"
+include: "workflow/rules/5a_ml.smk"
+include: "workflow/rules/4c_noncoding_rna.smk"
+include: "workflow/rules/6a_comparison.smk"
+include: "workflow/rules/4b_utr.smk"
+include: "workflow/rules/4a_domain_differences.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -122,7 +122,7 @@ rule all:
         # f"results/2b_verification/{_DATASET}/depletion_curves",
         # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
-        # f"results/comparison/{_DATASET}/fitness_correlation_stats.tsv",
+        # f"results/6a_comparison/{_DATASET}/fitness_correlation_stats.tsv",
         # 3a_coherence is organised as one folder per view — {source}/, combined/
         # and dedup/ — with the FOLDER name (never the file name) saying which view
         # a file belongs to, so each view exposes the same names where the artifact
