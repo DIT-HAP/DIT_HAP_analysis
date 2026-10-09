@@ -50,7 +50,7 @@ from loguru import logger  # noqa: E402
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, grid_axes, save_dual  # noqa: E402
+from figures import apply_house_style, fit_panels, grid_axes, save_dual  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
 
@@ -61,15 +61,15 @@ from logging_setup import setup_logger  # noqa: E402
 # v2 k_selection set (silhouette / CH / DB / min cluster silhouette / shares)
 # plus this sweep's additions (dunn, gap, bootstrap ARI, axis shares).
 PANELS: tuple[tuple[str, str], ...] = (
-    ("silhouette_score", "Silhouette (↑)"),
-    ("calinski_harabasz_score", "Calinski-Harabasz (↑)"),
-    ("davies_bouldin_score", "Davies-Bouldin (↓)"),
-    ("dunn", "Dunn index (↑)"),
-    ("min_cluster_silhouette", "Worst-cluster silhouette (↑)"),
-    ("max_cluster_share", "Largest cluster share (↓)"),
-    ("min_cluster_share", "Smallest cluster share (↑)"),
-    ("ari_mean", "Bootstrap ARI (↑)"),
-    ("gap", "Gap statistic (↑)"),
+    ("silhouette_score", "Silhouette (Higher better)"),
+    ("calinski_harabasz_score", "Calinski-Harabasz (Higher better)"),
+    ("davies_bouldin_score", "Davies-Bouldin (Lower better)"),
+    ("dunn", "Dunn index (Higher better)"),
+    ("min_cluster_silhouette", "Worst-cluster silhouette (Higher better)"),
+    ("max_cluster_share", "Largest cluster share (Lower better)"),
+    ("min_cluster_share", "Smallest cluster share (Higher better)"),
+    ("ari_mean", "Bootstrap ARI (Higher better)"),
+    ("gap", "Gap statistic (Higher better)"),
     ("dr_share", "DR share of between-SS"),
 )
 
@@ -115,8 +115,7 @@ def run(config: KSelConfig) -> None:
 
     apply_house_style()
     axes = grid_axes(row_num, col_num)
-    fig = plt.gcf()
-    fig.subplots_adjust(hspace=0.45, wspace=0.35)
+    fit_panels()
 
     for (column, title), ax in zip(PANELS, axes):
         if column in SINGLE_LINE_PANELS:
@@ -140,7 +139,7 @@ def run(config: KSelConfig) -> None:
 
     handles, names = axes[0].get_legend_handles_labels()
     fig = plt.gcf()
-    fig.legend(handles, names, loc="outside upper right", ncols=len(methods), fontsize=6)
+    fig.legend(handles, names, loc="outside upper center", ncols=len(methods), fontsize=6)
     save_dual(config.output.with_suffix(""))
     logger.success(
         f"k_selection -> {config.output} ({n_panels} metric panels, {len(methods)} methods, "

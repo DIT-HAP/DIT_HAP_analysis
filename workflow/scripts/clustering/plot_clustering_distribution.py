@@ -72,11 +72,12 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from coverage.core import DELETION_ESSENTIALITY_LABELS  # noqa: E402
 from figure_render._point_density import point_density  # noqa: E402
-from figure_render.scatter import DENSITY_SCATTER_KWS, SCATTERPLOT_KWS, _add_density_colorbar  # noqa: E402
+from figure_render.scatter import DENSITY_SCATTER_KWS, SCATTERPLOT_KWS  # noqa: E402
 from figures import (  # noqa: E402
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
+    fit_panels,
     grid_axes,
     house_colors,
     panel_labels,
@@ -102,6 +103,7 @@ DENSITY_SCATTER_KWS_LARGE = {**DENSITY_SCATTER_KWS, "s": 4}
 # The density bar's inset, outside the axes on the right (the cloud's densest
 # corner is the DL=0 point mass at high DR — where the default would sit).
 DENSITY_CBAR_BOUNDS = (1.06, 0.62, 0.035, 0.30)
+DENSITY_CBAR_LABEL = "Density"
 
 # Essentiality panel: raw call -> hue column, draw order, per-meaning colors.
 ESSENTIALITY_COLUMN = "RevisedDeletion_essentiality"
@@ -209,7 +211,16 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
         mappable = ax.scatter(
             x[finite][order], y[finite][order], c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS_LARGE
         )
-        _add_density_colorbar(ax, mappable)
+        # scatter.py's helper draws its inset on the cloud's densest corner; for
+        # THIS panel the bar belongs in the empty upper-right margin instead
+        # (bounds per DENSITY_CBAR_BOUNDS), so draw it here directly.
+        cax = ax.inset_axes(DENSITY_CBAR_BOUNDS)
+        colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
+        labels = colorbar.ax.set_yticklabels(["low", "high"])
+        labels[0].set_verticalalignment("bottom")
+        labels[-1].set_verticalalignment("top")
+        colorbar.ax.tick_params(length=0, pad=1)
+        colorbar.ax.set_title(DENSITY_CBAR_LABEL, loc="center", fontsize=plt.rcParams["ytick.labelsize"])
     ax.set(xlabel=DR_COLUMN, ylabel=DL_COLUMN, title=title)
 
 
@@ -295,9 +306,8 @@ def run(config: DistributionConfig) -> None:
 
     apply_house_style()
     labels = panel_labels(6)
-    axes = grid_axes(2, 3, labels=labels, shape=PanelShape.SQUARE)
-    fig = plt.gcf()
-    fig.subplots_adjust(hspace=0.45, wspace=0.30)
+    axes = grid_axes(2, 3, labels=labels, shape=PanelShape.WIDE)
+    fit_panels()
 
     render_axis_histogram_panel(axes[0], annotated[DR_COLUMN], bins=config.bins, xlabel=DR_COLUMN, title="Depletion rate")
     render_axis_histogram_panel(axes[1], frame[DL_COLUMN], bins=config.bins, xlabel=DL_COLUMN, title="Depletion lag (scaled)")
