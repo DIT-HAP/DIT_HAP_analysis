@@ -44,9 +44,11 @@
 
   /* 渐进增强：默认可见；只有 JS 确认能观察时才从 opacity:0 开始入场。
      否则 JS 慢一步 / 被禁用 / 打印，整页就是空白。 */
-  html.js-on .rv{opacity:0;transform:translateY(14px);
-      transition:opacity .6s ease,transform .6s cubic-bezier(.2,.7,.3,1)}
-  html.js-on .rv.in{opacity:1;transform:none}
+  /* 渐进增强：默认全部可见，只有确知「在视口下方」的 section 才 .pending 藏起来。
+     否则 JS 慢一步 / 被禁用 / 观察器不回调 / 打印，整页就是空白。 */
+  .rv{transition:opacity .6s ease,transform .6s cubic-bezier(.2,.7,.3,1)}
+  .rv.pending{opacity:0;transform:translateY(14px)}
+  @media print{.rv.pending{opacity:1;transform:none}}
 
   header{padding:72px 0 8px;border-bottom:1px solid var(--line)}
   .big{display:flex;gap:28px;align-items:baseline;margin:26px 0 6px;flex-wrap:wrap}
@@ -578,11 +580,26 @@ function observe(node, fn){
 }
 
 /* ═══════════ 滚动入场 ═══════════ */
-// 只有确知 IntersectionObserver 可用才隐藏内容等待入场；否则内容保持默认可见。
-if(typeof IntersectionObserver === "function"){
-  document.documentElement.classList.add("js-on");
-  document.querySelectorAll(".rv").forEach(function(n){ observe(n, function(){ n.classList.add("in"); }); });
-}
+// 只藏「此刻确实在视口下方」的 section，其余一律保持可见；观察器不回调
+// （iframe / webview / 无头截图 / 首次绘制早于回调）时由定时兜底放出来。
+// 之前是「有 IntersectionObserver 就整页 opacity:0 等入场」，Firefox 无头下
+// 回调没跑，整页就是空白 —— 所以内容可见性不能交给观察器决定。
+(function(){
+  var pend = Array.prototype.filter.call(document.querySelectorAll(".rv"), function(n){
+    return n.getBoundingClientRect().top > window.innerHeight * 0.92;
+  });
+  pend.forEach(function(n){ n.classList.add("pending"); });
+  if(!pend.length) return;
+  if(typeof IntersectionObserver === "function"){
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(e.isIntersecting){ e.target.classList.remove("pending"); io.unobserve(e.target); }
+      });
+    }, {rootMargin:"0px 0px -8% 0px"});
+    pend.forEach(function(n){ io.observe(n); });
+  }
+  setTimeout(function(){ pend.forEach(function(n){ n.classList.remove("pending"); }); }, 900);
+})();
 
 /* ═══════════ 1 排行榜 ═══════════ */
 (function(){
