@@ -230,6 +230,29 @@ def segment_metrics(drs: np.ndarray, segments: list[tuple[int, int]]) -> list[di
     ]
 
 
+def region_contrasts(means: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Each segment's mean minus the weighted mean of every OTHER segment.
+
+    The comparison is against the rest of the same gene on purpose. DR carries a
+    gene-level offset — the pooled profile sits near -0.3, not 0, and only 5% of
+    segments reach 0 — so an absolute cut would call almost nothing tolerant (it
+    would miss 7 of 10 of the hand-curated C termini). Being a difference of
+    means, this statistic is immune to that offset: adding a constant to a whole
+    profile leaves it unchanged, while the boundary contrasts the segmentation
+    itself uses do not have that property.
+
+    ``weights`` are typically the segment site counts (the statistic), so a
+    one-site segment cannot outvote a large one. A single segment has nothing to
+    be compared against and gets 0.
+    """
+    means = np.asarray(means, dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    rest_w = weights.sum() - weights
+    rest_sum = float((means * weights).sum()) - means * weights
+    rest = np.divide(rest_sum, rest_w, out=np.zeros_like(means), where=rest_w > 0)
+    return np.where(rest_w > 0, means - rest, 0.0)
+
+
 def max_cut_contrast(x: np.ndarray, min_seg: int = MIN_SEG) -> float:
     """Max over internal cuts of |mean(L) - mean(R)| — the statistic ``perm_p`` nulls."""
     n = len(x)

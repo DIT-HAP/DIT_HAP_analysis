@@ -25,12 +25,15 @@ from workflow.src.domain_differences.core import (
     IN_GENE_Q,
     collapse_sites,
     hand_region_map,
+    hand_terms,
+    read_gene_table,
     read_insertions,
     segment_counts,
 )
 from workflow.src.domain_differences.segmentation import (
     merge_threshold,
     noise_sigma,
+    region_contrasts,
     tguh_tuned,
     universe_floor,
 )
@@ -63,8 +66,8 @@ def _write_release(tmp_path: Path, annotations: list[dict], fitting: list[dict])
     pd.DataFrame(fitting, columns=_FIT_COLUMNS).to_csv(fit_path, sep="\t", index=False)
     genes_path = tmp_path / "gene_level.tsv"
     sids = sorted({a["Systematic ID"] for a in annotations if isinstance(a["Systematic ID"], str)})
-    pd.DataFrame({"Systematic ID": sids, "Name": ["named_gene"] * len(sids)}).to_csv(
-        genes_path, sep="\t", index=False)
+    pd.DataFrame({"Systematic ID": sids, "Name": ["named_gene"] * len(sids),
+                  "DR": [-0.75] * len(sids)}).to_csv(genes_path, sep="\t", index=False)
     return fit_path, ann_path, genes_path
 
 
@@ -169,6 +172,7 @@ def _insertions() -> pd.DataFrame:
     return pd.DataFrame({
         "Systematic ID": ["g1"] * 3,
         "name": ["named"] * 3,
+        "gene_DR": [-0.75] * 3,
         "Chr": ["I"] * 3,
         "Coordinate": [200, 100, 100],
         "Strand": ["+"] * 3,
@@ -317,3 +321,63 @@ def test_a_clean_step_is_found_and_a_two_point_gene_never_is():
 
     two_point = np.array([-0.9, 0.3])
     assert len(tguh_tuned(two_point, 1, z=1.5, sigma_add=0.1)) == 1
+
+
+# ---------------------------------------------------------------------------
+# read_gene_table — the release's gene-level row (name + DR)
+# ---------------------------------------------------------------------------
+def test_read_gene_table_normalizes_legacy_metric_headers(tmp_path):
+    """Older releases ship the metric as `um`; the summary's gene_DR must not come out empty."""
+    path = tmp_path / "gene_level.tsv"
+    pd.DataFrame({"Systematic ID": ["SP1", "SP2"], "Name": ["mcm4", np.nan],
+                  "um": [-0.9, -0.1]}).to_csv(path, sep="\t", index=False)
+
+    table = read_gene_table(path)
+    assert table.loc["SP1", "gene_DR"] == pytest.approx(-0.9)
+    assert table.loc["SP1", "name"] == "mcm4"
+    assert table.loc["SP2", "name"] == "SP2"   # unnamed genes fall back to the ID
+
+
+def test_read_insertions_carries_gene_dr_onto_every_insertion(tmp_path):
+    """gene_DR reaches the summary by riding through the parquet, so it is the release's value."""
+    annotations = [_ann("I", 100, "+", "T1", "Coding gene", 80, 20, "g1", 7, "Forward")]
+    out = read_insertions(*_write_release(tmp_path, annotations, [_fit("I", 100, "+", "T1", -0.5)]))
+    assert out["gene_DR"].tolist() == [-0.75]
+
+
+# ---------------------------------------------------------------------------
+# hand_terms — the curated call the summary scores itself against
+# ---------------------------------------------------------------------------
+def test_hand_terms_reads_only_usable_rows():
+    """A row with no mapped gene or no resolvable interval carries no call."""
+    hand = pd.concat([
+        _hand([{"Gene": "mcm4", "sid": "SP1", "term": "C", "regions": "740-870", "n_regions": 1}]),
+        _hand([{"Gene": "x", "sid": "SP2", "term": "N+C", "regions": "1-24|740-870", "n_regions": 2}]),
+        _hand([{"Gene": "y", "sid": np.nan, "term": "C", "regions": "", "n_regions": 0}]),
+    ], ignore_index=True)
+    assert hand_terms(hand) == {"SP1": "C", "SP2": "N+C"}
+
+
+# ---------------------------------------------------------------------------
+# region_contrasts — the statistic the classification is built on
+# ---------------------------------------------------------------------------
+def test_region_contrasts_are_immune_to_a_gene_level_offset():
+    """A constant added to a whole profile cancels: DR's gene-level offset cannot bias the call."""
+    means = np.array([-0.9, -0.3, -1.1])
+    weights = np.array([5.0, 4.0, 6.0])
+    assert region_contrasts(means + 7.0, weights) == pytest.approx(region_contrasts(means, weights))
+
+
+def test_region_contrasts_compare_each_segment_with_the_weighted_rest():
+    """The rest mean is weighted, so a one-site segment cannot outvote a large one."""
+    means = np.array([-0.2, -1.0, -1.0])
+    weights = np.array([1.0, 10.0, 10.0])
+    # segment 0: -0.2 vs (10*-1 + 10*-1)/20 = -1.0 -> +0.8
+    assert region_contrasts(means, weights)[0] == pytest.approx(0.8)
+    # segment 1: -1.0 vs (1*-0.2 + 10*-1)/11 = -0.927 -> -0.073
+    assert region_contrasts(means, weights)[1] == pytest.approx(-0.0727, abs=1e-3)
+
+
+def test_a_single_segment_has_no_contrast():
+    """Nothing to compare against: a one-segment profile gets 0, not a divide-by-zero."""
+    assert region_contrasts(np.array([-0.5]), np.array([3.0])).tolist() == [0.0]

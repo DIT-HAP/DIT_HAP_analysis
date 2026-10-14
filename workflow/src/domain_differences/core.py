@@ -18,7 +18,9 @@ Input
 - ``insertion_level/fitting_results.tsv`` — defines the insertion universe
   (unique per Chr/Coordinate/Strand/Target).
 - ``insertion_level/annotations.tsv.gz`` — the in-gene call and the CDS positions.
-- ``gene_level/fitting_results.tsv`` — gene names for the ``name`` column.
+- ``gene_level/fitting_results.tsv`` — gene names and the gene-level DR.
+- ``results/1c_annotation/.../gene_annotation_reference.protein.parquet`` — the
+  per-gene context columns (FYPOviability, gRNA DR).
 - ``resources/curated/non_esential_domain_candidates.xlsx`` — the hand annotation.
 - ``resources/external/pombase/{pombase_version}/Protein_features/peptide_stats.tsv``
   — protein lengths, for turning an "affected C-terminal residue" into an interval.
@@ -43,6 +45,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# 3. Local Imports
+from io_table import read_parquet
+from release_schema import read_gene_level
+
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
@@ -57,8 +63,8 @@ IN_GENE_Q = 'Type == "Coding gene" and Distance_to_stop_codon > 4'
 # Release columns the stage carries through the pipeline. ``Coordinate`` is the
 # insertion site key (one site = one TTAA, reported once per direction).
 INSERTION_COLUMNS = [
-    "Systematic ID", "name", "Chr", "Coordinate", "Strand", "Insertion_direction",
-    "Residue_affected", "Residue_frame", "frac", "DR", "DL",
+    "Systematic ID", "name", "gene_DR", "Chr", "Coordinate", "Strand",
+    "Insertion_direction", "Residue_affected", "Residue_frame", "frac", "DR", "DL",
 ]
 
 # The three sheets of the hand spreadsheet, in the order the plot groups them.
@@ -116,9 +122,10 @@ def read_insertions(fitting_results: Path, annotations: Path, gene_level: Path) 
     # the prototype's tables were built on.
     in_gene["frac"] = (in_gene["Distance_to_start_codon"] / span.where(span != 0)).clip(lower=0, upper=1)
 
-    names = read_gene_names(gene_level)
+    genes = read_gene_table(gene_level)
     out = in_gene.reset_index()
-    out["name"] = out["Systematic ID"].map(names).fillna(out["Systematic ID"])
+    out["name"] = out["Systematic ID"].map(genes["name"]).fillna(out["Systematic ID"])
+    out["gene_DR"] = out["Systematic ID"].map(genes["gene_DR"])
     return (
         out[INSERTION_COLUMNS]
         .sort_values(["Systematic ID", "frac"], kind="stable")
@@ -126,10 +133,42 @@ def read_insertions(fitting_results: Path, annotations: Path, gene_level: Path) 
     )
 
 
-def read_gene_names(gene_level: Path) -> dict[str, str]:
-    """{Systematic ID: display name} from the release gene table; unnamed genes map to their ID."""
-    g = pd.read_csv(gene_level, sep="\t")
-    return dict(zip(g["Systematic ID"], g["Name"].fillna(g["Systematic ID"])))
+def read_gene_table(gene_level: Path) -> pd.DataFrame:
+    """Release gene-level table indexed by Systematic ID: ``name`` and ``gene_DR``.
+
+    A duplicated Systematic ID would turn a caller's ``Series.map`` into a cross
+    product, so the last row wins — the rule the previous dict comprehension
+    applied silently.
+    """
+    g = read_gene_level(gene_level)
+    table = (g.assign(name=g["Name"].fillna(g["Systematic ID"]))
+             .set_index("Systematic ID")[["name", "DR"]]
+             .rename(columns={"DR": "gene_DR"}))
+    return table[~table.index.duplicated(keep="last")]
+
+
+def read_protein_lengths(peptide_stats: Path) -> dict[str, int]:
+    """{Systematic ID: protein length in residues} from PomBase's peptide_stats.tsv."""
+    p = pd.read_csv(peptide_stats, sep="\t")
+    return {
+        sid: int(n) for sid, n in zip(p["Systematic_ID"], p["Residues"]) if pd.notna(n)
+    }
+
+
+def read_gene_context(annotation: Path) -> tuple[dict[str, str], dict[str, float]]:
+    """(FYPOviability, gRNA DR) per gene, from 1c's annotation reference.
+
+    The reference is the project's annotation layer, keyed by systematic id, and
+    it is where ``FYPOviability`` and the curated ``gRNA_DR`` already meet — the
+    viability call lives in the release table and the gRNA fit in a curated
+    spreadsheet, and joining them here would mean this stage re-deriving a join
+    that already exists two chapters upstream.
+    """
+    reference = read_parquet(annotation)
+    return (
+        {sid: str(v) for sid, v in reference["FYPOviability"].items()},
+        {sid: float(v) for sid, v in reference["gRNA_DR"].dropna().items()},
+    )
 
 
 def collapse_sites(insertions: pd.DataFrame) -> pd.DataFrame:
@@ -158,6 +197,7 @@ def collapse_sites(insertions: pd.DataFrame) -> pd.DataFrame:
         **{
             "Systematic ID": ("Systematic ID", "first"),
             "name": ("name", "first"),
+            "gene_DR": ("gene_DR", "first"),
             "Chr": ("Chr", "first"),
             "Strand": ("Strand", "first"),
             "Residue_affected": ("Residue_affected", "first"),
@@ -214,9 +254,8 @@ def segment_counts(frame: pd.DataFrame, segments: list[tuple[int, int]]) -> list
 # =============================================================================
 def gene_name_to_sid(gene_level: Path) -> dict[str, str]:
     """{lowercased gene name: Systematic ID}, from the same release the scan reads."""
-    g = pd.read_csv(gene_level, sep="\t")
-    name = g["Name"].fillna(g["Systematic ID"])
-    return {str(n).lower(): s for n, s in zip(name, g["Systematic ID"])}
+    genes = read_gene_table(gene_level)
+    return {str(n).lower(): s for s, n in genes["name"].items()}
 
 
 def read_hand_regions(
@@ -231,7 +270,7 @@ def read_hand_regions(
     residue to the stop codon, so the reading is checkable:
     ``(protein_len - affected_C + 1) * 3`` must reproduce it to within 3 bp.
     """
-    lengths = pd.read_csv(peptide_stats, sep="\t").set_index("Systematic_ID")["Residues"]
+    lengths = read_protein_lengths(peptide_stats)
     rows = []
     for sheet, term in XLSX_SHEETS:
         for _, r in pd.read_excel(xlsx, sheet_name=sheet).iterrows():
@@ -263,6 +302,17 @@ def read_hand_regions(
                 "bp_check": bp_check,
             })
     return pd.DataFrame(rows)
+
+
+def hand_terms(hand: pd.DataFrame) -> dict[str, str]:
+    """{Systematic ID: curated terminus call} — ``C``, ``N`` or ``N+C``; unusable rows dropped.
+
+    No gene appears in two sheets of the spreadsheet (checked: 0 of the 235 usable
+    rows share a Systematic ID), so one lookup is enough; a future double entry
+    would keep the last.
+    """
+    usable = hand[hand["sid"].notna() & hand["n_regions"].gt(0)]
+    return dict(zip(usable["sid"], usable["term"]))
 
 
 def hand_region_map(hand: pd.DataFrame) -> dict[str, list[tuple[int, int]]]:

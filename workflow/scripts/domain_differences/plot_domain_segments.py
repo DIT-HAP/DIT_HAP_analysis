@@ -83,6 +83,7 @@ from domain_differences.core import (  # noqa: E402
     UNANNOTATED,
     collapse_sites,
     hand_region_map,
+    read_gene_context,
 )
 from figures import (  # noqa: E402
     FURNITURE_COLOR,
@@ -169,22 +170,6 @@ class Gallery:
 # =============================================================================
 # CORE LOGIC — data for the panels
 # =============================================================================
-def load_annotation(path: Path) -> tuple[dict, dict]:
-    """(viability, gRNA DR) per gene, from the 1c annotation reference.
-
-    The reference is the project's annotation layer, keyed by systematic id, and
-    it is where ``FYPOviability`` and the curated ``gRNA_DR`` already meet — the
-    viability call lives in the release table and the gRNA fit in a curated
-    spreadsheet, and joining them here would mean this stage re-deriving a join
-    that already exists two chapters upstream.
-    """
-    reference = read_parquet(path)
-    return (
-        {sid: str(v) for sid, v in reference["FYPOviability"].items()},
-        {sid: float(v) for sid, v in reference["gRNA_DR"].dropna().items()},
-    )
-
-
 def load_gallery(config: PlotConfig) -> Gallery:
     """Read the stage's tables and index them by gene, in gallery order."""
     segments = pd.read_csv(config.segments, sep="\t")
@@ -194,7 +179,7 @@ def load_gallery(config: PlotConfig) -> Gallery:
     insertions = read_parquet(config.insertions)
     raw = {sid: frame for sid, frame in insertions.groupby("Systematic ID", sort=False)}
     sites = {sid: collapse_sites(frame) for sid, frame in raw.items()}
-    viability, grna_dr = load_annotation(config.annotation)
+    viability, grna_dr = read_gene_context(config.annotation)
 
     # The term a gene is grouped under. No gene is annotated in two sheets, but if
     # that ever changed the first sheet in TERM_ORDER wins.
@@ -252,7 +237,7 @@ def panel_title(name: str, viability: str | None, grna_dr: float | None) -> str:
     is built from the segmentation, not from the annotation.
     """
     call = viability if viability else "—"
-    # `grna_dr == grna_dr` is False only for NaN, which load_annotation already
+    # `grna_dr == grna_dr` is False only for NaN, which read_gene_context already
     # filters out — kept because a NaN that printed as "gRNA DR=+nan" would look
     # like a value rather than a missing one
     dr = f"gRNA DR={grna_dr:+.2f}" if grna_dr is not None and grna_dr == grna_dr else "gRNA DR=—"

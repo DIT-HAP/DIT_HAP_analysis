@@ -157,6 +157,10 @@ rule compute_domain_segments:
     input:
         insertions=f"{_DOMAIN_WORK}/insertions.parquet",
         hand_regions=f"{_DOMAIN}/domain_hand_regions.tsv",
+        # the summary's coverage and context columns: protein lengths from PomBase,
+        # and the 1c annotation reference the gallery titles also read
+        peptide_stats=_DOMAIN_PEPTIDE_STATS,
+        annotation=_ANNOT_REF,
     output:
         segments=f"{_DOMAIN}/domain_segments.tsv",
         summary=f"{_DOMAIN}/domain_summary.tsv",
@@ -177,6 +181,8 @@ rule compute_domain_segments:
         python workflow/scripts/domain_differences/compute_domain_segments.py \
             --insertions {input.insertions} \
             --hand-regions {input.hand_regions} \
+            --peptide-stats {input.peptide_stats} \
+            --annotation {input.annotation} \
             --min-seg {params.min_seg} \
             --z {params.z} \
             --sigma-add {params.sigma_add} \
