@@ -221,3 +221,26 @@ annotate:
     final_clusters:
       input: "results/clustering/{dataset}/{variant}/final_clusters.tsv"
       gene_column: "Systematic ID"
+
+# --- Intra-gene DR segmentation (4a_domain_differences.smk) ---
+# Per dataset: position every in-gene insertion along its spliced CDS and cut each
+# gene's DR profile with TGUH, calling a boundary wherever two neighbouring pieces
+# differ by more than lambda = z * sigma_gene + sigma_add. sigma_gene is the robust
+# point-to-point noise of that gene's OWN profile, so the threshold scales with how
+# noisy the gene's insertions are; z is how many noise units a step must clear and
+# sigma_add is a flat floor under it, for the genes whose noise estimate collapses
+# to zero. The measurements behind these two numbers (and behind by_site/min_seg)
+# are in tmp/domain_scan/README.md.
+domain_differences:
+  z: 1.5                     # noise multiple in lambda = z * sigma_gene + sigma_add
+  sigma_add: 0.1             # additive floor, in DR units
+  min_seg: 1                 # minimum sites per segment; the universe floor follows as 2 + 2*min_seg
+  by_site: true              # average each site's Forward/Reverse pair before segmenting
+  # The permutation p table: a separate rule, a separate file, OFF by default. It is
+  # the stage's only expensive step and the analysis filters on the effect floor
+  # alone, so its two p columns are reference numbers — nothing downstream reads
+  # them. `enabled: false` means the rule is not defined at all; flip it to build
+  # domain_permutation_p.tsv.
+  permutation_p:
+    enabled: false
+    n_permutations: 1000     # per p-value; the p floor is 1/(n_permutations + 1)

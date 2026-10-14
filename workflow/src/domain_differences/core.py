@@ -1,61 +1,36 @@
 """
-Intra-gene DR Heterogeneity (Domain-Difference) — Core Logic
-==============================================================
+Intra-gene DR Segmentation — Core Logic
+=======================================
 
-Shared constants, loaders, and statistics functions for the domain-differences
-stage. Per-dataset: surfaces genes whose in-gene insertions have heterogeneous
-positional distribution as a proxy for functional (sub-gene) domains. For every
-gene past the depletion cutoff (DR < DR_THRESHOLD = -0.15, negative DR = depleted),
-it positions each in-gene
-insertion along the CDS (insertion_fraction, 0 = start codon, 1 = stop codon) and
-reports per-gene distribution statistics (count, mean, std of insertion_fraction).
+Library module (no CLI, no file output) behind the ``4a_domain_differences``
+stage. Turns the upstream release tables into one positioned DR profile per gene,
+and turns the hand-curated terminus spreadsheet into explicit residue intervals.
+The segmentation itself lives in :mod:`domain_differences.segmentation`.
 
-Ported from the deterministic section of
-DIT_HAP_pipeline/workflow/notebooks/genes_with_domain_differences.ipynb, and
-factored out of the original single-script port so the stage can be split into
-independent Snakemake rules (prepare -> compute), each re-runnable on its own.
-
-IMPORTANT — notebook vs. this module
--------------------------------------
-The source notebook is a *visualization* notebook: it (1) loads the release
-tables, (2) filters to in-gene insertions with the exact IN_GENE_FILTER quirk,
-(3) selects genes past the depletion cutoff (DR < -0.15; negative = depleted; the
-notebook's `um > 0.15` mirrored), and (4)
-scatter-plots each in-gene insertion (Residue_affected vs DR) into per-gene PDF
-panels. It computes NO per-gene statistics table and writes no deterministic
-data output — the "domain" call is done by human review of the PDFs plus a
-hand-curated spreadsheet (resources/non_esential_domain_candidates.xlsx), which
-is out of scope for a reproducible rule.
-
-compute_domain_candidate_stats is therefore a NEW deterministic distillation of
-that visualization: instead of positioning by Residue_affected (protein residue
-index, used only for the notebook's x-axis), it positions each insertion by the
-release table's nucleotide distances via
-insertion_fraction = Distance_to_start_codon / (Distance_to_start_codon +
-Distance_to_stop_codon), clamped to [0, 1], then aggregates per gene. The gene
-selection is the notebook's `um > 0.15` mirrored for the flipped DR sign; the
-in-gene filter is byte-faithful unchanged.
+The analysis is an *unbiased* scan: it uses no domain annotation at all, only the
+position of each in-gene insertion along the spliced CDS, and calls a boundary
+wherever two adjacent segments' mean DR differ by more than the merge threshold.
+See ``tmp/domain_scan/README.md`` for the measurements behind every choice here,
+and ``tmp/domain_scan/explainer/`` for the algorithm walkthrough.
 
 Input
 -----
-- Insertion-level fitting_results.tsv (MultiIndex [Chr, Coordinate, Strand,
-  Target]) — defines the total insertion universe (unique per coordinate).
-- Insertion-level annotations.tsv(.gz) (same MultiIndex, plus Type /
-  Distance_to_start_codon / Distance_to_stop_codon / Systematic ID / Name).
-  This table can carry duplicate index entries (multiple Features per
-  coordinate, e.g. CDS + overlapping intron); duplicates are collapsed
-  (any Feature passing IN_GENE_FILTER wins) before reindexing onto
-  fitting_results, matching the notebook's merge universe without
-  double-counting a single insertion.
-- Gene-level fitting_results.tsv (Systematic ID, Name, DR, ...). Legacy releases
-  ship the pre-rename um/lam headers; normalized to DR/DL on load.
+- ``insertion_level/fitting_results.tsv`` — defines the insertion universe
+  (unique per Chr/Coordinate/Strand/Target).
+- ``insertion_level/annotations.tsv.gz`` — the in-gene call and the CDS positions.
+- ``gene_level/fitting_results.tsv`` — gene names for the ``name`` column.
+- ``resources/curated/non_esential_domain_candidates.xlsx`` — the hand annotation.
+- ``resources/external/pombase/{pombase_version}/Protein_features/peptide_stats.tsv``
+  — protein lengths, for turning an "affected C-terminal residue" into an interval.
 
-Usage
------
-    from domain_differences.core import (
-        load_insertion_annotations, filter_depleted_genes,
-        compute_insertion_fraction, compute_domain_candidate_stats,
-    )
+Output
+------
+Pure functions returning DataFrames; callers own the disk. See
+``workflow/scripts/domain_differences/``.
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-10-14
+Version:  1.0.0
 """
 
 # =============================================================================
@@ -68,159 +43,240 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# 3. Third-party Imports
-from loguru import logger
-
-# 4. Local Imports
-from release_schema import IN_GENE_FILTER, normalize_legacy_metrics, read_gene_level
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-# Gene-selection cutoff: keep genes with gene-level DR strictly BELOW this value.
-# Mirrors the notebook's `gene_statistics.query("um > 0.15")` (um is the legacy
-# header for DR) after upstream flipped the DR sign convention on 2026-09-17 —
-# negative DR is now the depleted end, so the same gene set is DR < -0.15.
-DR_THRESHOLD = -0.15
+# In-gene insertion criterion, byte-faithful to the source notebook and to
+# workflow/scripts/coverage/compute_coverage_stats.py. Deliberately NOT
+# release_schema.IN_GENE_FILTER: that one keeps any non-intergenic Feature
+# (CDS + intron + UTR), while the scan is defined on coding-gene insertions
+# only and at least 5 bp upstream of the stop codon. Switching to the other
+# filter changes the universe and every number downstream.
+IN_GENE_Q = 'Type == "Coding gene" and Distance_to_stop_codon > 4'
 
-# Byte-faithful to the source notebook's in_gene_insertions query (identical to
-# workflow/scripts/coverage/compute_coverage_stats.py): an insertion counts as
-# in-gene only if annotated non-intergenic AND at least 5bp upstream of the stop
-# codon (the >4 threshold, not >=5, is the notebook's own quirk — kept verbatim).
-# =============================================================================
-# HELPERS
-# =============================================================================
-def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
-    """Collapse duplicate-indexed annotation rows to one row per index value.
+# Release columns the stage carries through the pipeline. ``Coordinate`` is the
+# insertion site key (one site = one TTAA, reported once per direction).
+INSERTION_COLUMNS = [
+    "Systematic ID", "name", "Chr", "Coordinate", "Strand", "Insertion_direction",
+    "Residue_affected", "Residue_frame", "frac", "DR", "DL",
+]
 
-    The insertion-level annotations table can carry duplicate index entries
-    (multiple Features per coordinate, e.g. an overlapping CDS + intron
-    record). Among duplicates sharing an index value, the row that passes
-    IN_GENE_FILTER wins if any duplicate does (matching the notebook's merge
-    universe: a single insertion is one point, positioned by whichever
-    annotation makes it in-gene). Uses an explicit ``kind="stable"`` sort so
-    the tie-break is deterministic; when no duplicate passes (or there are no
-    duplicates) the first row in original file order is kept. Same pattern as
-    workflow/scripts/coverage/compute_coverage_stats.py.
+# The three sheets of the hand spreadsheet, in the order the plot groups them.
+XLSX_SHEETS = [
+    ("Non-essential C terminus", "C"),
+    ("Non-essential N terminus", "N"),
+    ("Non-essential N and C termini", "N+C"),
+]
+
+# Terminus groups in gallery order (C first, then N, then both, then unannotated).
+TERM_ORDER = ("C", "N", "N+C")
+UNANNOTATED = "unannotated"
+
+# Two spreadsheet rows need repairing before the gene-name lookup:
+#   "nes2" is not a PomBase gene name anywhere — it is nse2 with the letters
+#   transposed, and nse2 (SPAC16A10.06c, 250 aa) matches the recorded 247/15bp
+#   exactly (its last two insertions sit at that residue, DR ~ 0).
+#   One Gene cell was auto-converted to a date by Excel: "oct1" -> 2025-10-01.
+#   oct1 (SPAC1F3.10c, 762 aa) matches the recorded 756/23bp the same way.
+XLSX_ALIASES = {"nes2": "nse2", "2025-10-01 00:00:00": "oct1"}
+
+
+# =============================================================================
+# CORE LOGIC — release tables
+# =============================================================================
+def read_insertions(fitting_results: Path, annotations: Path, gene_level: Path) -> pd.DataFrame:
+    """Every in-gene insertion of every gene, positioned along the CDS.
+
+    The insertion universe is ``fitting_results`` (one row per real insertion);
+    ``annotations`` supplies the in-gene call and the CDS distances and may carry
+    duplicate index entries (a coordinate overlapping two Features). Duplicates
+    are collapsed keeping the row that passes the in-gene filter, so one insertion
+    is always one point — the same universe the source notebook's merge produced.
     """
-    if not annotations.index.duplicated().any():
-        return annotations
+    fitting = pd.read_csv(fitting_results, sep="\t", index_col=[0, 1, 2, 3])
+    # reindex() and the join below both require a unique key; a duplicated
+    # Coordinate/Strand/Target would silently fan out into a cross product.
+    if not fitting.index.is_unique:
+        raise ValueError(f"insertion fitting_results has {int(fitting.index.duplicated().sum())} duplicate index rows")
 
-    n_dup = int(annotations.index.duplicated().sum())
-    logger.info(f"Collapsing {n_dup} duplicate-indexed annotation rows (keep in-gene pass if any)")
-    passes = annotations.eval(IN_GENE_FILTER)
+    ann = pd.read_csv(annotations, sep="\t", index_col=[0, 1, 2, 3])
+    ann = (
+        ann.assign(_in_gene=ann.eval(IN_GENE_Q))
+        .sort_values("_in_gene", ascending=False, kind="stable")
+        .loc[lambda d: ~d.index.duplicated(keep="first")]
+        .drop(columns="_in_gene")
+    )
+    merged = ann.reindex(fitting.index).join(fitting[["DR", "DL"]], how="inner")
+    in_gene = merged.query(IN_GENE_Q).dropna(subset=["DR"]).copy()
+
+    span = in_gene["Distance_to_start_codon"] + in_gene["Distance_to_stop_codon"]
+    # nucleotide-linear fraction along the CDS, 0 at the start codon and 1 at the
+    # stop codon; a zero-length span (both distances 0) stays NaN rather than
+    # dividing by zero. Kept alongside Residue_affected because it is the column
+    # the prototype's tables were built on.
+    in_gene["frac"] = (in_gene["Distance_to_start_codon"] / span.where(span != 0)).clip(lower=0, upper=1)
+
+    names = read_gene_names(gene_level)
+    out = in_gene.reset_index()
+    out["name"] = out["Systematic ID"].map(names).fillna(out["Systematic ID"])
     return (
-        annotations.assign(_passes=passes)
-        .sort_values("_passes", ascending=False, kind="stable")
-        .loc[lambda df: ~df.index.duplicated(keep="first")]
-        .drop(columns="_passes")
+        out[INSERTION_COLUMNS]
+        .sort_values(["Systematic ID", "frac"], kind="stable")
+        .reset_index(drop=True)
     )
 
 
-def load_insertion_annotations(fitting_results_path: Path, annotations_path: Path) -> pd.DataFrame:
-    """Load insertion-level annotations reindexed onto the fitting_results insertion universe.
+def read_gene_names(gene_level: Path) -> dict[str, str]:
+    """{Systematic ID: display name} from the release gene table; unnamed genes map to their ID."""
+    g = pd.read_csv(gene_level, sep="\t")
+    return dict(zip(g["Systematic ID"], g["Name"].fillna(g["Systematic ID"])))
 
-    fitting_results defines the set of real insertions (unique per coordinate);
-    the annotations carry the in-gene call + CDS distances. Duplicate annotation
-    rows are collapsed (see resolve_duplicate_annotations) before reindexing so a
-    single insertion contributes exactly one point, byte-faithful to the
-    notebook's `pd.merge(insertion_statistics, annotations, how="left")` universe
-    without inflating per-gene counts. fitting_results' own metric columns (A/DR/
-    DL) are not needed for the positional stats and are intentionally not joined.
+
+def collapse_sites(insertions: pd.DataFrame) -> pd.DataFrame:
+    """One row per insertion SITE, the Forward/Reverse pair averaged into one DR.
+
+    Every site carries the same TTAA insertion in both orientations, so the pair
+    is a within-site replicate: over the n>=6 universe 15,436 of 15,844 sites hold
+    exactly two rows, and the Forward-minus-Reverse difference has median 0.000 —
+    averaging is unbiased and removes that replicate's noise. It also stops the
+    segmentation from cutting *between* the two copies of one site.
+
+    Two things that bite later:
+
+    - The grouping key is ``Coordinate``, not ``Residue_affected``: two insertions
+      in the same codon at different nucleotides are two genuinely different
+      sites that still share a displayed residue, so adjacent segments sharing an
+      endpoint residue is not a bug.
+    - Every count downstream (``n_sites``, ``min_seg``, the universe floor) is
+      counted in SITES when this is used, not insertions.
     """
-    fitting_results = pd.read_csv(fitting_results_path, sep="\t", index_col=[0, 1, 2, 3])
-    annotations = pd.read_csv(annotations_path, sep="\t", index_col=[0, 1, 2, 3])
-    annotations = resolve_duplicate_annotations(annotations)
-    return annotations.reindex(fitting_results.index)
+    d = insertions.assign(
+        _fwd=insertions["DR"].where(insertions["Insertion_direction"].eq("Forward")),
+        _rev=insertions["DR"].where(insertions["Insertion_direction"].eq("Reverse")),
+    )
+    out = d.groupby("Coordinate", sort=False).agg(
+        **{
+            "Systematic ID": ("Systematic ID", "first"),
+            "name": ("name", "first"),
+            "Chr": ("Chr", "first"),
+            "Strand": ("Strand", "first"),
+            "Residue_affected": ("Residue_affected", "first"),
+            "Residue_frame": ("Residue_frame", "first"),
+            "frac": ("frac", "first"),
+            "DR": ("DR", "mean"),
+            "DR_fwd": ("_fwd", "mean"),
+            "DR_rev": ("_rev", "mean"),
+            "n_insertions": ("DR", "size"),
+        }
+    )
+    out["n_dir"] = out[["DR_fwd", "DR_rev"]].notna().sum(axis=1)
+    # stable sort: tied fractions (the two directions of one site already
+    # collapsed, so only same-codon sites) must not reorder run to run
+    return out.reset_index().sort_values("frac", kind="stable").reset_index(drop=True)
+
+
+def ordered_genes(insertions: pd.DataFrame, *, by_site: bool) -> dict[str, pd.DataFrame]:
+    """{Systematic ID: that gene's profile ordered along the CDS}, optionally collapsed to sites."""
+    return {
+        sid: (collapse_sites(d) if by_site else d.reset_index(drop=True))
+        for sid, d in insertions.groupby("Systematic ID", sort=True)
+    }
+
+
+def segment_counts(frame: pd.DataFrame, segments: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """(insertions, sites) behind each segment of an already-ordered profile.
+
+    The two differ by construction in both modes, and both are wanted: ``n_insertions`` is
+    the evidence — how many experimental readings a segment rests on — while
+    ``n_sites`` is the statistic — how many independent insertion sites the
+    segmentation actually used. Counting by segment membership (not by residue
+    interval) matters because adjacent segments can share an endpoint residue.
+
+    In a collapsed profile each row IS a site, so the raw insertions behind it are
+    the ``n_insertions`` column ``collapse_sites()`` kept; in an insertion profile it is
+    the other way round, and the sites are the runs of equal Coordinate.
+    """
+    coord = frame["Coordinate"].to_numpy()
+    runs = np.ones(len(coord), dtype=bool)
+    if len(coord) > 1:
+        runs[1:] = coord[1:] != coord[:-1]
+    per_row_insertions = frame["n_insertions"].to_numpy() if "n_insertions" in frame.columns else None
+    counts = []
+    for lo, hi in segments:
+        n_sites = int(runs[lo:hi].sum())
+        n_insertions = int(per_row_insertions[lo:hi].sum()) if per_row_insertions is not None else hi - lo
+        counts.append((n_insertions, n_sites))
+    return counts
 
 
 # =============================================================================
-# CORE LOGIC — primitives (unit-tested)
+# CORE LOGIC — hand-curated non-essential termini
 # =============================================================================
-def filter_depleted_genes(gene_result: pd.DataFrame, dr_threshold: float = DR_THRESHOLD) -> pd.DataFrame:
-    """Keep genes whose gene-level DR is strictly below ``dr_threshold``.
-
-    Mirrors the notebook's `gene_statistics.query("um > 0.15")` for the flipped DR
-    sign (negative = depleted). NaN DR rows are dropped (they fail the strict `<`
-    comparison), so uncovered genes never enter the candidate set.
-    """
-    return gene_result[gene_result["DR"] < dr_threshold]
+def gene_name_to_sid(gene_level: Path) -> dict[str, str]:
+    """{lowercased gene name: Systematic ID}, from the same release the scan reads."""
+    g = pd.read_csv(gene_level, sep="\t")
+    name = g["Name"].fillna(g["Systematic ID"])
+    return {str(n).lower(): s for n, s in zip(name, g["Systematic ID"])}
 
 
-def compute_insertion_fraction(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of ``df`` with an ``insertion_fraction`` column in [0, 1].
-
-    insertion_fraction = Distance_to_start_codon / (Distance_to_start_codon +
-    Distance_to_stop_codon), i.e. the insertion's fractional position along the
-    CDS (0 at the start codon, 1 at the stop codon), clamped to [0, 1]. A
-    zero-length span (both distances 0) yields NaN rather than +/-inf. The input
-    frame is not mutated.
-    """
-    df = df.copy()
-    denom = df["Distance_to_start_codon"] + df["Distance_to_stop_codon"]
-    frac = df["Distance_to_start_codon"] / denom.where(denom != 0, np.nan)
-    df["insertion_fraction"] = frac.clip(lower=0, upper=1)
-    return df
-
-
-def compute_domain_candidate_stats(
-    in_gene_insertions: pd.DataFrame,
-    depleted_genes: pd.DataFrame,
+def read_hand_regions(
+    xlsx: Path, peptide_stats: Path, name_to_sid: dict[str, str]
 ) -> pd.DataFrame:
-    """Aggregate in-gene insertions into per-gene positional-spread statistics.
+    """The hand annotation as explicit per-gene residue intervals.
 
-    Restricts ``in_gene_insertions`` to the ``depleted_genes`` set via an inner
-    join on ``Systematic ID`` (so only genes past the depletion cutoff are
-    reported, and only those with >=1 in-gene insertion appear), then computes
-    per gene:
-      - n_insertions            (count of in-gene insertions)
-      - mean_insertion_fraction (mean position along the CDS)
-      - std_insertion_fraction  (sample std, ddof=1; NaN for single-insertion genes)
-      - gene_DR                 (the gene-level DR carried from depleted_genes)
-
-    Rows are sorted by std_insertion_fraction descending (genes whose insertions
-    are most positionally spread — the strongest intra-gene heterogeneity /
-    domain-difference candidates — first); single-insertion genes have NaN std
-    and sort last. ``depleted_genes`` must carry ``Systematic ID``, ``Name``, and
-    ``DR`` columns; ``in_gene_insertions`` must carry ``Systematic ID`` and
-    ``insertion_fraction``.
-
-    ``n_insertions`` uses group ``size``, i.e. the count of in-gene insertions
-    for the gene; a rare insertion with a zero-length CDS span has a NaN
-    insertion_fraction (see compute_insertion_fraction) and is still counted
-    here, while ``mean``/``std`` skip it — so on such genes n_insertions can
-    exceed the number of positioned values. The real HD_DIT_HAP in-gene set has
-    no zero-span rows, so this does not arise in practice.
+    A row of the spreadsheet says "the last X residues of this protein are not
+    essential" (C terminus sheet) or "the first X are" (N terminus sheet), by
+    giving the first/last affected residue. Protein length comes from PomBase
+    ``peptide_stats.tsv``; the spreadsheet also records the bp distance from that
+    residue to the stop codon, so the reading is checkable:
+    ``(protein_len - affected_C + 1) * 3`` must reproduce it to within 3 bp.
     """
-    # drop_duplicates on the gene key guards both merges below: gene-level
-    # Systematic ID is unique in the real release, but a duplicated key would
-    # otherwise turn each merge into a cross-product and inflate per-gene counts
-    # / emit duplicate output rows.
-    genes = (
-        depleted_genes[["Systematic ID", "Name", "DR"]]
-        .rename(columns={"DR": "gene_DR"})
-        .drop_duplicates("Systematic ID")
-    )
+    lengths = pd.read_csv(peptide_stats, sep="\t").set_index("Systematic_ID")["Residues"]
+    rows = []
+    for sheet, term in XLSX_SHEETS:
+        for _, r in pd.read_excel(xlsx, sheet_name=sheet).iterrows():
+            gene = str(r["Gene"])
+            sid = name_to_sid.get(XLSX_ALIASES.get(gene, gene).lower())
+            length = lengths.get(sid)
+            n_res = r.get("Affected N terminal residue (aa)")
+            c_res = r.get("Affected C terminal residue (aa)")
+            regions = []
+            if term.startswith("N") and pd.notna(n_res):
+                regions.append((1, int(n_res)))
+            if term.endswith("C") and pd.notna(c_res) and pd.notna(length):
+                regions.append((int(c_res), int(length)))
+            dist_stop = r.get("Distance to stop codon (bp)")
+            comment = r.get("Comment")
+            comment = "" if pd.isna(comment) else str(comment)
+            bp_check = ""
+            if pd.notna(c_res) and pd.notna(length) and pd.notna(dist_stop):
+                implied = (length - int(c_res) + 1) * 3
+                bp_check = ("ok" if abs(implied - dist_stop) <= 3
+                            else f"off({implied:g} vs {dist_stop:g})")
+            rows.append({
+                "Gene": gene, "sid": sid, "term": term, "protein_len": length,
+                "regions": "|".join(f"{a}-{b}" for a, b in regions),
+                "n_regions": len(regions),
+                "affected_N": n_res, "affected_C": c_res,
+                "dist_start_bp": r.get("Distance to start codon (bp)"),
+                "dist_stop_bp": dist_stop, "comment": comment,
+                "bp_check": bp_check,
+            })
+    return pd.DataFrame(rows)
 
-    restricted = in_gene_insertions[["Systematic ID", "insertion_fraction"]].merge(
-        genes[["Systematic ID"]], on="Systematic ID", how="inner"
-    )
 
-    per_gene = (
-        restricted.groupby("Systematic ID")["insertion_fraction"]
-        .agg(
-            n_insertions="size",
-            mean_insertion_fraction="mean",
-            std_insertion_fraction="std",
-        )
-        .reset_index()
-    )
+def hand_region_map(hand: pd.DataFrame) -> dict[str, list[tuple[int, int]]]:
+    """{Systematic ID: [(start, end), ...]} over the genes that have a usable interval.
 
-    stats = per_gene.merge(genes, on="Systematic ID", how="left")
-    stats = stats[[
-        "Systematic ID", "Name", "n_insertions",
-        "mean_insertion_fraction", "std_insertion_fraction", "gene_DR",
-    ]]
-    return stats.sort_values(
-        "std_insertion_fraction", ascending=False, na_position="last"
-    ).reset_index(drop=True)
+    ``regions`` packs intervals as ``a-b`` joined by ``|``, so a gene annotated at
+    both termini carries two of them.
+    """
+    usable = hand[hand["sid"].notna() & hand["n_regions"].gt(0)]
+    out: dict[str, list[tuple[int, int]]] = {}
+    for sid, group in usable.groupby("sid", sort=False):
+        out[sid] = [
+            tuple(int(v) for v in interval.split("-"))
+            for regions in group["regions"]
+            for interval in str(regions).split("|")
+        ]
+    return out

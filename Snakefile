@@ -35,6 +35,7 @@ wildcard_constraints:
 #   1  data plausibility + reference layer          (1a pcr_qc, 1b features, 1c annotate)
 #   2  characterisation that does not need clusters (2a coverage, 2b verification)
 #   3  group-level analysis in fitness space        (3a coherence)
+#   4  structure inside the gene                    (4a domain_differences)
 #
 # The clustering block and everything downstream of it (enrichment, ml, ...) are
 # still unprefixed in both places; they take the next free chapter when they do.
@@ -42,7 +43,8 @@ wildcard_constraints:
 # Every prefixed stage carries the same prefix into results/, so `ls results/`
 # reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
 # results/1b_features/, results/1c_annotation/ (the stage noun — the rule file is
-# the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/.
+# the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/,
+# results/4a_domain_differences/.
 # The prefix stops at the rule file and the results/logs directories: the script
 # and library directories keep the unprefixed stage name (workflow/scripts/
 # coherence/, workflow/src/coherence/).
@@ -56,14 +58,14 @@ include: "workflow/rules/1c_annotate.smk"
 include: "workflow/rules/2a_coverage.smk"
 include: "workflow/rules/2b_verification.smk"
 include: "workflow/rules/3a_coherence.smk"
-include: "workflow/rules/clustering.smk"
-include: "workflow/rules/enrichment.smk"
-include: "workflow/rules/enrichment_network.smk"
-include: "workflow/rules/ml.smk"
-include: "workflow/rules/noncoding_rna.smk"
-include: "workflow/rules/comparison.smk"
-include: "workflow/rules/utr.smk"
-include: "workflow/rules/domain_differences.smk"
+include: "workflow/rules/4a_domain_differences.smk"
+include: "workflow/rules/3b_clustering.smk"
+include: "workflow/rules/3c_enrichment.smk"
+include: "workflow/rules/3d_enrichment_network.smk"
+include: "workflow/rules/4b_utr.smk"
+include: "workflow/rules/4c_noncoding_rna.smk"
+include: "workflow/rules/5a_ml.smk"
+include: "workflow/rules/6a_comparison.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -165,6 +167,12 @@ rule all:
                source=_COHERENCE_SOURCES),
         # Batch C (requires insertion-level results):
         # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
-        # f"results/domain_differences/{_DATASET}/domain_candidate_stats.tsv",
+        # 4a intra-gene segmentation (two tables + the gallery). The permutation
+        # table is NOT part of a full run: config.domain_differences.permutation_p.
+        # enabled is false by default and gates the rule itself, so ask for
+        # domain_permutation_p.tsv by name when you want it.
+        # f"results/4a_domain_differences/{_DATASET}/domain_segments.tsv",
+        # f"results/4a_domain_differences/{_DATASET}/domain_summary.tsv",
+        # f"results/4a_domain_differences/{_DATASET}/domain_segments.pdf",
     message:
         "*** DIT-HAP analysis complete"
