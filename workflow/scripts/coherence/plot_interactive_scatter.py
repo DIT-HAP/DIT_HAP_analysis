@@ -139,9 +139,10 @@ _UNSCORED_MEMBER_COLOR = house_colors((1,))[0]
 
 # Chart footprint in pixels, per panel. Two panels share the page, so each is
 # smaller than the single-panel version was: side by side they stay inside a
-# laptop viewport, which is the whole point of putting them there.
-_CHART_WIDTH = 430
-_CHART_HEIGHT = 340
+# laptop viewport, and the reduced 370x290 footprint also fits a 16:9 slide
+# when the page is embedded in PowerPoint without downscaling the type.
+_CHART_WIDTH = 370
+_CHART_HEIGHT = 290
 
 # The centroid panel is a map, not a measurement: one small marker per group and
 # the selected group swapped for a large solid one. The unselected mass stays
@@ -213,7 +214,7 @@ _TERM_TOOLTIP = [
 # widget in the default position instead of breaking the page.
 _PAGE_CSS = """
 <style>
-  body { margin: 0; padding: 18px; background: #ffffff; }
+  body { margin: 0; padding: 12px; background: #ffffff; }
   #vis > .chart-wrapper {
     display: flex;
     flex-direction: column;
@@ -490,7 +491,7 @@ def build_chart(
         .properties(
             width=_CHART_WIDTH,
             height=_CHART_HEIGHT,
-            title="Group centroid positions — click a term",
+            title="Group centroids — click a term",
         )
     )
     # No .interactive() here on purpose: a pan gesture on this panel would fight
@@ -539,7 +540,7 @@ def build_chart(
         .properties(
             width=_CHART_WIDTH,
             height=_CHART_HEIGHT,
-            title="Genes of the selected term (hover a point for its gene record)",
+            title="Selected term's genes — hover for record",
         )
         .interactive()
     )
