@@ -28,7 +28,7 @@ Input
   coherence/sources.py::LONG_TABLE_COLUMNS. Maps groups -> member genes.
 - coherence_metrics.parquet: per-group coherence results from compute_coherence.py,
   with at least (source, group_id, group_name, median_pairwise_distance_z,
-  median_pairwise_distance_p).
+  median_pairwise_distance_p_coherent).
 
 Output
 ------
@@ -140,7 +140,7 @@ def parse_groups_arg(raw: str, source: str) -> list[str]:
 def load_metrics(metrics_path: Path) -> pd.DataFrame:
     """Load the coherence metrics table and check the columns the titles need."""
     metrics = read_parquet(metrics_path)
-    for required in ["group_id", "median_pairwise_distance_z", "median_pairwise_distance_p"]:
+    for required in ["group_id", "median_pairwise_distance_z", "median_pairwise_distance_p_coherent"]:
         if required not in metrics.columns:
             raise ValueError(
                 f"metrics table missing required column '{required}' (have: {list(metrics.columns)})"
@@ -185,11 +185,11 @@ def metrics_caption(metrics_row: pd.Series | None) -> str:
     # say so rather than showing a number that was never computed.
     if metrics_row is None:
         return "not scored"
-    q_value = metrics_row.get("q_value", np.nan)
-    if pd.notna(q_value):
-        return f"z={metrics_row['median_pairwise_distance_z']:.2f}, q={q_value:.3g}"
+    q_value_coherent = metrics_row.get("q_value_coherent", np.nan)
+    if pd.notna(q_value_coherent):
+        return f"z={metrics_row['median_pairwise_distance_z']:.2f}, q={q_value_coherent:.3g}"
     return (f"z={metrics_row['median_pairwise_distance_z']:.2f}, "
-            f"p={metrics_row['median_pairwise_distance_p']:.3g}")
+            f"p={metrics_row['median_pairwise_distance_p_coherent']:.3g}")
 
 
 def panel_title(group_id: str, group_name: str, n_members: int, metrics_row: pd.Series | None) -> str:

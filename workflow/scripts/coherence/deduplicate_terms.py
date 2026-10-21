@@ -9,7 +9,7 @@ children share member genes, so the "most coherent" head of
 combined/coherence_metrics.parquet is dominated by many aliases of the same signal
 (e.g. ribosome biogenesis / rRNA processing / preribosome / 90S / nucleolus...).
 This stage collapses that redundancy into clusters and picks one representative
-per cluster — WITHOUT touching the statistics: the full-set q_value from
+per cluster — WITHOUT touching the statistics: the full-set q_value_coherent from
 compute_coherence.py is carried through unchanged, and every term is retained
 (flagged), so the reduction is a reproducible DISPLAY layer, not a re-test.
 
@@ -58,7 +58,7 @@ PAIRS are redundant, and making a cluster out of that needs a linkage rule.
 Representative selection
 ------------------------
 Per cluster, the default representative is the best-evidence term: smallest
-q_value, ties broken by more-negative median_pairwise_distance_z, then greater
+q_value_coherent, ties broken by more-negative median_pairwise_distance_z, then greater
 dag_depth (more specific), then smaller n_scored_members. Any group_id listed in
 dedup_force_representatives overrides this for its cluster (recorded as
 representative_source="forced"); auto-picked ones are "auto". You always refine
@@ -79,7 +79,7 @@ Input
 -----
 - --combined: combined/coherence_metrics.parquet (source, group_id, group_name,
   n_scored_members, scored_member_names, median_pairwise_distance_z,
-  median_pairwise_distance_p, q_value, ...).
+  median_pairwise_distance_p_coherent, q_value_coherent, ...).
 - --obo: go-basic.obo (GO DAG for depth + is_a/part_of lineage).
 
 Output
@@ -347,7 +347,7 @@ def pick_representative(cluster_rows: pd.DataFrame, forced: set[str]) -> tuple[i
     """Return (index_label_of_representative, source) for one cluster."""
     # A forced group_id present in the cluster wins (source="forced"); ties among
     # multiple forced members fall back to the same ordering. Otherwise the default
-    # is best evidence: min q_value, then most-negative median_pairwise_distance_z,
+    # is best evidence: min q_value_coherent, then most-negative median_pairwise_distance_z,
     # then greatest dag_depth (more specific), then smallest n_scored_members.
     # The DataFrame index label
     # is returned so the caller can flag that row.
@@ -355,7 +355,7 @@ def pick_representative(cluster_rows: pd.DataFrame, forced: set[str]) -> tuple[i
     pool = forced_here if not forced_here.empty else cluster_rows
     source = "forced" if not forced_here.empty else "auto"
     ordered = pool.sort_values(
-        by=["q_value", "median_pairwise_distance_z", "dag_depth", "n_scored_members"],
+        by=["q_value_coherent", "median_pairwise_distance_z", "dag_depth", "n_scored_members"],
         ascending=[True, True, False, True],
     )
     return ordered.index[0], source
@@ -499,7 +499,7 @@ def run(config: DedupConfig) -> None:
     config.validate()
     table = read_parquet(config.combined)
     for required in ["source", "group_id", "group_name", "n_scored_members",
-                     "scored_member_names", "median_pairwise_distance_z", "q_value"]:
+                     "scored_member_names", "median_pairwise_distance_z", "q_value_coherent"]:
         if required not in table.columns:
             raise ValueError(f"combined metrics missing required column '{required}' (have: {list(table.columns)})")
 

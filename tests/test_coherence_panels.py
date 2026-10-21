@@ -83,7 +83,7 @@ def test_plot_coherence_panel_counts():
         "group_id": ["GO:1", "GO:2", "GO:3"],
         "group_name": ["a", "b", "c"],
         "n_scored_members": [3, 4, 5], "median_pairwise_distance_z": [-1.0, 0.5, -0.5],
-        "q_value": [0.01, 0.2, 0.03],
+        "q_value_coherent": [0.01, 0.2, 0.03],
         "geom_median_DR": [0.5, 0.6, 0.4], "geom_median_DL": [0.1, 0.2, 0.3],
     }
     without = pd.DataFrame(base)

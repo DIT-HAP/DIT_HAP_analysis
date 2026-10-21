@@ -15,7 +15,7 @@ def _metrics(rows):
     """A minimal metrics frame: (source, group_id, z, q) rows."""
     return pd.DataFrame(
         [{"source": src, "group_id": gid, "group_name": f"name {gid}",
-          "median_pairwise_distance_z": z, "q_value": q,
+          "median_pairwise_distance_z": z, "q_value_coherent": q,
           "scored_member_names": ["ada1", "bms1"]}
          for src, gid, z, q in rows]
     )

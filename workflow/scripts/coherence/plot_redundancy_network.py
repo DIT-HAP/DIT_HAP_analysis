@@ -98,7 +98,7 @@ from logging_setup import setup_logger  # noqa: E402
 _REQUIRED_COMBINED_COLUMNS = ["source", "group_id", "group_name", "scored_member_names"]
 _REQUIRED_DEDUP_COLUMNS = ["source", "group_id", "redundancy_cluster", "is_representative",
                            "representative_source", "median_pairwise_distance_z",
-                           "q_value", "n_scored_members"]
+                           "q_value_coherent", "q_value_incoherent", "n_scored_members"]
 
 # Columns taken from the de-duplicated table. Its `scored_member_names` is a
 # comma-joined STRING (it is a human-facing TSV), while the combined Parquet's is a
@@ -107,8 +107,8 @@ _REQUIRED_DEDUP_COLUMNS = ["source", "group_id", "redundancy_cluster", "is_repre
 # the join, and the member sets come from the Parquet alone.
 _DEDUP_COLUMNS = ["source", "group_id", "redundancy_cluster", "is_representative",
                   "representative_source", "representative_name",
-                  "median_pairwise_distance_z", "q_value", "n_scored_members",
-                  "n_annotated_members"]
+                  "median_pairwise_distance_z", "q_value_coherent",
+                  "q_value_incoherent", "n_scored_members", "n_annotated_members"]
 
 # Above this many terms a cluster is drawn without node names: the labels would
 # overlap into a grey block, and the hover tooltip still identifies a node.
@@ -164,7 +164,8 @@ _OVERVIEW_HEIGHT_PX = 950
 
 # Columns the Altair page actually reads, per layer. See build_chart.
 _NODE_FIELDS = ["cluster_label", "group_name", "group_id", "source", "role",
-                "representative_source", "median_pairwise_distance_z", "q_value",
+                "representative_source", "median_pairwise_distance_z",
+                "q_value_coherent", "q_value_incoherent",
                 "n_scored_members", "n_annotated_members", "x", "y"]
 _EDGE_FIELDS = ["cluster_label", "from", "to", "jaccard", "x", "y", "x2", "y2",
                 "mid_x", "mid_y"]
@@ -177,7 +178,8 @@ _NODE_TOOLTIP = [
     alt.Tooltip("role:N", title="Role"),
     alt.Tooltip("representative_source:N", title="Picked by"),
     alt.Tooltip("median_pairwise_distance_z:Q", title="z-score", format=".2f"),
-    alt.Tooltip("q_value:Q", title="q (BH)", format=".3g"),
+    alt.Tooltip("q_value_coherent:Q", title="q coherent (BH)", format=".3g"),
+    alt.Tooltip("q_value_incoherent:Q", title="q incoherent (BH)", format=".3g"),
     alt.Tooltip("n_scored_members:Q", title="Scored members"),
     alt.Tooltip("n_annotated_members:Q", title="Annotated genes"),
 ]
@@ -481,7 +483,8 @@ def network_frames(combined: pd.DataFrame, table: pd.DataFrame) -> tuple[pd.Data
                 "role": "representative" if row["is_representative"] else "member",
                 "representative_source": row.get("representative_source"),
                 "median_pairwise_distance_z": row["median_pairwise_distance_z"],
-                "q_value": row["q_value"],
+                "q_value_coherent": row["q_value_coherent"],
+                "q_value_incoherent": row["q_value_incoherent"],
                 "n_scored_members": row["n_scored_members"],
                 "n_annotated_members": row["n_annotated_members"],
                 "x": x, "y": y, "ox": ox, "oy": oy,
@@ -640,7 +643,9 @@ def node_tooltip(row: dict) -> str:
         f"<b>{html.escape(str(row['group_name']))}</b><br>"
         f"{html.escape(str(row['group_id']))} · {html.escape(str(row['source']))}<br>"
         f"{row['role']} (picked by {html.escape(str(row['representative_source']))})<br>"
-        f"z = {row['median_pairwise_distance_z']:.2f}, q = {row['q_value']:.3g}<br>"
+        f"z = {row['median_pairwise_distance_z']:.2f}, "
+        f"q coherent = {row['q_value_coherent']:.3g}, "
+        f"q incoherent = {row['q_value_incoherent']:.3g}<br>"
         f"{int(row['n_annotated_members'])} annotated genes, "
         f"{int(row['n_scored_members'])} scored"
     )

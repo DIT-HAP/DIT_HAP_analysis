@@ -18,7 +18,7 @@ Input
 - coherence_metrics.parquet (or any table with the same columns): per-group
   metrics. Only these columns are read: n_scored_members,
   median_pairwise_distance_z, geom_median_DR, geom_median_DL, group_name,
-  q_value, and whichever of abundance_cv / conservation_cv are present. Those
+  q_value_coherent, and whichever of abundance_cv / conservation_cv are present. Those
   two gate the biology panels: an absent (or all-NaN) column drops its panel
   rather than drawing an empty one.
 
@@ -146,7 +146,7 @@ _COMPARISON_SIZE_BINS = 21
 _COMPARISON_Z_BINS = 20
 
 _REQUIRED_COLUMNS = ["n_scored_members", "median_pairwise_distance_z",
-                     "geom_median_DR", "geom_median_DL", "group_name", "q_value"]
+                     "geom_median_DR", "geom_median_DL", "group_name", "q_value_coherent"]
 
 # Panels are lettered explicitly so the FDR panels' letters are predictable whatever
 # number of biology columns the table carries: row 1 is A/B/C, the biology panels sit
@@ -500,7 +500,7 @@ def labelled_extremes(table: pd.DataFrame, side: str, settings: LabelSettings) -
     ordered = table.sort_values("median_pairwise_distance_z")
     if side == "coherent":
         eligible = ordered[
-            (ordered["q_value"] <= settings.q_max)
+            (ordered["q_value_coherent"] <= settings.q_max)
             & (ordered["median_pairwise_distance_z"] < settings.coherent_z)
         ]
         return eligible.head(label_count(len(eligible), settings.quantile, settings.max_labels))
@@ -851,7 +851,7 @@ def draw_fdr_panels(
             width=_FDR_PANEL_WIDTH, height=_FDR_PANEL_HEIGHT,
             margin_right=_FDR_MARGIN_RIGHT,
         )
-        x_values, cutoff = fdr_axis(table["q_value"], encoding, settings.q_max)
+        x_values, cutoff = fdr_axis(table["q_value_coherent"], encoding, settings.q_max)
         plotted = table.assign(**{encoding: x_values})
         draw_source_scatter(
             ax, plotted, encoding, "median_pairwise_distance_z",

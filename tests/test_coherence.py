@@ -19,8 +19,10 @@ import pytest
 from workflow.src.coherence.metrics import (
     geometric_median,
     coherence_metrics,
+    compute_distance_stats,
     compute_distance_zscore,
     pairwise_distance,
+    permutation_statistics,
 )
 
 
@@ -61,6 +63,45 @@ def test_coherence_metrics_returns_geomedian_and_pairwise_distance_keys():
         assert key in result
     assert (result["min_pairwise_distance"] <= result["median_pairwise_distance"]
             <= result["max_pairwise_distance"])
+
+
+def test_permutation_statistics_reports_both_one_sided_tails():
+    """The coherent tail counts null <= obs and the incoherent tail null >= obs.
+
+    They are not complements: a tie at the observed value is counted by both
+    tails, and both carry the add-one correction.
+    """
+    null = np.arange(1000, dtype=float)  # 0..999, no tie at 250.5
+    z, p_coherent, p_incoherent = permutation_statistics(250.5, null, 999)
+    assert p_coherent == pytest.approx(252 / 1000)   # 251 draws <= 250.5, plus 1
+    assert p_incoherent == pytest.approx(750 / 1000)   # 749 draws >= 250.5, plus 1
+
+    _, p_coherent_tie, p_incoherent_tie = permutation_statistics(250.0, null, 999)
+    assert p_coherent_tie == pytest.approx(252 / 1000)   # 251 <= 250, plus 1
+    assert p_incoherent_tie == pytest.approx(751 / 1000)   # 750 >= 250, plus 1
+    assert p_coherent_tie + p_incoherent_tie > 1.0
+
+
+def test_permutation_statistics_zero_variance_null_is_degenerate():
+    z, p_coherent, p_incoherent = permutation_statistics(1.0, np.ones(10), 9)
+    assert (z, p_coherent, p_incoherent) == (0.0, 1.0, 1.0)
+
+
+def test_compute_distance_stats_agrees_with_the_two_tuple_wrapper():
+    """The 3-tuple API must not move the historical (z, p_coherent) numbers."""
+    rng = np.random.default_rng(5)
+    bg = rng.standard_normal((80, 2))
+    X = bg[:9]
+    stats = compute_distance_stats(
+        X, bg, ["median_pairwise_distance", "mean_pairwise_distance"],
+        n_permutations=100, random_state=42,
+    )
+    for method, (z, p_coherent, p_incoherent) in stats.items():
+        z2, p2 = compute_distance_zscore(
+            X, bg, method=method, n_permutations=100, random_state=42
+        )
+        assert (z, p_coherent) == (z2, p2)
+        assert 0.0 < p_coherent <= 1.0 and 0.0 < p_incoherent <= 1.0
 
 
 def test_compute_distance_zscores_matches_per_method_calls():

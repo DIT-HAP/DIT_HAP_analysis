@@ -141,7 +141,14 @@ coherence:
   max_group_size: 300
   max_term_genes: 350
   dr_threshold: -0.3
-  n_permutations: 1000
+  # Raised 1,000 -> 100,000 on 2026-10-20 for the mirrored dispersion tail
+  # (`median_pairwise_distance_p_incoherent` / `q_value_incoherent`). The add-one
+  # p floor is 1/(n_permutations+1); after BH over ~2.5k terms, 1,000 permutations
+  # leave the best possible q_value_incoherent at ~0.43, so no group could ever be called
+  # significantly dispersed. The null depends only on n_scored_members, so it is
+  # cached globally per group size (results/3a_coherence/{dataset}/_null_cache/)
+  # and shared across sources — the cost is minutes, not 100x.
+  n_permutations: 100000
   random_state: 42
   features_panels: true            # add the abundance/conservation uniformity columns
   # The paralog_fraction column of each metrics table comes from the features
@@ -149,16 +156,21 @@ coherence:
   # it), over the group's SCORED members — no separate paralog source is read here.
 
   # Cohort definitions — the two ends of the z-score axis (median_pairwise_distance).
-  #   coherent   = q_value <= coherent_q_max (BH, per source) AND z < coherent_z_threshold
+  #   coherent   = q_value_coherent <= coherent_q_max (BH, per source) AND z < coherent_z_threshold
   #   incoherent = z > incoherent_z_threshold alone
-  # The incoherent end carries no FDR by construction: the coherence test is one-sided
-  # for tightness, so every dispersed group has q near 1 and significance cannot select
-  # that end. It is therefore a descriptive cut, while the coherent end is error-controlled.
+  # An FDR-controlled dispersion statistic now exists alongside the z cut:
+  # `median_pairwise_distance_p_incoherent` / `q_value_incoherent` (the mirrored
+  # one-sided tail, BH over the same pooled family). The cohort below deliberately
+  # stays on z: every existing incoherent figure/workbook is defined on it, and
+  # switching the definition would silently move those panels. No incoherent q
+  # cutoff is configured for now; q_value_incoherent is carried in the tables as
+  # a reference statistic.
   coherent_q_max: 0.05
   coherent_z_threshold: -2.0
   # Loosened from 1.0 to 0.5 (2026-09-29). Reads as: this end is a descriptive rank
-  # cut on the same permutation z (no FDR, see above), so 0.5 admits ~15% of the
-  # terms as "incoherent" — it selects a ranked tail, not evidence of dispersion.
+  # cut on the same permutation z (the q_value_incoherent alternative is the
+  # error-controlled dispersion test, see above), so 0.5 admits ~15% of the terms
+  # as "incoherent" — it selects a ranked tail, not evidence of dispersion.
   # It also sets the FDR panel's label band.
   incoherent_z_threshold: 0.5
   # FDR-vs-coherence panel: which groups get named. The coherent end draws on the
@@ -172,7 +184,7 @@ coherence:
     go_bp: []
     kegg_brite: []
     kegg_pathway: []
-  # Redundancy reduction (display layer; full-set q_value is untouched). Terms are
+  # Redundancy reduction (display layer; full-set q_value_coherent is untouched). Terms are
   # clustered by member-gene similarity, one representative kept per cluster; the
   # full cluster is retained + flagged.
   # Jaccard |A∩B|/|A∪B|, NOT the overlap coefficient |A∩B|/min(|A|,|B|): with min()

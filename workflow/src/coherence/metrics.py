@@ -139,35 +139,41 @@ def _observed_distance(X: np.ndarray, method: str, pw: np.ndarray | None = None)
     raise ValueError(f"Invalid method {method!r}")
 
 
-def compute_distance_zscores(
+def permutation_statistics(
+    observed: float,
+    null: np.ndarray,
+    n_permutations: int,
+) -> tuple[float, float, float]:
+    """(z, coherent-tail p, incoherent-tail p) of one observed statistic.
+
+    Both p-values are one-sided add-one permutation estimates from the SAME
+    draws: the coherent tail counts `null <= observed` (tighter than random) and
+    the incoherent tail counts `null >= observed` (more dispersed than random).
+    They are not complements of each other: with ties at `observed` both tails
+    count the tie, so p_coherent + p_incoherent can exceed 1; the add-one +1 also
+    lands in both.
+    """
+    null = np.asarray(null)
+    p_coherent = float((np.sum(null <= observed) + 1) / (n_permutations + 1))
+    p_incoherent = float((np.sum(null >= observed) + 1) / (n_permutations + 1))
+    std = null.std()
+    if std == 0:
+        return 0.0, 1.0, 1.0
+    return float((observed - null.mean()) / std), p_coherent, p_incoherent
+
+
+def _permutation_nulls(
     X: np.ndarray,
     bg: np.ndarray,
     methods: list[str] | tuple[str, ...],
-    n_permutations: int = DEFAULT_N_PERMUTATIONS,
-    random_state: int | None = DEFAULT_RANDOM_STATE,
-) -> dict[str, tuple[float, float]]:
-    """Permutation z-scores for SEVERAL dispersion methods in one permutation pass."""
-    # Returns {method: (z_score, p_value)}. Negative z = tighter than random =
-    # coherent. This is a one-sided test for coherence (dispersion tighter than
-    # random). The p-value uses the standard add-one estimator
-    # p = (#{null <= observed} + 1) / (n_permutations + 1): the +1 counts the
-    # observed statistic itself as one of its own permutations, which (a) keeps p
-    # strictly positive — a permutation p can never truly be 0, its resolution
-    # floor is 1/(n_permutations + 1) — and (b) makes the estimator unbiased, so it
-    # survives downstream multiple-testing (FDR) correction instead of collapsing
-    # spuriously exact zeros. A method gets (0.0, 1.0) for n<=1 or a zero-variance
-    # null.
-    #
-    # Every method shares the SAME null draws: the rng is seeded once and each
-    # permutation picks one index set, which is then scored by every method. That
-    # is exactly what scoring the methods one at a time would produce (same seed,
-    # same draw sequence), so results are unaffected — only the repeated draws and
-    # the repeated pairwise distance matrix go away. When any requested method is
-    # pairwise-reduced, each draw's `pdist` is computed once and shared.
+    n_permutations: int,
+    random_state: int | None,
+) -> tuple[list[str], dict[str, float] | None, dict[str, np.ndarray] | None]:
+    """Observed statistics + one null array per method, sharing every draw."""
     methods = list(dict.fromkeys(methods))
     n_samples = X.shape[0]
     if n_samples <= 1:
-        return {method: (0.0, 1.0) for method in methods}
+        return methods, None, None
 
     # One pdist for the whole draw is only worth building if something consumes it.
     shares_pw = any(method in _PAIRWISE_REDUCERS for method in methods)
@@ -185,17 +191,47 @@ def compute_distance_zscores(
         pw = pdist(draw) if shares_pw else None
         for method in methods:
             nulls[method][i] = _observed_distance(draw, method, pw)
+    return methods, observed, nulls
 
-    results: dict[str, tuple[float, float]] = {}
-    for method in methods:
-        null = nulls[method]
-        p_value = float((np.sum(null <= observed[method]) + 1) / (n_permutations + 1))
-        std = null.std()
-        if std == 0:
-            results[method] = (0.0, 1.0)
-        else:
-            results[method] = (float((observed[method] - null.mean()) / std), p_value)
-    return results
+
+def compute_distance_stats(
+    X: np.ndarray,
+    bg: np.ndarray,
+    methods: list[str] | tuple[str, ...],
+    n_permutations: int = DEFAULT_N_PERMUTATIONS,
+    random_state: int | None = DEFAULT_RANDOM_STATE,
+) -> dict[str, tuple[float, float, float]]:
+    """(z, p_coherent, p_incoherent) for SEVERAL methods in one permutation pass."""
+    methods, observed, nulls = _permutation_nulls(X, bg, methods, n_permutations, random_state)
+    if observed is None:
+        return {method: (0.0, 1.0, 1.0) for method in methods}
+    return {
+        method: permutation_statistics(observed[method], nulls[method], n_permutations)
+        for method in methods
+    }
+
+
+def compute_distance_zscores(
+    X: np.ndarray,
+    bg: np.ndarray,
+    methods: list[str] | tuple[str, ...],
+    n_permutations: int = DEFAULT_N_PERMUTATIONS,
+    random_state: int | None = DEFAULT_RANDOM_STATE,
+) -> dict[str, tuple[float, float]]:
+    """Permutation z-scores for SEVERAL dispersion methods in one permutation pass.
+
+    Returns {method: (z_score, p_value)} with the LOWER-tail p (smaller distance
+    than random = coherent). `compute_distance_stats` returns the same z plus
+    both one-sided tails; this wrapper keeps the historical two-tuple contract.
+    """
+    # Every method shares the SAME null draws: the rng is seeded once and each
+    # permutation picks one index set, which is then scored by every method. That
+    # is exactly what scoring the methods one at a time would produce (same seed,
+    # same draw sequence). The add-one estimator and the degenerate-input contract
+    # live in `permutation_statistics`; a method gets (0.0, 1.0) for n<=1 or a
+    # zero-variance null.
+    stats = compute_distance_stats(X, bg, methods, n_permutations, random_state)
+    return {method: (z, p_coherent) for method, (z, p_coherent, _p_incoherent) in stats.items()}
 
 
 def compute_distance_zscore(

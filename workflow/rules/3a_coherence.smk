@@ -21,10 +21,15 @@
 #
 # Per-source rules (fan out over {source}):
 #   prepare_coherence_annotation   -> group_annotation_long.tsv
+#   build_coherence_null_cache     -> _null_cache/n{nperm}_seed{seed}.npz (one
+#                                     permutation null per distinct n_scored_members,
+#                                     shared by all sources; the draw depends only
+#                                     on n, the fixed background and the seed)
 #   compute_coherence              -> coherence_metrics.parquet
-#                                     ({method}_p = one-sided add-one permutation p;
-#                                     q_value = per-source Benjamini-Hochberg FDR
-#                                     over the primary method's p;
+#                                     ({method}_p_coherent = coherent-tail one-sided add-one p,
+#                                     {method}_p_incoherent = mirrored dispersion tail;
+#                                     q_value_coherent / q_value_incoherent = per-source BH over
+#                                     the primary method's two tails;
 #                                     plus, when features_panels is on, the abundance /
 #                                     conservation uniformity CVs and the
 #                                     paralog_fraction of the scored members —
@@ -59,12 +64,15 @@
 #                                     defined w.r.t. a family, and this table's family
 #                                     is its own row set, so cross-source thresholds
 #                                     and the dedup representative ranking share one
-#                                     q scale. Per-source tables keep their own q.)
+#                                     q scale. q_value_coherent (coherence tail) and
+#                                     q_value_incoherent (dispersion tail) are two separate
+#                                     BH passes over that family. Per-source tables
+#                                     keep their own qs.)
 #   deduplicate_coherence_terms    -> dedup/coherence_terms_deduplicated.tsv (+ _representatives.tsv
 #                                     + coherence_group_members_long.tsv, the (group, gene)
 #                                     long table with the moonlighting columns):
 #                                     collapse redundant terms by member overlap + GO DAG
-#                                     (display layer; the combined q_value is carried
+#                                     (display layer; the combined q_value_coherent is carried
 #                                     through untouched, all terms kept)
 #   plot_coherence_redundancy_network_for_dedup -> dedup/redundancy_network.html (Altair; the merge
 #                                     backbone of each redundancy cluster, edge = Jaccard)
@@ -141,6 +149,12 @@ _COHORT_VIEWS = [*_COH_SOURCES, "dedup"]
 # says which row set its files hold.
 _COH_BASE = "results/3a_coherence/{dataset}"
 _COH_VIEW = _COH_BASE + "/{view}"
+# One global null cache per (n_permutations, seed). The filename carries both so
+# changing either config value produces a different file instead of reusing a
+# stale cache; the content is keyed by n_scored_members and shared by all sources.
+_COH_NPERM = int(_COH_CFG.get("n_permutations", 1000))
+_COH_SEED = int(_COH_CFG.get("random_state", 42))
+_COH_NULL_CACHE = f"{_COH_BASE}/_null_cache/n{_COH_NPERM}_seed{_COH_SEED}.npz"
 
 wildcard_constraints:
     source="|".join(_COH_SOURCES),
@@ -170,6 +184,50 @@ rule prepare_coherence_annotation:
         """
 
 
+rule build_coherence_null_cache:
+    input:
+        fitting_results=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/gene_level/fitting_results.tsv"
+        ),
+        # The cache must cover every size any source will score, so it waits for
+        # all prepared long tables rather than just one source's.
+        annotations=lambda wc: [
+            f"results/3a_coherence/{wc.dataset}/{source}/group_annotation_long.tsv"
+            for source in _COH_SOURCES
+        ],
+    output:
+        _COH_NULL_CACHE,
+    params:
+        min_size=_COH_CFG.get("min_group_size", 3),
+        max_size=_COH_CFG.get("max_group_size", 300),
+        max_term_genes=_COH_CFG.get("max_term_genes", 500),
+        dr_threshold=_COH_CFG.get("dr_threshold", -0.3),
+        n_permutations=_COH_NPERM,
+        random_state=_COH_SEED,
+    threads: 8
+    log:
+        "logs/3a_coherence/null_cache_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [coherence] Building the global null cache for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coherence/build_null_cache.py \
+            --fitting-results {input.fitting_results} \
+            --annotation {input.annotations} \
+            --min-size {params.min_size} \
+            --max-size {params.max_size} \
+            --max-term-genes {params.max_term_genes} \
+            --dr-threshold {params.dr_threshold} \
+            --n-permutations {params.n_permutations} \
+            --random-state {params.random_state} \
+            --jobs {threads} \
+            --output {output} &> {log}
+        """
+
+
 rule compute_coherence:
     input:
         fitting_results=lambda wc: (
@@ -178,6 +236,7 @@ rule compute_coherence:
         ),
         annotation=f"{_COH}/group_annotation_long.tsv",
         features=lambda wc: _COH_FEATURES if _COH_FEATURES_PANELS else [],
+        null_cache=_COH_NULL_CACHE,
     output:
         f"{_COH}/coherence_metrics.parquet",
     params:
@@ -188,8 +247,8 @@ rule compute_coherence:
         # sign flipped on 2026-09-17 (negative = depleted), so a stale +0.3 here
         # would silently select the *opposite* gene set if the key ever went missing.
         dr_threshold=_COH_CFG.get("dr_threshold", -0.3),
-        n_permutations=_COH_CFG.get("n_permutations", 1000),
-        random_state=_COH_CFG.get("random_state", 42),
+        n_permutations=_COH_NPERM,
+        random_state=_COH_SEED,
         features_flag=lambda wc, input: (
             f"--features {input.features}" if _COH_FEATURES_PANELS and input.features else ""
         ),
@@ -205,6 +264,7 @@ rule compute_coherence:
             --fitting-results {input.fitting_results} \
             --annotation {input.annotation} \
             {params.features_flag} \
+            --null-cache {input.null_cache} \
             --source {wildcards.source} \
             --min-size {params.min_size} \
             --max-size {params.max_size} \
@@ -406,7 +466,7 @@ rule deduplicate_coherence_terms:
 # --- The de-duplicated set as a first-class result --------------------------
 # The representative set is the cross-source end product, so it gets its own
 # coherence figure and cohort workbook (both under the {view} rules). The TSV's
-# pooled q_value is carried through untouched from the combined table — see
+# pooled q_value_coherent is carried through untouched from the combined table — see
 # combine_metrics.py's FDR note for why re-correcting over the representatives
 # would be anti-conservative rather than merely redundant. The dedup workbook's
 # cut is the same pooled q applied to that table, so it and the combined one call

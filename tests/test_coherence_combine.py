@@ -15,7 +15,7 @@ def _metrics(source, rows, p=0.5):
     """A minimal per-source metrics frame: (group_id, z-score) rows for `source`."""
     return pd.DataFrame(
         [{"source": source, "group_id": gid,
-          "median_pairwise_distance_z": z, "median_pairwise_distance_p": p, "q_value": p}
+          "median_pairwise_distance_z": z, "median_pairwise_distance_p_coherent": p, "q_value_coherent": p}
          for gid, z in rows]
     )
 
@@ -38,11 +38,11 @@ def test_combine_concatenates_and_sorts_by_zscore(tmp_path):
 
 
 def test_combine_replaces_per_source_q_with_pooled_bh(tmp_path):
-    """q_value must be BH over the UNION, not the per-source q carried through.
+    """q_value_coherent must be BH over the UNION, not the per-source q carried through.
 
     One strong row from a 1-row family (where its own q is 0.01) sits in a 21-row
     union, so pooled BH gives 0.01 * 21 / 1 = 0.21. The input row carries
-    q_value=0.01, so a carry-through implementation returns 0.01 and fails here.
+    q_value_coherent=0.01, so a carry-through implementation returns 0.01 and fails here.
     """
     from combine_metrics import combine
 
@@ -52,7 +52,7 @@ def test_combine_replaces_per_source_q_with_pooled_bh(tmp_path):
     write_parquet(_metrics("go_bp", [(f"GO:{i}", 1.0) for i in range(2, 22)], p=0.9), filler)
 
     combined = combine([strong, filler])
-    assert combined.set_index("group_id").loc["GO:1", "q_value"] == pytest.approx(0.21)
+    assert combined.set_index("group_id").loc["GO:1", "q_value_coherent"] == pytest.approx(0.21)
 
 
 def test_combine_tolerates_empty_source_tables(tmp_path):
@@ -92,3 +92,38 @@ def test_zero_column_frame_round_trips_through_parquet(tmp_path):
     path = tmp_path / "empty.parquet"
     write_parquet(pd.DataFrame(), path)
     assert read_parquet(path).empty
+
+
+def test_combine_pools_the_incoherent_tail_separately(tmp_path):
+    """q_value_incoherent is BH over the pooled dispersion tail, not 1 - q_value_coherent."""
+    from combine_metrics import combine
+
+    a = tmp_path / "a.parquet"
+    b = tmp_path / "b.parquet"
+    frame_a = pd.DataFrame([
+        {"source": "go_cc", "group_id": "GO:1",
+         "median_pairwise_distance_z": 3.0,
+         "median_pairwise_distance_p_coherent": 0.99,
+         "median_pairwise_distance_p_incoherent": 0.001,
+         "q_value_coherent": 0.99, "q_value_incoherent": 0.001},
+        {"source": "go_cc", "group_id": "GO:2",
+         "median_pairwise_distance_z": 0.0,
+         "median_pairwise_distance_p_coherent": 0.5,
+         "median_pairwise_distance_p_incoherent": 0.5,
+         "q_value_coherent": 0.5, "q_value_incoherent": 0.5},
+    ])
+    frame_b = pd.DataFrame([
+        {"source": "go_bp", "group_id": f"GO:{i}",
+         "median_pairwise_distance_z": -1.0,
+         "median_pairwise_distance_p_coherent": 0.01,
+         "median_pairwise_distance_p_incoherent": 0.9,
+         "q_value_coherent": 0.01, "q_value_incoherent": 0.9}
+        for i in range(3, 9)
+    ])
+    write_parquet(frame_a, a)
+    write_parquet(frame_b, b)
+
+    combined = combine([a, b])
+    assert "q_value_incoherent" in combined.columns
+    # The strong dispersed row is rank 1 of 8: 0.001 * 8 / 1 = 0.008.
+    assert combined.set_index("group_id").loc["GO:1", "q_value_incoherent"] == pytest.approx(0.008)

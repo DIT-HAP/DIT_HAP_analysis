@@ -47,7 +47,8 @@ Input
 -----
 - A metrics table: one source's coherence_metrics.parquet, combined/'s pooled
   table, or dedup/'s coherence_terms_representatives.tsv (source, group_id,
-  group_name, n_scored_members, median_pairwise_distance_z, q_value).
+  group_name, n_scored_members, median_pairwise_distance_z, q_value_coherent,
+  q_value_incoherent).
 - group_annotation_long.tsv: the matching prepared group -> member long table(s);
   one path per source, concatenated.
 - fitting_results.tsv: the upstream per-gene fitness table (see coherence/io.py).
@@ -177,7 +178,10 @@ _COHERENT_Q_MAX = 0.05
 _ROUND_DP = 4
 _ROUND_COLUMNS = ["DR", "DL", "norm_DR", "norm_DL", "R2"]
 
-_REQUIRED_METRIC_COLUMNS = ["source", "group_id", "group_name", "median_pairwise_distance_z", "q_value"]
+_REQUIRED_METRIC_COLUMNS = [
+    "source", "group_id", "group_name", "median_pairwise_distance_z",
+    "q_value_coherent", "q_value_incoherent",
+]
 
 # The cohort dropdown's choices, in order. `all` keeps the page's default view
 # unchanged; the two cohort entries narrow the map and the term list to that end.
@@ -201,7 +205,8 @@ _TERM_TOOLTIP = [
     alt.Tooltip("term:N", title="Term"),
     alt.Tooltip("cohort:N", title="Cohort"),
     alt.Tooltip("median_pairwise_distance_z:Q", title="z", format=".2f"),
-    alt.Tooltip("q_value:Q", title="q (BH)", format=".3g"),
+    alt.Tooltip("q_value_coherent:Q", title="q coherent (BH)", format=".3g"),
+    alt.Tooltip("q_value_incoherent:Q", title="q incoherent (BH)", format=".3g"),
     alt.Tooltip("n_scored_members:Q", title="scored genes", format="d"),
 ]
 
@@ -303,7 +308,7 @@ def cohort_labels(
     export_cohorts.py's docstring). Everything else is `other`.
     """
     z = metrics["median_pairwise_distance_z"]
-    coherent = (metrics["q_value"] <= _COHERENT_Q_MAX) & (z < coherent_z)
+    coherent = (metrics["q_value_coherent"] <= _COHERENT_Q_MAX) & (z < coherent_z)
     incoherent = z > incoherent_z
     return metrics.assign(
         cohort=np.where(coherent, "coherent", np.where(incoherent, "incoherent", "other"))
@@ -386,7 +391,8 @@ def centroid_table(
     coords = members.merge(detail[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID")
     means = coords.groupby("term", as_index=False)[["norm_DR", "norm_DL"]].mean()
     stats = metrics[[
-        "term", "median_pairwise_distance_z", "q_value", "n_scored_members", "cohort",
+        "term", "median_pairwise_distance_z", "q_value_coherent",
+        "q_value_incoherent", "n_scored_members", "cohort",
     ]]
     return means.merge(stats, on="term", how="left")
 

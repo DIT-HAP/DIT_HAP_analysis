@@ -35,7 +35,8 @@ def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         "group_name": ["coherent term", "middling term", "loose term"],
         "n_scored_members": [2, 2, 1],
         "median_pairwise_distance_z": [-3.0, 0.5, 2.0],
-        "q_value": [0.01, 0.4, 0.9],
+        "q_value_coherent": [0.01, 0.4, 0.9],
+        "q_value_incoherent": [0.9, 0.6, 0.1],
     })
     long_table = pd.DataFrame({
         "source": ["s"] * 5,
@@ -131,7 +132,8 @@ def _pooled_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         "group_name": ["same name", "same name"],
         "n_scored_members": [2, 1],
         "median_pairwise_distance_z": [-3.0, 1.0],
-        "q_value": [0.01, 0.9],
+        "q_value_coherent": [0.01, 0.9],
+        "q_value_incoherent": [0.9, 0.1],
     })
     long_table = pd.DataFrame({
         "source": ["go_cc", "go_cc", "go_macrocomplex"],
@@ -287,7 +289,8 @@ def _dedup_table() -> pd.DataFrame:
         "representative_source": ["auto"] * 4,
         "representative_name": ["alpha"] * 3 + ["loner"],
         "median_pairwise_distance_z": [-4.0, -3.0, -1.0, 0.0],
-        "q_value": [0.01, 0.02, 0.5, 0.9],
+        "q_value_coherent": [0.01, 0.02, 0.5, 0.9],
+        "q_value_incoherent": [0.5, 0.6, 0.9, 1.0],
         "n_scored_members": [4, 4, 4, 1],
         "n_annotated_members": [10, 12, 40, 2],
     })

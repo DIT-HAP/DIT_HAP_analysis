@@ -10,11 +10,15 @@ INCOHERENT ones (dispersed) — as one Excel workbook with a sheet per cohort pl
 the full annotated table. The cohort cuts are the same ones the figures label
 with (config/analysis.yaml's `coherence:` block):
 
-- coherent   = q_value <= coherent_q_max AND median_pairwise_distance_z < coherent_z_threshold
+- coherent   = q_value_coherent <= coherent_q_max AND median_pairwise_distance_z < coherent_z_threshold
 - incoherent = median_pairwise_distance_z > incoherent_z_threshold — a DESCRIPTIVE
-  cut, not an FDR-controlled one: at n_permutations=1000 the upper-tail p floor is
-  1/1001, so no group reaches q_up <= 0.05 and the incoherent side cannot carry a
-  significance claim. Everything else is `other`.
+  cut, deliberately kept on z so the existing incoherent figures/workbooks do not
+  silently move. The mirrored one-sided dispersion tail is carried in the same
+  metrics table as `q_value_incoherent` (BH over the pooled family); with
+  n_permutations=100000 it can express a significant dispersed set, whereas at
+  the old 1,000 the incoherent-tail q floor was ~0.43. No q cutoff is applied to
+  this cohort.
+  Everything else is `other`.
 
 Input
 -----
@@ -110,7 +114,7 @@ class Cohort(StrEnum):
 
 
 _Z_COLUMN = "median_pairwise_distance_z"
-_Q_COLUMN = "q_value"
+_Q_COLUMN = "q_value_coherent"
 _KEY_COLUMNS = ["source", "group_id"]
 
 # Column widths for the workbook (characters). Only the two long text columns and
@@ -274,7 +278,7 @@ def parse_args() -> argparse.Namespace:
                         help="dedup/coherence_terms_deduplicated.tsv; adds in_dedup_set + moonlighting_fraction")
     parser.add_argument("--source", default=None,
                         help="Keep one source's rows only (run this on the combined table)")
-    parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q_value at or below this")
+    parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q_value_coherent at or below this")
     parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
     parser.add_argument("--incoherent-z", type=float, default=1.0, help="Incoherent cohort: z above this")
     parser.add_argument("--output", type=Path, required=True, help="Output .xlsx path")

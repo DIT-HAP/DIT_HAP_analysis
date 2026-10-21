@@ -57,10 +57,10 @@ def test_build_groups_keeps_group_at_exact_boundaries():
 
 
 def test_compute_coherence_table_adds_q_value_column():
-    """compute_coherence_table emits a q_value column that is a valid BH lift of the p-value.
+    """compute_coherence_table emits a q_value_coherent column that is a valid BH lift of the p-value.
 
-    Benjamini-Hochberg is monotone and >= the raw p, so every q_value must be in
-    [median_pairwise_distance_p, 1]. We build a few groups over a real background
+    Benjamini-Hochberg is monotone and >= the raw p, so every q_value_coherent must be in
+    [median_pairwise_distance_p_coherent, 1]. We build a few groups over a real background
     point cloud so the permutation test runs end-to-end.
     """
     from compute_coherence import build_groups, compute_coherence_table, group_annotations
@@ -83,7 +83,10 @@ def test_compute_coherence_table_adds_q_value_column():
         n_measured=n_measured,
     )
 
-    assert "q_value" in table.columns
+    assert "q_value_coherent" in table.columns
+    assert "q_value_incoherent" in table.columns
+    assert (table["q_value_incoherent"] >= table["median_pairwise_distance_p_incoherent"] - 1e-12).all()
+    assert (table["q_value_incoherent"] <= 1.0 + 1e-12).all()
     # features=None: no feature-derived annotation columns at all.
     assert "abundance_cv" not in table.columns
     assert len(table) == 3
@@ -93,10 +96,11 @@ def test_compute_coherence_table_adds_q_value_column():
     }
     assert (table["n_annotated_members"] >= table["n_measured_members"]).all()
     # BH-adjusted q is never below the raw p and never above 1.
-    assert (table["q_value"] >= table["median_pairwise_distance_p"] - 1e-12).all()
-    assert (table["q_value"] <= 1.0 + 1e-12).all()
+    assert (table["q_value_coherent"] >= table["median_pairwise_distance_p_coherent"] - 1e-12).all()
+    assert (table["q_value_coherent"] <= 1.0 + 1e-12).all()
     # The add-one p floor propagates: no q collapses to exactly 0.
-    assert (table["median_pairwise_distance_p"] > 0).all()
+    assert (table["median_pairwise_distance_p_coherent"] > 0).all()
+    assert (table["median_pairwise_distance_p_incoherent"] > 0).all()
 
 
 def test_compute_coherence_table_paralog_fraction_uses_scored_members():
@@ -144,3 +148,44 @@ def test_load_fitting_results_drops_inf_rows(tmp_path):
     bg = load_fitting_results(p)
     assert "SPINF" not in set(bg["Systematic ID"])
     assert np.isfinite(bg[["norm_DR", "norm_DL"]].to_numpy()).all()
+
+
+def test_null_cache_reproduces_the_live_permutation_statistics():
+    """A cached lookup must return the same z/p/p_incoherent as the live draw path.
+
+    The cache is valid only because the null depends on n alone; this test builds
+    both paths from the same background and seed and requires exact equality.
+    """
+    from compute_coherence import build_groups, compute_coherence_table, group_annotations
+    from workflow.src.coherence.null_cache import null_for_n
+
+    ids = [f"g{i}" for i in range(40)]
+    bg = _background(ids)
+    long = _long(
+        [("go_cc", "GO:1", "a", f"g{i}", f"g{i}", 4) for i in range(4)]
+        + [("go_cc", "GO:2", "b", f"g{i}", f"g{i}", 3) for i in range(4, 7)]
+    )
+    groups = build_groups(bg, long, min_group_size=3, max_group_size=300, max_term_genes=500)
+    points = bg[["norm_DR", "norm_DL"]].to_numpy(dtype=float)
+    index = {gid: i for i, gid in enumerate(bg["Systematic ID"])}
+    annotations = group_annotations(long, features=None)
+    kwargs = dict(
+        n_permutations=100, random_state=42,
+        annotations=annotations, n_measured={},
+    )
+
+    live = compute_coherence_table(groups, points, index, **kwargs)
+    cache = {
+        n: dict(zip(("median", "mean"), null_for_n(points, n, 100, 42)))
+        for n in sorted({len(g) for g in groups.values()})
+    }
+    cached = compute_coherence_table(groups, points, index, null_cache=cache, **kwargs)
+
+    columns = [
+        "median_pairwise_distance_z", "median_pairwise_distance_p_coherent",
+        "median_pairwise_distance_p_incoherent",
+        "mean_pairwise_distance_z", "mean_pairwise_distance_p_coherent",
+        "mean_pairwise_distance_p_incoherent", "q_value_coherent", "q_value_incoherent",
+    ]
+    for column in columns:
+        assert np.allclose(live[column], cached[column], rtol=0, atol=0), column

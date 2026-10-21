@@ -40,9 +40,12 @@ Output
   * geometry: geom_median_DR, geom_median_DL (the Weiszfeld geometric median,
     NOT a centroid) plus the `{method}` pairwise-distance statistics
     (median_/mean_/std_/min_/max_pairwise_distance).
-  * test: for each method in _TABLE_ZSCORE_METHODS, `{method}_z` and
-    `{method}_p`; n_permutations; and q_value (BH over the per-source p-values
-    of the primary method, median_pairwise_distance).
+  * test: for each method in _TABLE_ZSCORE_METHODS, `{method}_z`,
+    `{method}_p_coherent` (null <= observed, tighter than random) and
+    `{method}_p_incoherent` (null >= observed, more dispersed than random);
+    n_permutations; q_value_coherent and q_value_incoherent (BH over the
+    per-source p-values of the primary method, median_pairwise_distance — two
+    separate families, NOT complements of each other).
   * annotations: — when --features is given — abundance_cv / conservation_cv
     each with a `_feature` column naming the feature column actually used, plus
     paralog_fraction (the share of the scored members whose feature-matrix
@@ -56,7 +59,8 @@ Usage
         --annotation results/3a_coherence/{dataset}/{source}/group_annotation_long.tsv \\
         --source go_macrocomplex \\
         --min-size 3 --max-size 300 --max-term-genes 500 --dr-threshold -0.3 \\
-        --n-permutations 1000 --random-state 42 \\
+        --n-permutations 100000 --random-state 42 \\
+        --null-cache results/3a_coherence/{dataset}/_null_cache/n100000_seed42.npz \\
         --output results/3a_coherence/{dataset}/{source}/coherence_metrics.parquet \\
         [--features results/1b_features/{pombase_version}/pombe_coding_gene_protein_features.tsv]
 
@@ -88,8 +92,14 @@ from coherence.fractions import (  # noqa: E402
     paralog_fraction,
     paralog_ids_from_features,
 )
+from coherence.groups import build_groups  # noqa: E402,F401  (re-exported: tests import it here)
 from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from coherence.metrics import coherence_metrics, compute_distance_zscores  # noqa: E402
+from coherence.metrics import (  # noqa: E402
+    coherence_metrics,
+    compute_distance_stats,
+    permutation_statistics,
+)
+from coherence.null_cache import load_null_cache, validate_null_cache  # noqa: E402
 from io_table import write_parquet  # noqa: E402
 from logging_setup import setup_logger  # noqa: E402
 
@@ -99,11 +109,12 @@ from logging_setup import setup_logger  # noqa: E402
 # =============================================================================
 
 # The two pairwise methods the metrics table carries, primary first. Median
-# pairwise distance is the primary coherence axis: its z/p drive the `q_value`
-# correction, the dedup ranking and every downstream plot. Each method emits
-# `{method}_z` / `{method}_p`, so the test columns are named after the statistic
-# they test and stay derivable from the method key alone. Both are scored in ONE
-# permutation pass, so the null draws are shared rather than redrawn per method.
+# pairwise distance is the primary coherence axis: its z/p drive the
+# `q_value_coherent` correction, the dedup ranking and every downstream plot.
+# Each method emits `{method}_z` / `{method}_p_coherent` / `_p_incoherent`, so the
+# test columns are named after the statistic they test and stay derivable from
+# the method key alone. Both are scored in ONE permutation pass, so the null draws
+# are shared rather than redrawn per method.
 _TABLE_ZSCORE_METHODS = ("median_pairwise_distance", "mean_pairwise_distance")
 _PRIMARY_METHOD = _TABLE_ZSCORE_METHODS[0]
 
@@ -143,12 +154,18 @@ class CoherenceConfig:
     n_permutations: int = 1000
     random_state: int = 42
     features: Path | None = None
+    # Optional global null cache (one entry per distinct n_scored_members). When
+    # present, the per-group permutation loop is replaced by a lookup + two tail
+    # counts; the cache is built once for all sources by build_null_cache.py.
+    null_cache: Path | None = None
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing or params invalid, then make output dirs."""
         required = [self.fitting_results, self.annotation]
         if self.features is not None:
             required.append(self.features)
+        if self.null_cache is not None:
+            required.append(self.null_cache)
         for path in required:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
@@ -234,33 +251,6 @@ def measured_member_counts(long_table: pd.DataFrame, measured_ids: set[str]) -> 
     return measured.groupby("group_id")["Systematic ID"].nunique().to_dict()
 
 
-def build_groups(
-    background: pd.DataFrame,
-    long_table: pd.DataFrame,
-    min_group_size: int,
-    max_group_size: int,
-    max_term_genes: int,
-) -> dict[str, pd.DataFrame]:
-    """Map surviving groups (keyed on group_id) -> their DR<threshold member rows."""
-    merged = long_table.merge(
-        background[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID", how="inner"
-    )
-    groups = {}
-    for group_id, grp in merged.groupby("group_id"):
-        grp = grp.drop_duplicates(subset="Systematic ID")
-        n_total = int(grp["n_annotated_members"].iloc[0])
-        if n_total > max_term_genes:
-            continue
-        if min_group_size <= len(grp) <= max_group_size:
-            groups[group_id] = grp
-    logger.info(
-        f"{merged['group_id'].nunique():,} groups with >=1 background member -> "
-        f"{len(groups):,} with {min_group_size} <= size <= {max_group_size} "
-        f"and n_annotated_members <= {max_term_genes}"
-    )
-    return groups
-
-
 def compute_coherence_table(
     groups: dict[str, pd.DataFrame],
     background_points: np.ndarray,
@@ -270,20 +260,50 @@ def compute_coherence_table(
     annotations: pd.DataFrame,
     n_measured: dict[str, int],
     paralog_ids: set[str] | None = None,
+    null_cache: dict[int, dict[str, np.ndarray]] | None = None,
 ) -> pd.DataFrame:
-    """One coherence row per group: identity + metrics + permutation z-scores."""
+    """One coherence row per group: identity + metrics + permutation z-scores.
+
+    Both one-sided tails come out of the same null: `{method}_p_coherent` counts
+    null <= observed (tighter than random), `{method}_p_incoherent` counts
+    null >= observed (more dispersed than random). When `null_cache` is
+    supplied, the null is looked up by n_scored_members instead of being redrawn
+    per group — exact, because the draws depend only on n, the fixed background
+    and the seed.
+    """
     rows = []
+    cache_method_key = {
+        "median_pairwise_distance": "median",
+        "mean_pairwise_distance": "mean",
+    }
     for group_id, grp in groups.items():
         member_ids = grp["Systematic ID"].tolist()
         member_points = background_points[[background_index[gid] for gid in member_ids]]
+        n_scored = len(grp)
+        stats = coherence_metrics(member_points)
 
-        zscores = compute_distance_zscores(
-            member_points,
-            background_points,
-            _TABLE_ZSCORE_METHODS,
-            n_permutations=n_permutations,
-            random_state=random_state,
-        )
+        if null_cache is not None:
+            try:
+                cached = null_cache[n_scored]
+            except KeyError as exc:
+                raise ValueError(
+                    f"null cache has no entry for n_scored_members={n_scored} "
+                    f"(group {group_id}); rebuild the cache with build_null_cache.py"
+                ) from exc
+            zscores = {
+                method: permutation_statistics(
+                    stats[method], cached[cache_method_key[method]], n_permutations
+                )
+                for method in _TABLE_ZSCORE_METHODS
+            }
+        else:
+            zscores = compute_distance_stats(
+                member_points,
+                background_points,
+                _TABLE_ZSCORE_METHODS,
+                n_permutations=n_permutations,
+                random_state=random_state,
+            )
 
         row = {
             "source": grp["source"].iloc[0],
@@ -293,11 +313,11 @@ def compute_coherence_table(
             # is the permutation test's draw size, not the group's size.
             "n_annotated_members": int(grp["n_annotated_members"].iloc[0]),
             "n_measured_members": int(n_measured.get(group_id, 0)),
-            "n_scored_members": len(grp),
+            "n_scored_members": n_scored,
             # A real list column (not a joined string): the Parquet round-trips it
             # without a parse step, and only the final human-facing TSVs join it.
             "scored_member_names": sorted(grp["Name"].dropna().astype(str)),
-            **coherence_metrics(member_points),
+            **stats,
         }
         # Keyed on the systematic ids, not the `Name` display column above: the
         # feature matrix is indexed by gene_systematic_id. Left out entirely when
@@ -305,19 +325,27 @@ def compute_coherence_table(
         if paralog_ids is not None:
             row["paralog_fraction"] = paralog_fraction(member_ids, paralog_ids)
         # Test columns are generated off the method key, so `{method}` is the
-        # observed statistic and `{method}_z` / `{method}_p` are its test.
-        for method, (z, p) in zscores.items():
+        # observed statistic, `{method}_p_coherent` is the coherent tail and
+        # `{method}_p_incoherent` the mirrored dispersion tail.
+        for method, (z, p_coherent, p_incoherent) in zscores.items():
             row[f"{method}_z"] = z
-            row[f"{method}_p"] = p
+            row[f"{method}_p_coherent"] = p_coherent
+            row[f"{method}_p_incoherent"] = p_incoherent
         row["n_permutations"] = n_permutations
         rows.append(row)
 
     table = pd.DataFrame(rows)
     if not table.empty:
-        # BH over the primary method's p-values, per source (each source is its own
-        # hypothesis family; combine_metrics.py does not re-correct).
-        table["q_value"] = false_discovery_control(
-            table[f"{_PRIMARY_METHOD}_p"].to_numpy(), method="bh"
+        # Two per-source BH families off the same statistic: the coherent tail
+        # (`q_value_coherent`, drives every existing cohort/representative
+        # decision) and the incoherent tail (`q_value_incoherent`, the
+        # FDR-controlled dispersion statistic). combine_metrics.py re-derives
+        # both over the pooled union.
+        table["q_value_coherent"] = false_discovery_control(
+            table[f"{_PRIMARY_METHOD}_p_coherent"].to_numpy(), method="bh"
+        )
+        table["q_value_incoherent"] = false_discovery_control(
+            table[f"{_PRIMARY_METHOD}_p_incoherent"].to_numpy(), method="bh"
         )
         table = table.merge(annotations, left_on="group_id", right_index=True, how="left")
         table = table.sort_values(f"{_PRIMARY_METHOD}_z").reset_index(drop=True)
@@ -347,6 +375,20 @@ def run(config: CoherenceConfig) -> None:
     background_points = background[["norm_DR", "norm_DL"]].to_numpy(dtype=float)
     background_index = {gid: i for i, gid in enumerate(background["Systematic ID"])}
 
+    null_cache = None
+    if config.null_cache is not None:
+        null_cache, meta = load_null_cache(config.null_cache)
+        validate_null_cache(
+            meta,
+            n_permutations=config.n_permutations,
+            random_state=config.random_state,
+            background_points=background_points,
+        )
+        logger.info(
+            f"null cache: {len(null_cache):,} distinct n values "
+            f"(n={min(null_cache)}..{max(null_cache)}) from {config.null_cache}"
+        )
+
     groups = build_groups(
         background, long_table, config.min_size, config.max_size, config.max_term_genes
     )
@@ -357,6 +399,7 @@ def run(config: CoherenceConfig) -> None:
         config.n_permutations, config.random_state, annotations,
         measured_member_counts(long_table, set(fitting["Systematic ID"])),
         paralog_ids=paralog_ids_from_features(features) if features is not None else None,
+        null_cache=null_cache,
     )
 
     # Write output as Parquet
@@ -399,6 +442,9 @@ def parse_args() -> argparse.Namespace:
                         help="Permutation RNG seed")
     parser.add_argument("--features", type=Path, default=None,
                         help="Optional gene features TSV; adds the abundance/conservation CV and paralog-fraction columns")
+    parser.add_argument("--null-cache", type=Path, default=None,
+                        help="Optional global null cache (.npz) keyed by n_scored_members; "
+                             "replaces the per-group permutation loop")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output coherence metrics Parquet")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -423,6 +469,7 @@ def main() -> int:
             n_permutations=args.n_permutations,
             random_state=args.random_state,
             features=args.features,
+            null_cache=args.null_cache,
         )
         run(config)
     except ValueError as e:

@@ -107,7 +107,7 @@ def test_build_clusters_merges_high_overlap():
 # --- orchestration: representative selection --------------------------------
 def _combined(rows):
     """rows: dicts with source, group_id, group_name, n_scored_members, scored_member_names,
-    median_pairwise_distance_z, q_value."""
+    median_pairwise_distance_z, q_value_coherent."""
     return pd.DataFrame(rows)
 
 
@@ -121,14 +121,14 @@ def _cfg(tmp_path, **kw):
 
 
 def test_deduplicate_picks_best_qvalue_representative(tmp_path):
-    """Within a redundant cluster the min-q_value term is the representative; all rows kept."""
+    """Within a redundant cluster the min-q_value_coherent term is the representative; all rows kept."""
     table = _combined([
         {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "n_scored_members": 200,
-         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value": 0.05},
+         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value_coherent": 0.05},
         {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "n_scored_members": 20,
-         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value": 0.01},  # best q
+         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value_coherent": 0.01},  # best q
         {"source": "go_cc", "group_id": "GO:9", "group_name": "other", "n_scored_members": 5,
-         "scored_member_names": ["x", "y", "z"], "median_pairwise_distance_z": -3.0, "q_value": 0.2},
+         "scored_member_names": ["x", "y", "z"], "median_pairwise_distance_z": -3.0, "q_value_coherent": 0.2},
     ])
     depth = {"GO:1": 3, "GO:2": 6, "GO:9": 4}
     out = deduplicate(table, _cfg(tmp_path, scope="pooled"), depth)
@@ -148,9 +148,9 @@ def test_deduplicate_force_representative_overrides(tmp_path):
     """A forced group_id becomes its cluster's representative even with a worse q."""
     table = _combined([
         {"source": "go_bp", "group_id": "GO:1", "group_name": "big", "n_scored_members": 200,
-         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value": 0.05},
+         "scored_member_names": ["a", "b", "c", "d"], "median_pairwise_distance_z": -5.0, "q_value_coherent": 0.05},
         {"source": "go_bp", "group_id": "GO:2", "group_name": "tight", "n_scored_members": 20,
-         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value": 0.01},
+         "scored_member_names": ["a", "b", "c", "e"], "median_pairwise_distance_z": -7.0, "q_value_coherent": 0.01},
     ])
     depth = {"GO:1": 3, "GO:2": 6}
     cfg = _cfg(tmp_path, scope="pooled", force_representatives=["GO:1"])
@@ -165,7 +165,7 @@ def test_deduplicate_exactly_one_representative_per_cluster(tmp_path):
     table = _combined([
         {"source": "go_bp", "group_id": f"GO:{i}", "group_name": f"g{i}", "n_scored_members": 10,
          "scored_member_names": ["a", "b", "c"] if i < 3 else ["x", "y", "z"],
-         "median_pairwise_distance_z": -float(i), "q_value": 0.01 * (i + 1)}
+         "median_pairwise_distance_z": -float(i), "q_value_coherent": 0.01 * (i + 1)}
         for i in range(6)
     ])
     depth = {f"GO:{i}": 5 for i in range(6)}
@@ -178,9 +178,9 @@ def test_deduplicate_per_source_scope_keeps_sources_separate(tmp_path):
     """per_source scope never merges identical-member terms across sources."""
     table = _combined([
         {"source": "go_cc", "group_id": "GO:X", "group_name": "SSU", "n_scored_members": 41,
-         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value": 0.016},
+         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value_coherent": 0.016},
         {"source": "go_macrocomplex", "group_id": "GO:X", "group_name": "SSU", "n_scored_members": 41,
-         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value": 0.031},
+         "scored_member_names": ["a", "b", "c"], "median_pairwise_distance_z": -5.86, "q_value_coherent": 0.031},
     ])
     depth = {"GO:X": 4}
     out = deduplicate(table, _cfg(tmp_path, scope="per_source"), depth)

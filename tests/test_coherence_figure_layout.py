@@ -96,7 +96,7 @@ def _coherence_table(n: int = 40) -> pd.DataFrame:
         "group_name": [f"a fairly long group name {i}" for i in range(n)],
         "n_scored_members": range(3, 3 + n),
         "median_pairwise_distance_z": [(-1) ** i * (i / 10) for i in range(n)],
-        "q_value": [0.001 * (i + 1) for i in range(n)],
+        "q_value_coherent": [0.001 * (i + 1) for i in range(n)],
         "geom_median_DR": [0.1 * (i % 7) for i in range(n)],
         "geom_median_DL": [0.1 * (i % 5) for i in range(n)],
         "abundance_cv": [(i % 4) / 4 for i in range(n)],
@@ -132,8 +132,8 @@ def test_group_scatter_layout_is_clean():
     metrics = pd.DataFrame({
         "group_id": ["GO:0005762", "GO:0030684", "GO:0032040"],
         "median_pairwise_distance_z": [-3.99, -2.19, -6.13],
-        "median_pairwise_distance_p": [0.01, 0.02, 0.01],
-        "q_value": [0.0192, 0.0482, 0.0192],
+        "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.01],
+        "q_value_coherent": [0.0192, 0.0482, 0.0192],
     })
     resolved = [
         ("GO:0005762", "mitochondrial large ribosomal subunit", [f"g{i}" for i in range(47)]),
@@ -167,7 +167,7 @@ def test_group_scatter_panels_share_both_axes():
     metrics = pd.DataFrame({
         "group_id": ["GO:1", "GO:2", "GO:3"],
         "median_pairwise_distance_z": [-3.0, -1.0, 0.5],
-        "median_pairwise_distance_p": [0.01, 0.02, 0.4], "q_value": [0.03, 0.05, 0.5],
+        "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.4], "q_value_coherent": [0.03, 0.05, 0.5],
     })
     resolved = [
         ("GO:1", "tight", [f"g{i}" for i in range(20)]),
@@ -199,7 +199,7 @@ def test_coherence_biology_panels_share_the_zscore_axis():
         "group_name": [f"group {i}" for i in range(n)],
         "n_scored_members": range(3, 3 + n),
         "median_pairwise_distance_z": z_scores,
-        "q_value": np.linspace(0.001, 0.4, n),
+        "q_value_coherent": np.linspace(0.001, 0.4, n),
         "geom_median_DR": np.linspace(-1.2, 0.0, n),
         "geom_median_DL": np.linspace(0.0, 0.9, n),
         "abundance_cv": np.linspace(0.0, 3.0, n),
@@ -220,9 +220,9 @@ def test_coherence_biology_panels_share_the_zscore_axis():
 
 
 def _fdr_table(rows: list[tuple[float, float]]) -> pd.DataFrame:
-    """(z-score, q_value) pairs -> the minimum columns labelled_extremes reads."""
+    """(z-score, q_value_coherent) pairs -> the minimum columns labelled_extremes reads."""
     return pd.DataFrame({"median_pairwise_distance_z": [z for z, _ in rows],
-                         "q_value": [q for _, q in rows]})
+                         "q_value_coherent": [q for _, q in rows]})
 
 
 def test_labelled_extremes_caps_each_side():
@@ -309,7 +309,7 @@ def test_fdr_label_text_does_not_overlap():
         "group_name": [f"a fairly long group name number {i}" for i in range(2 * n)],
         "n_scored_members": [3 + (i % 40) for i in range(2 * n)],
         "median_pairwise_distance_z": np.concatenate([np.linspace(0.5, 8.0, n), np.linspace(-0.5, -8.0, n)]),
-        "q_value": np.linspace(0.001, 0.05, 2 * n),
+        "q_value_coherent": np.linspace(0.001, 0.05, 2 * n),
         "geom_median_DR": np.linspace(-1.2, 0.0, 2 * n),
         "geom_median_DL": np.linspace(0.0, 0.9, 2 * n),
         "abundance_cv": np.linspace(0.0, 3.0, 2 * n),

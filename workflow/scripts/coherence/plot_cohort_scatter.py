@@ -13,7 +13,7 @@ term name and its z/q evidence.
 The cohort cuts are the figures' and workbooks' own (config/analysis.yaml's
 `coherence:` block, read from --q-max/--coherent-z/--incoherent-z):
 
-- coherent   = q_value <= q_max AND median_pairwise_distance_z < coherent_z
+- coherent   = q_value_coherent <= q_max AND median_pairwise_distance_z < coherent_z
 - incoherent = median_pairwise_distance_z > incoherent_z (a descriptive rank
   cut; see export_cohorts.py's docstring for why this end carries no FDR)
 
@@ -24,7 +24,7 @@ Input
 -----
 - --metrics: the view's metrics table — a per-source coherence_metrics.parquet,
   or dedup/coherence_terms_representatives.tsv. Needs median_pairwise_distance_z,
-  q_value, group_name, and (for dedup) source.
+  q_value_coherent, group_name, and (for dedup) source.
 - --annotation: the matching group_annotation_long.tsv table(s); the member
   genes are resolved through it (Systematic ID), matching how
   compute_coherence.py scored them.
@@ -99,7 +99,7 @@ class CohortSide(StrEnum):
 
 
 _Z_COLUMN = "median_pairwise_distance_z"
-_Q_COLUMN = "q_value"
+_Q_COLUMN = "q_value_coherent"
 _MAX_COLUMNS = 3
 # Panel titles truncate name AND id: kegg_brite's fallback group_id is the full
 # BRITE path (up to 320 characters), which would run the middle line across the

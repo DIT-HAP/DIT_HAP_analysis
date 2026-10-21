@@ -11,7 +11,7 @@ ranked, filtered and browsed side by side. Each row already carries its own
 `source` column (set upstream by compute_coherence.py), so the sources stay
 distinguishable after the concat.
 
-FDR is re-derived over the UNION here, replacing the per-source q_value. A
+FDR is re-derived over the UNION here, replacing the per-source q_value_coherent. A
 q-value is only defined relative to a hypothesis family, and this table is a
 single cross-source ranked list, so its family is its own row set. Carrying
 per-source q into it meant comparing q-values computed against different family
@@ -30,6 +30,11 @@ deduped representatives would be anti-conservative, not merely redundant: the
 representative is selected as its cluster's min q, and a family of per-cluster
 minima is not uniform under the null.
 
+The same union is also the family for `q_value_incoherent`, the mirrored
+dispersion tail (null >= observed). That is a separate BH pass, not
+`1 - q_value_coherent`: BH is not closed under complement, and the two tails
+answer different questions about the same term.
+
 Input
 -----
 - --metrics: one or more per-source coherence_metrics.parquet paths (order is
@@ -39,8 +44,11 @@ Output
 ------
 - --output: combined/coherence_metrics.parquet — the row-wise concatenation of
   the inputs, sorted by median_pairwise_distance_z ascending (most coherent
-  first), same columns as the per-source tables except q_value, which is
-  re-derived by BH over the pooled rows (see the FDR note above).
+  first), same columns as the per-source tables except the two q columns, which
+  are re-derived by BH over the pooled rows (see the FDR note above):
+  `q_value_coherent` for the coherence tail and `q_value_incoherent` for the
+  mirrored dispersion tail. The two tails are separate BH passes over the same
+  row family.
 
 Usage
 -----
@@ -81,10 +89,15 @@ from logging_setup import setup_logger  # noqa: E402
 # GLOBAL CONSTANTS
 # =============================================================================
 # The statistic the pooled FDR correction runs on: compute_coherence.py's primary
-# coherence method, the same p the per-source q_value was derived from. Spelled
-# out here rather than imported — that module is a CLI script, and this string is
-# the cross-script schema contract (the dedup stage reads q_value, not this).
-_PRIMARY_P_COLUMN = "median_pairwise_distance_p"
+# coherence method, the same p the per-source q_value_coherent was derived from.
+# Spelled out here rather than imported — that module is a CLI script, and this
+# string is the cross-script schema contract (the dedup stage reads
+# q_value_coherent, not this).
+_PRIMARY_P_COHERENT_COLUMN = "median_pairwise_distance_p_coherent"
+# The mirrored dispersion tail. Optional on inputs: older tables predate it, and
+# the minimal frames in the combine tests do not carry it. When present, its q is
+# re-derived over the SAME pooled family as the coherent q.
+_PRIMARY_P_INCOHERENT_COLUMN = "median_pairwise_distance_p_incoherent"
 
 
 # =============================================================================
@@ -111,9 +124,20 @@ def combine(metrics_paths: list[Path]) -> pd.DataFrame:
     # primary method's p column directly (no has-column guard) is deliberate: a
     # missing column is a schema break upstream, and raising here beats silently
     # leaving the per-source q in place under the combined table's name.
-    combined["q_value"] = false_discovery_control(
-        combined[_PRIMARY_P_COLUMN].to_numpy(), method="bh"
+    combined["q_value_coherent"] = false_discovery_control(
+        combined[_PRIMARY_P_COHERENT_COLUMN].to_numpy(), method="bh"
     )
+    if _PRIMARY_P_INCOHERENT_COLUMN in combined.columns:
+        # Same rows, same family; the two tails are separate hypotheses about the
+        # same term, so each gets its own BH pass rather than one shared q.
+        combined["q_value_incoherent"] = false_discovery_control(
+            combined[_PRIMARY_P_INCOHERENT_COLUMN].to_numpy(), method="bh"
+        )
+    else:
+        logger.warning(
+            f"combined metrics has no {_PRIMARY_P_INCOHERENT_COLUMN} column; "
+            "q_value_incoherent not computed (older per-source table?)"
+        )
     if "median_pairwise_distance_z" in combined.columns:
         combined = combined.sort_values("median_pairwise_distance_z").reset_index(drop=True)
     return combined

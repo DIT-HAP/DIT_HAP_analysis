@@ -357,7 +357,7 @@
   <p>簇建好之后，每簇挑一行当代表。默认排序键有四个，<b>按优先级依次使用</b>：</p>
 
   <div class="formula">
-    q_value ↑ &nbsp;→&nbsp; median_pairwise_distance_z ↑ <span class="small">越负越好</span>
+    q_value_coherent ↑ &nbsp;→&nbsp; median_pairwise_distance_z ↑ <span class="small">越负越好</span>
     &nbsp;→&nbsp; dag_depth ↓ <span class="small">越深越特异</span>
     &nbsp;→&nbsp; n_scored_members ↑ <span class="small">越小越好</span>
   </div>
@@ -387,7 +387,7 @@
     <b>一个真实的坑：q 是第一排序键，而 q 不能跨 source 比较。</b>
     看排名第一的簇 <code>all:0</code>（核糖体那一坨）：代表是 <b>nucleolus</b>（z = −5.04），
     而不是 z 值好得多的 <b>ribosome biogenesis</b>（z = −7.78）。
-    原因是 <code>q_value</code> 是<b>每个 source 内部独立做的 BH 校正</b>
+    原因是 <code>q_value_coherent</code> 是<b>每个 source 内部独立做的 BH 校正</b>
     （nucleolus 来自 go_cc：q = 0.0135；ribosome biogenesis 来自 go_bp：q = 0.0222），
     两者不在同一个多重检验校正体系里，数值不可比。
     <br><br>对 <code>pooled</code> 作用域下跨 source 合并的簇，这意味着代表选择会被
