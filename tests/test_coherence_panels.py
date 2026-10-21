@@ -96,9 +96,16 @@ def test_plot_coherence_panel_counts():
     assert len(biology_panels(with_biology)) == 2
 
     def drawn_panels(table):
-        """Panel count, excluding the centroid panel's inset colourbar."""
+        """Logical panel count, excluding the centroid colourbar and joint strips.
+
+        The q-encoded FDR panel's two histograms are axes but not panels: they are
+        drawn inside that panel's own reserved margin (gid "joint-marginal").
+        """
         plot_coherence(table)
-        count = len([ax for ax in plt.gcf().axes if not ax.get_label().startswith("<")])
+        count = len([
+            ax for ax in plt.gcf().axes
+            if not ax.get_label().startswith("<") and ax.get_gid() != "joint-marginal"
+        ])
         plt.close("all")
         return count
 

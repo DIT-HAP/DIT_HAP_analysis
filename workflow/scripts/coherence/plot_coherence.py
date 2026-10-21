@@ -8,6 +8,13 @@ Renders the overview figure for compute_coherence.py: the group-size and
 z-score distributions, the centroid map in normalized fitness space, and — when
 the metrics table carries them — the coherence-versus-biology panels.
 
+The q-encoded FDR panel (q on a linear 0..1 axis) is drawn as a joint plot: a
+histogram of q sits directly above the scatter and one of z directly to its
+right, both inside the panel's own reserved margins. The linear q axis spends
+95% of its width on q > 0.05, so the scatter alone cannot show how many groups
+pile up against the significance cut; the marginals supply that without adding
+a second figure that repeats the same scatter.
+
 This is the plotting companion, split out per ADR-0001. It computes nothing:
 the abundance/conservation uniformity terms are columns of the metrics Parquet,
 written by compute_coherence.py, so the figure is a pure renderer and every
@@ -209,6 +216,29 @@ _FDR_Q_FLOOR = 1e-12
 # panels' own aspect instead of making row 3 the one row of letterbox panels.
 _FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 159, 159
 _FDR_MARGIN_RIGHT = 14
+
+# --- Marginal distributions on the q-encoded FDR panel -----------------------
+# The linear q axis spends 95% of its width on q > 0.05, so the scatter alone
+# cannot say how many groups pile up against the significance cut. The panel is
+# therefore drawn as a joint plot: q's distribution sits above the axes and z's
+# to their right.
+#
+# Both strips go in space the panel already owns, so the scatter keeps its own
+# 159 x 159 axes — and with it the left edge shared with the SQUARE panels above.
+# The top strip lives between the axes and the title (the title is given a pad
+# wide enough to clear it, and the panel label a matching pad_top); the right
+# strip lives in a margin_right of the same width.
+_JOINT_STRIP = 26             # marginal thickness, layout px (1 px = 1 pt)
+_JOINT_GAP = 3                # white space between the scatter and its strips
+_JOINT_MARGIN = _JOINT_STRIP + _JOINT_GAP
+_JOINT_Q_BINS = 40            # q spans 0..1 by definition; 0.025-wide bins
+_JOINT_Z_BINS = 30
+# Gid on the two marginal axes, so a layout checker can recognise them as part
+# of the panel they annotate rather than as neighbouring panels.
+_JOINT_MARGINAL_GID = "joint-marginal"
+# Headroom on the count axis, so the tallest bar reads as a bar rather than as
+# the axis edge.
+_JOINT_HEADROOM = 1.08
 
 # Labels sit INSIDE the axes, anchored beside their OWN point (a short leader),
 # and are placed by scoring a grid of candidate anchors and keeping the cheapest.
@@ -667,6 +697,93 @@ def draw_source_scatter(
         cns.scatterplot(rows, x_column, y_column, ax=ax, color=colors[source])
 
 
+def draw_joint_marginals(
+    ax: Axes, table: pd.DataFrame, x_column: str, y_column: str, *,
+    by_source: bool, colors: dict[str, str], series: list[str],
+) -> None:
+    """Attach histograms of the panel's x and y values above and to its right.
+
+    The strips are ordinary axes placed in the panel's already-reserved space
+    (see `_JOINT_STRIP`), not inset axes: an inset would sit inside the 159 x 159
+    scatter and shrink the cloud it exists to annotate.
+    """
+    # Geometry is read from the placed axes rather than derived from the panel
+    # spec: multipanel has already positioned every axes by the time all panels
+    # exist, and get_position() is the one source of truth for where the
+    # 159 x 159 rectangle actually landed. Do not draw the canvas first — a draw
+    # event makes multipanel re-measure and re-wrap the page, while savefig
+    # renders the layout as it stands here.
+    fig = ax.figure
+    box = ax.get_position()
+    width_px = fig.get_figwidth() * 72.0
+    height_px = fig.get_figheight() * 72.0
+    strip_w = _JOINT_STRIP / width_px
+    strip_h = _JOINT_STRIP / height_px
+    gap_x = _JOINT_GAP / width_px
+    gap_y = _JOINT_GAP / height_px
+
+    ax_top = fig.add_axes(
+        [box.x0, box.y1 + gap_y, box.width, strip_h], sharex=ax
+    )
+    ax_right = fig.add_axes(
+        [box.x1 + gap_x, box.y0, strip_w, box.height], sharey=ax
+    )
+    # Tag both strips so the layout test can tell "a decoration inside its own
+    # panel" (by design here) from "one panel bleeding into another".
+    for marginal in (ax_top, ax_right):
+        marginal.set_gid(_JOINT_MARGINAL_GID)
+
+    x_limits, y_limits = ax.get_xlim(), ax.get_ylim()
+    edges = {
+        "x": np.linspace(x_limits[0], x_limits[1], _JOINT_Q_BINS + 1),
+        "y": np.linspace(y_limits[0], y_limits[1], _JOINT_Z_BINS + 1),
+    }
+    color = house_colors((3,))[0]
+
+    for marginal, orientation, column in (
+        (ax_top, "x", x_column),
+        (ax_right, "y", y_column),
+    ):
+        if by_source:
+            # Stacked rather than overlaid, and in the same colours as the
+            # scatter: each bar's height is still the total count, so the
+            # silhouette stays a distribution while the split says which source
+            # it came from.
+            cns.histplot(
+                data=table, **{orientation: column},
+                hue="source", hue_order=series, palette=colors,
+                multiple="stack", bins=edges[orientation], ax=marginal, legend=False,
+            )
+        else:
+            cns.histplot(
+                data=table, **{orientation: column},
+                bins=edges[orientation], color=color, ax=marginal, legend=False,
+            )
+        # The two strips are a distribution summary, not coordinates a reader
+        # should try to read off: no ticks, no frame, no axis labels (seaborn
+        # writes the column name into one otherwise) and no patch (the main axes
+        # draws the title in the band directly above the top strip).
+        marginal.patch.set_visible(False)
+        marginal.set_xlabel("")
+        marginal.set_ylabel("")
+        marginal.tick_params(
+            left=False, bottom=False, labelleft=False, labelbottom=False
+        )
+        for spine in marginal.spines.values():
+            spine.set_visible(False)
+
+    # Histplot autoscales the axis it draws on; on a shared axis that would move
+    # the scatter's limits, so both are restored after the bars exist.
+    ax.set_xlim(*x_limits)
+    ax.set_ylim(*y_limits)
+
+    # A bar that reaches its axis' end reads as clipped rather than tall.
+    top_max = max((patch.get_height() for patch in ax_top.patches), default=0.0)
+    right_max = max((patch.get_width() for patch in ax_right.patches), default=0.0)
+    ax_top.set_ylim(0.0, top_max * _JOINT_HEADROOM if top_max else 1.0)
+    ax_right.set_xlim(0.0, right_max * _JOINT_HEADROOM if right_max else 1.0)
+
+
 def plot_coherence(
     table: pd.DataFrame, settings: LabelSettings | None = None, color_by: str = "none"
 ) -> None:
@@ -845,11 +962,21 @@ def draw_fdr_panels(
 ) -> None:
     """Draw the FDR-versus-coherence scatter once per x encoding, side by side."""
     colors, series = colors or {}, series or []
+    joint_ax: Axes | None = None
+    joint_table: pd.DataFrame | None = None
     for offset, (encoding, xlabel) in enumerate(_FDR_PANELS):
+        # Only the linear-q encoding is drawn as a joint plot: the -log10 panel
+        # already spreads the significant tail across the axis, so the marginal
+        # that is missing from the reading is q's own distribution.
+        joint = encoding == "_q"
         ax = multipanel.panel(
             chr(ord(first_letter) + offset),
             width=_FDR_PANEL_WIDTH, height=_FDR_PANEL_HEIGHT,
-            margin_right=_FDR_MARGIN_RIGHT,
+            margin_right=_FDR_MARGIN_RIGHT + (_JOINT_MARGIN if joint else 0),
+            # The label has to clear the strip AND the title that sits above it;
+            # pad_top is part of the panel's initial geometry, so the reservation
+            # exists before anything is drawn.
+            pad_top=(cns.settings.panel_pad_top + _JOINT_MARGIN) if joint else None,
         )
         x_values, cutoff = fdr_axis(table["q_value_coherent"], encoding, settings.q_max)
         plotted = table.assign(**{encoding: x_values})
@@ -857,7 +984,20 @@ def draw_fdr_panels(
             ax, plotted, encoding, "median_pairwise_distance_z",
             by_source=by_source, colors=colors, series=series,
         )
-        ax.set(xlabel=xlabel, ylabel="z-score", title="Coherence vs significance")
+        ax.set(xlabel=xlabel, ylabel="z-score")
+        if joint:
+            # q is a probability by definition, so the axis is the full 0..1
+            # rather than autoscaled to the observed min/max: the marginal bins
+            # and the significance cut then sit at their true positions.
+            ax.set_xlim(0.0, 1.0)
+            # The pad reserves the band the top histogram is drawn in; multipanel
+            # measures the rendered title extent, so this is what keeps the strip
+            # inside the panel's own footprint.
+            ax.set_title("Coherence vs significance", pad=_JOINT_MARGIN + 3)
+            joint_ax = ax
+            joint_table = plotted
+        else:
+            ax.set_title("Coherence vs significance")
         ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
         ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
 
@@ -869,6 +1009,17 @@ def draw_fdr_panels(
         for end in ("incoherent", "coherent"):
             rows = labelled_extremes(plotted, end, settings)
             annotate_extremes(ax, rows, end, encoding, points)
+
+    if joint_ax is not None:
+        # No canvas.draw() here: multipanel re-measures its left decorations on a
+        # draw event and that relayout re-wraps the whole page (measured: row 1
+        # would drop from three panels to two). The initial layout — the one
+        # savefig renders — already knows every panel's rectangle, and this call is
+        # the last thing plot_coherence does, so get_position() is final.
+        draw_joint_marginals(
+            joint_ax, joint_table, "_q", "median_pairwise_distance_z",
+            by_source=by_source, colors=colors, series=series,
+        )
 
 
 # =============================================================================

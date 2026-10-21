@@ -58,6 +58,16 @@ def _overlaps(a, b, tolerance: float = _TOLERANCE_PX) -> bool:
     return dx > tolerance and dy > tolerance
 
 
+def _is_joint_marginal(ax) -> bool:
+    """Whether `ax` is a strip attached to its own panel (the q-vs-z joint plot).
+
+    Those strips live INSIDE their panel's reserved title pad/right margin, so
+    their boxes legitimately fall inside the host axes' tightbbox. They are part
+    of one panel, not two panels sharing a page.
+    """
+    return ax.get_gid() == "joint-marginal"
+
+
 def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
     """Assert no panel overflows its own axes and no two panels' decorations collide."""
     fig.canvas.draw()
@@ -73,6 +83,11 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
         )
 
     for left, right in itertools.combinations(axes, 2):
+        # A joint panel's strips are drawn in its own reserved margin; their boxes
+        # overlap the host's title bbox by construction (checked separately by
+        # test_q_fdr_panel_marginals_are_attached).
+        if _is_joint_marginal(left) or _is_joint_marginal(right):
+            continue
         assert not _overlaps(
             left.get_tightbbox(renderer), right.get_tightbbox(renderer)
         ), f"panel decorations collide: {left.get_title()!r} vs {right.get_title()!r}"
@@ -216,6 +231,35 @@ def test_coherence_biology_panels_share_the_zscore_axis():
     expected = (float(z_scores.min()), float(z_scores.max()))
     assert {ax.get_ylim() for ax in biology} == {expected}
     assert len({ax.get_xlim() for ax in biology}) == 2, "x is meant to stay per-panel"
+    plt.close("all")
+
+
+def test_q_fdr_panel_marginals_are_attached():
+    """The linear-q panel carries one histogram per axis, sharing its limits.
+
+    Asserted before any canvas.draw(): multipanel re-measures on a draw event and
+    re-wraps the page, which moves the host axes while the strips stay where they
+    were placed. The pipeline builds and saves in one pass, so the pre-draw
+    geometry is the one that reaches the artifact.
+    """
+    from plot_coherence import plot_coherence
+
+    plot_coherence(_coherence_table(n=120))
+    fig = plt.gcf()
+
+    q_panel = next(ax for ax in fig.axes if ax.get_xlabel() == "q (BH-adjusted)")
+    marginals = [ax for ax in fig.axes if ax.get_gid() == "joint-marginal"]
+    assert len(marginals) == 2
+
+    top = next(ax for ax in marginals if ax.get_shared_x_axes().joined(ax, q_panel))
+    right = next(ax for ax in marginals if ax.get_shared_y_axes().joined(ax, q_panel))
+
+    assert top.get_position().y0 >= q_panel.get_position().y1, "top strip is not above the scatter"
+    assert right.get_position().x0 >= q_panel.get_position().x1, "right strip is not right of the scatter"
+    assert q_panel.get_xlim() == (0.0, 1.0), "q must be drawn on its full 0..1 range"
+    assert top.get_xlim() == q_panel.get_xlim()
+    assert right.get_ylim() == q_panel.get_ylim()
+    assert len(top.patches) > 0 and len(right.patches) > 0, "a marginal drew no bars"
     plt.close("all")
 
 
