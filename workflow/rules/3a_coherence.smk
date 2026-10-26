@@ -35,9 +35,11 @@
 #                                     paralog_fraction of the scored members —
 #                                     all computed here so the figure only renders)
 #   plot_coherence_group_scatter   -> group_scatter.pdf (named groups from config)
-#   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; term picker
-#                                     + cohort picker, marker colour = cohort, per-gene
-#                                     tooltips over the genome-wide cloud)
+#   plot_coherence_interactive_scatter -> interactive_scatter.html (Altair; three linked
+#                                     panels — terms in q–z space (size = scored members),
+#                                     group centroids, and the picked term's genes over the
+#                                     genome-wide cloud; term picker + cohort picker, marker
+#                                     colour = cohort, per-gene tooltips)
 # Per-view rules (fan out over {view}: the five sources + combined + dedup):
 #   plot_coherence                 -> {view}/coherence.pdf (the metrics table of that
 #                                     view; combined/ adds --color-by source
@@ -637,9 +639,10 @@ rule plot_cohort_scatter:
 # panels: one page per source for the scatter, one page per dataset for the
 # network, each with a dropdown and hover tooltips.
 #
-# The scatter page is a two-panel explorer: the terms' centroid positions on the
-# left (click a marker to pick one) and the picked term's genes over the
-# genome-wide cloud on the right, both driven by one selection. Its payload was
+# The scatter page is a three-panel explorer: every term in q-z space on the left
+# (area = scored genes; click a marker to pick one), the terms' centroid positions
+# in the middle, and the picked term's genes over the genome-wide cloud on the
+# right — all driven by one selection. Its payload was
 # cut from 24 MB to 6.9 MB for go_bp by embedding the gene columns once as the
 # cloud's dataset and looking them up from the member rows, so it stays out of
 # `rule all` only because a 58k-row page is not worth pre-building for four

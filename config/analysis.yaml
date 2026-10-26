@@ -193,7 +193,14 @@ coherence:
   # clusters). Raised from 0.5 to 0.7 (2026-09-29) to collapse less aggressively:
   # at 0.5 complete linkage still fused 26-term clusters of merely co-annotated
   # GO BP terms, which is co-membership rather than the same signal.
-  dedup_jaccard_threshold: 0.7
+  # Lowered from 0.7 to 0.65 (2026-10-21) after a 0.70 -> 0.40 sweep (see
+  # tmp/coherence_dedup_thresholds/README.md): 0.65 adds only 57 fusions
+  # (ARI vs 0.70 = 0.968, 95.4% of 0.70 representatives unchanged), ~80% of them
+  # GO nesting/aliases. 0.60 starts fusing related-but-distinct KEGG categories,
+  # and 0.55 starts fusing containment pairs (V-ATPase complex inside KEGG
+  # oxidative phosphorylation: Jaccard 10/18 = 0.556), so 0.65 is the conservative
+  # step down rather than the most aggressive one that still looks clean.
+  dedup_jaccard_threshold: 0.65
   # How the "these two clear the threshold" relation is turned into clusters.
   # `complete` (agglomerative, cut at 1 - threshold) instead of `single`
   # (connected components): single linkage is transitive, so A~B and B~C fuse A and
