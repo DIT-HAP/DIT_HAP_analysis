@@ -69,6 +69,21 @@ def _scatter_pieces() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return detail, members, centroid_table(members, detail, metrics)
 
 
+def _panel(spec: dict, title: str) -> dict:
+    """The hconcat child whose title starts with `title`.
+
+    Panels are found by title, not position: the page grew from two panels to
+    three and will grow again, and an index-based lookup silently asserts on the
+    wrong panel rather than failing.
+    """
+    for child in spec["hconcat"]:
+        heading = child.get("title")
+        text = heading.get("text") if isinstance(heading, dict) else heading
+        if text and text.startswith(title):
+            return child
+    raise AssertionError(f"no panel titled {title!r}: {[c.get('title') for c in spec['hconcat']]}")
+
+
 def test_member_table_drops_members_without_a_fit():
     _, members, _ = _scatter_pieces()
     # 'unfitted' is annotated into g2 but has no DR/DL, so drawing it would mean
@@ -89,7 +104,7 @@ def test_member_rows_carry_keys_only_so_the_cloud_is_embedded_once():
     # dataset — so both references must resolve to ONE embedded dataset.
     # (`cohort` rides along because the cohort dropdown filters this layer too.)
     assert set(members.columns) == {"term", "cohort", "Systematic ID"}
-    genes = spec["hconcat"][1]["layer"]
+    genes = _panel(spec, "Selected term's genes")["layer"]
     # The gene panel is three layers (single grey cloud, threshold rule,
     # highlighted members); the cloud and the parent view share ONE gene dataset
     # and the highlighted layer looks its columns up in it — embedded once is what
@@ -228,12 +243,12 @@ def test_member_rows_carry_cohort_so_the_cohort_filter_reaches_the_genes():
     )
 
 
-def test_cohort_dropdown_compiles_onto_both_panels():
+def test_cohort_dropdown_reaches_the_highlighted_genes():
     from plot_interactive_scatter import build_chart, term_options
 
     detail, members, centroids = _scatter_pieces()
     spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
-    genes = spec["hconcat"][1]["layer"]
+    genes = _panel(spec, "Selected term's genes")["layer"]
     highlighted = genes[-1]
     filters = [str(f.get("filter", "")) for f in highlighted["transform"]]
     # The cohort filter must sit on the member layer with the term picker, so
@@ -253,15 +268,159 @@ def test_the_centroid_panel_can_set_the_dropdowns_selection():
     assert picker["select"]["on"] == "click"
     assert picker["select"]["fields"] == ["term"]
     # Altair hoists the param to the top level, which would scope the click to the
-    # whole figure — `views` is what pins it back inside the centroid panel. Without
-    # it a click on the gene cloud, whose rows carry no `term`, would clear the pick.
-    centroid_units = {layer.get("name") for layer in spec["hconcat"][0]["layer"]}
-    assert set(picker["views"]) <= centroid_units, "the click must not listen on the gene panel"
+    # whole figure — `views` is what pins it back to the panels that mark a term.
+    # Without it a click on the gene cloud, whose rows carry no `term`, would clear
+    # the pick. Every term panel must be listed, and the gene panel must not be.
+    for title in ("Terms", "Group centroids"):
+        named = {layer.get("name") for layer in _panel(spec, title)["layer"] if layer.get("name")}
+        assert named and named <= set(picker["views"]), f"a click on {title} never reaches the pick"
+    gene_units = {layer.get("name") for layer in _panel(spec, "Selected term's genes")["layer"]
+                  if layer.get("name")}
+    assert not (set(picker["views"]) & gene_units), "the click must not listen on the gene panel"
     # Filtering the highlighted-gene layer (the panel's last, after the cloud split)
     # by that selection is what redraws the genes when the map is clicked, with no
     # re-render.
-    genes = spec["hconcat"][1]["layer"][-1]
+    genes = _panel(spec, "Selected term's genes")["layer"][-1]
     assert {"filter": {"param": picker["name"]}} in genes["transform"]
+
+
+# --- q–z term panel ---------------------------------------------------------
+def test_the_q_z_panel_opens_the_page_and_encodes_q_z_and_size():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    stats = spec["hconcat"][0]
+    heading = stats["title"]["text"] if isinstance(stats["title"], dict) else stats["title"]
+    assert heading.startswith("Terms"), "the q-z panel is where the page opens"
+
+    points = [layer for layer in stats["layer"] if layer["mark"]["type"] == "circle"]
+    assert len(points) == 2, "a dimmed layer plus the picked marker, as on the term map"
+    for layer in points:
+        encoding = layer["encoding"]
+        assert encoding["x"]["field"] == "q_value_coherent"
+        assert encoding["y"]["field"] == "median_pairwise_distance_z"
+        assert encoding["size"]["field"] == "n_scored_members"
+
+    # q is a probability: the axis is the full 0-1 and never autoscaled, so the
+    # coherent cut sits where it really is and pages over different row sets agree.
+    assert points[0]["encoding"]["x"]["scale"]["domain"] == [0.0, 1.0]
+    # z is this page's own extent, padded so an edge marker is not clipped.
+    z_lo, z_hi = points[0]["encoding"]["y"]["scale"]["domain"]
+    assert z_lo < -3.0 and z_hi > 2.0, f"z axis {z_lo, z_hi} does not span the fixture"
+
+    # Area, not radius, and log-compressed like the static figure's point_sizes():
+    # a 69-fold count range must not put 69x the ink on the page.
+    size_scale = points[0]["encoding"]["size"]["scale"]
+    assert size_scale["type"] == "log"
+
+
+def _filters(layer: dict) -> list:
+    """The `transform_filter` predicates of a layer, in order."""
+    return [transform["filter"] for transform in layer.get("transform", [])
+            if "filter" in transform]
+
+
+def test_the_q_z_panel_draws_the_two_cohort_cuts_and_takes_z_from_the_caller():
+    from plot_interactive_scatter import _COHERENT_Q_MAX, build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    rules = [layer for layer in spec["hconcat"][0]["layer"] if layer["mark"]["type"] == "rule"]
+    # One rule per cut: q on the x axis at the FDR cutoff, z on the y axis at the
+    # coherent threshold. Together they box the "coherent" corner of the panel.
+    # Altair consolidates small frames into named datasets, so the value is one
+    # indirection away from the layer. The q value is read from the constant the
+    # cohort labels are cut with, so the line and the colours cannot drift apart.
+    drawn = [spec["datasets"][rule["data"]["name"]][0] for rule in rules]
+    assert {"q_max": _COHERENT_Q_MAX} in drawn
+    assert {"coherent_z": -2.0} in drawn
+
+    # The z cut is a parameter, not a constant: a page built with another
+    # threshold must move the line with it, or the figure would contradict the
+    # cohort colours drawn from the same config value.
+    moved = build_chart(detail, members, centroids, term_options(centroids),
+                        coherent_z=-1.5).to_dict()
+    z_rules = [layer for layer in moved["hconcat"][0]["layer"]
+               if layer["mark"]["type"] == "rule" and "y" in layer.get("encoding", {})]
+    assert moved["datasets"][z_rules[0]["data"]["name"]] == [{"coherent_z": -1.5}]
+
+
+def test_the_q_z_panel_can_set_the_dropdowns_selection():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    picker = next(p for p in spec["params"] if p.get("name") == "term_pick")
+    stats = spec["hconcat"][0]
+
+    # Altair pins a selection's click listener to the layer the param was added
+    # to. Two things have to hold: it must be a point layer (the cut rules carry
+    # no `term`), and it must be the DIMMED layer — the picked layer renders one
+    # row, the already-selected term, so a listener bound there would make every
+    # other term unclickable while still passing a "the click reaches the
+    # dropdown" check.
+    points = [layer for layer in stats["layer"] if layer["mark"]["type"] == "circle"]
+    assert len(points) == 2, "one dimmed layer plus the picked marker"
+    dimmed, picked = points
+    named = [layer for layer in stats["layer"] if layer.get("name")]
+    assert len(named) == 1 and named[0] is dimmed
+    assert dimmed["name"] in picker["views"], "a click on a term never reaches the dropdown"
+    # The split, spelled out: the dimmed layer draws everything EXCEPT the pick,
+    # the picked layer draws exactly the pick. Substring checks would pass even if
+    # the two were swapped.
+    assert {"not": {"param": "term_pick"}} in _filters(dimmed)
+    assert {"param": "term_pick"} in _filters(picked)
+
+
+def test_the_cohort_dropdown_reaches_both_term_panels():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    # Every point layer of every term panel has to carry the cohort filter. Drop
+    # it from one panel and that panel keeps showing all terms while the others
+    # narrow — three panels that no longer share a view.
+    for title in ("Terms", "Group centroids"):
+        points = [layer for layer in _panel(spec, title)["layer"]
+                  if layer["mark"]["type"] == "circle"]
+        assert points, f"{title} draws no points"
+        for layer in points:
+            assert any("cohort_pick" in str(predicate) for predicate in _filters(layer)), (
+                f"{title}: a point layer ignores the cohort dropdown"
+            )
+
+
+def test_the_size_legend_is_drawn_once_and_under_the_left_panel():
+    from plot_interactive_scatter import build_chart, term_options
+
+    detail, members, centroids = _scatter_pieces()
+    spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
+    sized = [layer for layer in spec["hconcat"][0]["layer"]
+             if "size" in layer.get("encoding", {})]
+    assert len(sized) == 2
+
+    legends = [layer["encoding"]["size"].get("legend") for layer in sized]
+    titled = [legend for legend in legends if isinstance(legend, dict) and legend.get("title")]
+    assert len(titled) == 1, "a second size key would duplicate the legend"
+    # Vega-Lite hoists a concat's legends to the far RIGHT of the page by default,
+    # where a size key for the left panel reads as if it belonged to the gene panel.
+    assert titled[0]["orient"] == "bottom"
+    # Both layers must resolve to one scale, or the selected marker changes size
+    # when it becomes the selection.
+    scales = {str(layer["encoding"]["size"]["scale"]) for layer in sized}
+    assert len(scales) == 1, "the picked marker would jump to a different size scale"
+
+
+def test_axis_extents_are_padded_and_never_degenerate():
+    from plot_interactive_scatter import member_extent, padded_extent
+
+    lo, hi = padded_extent(pd.Series([0.0, 1.0]))
+    assert lo < 0.0 and hi > 1.0
+    # A page whose column has no range still needs a non-zero domain, or the scale
+    # collapses and every marker lands on one line.
+    assert padded_extent(pd.Series([2.0, 2.0])) == (1.0, 3.0)
+    assert member_extent(pd.DataFrame({"n_scored_members": [5.0, 5.0]})) == (5.0, 6.0)
 
 
 # --- redundancy network -----------------------------------------------------
