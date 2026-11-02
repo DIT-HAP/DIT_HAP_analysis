@@ -86,6 +86,15 @@ DONUT_GRID_HOST_GID = "donut-grid-host"
 # Category names longer than that are hyphen-wrapped before the n-count line.
 CENTER_LINE_MAX_CHARS = 15
 
+# Gap between the y axis and a bar's label, in data units (percent of the
+# plotted axis), so the text never sits on the axis line.
+BAR_LABEL_PAD_PCT = 1.5
+
+# Label grey: light enough to sit quietly on the bar fill, dark enough to stay
+# readable when a short bar ends before the label does and the rest lands on
+# white. Very near white: a short bar's tail is faint at full size.
+BAR_LABEL_COLOR = "#E8E8E8"
+
 
 def _wrap_center_text(center_text: str) -> str:
     """Wrap ``center_text`` so no line exceeds CENTER_LINE_MAX_CHARS.
@@ -97,6 +106,34 @@ def _wrap_center_text(center_text: str) -> str:
     return "\n".join(
         textwrap.wrap(center_text, width=CENTER_LINE_MAX_CHARS, break_long_words=False)
     )
+
+
+def _label_bars(
+    ax: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    percentage_column: str,
+    part_column: str,
+    whole_column: str,
+) -> None:
+    """Label every bar with ``pct (part/total)``, left-aligned next to the y axis.
+
+    The percentage alone does not say whether 58.7% is 44/75 or 440/750, so the
+    two counts ride along on the same line as the bar's value. Every label
+    starts in the same column at the axis, rather than each one hugging a
+    different bar tip, so the counts read down the page as one list.
+    """
+    x0 = ax.get_xlim()[0]
+    for index, row in df.reset_index(drop=True).iterrows():
+        part, whole = int(row[part_column]), int(row[whole_column])
+        ax.text(
+            x0 + BAR_LABEL_PAD_PCT, index,
+            f"{row[percentage_column]:.1f}% ({part:,}/{part + whole:,})",
+            # center_baseline, not center: "center" centres the layout box, whose
+            # descent reserves room the digits never use, so the glyphs ride
+            # high in the bar. This centres the digit body instead.
+            ha="left", va="center_baseline", color=BAR_LABEL_COLOR,
+        )
 
 
 # =============================================================================
@@ -119,9 +156,10 @@ def render_composition_figure(
 ) -> None:
     """Render a horizontal percentage bar chart plus one part/whole donut each.
 
-    Categories run down the y axis so long names stay readable; percentage
-    labels sit at the bar ends. Each donut carries its category name in the
-    hole instead of a title above, saving the vertical title band.
+    Categories run down the y axis so long names stay readable; each bar carries
+    its percentage and covered/total counts, aligned at the axis origin. Each
+    donut carries its category name in the hole instead of a title above,
+    saving the vertical title band.
     """
     logger.info("Rendering composition figure...")
 
@@ -152,7 +190,8 @@ def render_composition_figure(
     n_donut_rows = (n_categories + DONUTS_PER_ROW - 1) // DONUTS_PER_ROW
 
     # Panel A: horizontal percentage bars, categories down the y axis so long
-    # names stay readable; percentages annotate the bar ends.
+    # names stay readable; each bar is labelled with its percentage and
+    # covered/total counts, left-aligned at the axis.
     ax_bar = multipanel.panel(
         label=labels[0],
         width=BAR_PANEL_WIDTH_PX,
@@ -178,11 +217,13 @@ def render_composition_figure(
     ax_bar.set_xlabel(xlabel)
     ax_bar.set_title(title)
     ax_bar.set_xlim(0, 100)
-    for index, row in df.reset_index(drop=True).iterrows():
-        ax_bar.text(
-            row[percentage_column], index, f"{row[percentage_column]:.1f}%",
-            ha="left", va="center",
-        )
+
+    _label_bars(
+        ax_bar, df,
+        percentage_column=percentage_column,
+        part_column=part_column,
+        whole_column=whole_column,
+    )
 
     # Every mp.panel() call is done, so the host's rectangle is final. Draw
     # first: before the first draw the panel reserves are unmeasured and
