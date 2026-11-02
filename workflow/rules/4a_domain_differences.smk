@@ -9,16 +9,17 @@
 #
 # Per dataset: position every in-gene insertion along its spliced CDS, then cut
 # each gene's DR profile — ordered by CDS coordinate, not by genome coordinate —
-# into pieces of constant mean with TGUH (tail-greedy unbalanced Haar). A boundary
-# is called wherever two neighbouring pieces differ by more than the merge
-# threshold
+# into pieces of constant mean with TGUH as published (Fryzlewicz, Ann. Statist.
+# 2018). A boundary is called wherever the scaled detail between two neighbouring
+# pieces exceeds
 #
-#     lambda = z * sigma_gene + sigma_add
+#     lambda = C * sqrt(2(1+delta) log T) * sigma_gene + sigma_add
 #
 # with sigma_gene the robust point-to-point noise of that gene's own profile.
-# Both z and sigma_add are config (config.domain_differences). The scan is
-# unbiased: it reads no domain annotation at all, and the hand-curated termini in
-# resources/curated/ only ever serve as an outside check on what it found.
+# C, delta and sigma_add are config (config.domain_differences); the tail-greedy
+# quota rho is the paper's 0.01. The scan is unbiased: it reads no domain
+# annotation at all, and the hand-curated termini in resources/curated/ only ever
+# serve as an outside check on what it found.
 #
 # This stage is a rewrite of the experiments in tmp/domain_scan/ — the README there
 # documents every measurement behind the parameter choice (why by-site, why
@@ -41,7 +42,7 @@
 #
 # THE PERMUTATION RULE IS OFF BY DEFAULT. It is the stage's only expensive step
 # and its two p columns are reference numbers — the analysis is filtered by the
-# effect floor alone, so nothing downstream reads them and the figure never
+# merge threshold alone, so nothing downstream reads them and the figure never
 # depends on this rule. config.domain_differences.permutation_p.enabled decides
 # whether the rule is even defined, so with the default `false` a target naming
 # domain_permutation_p.tsv fails with MissingRuleException instead of quietly
@@ -70,7 +71,8 @@ _DOMAIN_WORK = f"{_DOMAIN}/_work"
 # same stage would not be a warning but a wrong result. Changing a key still
 # rebuilds everything downstream — Snakemake's default rerun-triggers include
 # `params`.
-_DOMAIN_Z = _DOMAIN_CFG.get("z", 1.5)
+_DOMAIN_PAPER_C = _DOMAIN_CFG.get("paper_c", 1.0)
+_DOMAIN_DELTA = _DOMAIN_CFG.get("delta", 0.01)
 _DOMAIN_SIGMA_ADD = _DOMAIN_CFG.get("sigma_add", 0.1)
 _DOMAIN_MIN_SEG = _DOMAIN_CFG.get("min_seg", 1)
 _DOMAIN_BY_SITE = _DOMAIN_CFG.get("by_site", True)
@@ -167,7 +169,8 @@ rule compute_domain_segments:
         ranges=f"{_DOMAIN_WORK}/segments.parquet",
     params:
         min_seg=_DOMAIN_MIN_SEG,
-        z=_DOMAIN_Z,
+        paper_c=_DOMAIN_PAPER_C,
+        delta=_DOMAIN_DELTA,
         sigma_add=_DOMAIN_SIGMA_ADD,
         site_flag=_DOMAIN_SITE_FLAG,
     log:
@@ -184,7 +187,8 @@ rule compute_domain_segments:
             --peptide-stats {input.peptide_stats} \
             --annotation {input.annotation} \
             --min-seg {params.min_seg} \
-            --z {params.z} \
+            --paper-c {params.paper_c} \
+            --delta {params.delta} \
             --sigma-add {params.sigma_add} \
             {params.site_flag} \
             --output-segments {output.segments} \

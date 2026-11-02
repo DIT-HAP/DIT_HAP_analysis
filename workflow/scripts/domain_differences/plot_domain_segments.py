@@ -14,9 +14,11 @@ A row is read like this:
   value the segmentation actually ran on.
 - the coloured horizontal bars are the segments, each drawn at its own ``mean_DR``;
   dashed verticals mark the boundaries.
-- the grey band is the merge threshold ``lambda = z * sigma_gene + sigma_add``,
-  centred on the gene's own level: a step that fits inside it is noise to this
-  rule, so a segment only means something if its bar sits outside the band.
+- the grey band is the merge threshold expressed in DR units, ``lambda_dr`` — the
+  paper's detail threshold ``C*sqrt(2(1+delta)lnT)*sigma_gene + sigma_add``
+  divided by ``c(nL, nR)``, taken at the median surviving boundary — centred on
+  the gene's own level: a step that fits inside it is noise to this rule, so a
+  segment only means something if its bar sits outside the band.
 - green shading marks the hand-curated non-essential region, where there is one.
 
 Every row carries that key itself, in one column beside the panel, and a two-line
@@ -255,13 +257,13 @@ def draw_panel(ax, row: pd.Series, segments: pd.DataFrame, raw: pd.DataFrame,
                  fontsize=plt.rcParams["font.size"] - 1.0)
     ax.axhline(0, color=LAMBDA_COLOR, lw=0.6, zorder=0)
 
-    lam = float(row["lambda"])
+    lam = float(row["lambda_dr"])
     level = float(sites["DR"].mean())
     if lam > 0:
         ax.axhspan(level - lam / 2, level + lam / 2, color=LAMBDA_COLOR, alpha=0.13, lw=0, zorder=1)
         for edge in (level - lam / 2, level + lam / 2):
             ax.axhline(edge, color=LAMBDA_COLOR, lw=0.8, ls=":", zorder=2)
-        ax.text(0.98, level + lam / 2, f"λ={lam:.2f}", transform=ax.get_yaxis_transform(),
+        ax.text(0.98, level + lam / 2, f"λ_DR={lam:.2f}", transform=ax.get_yaxis_transform(),
                 ha="right", va="bottom", color=SITE_MEAN_COLOR, fontsize=caption_size)
 
     for start, end in hand:
@@ -292,7 +294,7 @@ def draw_panel(ax, row: pd.Series, segments: pd.DataFrame, raw: pd.DataFrame,
         ranges += f"|+{len(segments) - SEGMENTS_SHOWN}"
     ax.text(0.02, 0.04,
             f"{row['name']}  segs={int(row['n_segments'])}  n_sites={int(row['n_sites'])}"
-            f"  σ={float(row['sigma_gene']):.2f}  λ={lam:.2f}\n"
+            f"  σ={float(row['sigma_gene']):.2f}  λ_DR={lam:.2f}\n"
             f"{ranges}  max|Δ|={float(row['max_boundary_contrast']):.2f}",
             transform=ax.transAxes, va="bottom", linespacing=1.3, fontsize=caption_size)
 
@@ -312,7 +314,7 @@ def legend_handles() -> list[Line2D]:
         Line2D([], [], marker="D", ls="", markerfacecolor="none",
                markeredgecolor=SITE_MEAN_COLOR, label="site mean (segmented on)"),
         Line2D([], [], color=SEGMENT_COLOR, lw=1.6, label="segment mean DR"),
-        Line2D([], [], color=LAMBDA_COLOR, lw=6, alpha=0.35, label="λ = z·σ + c band"),
+        Line2D([], [], color=LAMBDA_COLOR, lw=6, alpha=0.35, label="λ_DR at surviving boundaries"),
         Line2D([], [], color=HAND_COLOR, lw=6, alpha=0.35, label="hand-curated non-essential"),
     ]
 

@@ -2,23 +2,34 @@
 Intra-gene DR Segmentation — Algorithm
 ======================================
 
-Library module (no CLI, no file output) implementing TGUH: tail-greedy
-unbalanced Haar, i.e. bottom-up agglomeration of adjacent regions that merges the
-least-different adjacent pair first and stops at a threshold.
+Library module (no CLI, no file output) implementing TGUH as published
+(Fryzlewicz, Ann. Statist. 2018, 46:3390): tail-greedy unbalanced Haar, a
+bottom-up agglomeration of adjacent regions that merges the smallest detail first
+and stops at a noise-scaled threshold.
 
-Fryzlewicz's original stops at a noise-scaled threshold ``sigma*sqrt(2 log n)``.
-The threshold here is affine in the gene's own noise instead::
+The merge statistic is the paper's **scaled detail**::
 
-    lam = z * sigma_gene + sigma_add
+    d = sqrt(nL * nR / (nL + nR)) * (mean_L - mean_R)
 
-which keeps the per-gene adaptivity but adds an absolute floor. That floor is what
-does the work — ``sigma_gene`` has median 0.058 over the real universe, an order
-of magnitude below the 0.1 additive term, so the ``z`` term only tilts the rule
-against unusually noisy genes. See ``tmp/domain_scan/README.md``.
+A pair is merged while ``|d| <= lambda``. Under a constant signal with iid noise,
+``Var(d) = sigma^2`` for any pair of region sizes, so the ordering is
+size-comparable (the raw mean difference is not: its variance is
+``sigma^2 * (1/nL + 1/nR)``). The threshold is the paper's, plus one absolute
+floor on the detail scale::
 
-The merge statistic is the segment **mean** (the original TGUH detail coefficient
-is a mean difference times a size factor; ordering by the raw mean difference
-keeps the threshold in DR units).
+    lam = C * sqrt(2 * (1 + delta) * log T) * sigma_hat + sigma_add
+
+with the production values ``C = 1``, ``delta = 0.01`` and ``sigma_add = 0.1``.
+``sigma_hat`` is the MAD of first differences over ``sqrt(2)`` — the paper says
+"MAD estimate" but does not pin the formula, and this is the finest-scale TGUH
+detail. See ``tmp/domain_scan/README.md`` for the measurements behind the choice.
+
+The paper runs the full T-1-merge transform and applies *connected* thresholding
+(eq. 5). Merging only the sub-lambda details gives the same segmentation because
+a parent is formed after its children and never has a smaller ``|d|``; the
+prototype checked this against an independent implementation on all gene
+profiles and ~175k synthetic series. The paper's Stage 1/2 post-processing is
+off by default there and is not implemented here.
 
 Input
 -----
@@ -32,14 +43,14 @@ reliability columns.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-14
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import heapq
+import itertools
 
 # 2. Data Processing Imports
 import numpy as np
@@ -48,6 +59,9 @@ import numpy as np
 # GLOBAL CONSTANTS
 # =============================================================================
 MIN_SEG = 1
+PAPER_C = 1.0        # C in lam = C*sqrt(2(1+delta)*log T)*sigma + sigma_add
+PAPER_DELTA = 0.01   # the delta of the theory's threshold
+PAPER_RHO = 0.01     # tail-greedy: merge ceil(rho*alpha) pairs per scale
 
 # MAD is biased low at small n (E[1.4826*MAD_n] = c*sigma, c=0.67 at n=3, 0.93 at
 # n=10). Dividing it out is what makes the within-segment spread comparable across
@@ -68,9 +82,26 @@ def noise_sigma(x: np.ndarray) -> float:
     return 0.0 if len(d) == 0 else float(1.4826 * np.median(np.abs(d)) / np.sqrt(2))
 
 
-def merge_threshold(x: np.ndarray, z: float, sigma_add: float) -> float:
-    """The TGUH stop rule for one gene: ``lam = z * sigma_gene + sigma_add``."""
-    return max(0.0, z * noise_sigma(x) + sigma_add)
+def paper_lambda(x: np.ndarray, *, paper_c: float = PAPER_C,
+                 delta: float = PAPER_DELTA, sigma_add: float = 0.0) -> float:
+    """The paper's stop rule for one gene, in detail units.
+
+    ``lam = C*sqrt(2(1+delta)*lnT)*sigma + sigma_add``. The ``1e-12 * max|x|``
+    floor is not part of the formula: it keeps a noiseless series
+    (``sigma_hat == 0``) from reading float-rounding differences between equal
+    means as change points. Without it, ten -0.9s can fragment.
+    """
+    n = len(x)
+    if n < 2:
+        return 0.0
+    scale = paper_c * float(np.sqrt(2.0 * (1.0 + delta) * np.log(n)))
+    lam = scale * noise_sigma(x) + sigma_add
+    return max(lam, 1e-12 * float(np.max(np.abs(x))))
+
+
+def detail_weight(n_left: int, n_right: int) -> float:
+    """``sqrt(nL*nR/(nL+nR))``: turns a mean difference into the paper's detail units."""
+    return float(np.sqrt(n_left * n_right / (n_left + n_right)))
 
 
 def universe_floor(min_seg: int) -> int:
@@ -86,26 +117,29 @@ def universe_floor(min_seg: int) -> int:
 # =============================================================================
 # CORE LOGIC — TGUH
 # =============================================================================
-def tguh_tuned(x: np.ndarray, min_seg: int = MIN_SEG, *, z: float = 0.0,
+def tguh_paper(x: np.ndarray, min_seg: int = MIN_SEG, *, paper_c: float = PAPER_C,
+               delta: float = PAPER_DELTA, rho: float = PAPER_RHO,
                sigma_add: float = 0.0) -> list[tuple[int, int]]:
-    """TGUH segments of x (positions kept in original order).
+    """TGUH as published, with an optional minimum segment size.
 
-    Repeatedly merges the adjacent pair with the smallest |mean difference| while
-    that difference is below ``lam``, and stops at the first pair which is not.
-    ``min_seg`` forces a floor on segment size: a segment below it is merged into
-    whichever neighbour it differs from least, before the merge loop continues.
-    Any boundary the forced merges leave below ``lam`` is then dropped, re-checking
-    after each collapse because merging shifts the neighbouring means.
+    Merges the adjacent pair with the smallest scaled detail while that detail is
+    at most ``paper_lambda``. Tail-greedy merges at most ``ceil(rho * alpha)``
+    pairs per pass; on gene-length profiles that is one, so this is the plain
+    greedy loop. ``min_seg`` is the repo's addition, not the paper's: a short
+    region is forced into its more similar neighbour before the threshold is
+    consulted, and surviving boundaries are re-checked afterwards.
 
-    ``z=0, sigma_add=0`` makes the whole rule "merge everything", so a flat series
-    comes back as one segment rather than n singletons.
+    The paper's Stage 1/2 post-processing is disabled by default there and is not
+    implemented here. Merging only the sub-lambda details gives the same result as
+    its full transform plus connected thresholding (eq. 5): a parent forms after
+    its children and never has a smaller detail.
     """
     n = len(x)
     if n == 0:
         return []
-    lam = merge_threshold(x, z, sigma_add)
-    if lam <= 0:
-        return [(0, n)]
+    if n == 1:
+        return [(0, 1)]
+    lam = paper_lambda(x, paper_c=paper_c, delta=delta, sigma_add=sigma_add)
 
     start = list(range(n))
     end = [i + 1 for i in range(n)]
@@ -115,12 +149,14 @@ def tguh_tuned(x: np.ndarray, min_seg: int = MIN_SEG, *, z: float = 0.0,
     left = [i - 1 for i in range(n)]
     right = [i + 1 for i in range(n)]
     right[n - 1] = -1
+    alpha = n
 
     def mean(i: int) -> float:
         return ssum[i] / size[i]
 
-    def diff(i: int) -> float:
-        return abs(mean(i) - mean(right[i]))
+    def detail(i: int) -> float:
+        j = right[i]
+        return detail_weight(size[i], size[j]) * (mean(i) - mean(j))
 
     def merge(i: int) -> None:              # absorbs right[i] into i
         j = right[i]
@@ -133,47 +169,57 @@ def tguh_tuned(x: np.ndarray, min_seg: int = MIN_SEG, *, z: float = 0.0,
         if k != -1:
             left[k] = i
 
-    heap = [(diff(i), i) for i in range(n - 1)]
-    heapq.heapify(heap)
     while True:
-        short = [i for i in range(n) if alive[i] and size[i] < min_seg]
-        if short:
-            i = min(short, key=lambda k: size[k])
-            cands = [(abs(mean(i) - mean(left[i])), left[i])] if left[i] != -1 else []
-            if right[i] != -1:
-                cands.append((abs(mean(i) - mean(right[i])), right[i]))
-            if not cands:
+        if min_seg > 1:
+            short = [i for i in range(n) if alive[i] and size[i] < min_seg]
+            if short:
+                i = min(short, key=lambda k: size[k])
+                cands = ([(abs(mean(i) - mean(left[i])), left[i])]
+                         if left[i] != -1 else [])
+                if right[i] != -1:
+                    cands.append((abs(mean(i) - mean(right[i])), right[i]))
+                if not cands:
+                    break
+                j = min(cands)[1]
+                merge(min(i, j))
+                alpha -= 1
+                continue
+        pairs = []
+        i = 0
+        while i != -1:
+            j = right[i]
+            if j != -1:
+                d = abs(detail(i))
+                if d <= lam:
+                    pairs.append((d, i))
+            i = right[i]
+        if not pairs:
+            break
+        pairs.sort()
+        quota = max(1, int(np.ceil(rho * alpha)))
+        used, merged = set(), 0
+        for _, i in pairs:
+            if merged >= quota:
                 break
-            j = min(cands)[1]
-            merge(min(i, j))                 # adjacent -> lower index absorbs
-            if right[min(i, j)] != -1:
-                heapq.heappush(heap, (diff(min(i, j)), min(i, j)))
-            continue
-        if not heap:
-            break
-        d, i = heapq.heappop(heap)
-        if not alive[i] or right[i] == -1:
-            continue
-        if d != diff(i):                     # stale heap entry
-            heapq.heappush(heap, (diff(i), i))
-            continue
-        if d >= lam:                         # least-different pair already >= lam
-            break
-        merge(i)
-        if right[i] != -1:
-            heapq.heappush(heap, (diff(i), i))
-        li = left[i]
-        if li != -1 and right[li] != -1:
-            heapq.heappush(heap, (diff(li), li))
+            j = right[i]
+            if not alive[i] or j == -1 or i in used or j in used:
+                continue
+            merge(i)
+            used.update((i, j))
+            merged += 1
+            alpha -= 1
 
     segs = [(start[i], end[i]) for i in range(n) if alive[i]]
+    if min_seg == 1:
+        return segs
     changed = True
     while changed and len(segs) > 1:
         changed = False
-        means = [x[a:b].mean() for a, b in segs]
         for k in range(1, len(segs)):
-            if abs(means[k - 1] - means[k]) < lam:
-                segs[k - 1] = (segs[k - 1][0], segs[k][1])
+            (a, b), (c, d) = segs[k - 1], segs[k]
+            dt = abs(detail_weight(b - a, d - c) * (x[a:b].mean() - x[c:d].mean()))
+            if dt <= lam:
+                segs[k - 1] = (a, d)
                 segs.pop(k)
                 changed = True
                 break
@@ -315,15 +361,22 @@ def _check() -> None:
     assert all(mad_consistency(n) < mad_consistency(n + 1) for n in range(3, 63))
     assert mad_consistency(3) < 0.70 < mad_consistency(10) < mad_consistency(60) < 1.0
 
+    # the threshold is the published formula on the gene's own first-difference scale
+    x = np.array([0.0, 0.1, 0.2])
+    published = np.sqrt(2.0 * 1.01 * np.log(3)) * noise_sigma(x)
+    assert np.isclose(paper_lambda(x), published)
+    assert np.isclose(paper_lambda(x, sigma_add=0.1), published + 0.1)
+    assert np.isclose(detail_weight(3, 4), np.sqrt(12 / 7))
+
     # a flat series has no noise to scale the threshold by -> one segment, not n
     flat = np.full(12, -0.5)
-    assert tguh_tuned(flat, 1, z=1.5, sigma_add=0.1) == [(0, 12)]
+    assert tguh_paper(flat, 1, sigma_add=0.1) == [(0, 12)]
     assert universe_floor(1) == 4 and universe_floor(2) == 6
 
     # two clean levels -> the change point comes back with a large boundary z and a
     # small calibrated p; H stays low because 12 points of MAD is a noisy scale
     x = np.concatenate([np.full(12, -0.9), np.full(12, -0.1)]) + rng.normal(scale=0.05, size=24)
-    segs = tguh_tuned(x, 1, z=1.5, sigma_add=0.1)
+    segs = tguh_paper(x, 1, sigma_add=0.1)
     assert segs == [(0, 12), (12, 24)], segs
     metrics = segment_metrics(x, segs)
     assert np.isnan(metrics[0]["z_boundary"]) and metrics[1]["z_boundary"] > 5
@@ -331,15 +384,22 @@ def _check() -> None:
     assert per_seg[1] <= 0.01 and gene <= 1 / 401, (per_seg, gene)
     assert all(m["H"] < 1.5 for m in metrics), [m["H"] for m in metrics]
 
-    # the floor is what stops a two-point gene from ever being split: its only
-    # contrast is also its only difference, so lam = 1.5*1.048*|d| + 0.1 > |d|
+    # a two-point gene has only its one difference to estimate noise from, and the
+    # paper threshold is larger than that difference -> never split, hence the floor
     d = np.array([-0.9, 0.3])
-    assert len(tguh_tuned(d, 1, z=1.5, sigma_add=0.1)) == 1
+    assert len(tguh_paper(d, 1, sigma_add=0.1)) == 1
 
     # min_seg is enforced against live means, not just by growing one point
     ragged = np.array([-1.0, -0.95, 0.4, 0.45, 0.5, 0.55])
-    assert all(hi - lo >= 2 for lo, hi in tguh_tuned(ragged, 2, z=1.0, sigma_add=0.0))
-    print("OK  mad_consistency / merge threshold / min_seg / reliability / permutation p")
+    assert all(hi - lo >= 2 for lo, hi in tguh_paper(ragged, 2, sigma_add=0.1))
+
+    # the paper knobs: larger C and a larger floor may only coarsen the partition
+    noisy = rng.normal(size=20)
+    by_c = [len(tguh_paper(noisy, 1, paper_c=c)) for c in (0.5, 1.0, 1.5, 3.0)]
+    assert all(a >= b for a, b in itertools.pairwise(by_c)), by_c
+    by_add = [len(tguh_paper(noisy, 1, sigma_add=a)) for a in (0.0, 0.1, 0.3)]
+    assert all(a >= b for a, b in itertools.pairwise(by_add)), by_add
+    print("OK  mad_consistency / paper threshold / min_seg / reliability / permutation p")
 
 
 if __name__ == "__main__":

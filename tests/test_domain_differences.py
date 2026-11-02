@@ -1,11 +1,11 @@
 """Tests for the intra-gene DR segmentation stage (4a_domain_differences).
 
 The stage turns the release tables into one positioned DR profile per gene
-(workflow/src/domain_differences/core.py) and cuts each profile with a tuned TGUH
-(workflow/src/domain_differences/segmentation.py). The primitives below are what
-the three compute scripts are built from; the algorithm's own calibration — MAD
-consistency, the degenerate cases, the permutation p's — lives in
-segmentation._check() and is re-pinned here only where a script's contract
+(workflow/src/domain_differences/core.py) and cuts each profile with the
+published TGUH (workflow/src/domain_differences/segmentation.py). The primitives
+below are what the three compute scripts are built from; the algorithm's own
+calibration — MAD consistency, the degenerate cases, the permutation p's — lives
+in segmentation._check() and is re-pinned here only where a script's contract
 depends on it.
 
 The two failures worth remembering are both in core.py: a count that sliced by
@@ -31,10 +31,11 @@ from workflow.src.domain_differences.core import (
     segment_counts,
 )
 from workflow.src.domain_differences.segmentation import (
-    merge_threshold,
+    detail_weight,
     noise_sigma,
+    paper_lambda,
     region_contrasts,
-    tguh_tuned,
+    tguh_paper,
     universe_floor,
 )
 
@@ -289,11 +290,20 @@ def test_noise_sigma_is_the_adjacent_difference_scale():
     assert noise_sigma(np.array([0.0, 0.1, 0.2])) == pytest.approx(1.4826 * 0.1 / np.sqrt(2))
 
 
-def test_merge_threshold_is_affine_in_the_genes_own_noise():
-    """lam = z*sigma + sigma_add, floored at 0 so a negative z cannot invert the rule."""
+def test_paper_lambda_is_the_published_noise_scale():
+    """lam = C*sqrt(2(1+delta)*ln n)*sigma, plus the additive floor in detail units."""
     x = np.array([0.0, 0.1, 0.2])
-    assert merge_threshold(x, z=1.5, sigma_add=0.1) == pytest.approx(1.5 * noise_sigma(x) + 0.1)
-    assert merge_threshold(x, z=-5.0, sigma_add=0.1) == 0.0
+    published = np.sqrt(2 * 1.01 * np.log(3)) * noise_sigma(x)
+    assert paper_lambda(x, paper_c=1.0, delta=0.01) == pytest.approx(published)
+    assert paper_lambda(x, paper_c=1.0, delta=0.01, sigma_add=0.1) == pytest.approx(
+        published + 0.1)
+    assert paper_lambda(x, paper_c=2.0) == pytest.approx(2 * published)
+
+
+def test_detail_weight_turns_a_mean_difference_into_the_paper_unit():
+    """c(nL,nR)=sqrt(nL*nR/(nL+nR)); equal halves of 20 points -> sqrt(5)."""
+    assert detail_weight(10, 10) == pytest.approx(np.sqrt(5))
+    assert detail_weight(1, 23) == pytest.approx(np.sqrt(23 / 24))
 
 
 def test_universe_floor_is_two_segments_plus_a_margin():
@@ -302,24 +312,39 @@ def test_universe_floor_is_two_segments_plus_a_margin():
     assert universe_floor(2) == 6
 
 
-def test_threshold_without_a_floor_merges_everything():
-    """z=0, sigma_add=0 means 'merge everything', so a flat series is one segment, not n."""
-    assert tguh_tuned(np.full(12, -0.5), 1, z=0.0, sigma_add=0.0) == [(0, 12)]
+def test_a_flat_series_merges_instead_of_fragmenting():
+    """sigma=0 leaves only the 1e-12 guard, so every zero detail is a tie and collapses."""
+    assert tguh_paper(np.full(12, -0.5), 1, sigma_add=0.1) == [(0, 12)]
 
 
 def test_a_clean_step_is_found_and_a_two_point_gene_never_is():
     """Two flat levels at constant noise split at the change point; a two-point gene cannot.
 
     The two-point case is the reason the universe floor exists: with one
-    difference there is nothing to average, so sigma is that difference and
-    lam = 1.5 * 1.0486 * |d| + 0.1 always exceeds |d|.
+    difference there is nothing to average, so sigma is that difference and the
+    paper's threshold (plus the floor) always exceeds the one detail.
     """
     rng = np.random.default_rng(0)
     x = np.concatenate([np.full(12, -0.9), np.full(12, -0.1)]) + rng.normal(scale=0.05, size=24)
-    assert tguh_tuned(x, 1, z=1.5, sigma_add=0.1) == [(0, 12), (12, 24)]
+    assert tguh_paper(x, 1, sigma_add=0.1) == [(0, 12), (12, 24)]
 
     two_point = np.array([-0.9, 0.3])
-    assert len(tguh_tuned(two_point, 1, z=1.5, sigma_add=0.1)) == 1
+    assert len(tguh_paper(two_point, 1, sigma_add=0.1)) == 1
+
+
+def test_larger_paper_c_and_floor_only_coarsen_the_partition():
+    """Both knobs raise the threshold, so a gene can lose boundaries, never gain one."""
+    noisy = np.random.default_rng(1).normal(size=20)
+    by_c = [len(tguh_paper(noisy, 1, paper_c=c)) for c in (0.5, 1.0, 1.5, 3.0)]
+    by_add = [len(tguh_paper(noisy, 1, sigma_add=a)) for a in (0.0, 0.1, 0.3)]
+    assert by_c == sorted(by_c, reverse=True)
+    assert by_add == sorted(by_add, reverse=True)
+
+
+def test_min_seg_is_enforced_by_the_forced_merge_pass():
+    """A segment shorter than min_seg is absorbed, and the result keeps the floor."""
+    ragged = np.array([-1.0, -0.95, 0.4, 0.45, 0.5, 0.55])
+    assert all(hi - lo >= 2 for lo, hi in tguh_paper(ragged, 2, sigma_add=0.1))
 
 
 # ---------------------------------------------------------------------------

@@ -243,20 +243,24 @@ annotate:
 
 # --- Intra-gene DR segmentation (4a_domain_differences.smk) ---
 # Per dataset: position every in-gene insertion along its spliced CDS and cut each
-# gene's DR profile with TGUH, calling a boundary wherever two neighbouring pieces
-# differ by more than lambda = z * sigma_gene + sigma_add. sigma_gene is the robust
-# point-to-point noise of that gene's OWN profile, so the threshold scales with how
-# noisy the gene's insertions are; z is how many noise units a step must clear and
-# sigma_add is a flat floor under it, for the genes whose noise estimate collapses
-# to zero. The measurements behind these two numbers (and behind by_site/min_seg)
-# are in tmp/domain_scan/README.md.
+# gene's DR profile with TGUH as published (Fryzlewicz, Ann. Statist. 2018). The
+# merge threshold is
+#
+#     lambda = C * sqrt(2(1+delta) log T) * sigma_gene + sigma_add
+#
+# where sigma_gene is the robust point-to-point noise of that gene's OWN profile
+# and T is the number of points in it. C=1 and delta=0.01 are the paper's values;
+# sigma_add=0.1 is an absolute floor in DETAIL units (a mean difference times
+# sqrt(nL*nR/(nL+nR))), added because sigma_gene collapses on flat genes. The
+# floor and the variant choice are measured in tmp/domain_scan/README.md.
 domain_differences:
-  z: 1.5                     # noise multiple in lambda = z * sigma_gene + sigma_add
-  sigma_add: 0.1             # additive floor, in DR units
+  paper_c: 1.0               # C in lambda = C*sqrt(2(1+delta)logT)*sigma_gene + sigma_add
+  delta: 0.01                # delta in the paper threshold
+  sigma_add: 0.1             # additive floor, in detail units (not DR units)
   min_seg: 1                 # minimum sites per segment; the universe floor follows as 2 + 2*min_seg
   by_site: true              # average each site's Forward/Reverse pair before segmenting
   # The permutation p table: a separate rule, a separate file, OFF by default. It is
-  # the stage's only expensive step and the analysis filters on the effect floor
+  # the stage's only expensive step and the analysis filters on the merge threshold
   # alone, so its two p columns are reference numbers — nothing downstream reads
   # them. `enabled: false` means the rule is not defined at all; flip it to build
   # domain_permutation_p.tsv.
