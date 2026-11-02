@@ -47,16 +47,11 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 # 2. Data Processing Imports
-import numpy as np
-import pandas as pd
-
 # 3. Third-party Imports
 import cnsplots as cns
-from loguru import logger
-from matplotlib.axes import Axes
-from matplotlib.path import Path as MplPath
-
-from figures import (  # noqa: E402
+import numpy as np
+import pandas as pd
+from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
@@ -65,7 +60,10 @@ from figures import (  # noqa: E402
     house_colors,
     save_dual,
 )
-from verification.core import (  # noqa: E402
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.path import Path as MplPath
+from verification.core import (
     BASIC_BOXPLOT_CATEGORIES,
     BUCKET_COLUMN,
     CATEGORY_COLUMN,
@@ -78,10 +76,10 @@ from verification.core import (  # noqa: E402
     GRNA_FITTED_COLS,
     GRNA_RATE_COLUMN,
     GRNA_VALUE_COLS,
-    order_labels_present,
     UNVERIFIED_FAMILY,
     category_family,
     order_categories,
+    order_labels_present,
 )
 
 # =============================================================================

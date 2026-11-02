@@ -11,20 +11,19 @@ from workflow.src.coverage.core import (
     DETAIL_COLUMNS,
     DIMENSION_LABELS,
     IN_GENE_FILTER,
-    compute_insertion_coverage,
-    compute_gene_coverage,
-    compute_category_coverage,
-    coverage_dicts_from_stats_table,
-    build_stats_table,
     build_detailed_gene_table,
     build_fypo_unknown_table,
+    build_stats_table,
     build_undetermined_essentiality_table,
+    compute_category_coverage,
+    compute_gene_coverage,
+    compute_insertion_coverage,
+    coverage_dicts_from_stats_table,
     dr_dl_histogram_frame,
     resolve_duplicate_annotations,
     write_detailed_gene_excel,
 )
 from workflow.src.release_schema import read_gene_level
-
 
 # Real S. pombe systematic IDs (from results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet),
 # used in place of fabricated placeholder gene IDs across this file's fixtures.

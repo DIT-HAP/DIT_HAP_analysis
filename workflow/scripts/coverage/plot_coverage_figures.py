@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot Coverage Figures
@@ -50,7 +49,7 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from coverage.core import (  # noqa: E402
+from coverage.core import (
     COVERED_LABEL,
     DIMENSION_LABELS,
     DL_BINS,
@@ -63,10 +62,10 @@ from coverage.core import (  # noqa: E402
     dr_dl_histogram_frame,
     insertion_placement_frame,
 )
-from figure_render.composition import render_composition_figure  # noqa: E402
-from figure_render.histogram import render_grouped_histogram_figure  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from figure_render.composition import render_composition_figure
+from figure_render.histogram import render_grouped_histogram_figure
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # CONSTANTS

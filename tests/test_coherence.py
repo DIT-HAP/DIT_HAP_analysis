@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 
 from workflow.src.coherence.metrics import (
-    geometric_median,
     coherence_metrics,
     compute_distance_stats,
     compute_distance_zscore,
+    geometric_median,
     pairwise_distance,
     permutation_statistics,
 )

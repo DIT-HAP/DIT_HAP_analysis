@@ -10,10 +10,10 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import pytest
 
+from workflow.src.figure_render.verification import render_gene_depletion_curve_panel
 from workflow.src.verification.core import (
     CATEGORY_FAMILIES,
     CATEGORY_FAMILY,
@@ -35,7 +35,6 @@ from workflow.src.verification.core import (
     prepare_verification_data,
     select_group_outliers,
 )
-from workflow.src.figure_render.verification import render_gene_depletion_curve_panel
 
 
 def _make_gene_results():

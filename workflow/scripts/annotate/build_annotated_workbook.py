@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Build Annotated Coverage + Critical Genes Workbook
@@ -46,10 +45,9 @@ from loguru import logger
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from annotation.core import annotate_table  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from annotation.core import annotate_table
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # CONFIGURATION

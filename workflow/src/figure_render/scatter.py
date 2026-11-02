@@ -33,12 +33,6 @@ import cnsplots as cns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from loguru import logger
-from matplotlib.axes import Axes
-from matplotlib.collections import PathCollection
-from matplotlib.colors import Normalize
-from scipy.stats import pearsonr
-
 from figures import (
     FURNITURE_COLOR,
     apply_house_style,
@@ -49,6 +43,11 @@ from figures import (
     panel_labels,
     save_dual,
 )
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.collections import PathCollection
+from matplotlib.colors import Normalize
+from scipy.stats import pearsonr
 
 from ._point_density import point_density
 from ._schema import require_columns
@@ -161,7 +160,7 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     r, p = pearsonr(valid[x], valid[y])
 
     if p == 0.0 or p < 1e-9:
-        p_text = rf"$P < 1\mathrm{{E}}{{-}}9$"
+        p_text = r"$P < 1\mathrm{E}{-}9$"
     else:
         # Format as mantissa E exponent
         exponent = int(np.floor(np.log10(p)))

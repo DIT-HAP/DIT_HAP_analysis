@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Per-Variant Clustering (label generation)
@@ -54,9 +53,9 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet, write_parquet  # noqa: E402
-from clustering.candidates import FINAL_N_CLUSTERS, METHODS, cluster_one_method  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from clustering.candidates import FINAL_N_CLUSTERS, METHODS, cluster_one_method
+from io_table import read_parquet, write_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

@@ -21,6 +21,7 @@ Writes:
 """
 
 from pathlib import Path
+
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]

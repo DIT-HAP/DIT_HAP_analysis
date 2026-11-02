@@ -24,12 +24,12 @@ Usage
 # 1. Standard Library Imports
 from typing import Any
 
+# 3. Third-party Imports
+import matplotlib.pyplot as plt
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure

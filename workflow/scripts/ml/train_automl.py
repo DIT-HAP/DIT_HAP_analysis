@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 ML AutoML Analysis (mljar-supervised)
@@ -54,13 +53,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# 2. Data Processing Imports
-import numpy as np
-import pandas as pd
-
 # 3. Third-party Imports
 import joblib
 import matplotlib
+
+# 2. Data Processing Imports
+import numpy as np
+import pandas as pd
 from loguru import logger
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -68,12 +67,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import PowerTransformer
 
 # 4. Local Imports
-import sys
-from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

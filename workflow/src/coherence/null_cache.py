@@ -35,7 +35,6 @@ import numpy as np
 # 3. Third-party Imports
 from scipy.spatial.distance import pdist
 
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================

@@ -26,7 +26,6 @@ Usage
 # =============================================================================
 # 1. Standard Library Imports
 import hashlib
-import json
 import time
 from io import StringIO
 from pathlib import Path
@@ -38,15 +37,15 @@ import pandas as pd
 
 # 3. Third-party Imports
 import requests
+
+# 4. Local Imports
+from enrichment.ontology import OntologyData, load_ontology_data
 from goatools.anno.gaf_reader import GafReader
 from goatools.go_enrichment import GOEnrichmentRecord
 from goatools.goea.go_enrichment_ns import GOEnrichmentStudyNS
 from goatools.obo_parser import GODag
 from goatools.rpt.goea_nt_xfrm import get_goea_nts_prt
 from requests.exceptions import RequestException
-
-# 4. Local Imports
-from enrichment.ontology import OntologyData, load_ontology_data
 
 # =============================================================================
 # NETWORK CONSTANTS (STRING / REVIGO)

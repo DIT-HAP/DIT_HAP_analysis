@@ -8,16 +8,16 @@ import itertools
 
 import pandas as pd
 import pytest
-
 from deduplicate_terms import (
-    member_set,
-    jaccard_index,
-    candidate_pairs,
+    DedupConfig,
     build_clusters,
+    candidate_pairs,
     deduplicate,
     group_member_table,
-    DedupConfig,
+    jaccard_index,
+    member_set,
 )
+
 from workflow.src.coherence.fractions import moonlighting_fraction
 
 

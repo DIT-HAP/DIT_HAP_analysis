@@ -88,21 +88,20 @@ from scipy.stats import false_discovery_control
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from coherence.fractions import (  # noqa: E402
+from coherence.fractions import (
     paralog_fraction,
     paralog_ids_from_features,
 )
-from coherence.groups import build_groups  # noqa: E402,F401  (re-exported: tests import it here)
-from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from coherence.metrics import (  # noqa: E402
+from coherence.groups import build_groups
+from coherence.io import load_fitting_results, load_long_table
+from coherence.metrics import (
     coherence_metrics,
     compute_distance_stats,
     permutation_statistics,
 )
-from coherence.null_cache import load_null_cache, validate_null_cache  # noqa: E402
-from io_table import write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from coherence.null_cache import load_null_cache, validate_null_cache
+from io_table import write_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

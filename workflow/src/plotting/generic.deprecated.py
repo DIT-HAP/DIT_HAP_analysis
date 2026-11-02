@@ -29,11 +29,10 @@ Usage
 # IMPORTS
 # =============================================================================
 # 1. Data Processing Imports
-import numpy as np
-import pandas as pd
-
 # 2. Third-party Imports
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 

@@ -25,9 +25,7 @@ if str(_SRC_DIR) not in sys.path:
 import cnsplots as cns
 import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
-
-from figures import (  # noqa: E402
+from figures import (
     JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
     PANEL_SIZES_PX,
@@ -36,9 +34,10 @@ from figures import (  # noqa: E402
     panel_labels,
     save_dual,
 )
+from loguru import logger
 
-from ._schema import require_columns  # noqa: E402
-from .donut import draw_donut_panel  # noqa: E402
+from ._schema import require_columns
+from .donut import draw_donut_panel
 
 # =============================================================================
 # CONSTANTS

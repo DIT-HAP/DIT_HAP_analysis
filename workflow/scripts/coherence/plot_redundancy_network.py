@@ -85,12 +85,11 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 # work is behind a __main__ guard), which is also how tests/test_coherence_dedup.py
 # reaches it.
 sys.path.append(str(SCRIPT_DIR))
-from deduplicate_terms import jaccard_index, member_set  # noqa: E402
-from figures import FURNITURE_COLOR, house_colors  # noqa: E402
-from coherence.palette import source_colors  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from coherence.palette import source_colors
+from deduplicate_terms import jaccard_index, member_set
+from figures import FURNITURE_COLOR, house_colors
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

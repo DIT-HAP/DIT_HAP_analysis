@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
+from workflow.scripts.enrichment.enrich_one_ontology import OntologyConfig
+from workflow.scripts.enrichment.finalize_enrichment import FinalizeConfig
+from workflow.scripts.enrichment.prepare_genesets import PrepareConfig
 from workflow.src.enrichment.cluster_enrichment import (
     CLUSTER_COLUMN,
     ONTOLOGIES,
@@ -16,9 +19,6 @@ from workflow.src.enrichment.cluster_enrichment import (
     load_cluster_genesets,
     write_gene_lists,
 )
-from workflow.scripts.enrichment.prepare_genesets import PrepareConfig
-from workflow.scripts.enrichment.enrich_one_ontology import OntologyConfig
-from workflow.scripts.enrichment.finalize_enrichment import FinalizeConfig
 
 
 def _write_final_clusters(path, rows):

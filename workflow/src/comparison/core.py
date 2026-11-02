@@ -43,22 +43,21 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import squareform
 from scipy.stats import false_discovery_control, pearsonr, spearmanr
 
-import matplotlib
-
 matplotlib.use("Agg")  # headless: builders only write figures, never display
-import matplotlib.pyplot as plt  # noqa: E402
-from loguru import logger  # noqa: E402
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.cm import ScalarMappable  # noqa: E402
-from matplotlib.colors import Normalize  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.patches import Patch  # noqa: E402
+import matplotlib.pyplot as plt
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 
 # Project path setup: sibling src/ modules (figures, figure_render.*) import by
 # bare name, which needs workflow/src itself on sys.path.
@@ -66,7 +65,7 @@ _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in sys.path:
     sys.path.append(str(_SRC_DIR))
 
-from figures import (  # noqa: E402
+from figures import (
     apply_house_style,
     house_colors,
     panel_labels,

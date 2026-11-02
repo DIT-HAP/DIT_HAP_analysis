@@ -62,15 +62,15 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from coherence.groups import build_groups  # noqa: E402
-from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from coherence.null_cache import (  # noqa: E402
+from coherence.groups import build_groups
+from coherence.io import load_fitting_results, load_long_table
+from coherence.null_cache import (
     METHOD_KEYS,
     background_fingerprint,
     build_null_cache,
     save_null_cache,
 )
-from logging_setup import setup_logger  # noqa: E402
+from logging_setup import setup_logger
 
 
 # =============================================================================

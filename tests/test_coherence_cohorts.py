@@ -7,7 +7,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scrip
 
 import pandas as pd
 import pytest
-
 from io_table import write_parquet
 
 

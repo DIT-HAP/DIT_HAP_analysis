@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Compute Comparison Stats
@@ -36,13 +35,13 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from comparison.core import (  # noqa: E402
+from comparison.core import (
     compute_correlation_stats,
     select_fitness_columns,
     transform_fitness_columns,
 )
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

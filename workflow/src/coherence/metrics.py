@@ -30,7 +30,6 @@ import numpy as np
 from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist, pdist
 
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================

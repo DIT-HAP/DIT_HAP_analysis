@@ -32,14 +32,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# 3. Third-party Imports
-from loguru import logger
-
 # 4. Local Imports
 from coherence.metrics import DL_NORM_MAX, DR_NORM_MAX
 from coherence.sources import LONG_TABLE_COLUMNS
-from release_schema import normalize_legacy_metrics
 
+# 3. Third-party Imports
+from loguru import logger
+from release_schema import normalize_legacy_metrics
 
 # =============================================================================
 # GLOBAL CONSTANTS

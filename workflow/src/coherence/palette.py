@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
@@ -46,7 +45,7 @@ def source_colors(sources: Sequence[str] | None = None) -> dict[str, str]:
     # A source the map does not know takes the palette slot at its own position;
     # config, not this file, decides which sources exist, so an unmapped one should
     # still draw (in a distinct colour) rather than raise.
-    from figures import house_colors  # noqa: PLC0415 - see the module docstring
+    from figures import house_colors
 
     labels = list(sources) if sources is not None else list(SOURCE_ORDER)
     indices = [

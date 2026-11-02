@@ -12,7 +12,6 @@ then port to a notebook cell + (later) workflow/scripts/verification/build_found
 """
 from __future__ import annotations
 
-import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +21,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data  # noqa: E402
+from workflow.src.enrichment.ontology import OntologyDataConfig, load_ontology_data
 
 PIPE = Path("/data/c/yangyusheng_optimized/DIT_HAP_pipeline")
 POMBASE = REPO / "resources/external/pombase/2026-06-01"

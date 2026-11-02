@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Network-Level Feature Collection
@@ -47,10 +46,10 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet, write_parquet  # noqa: E402
-from enrichment.ontology import OntologyDataConfig, load_ontology_data  # noqa: E402
-from features.assembly import collect_network_level_features, read_coding_genes  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.ontology import OntologyDataConfig, load_ontology_data
+from features.assembly import collect_network_level_features, read_coding_genes
+from io_table import write_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

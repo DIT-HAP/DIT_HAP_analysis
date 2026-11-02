@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Prepare PCR QC Data
@@ -39,9 +38,9 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import write_parquet  # noqa: E402
-from pcr_qc.core import read_merged_reads  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from io_table import write_parquet
+from logging_setup import setup_logger
+from pcr_qc.core import read_merged_reads
 
 
 # =============================================================================

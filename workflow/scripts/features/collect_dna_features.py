@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 DNA-Level Feature Collection (the spine)
@@ -48,10 +47,10 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from features.assembly import collect_dna_level_features  # noqa: E402
-from features.genome import PombaseGenomeConfig, calculate_anticodon_usage_matrix  # noqa: E402
-from io_table import write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from features.assembly import collect_dna_level_features
+from features.genome import PombaseGenomeConfig, calculate_anticodon_usage_matrix
+from io_table import write_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

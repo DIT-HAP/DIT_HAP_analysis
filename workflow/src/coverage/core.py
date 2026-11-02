@@ -66,7 +66,6 @@ from loguru import logger
 # 4. Local Imports
 from release_schema import IN_GENE_FILTER
 
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================

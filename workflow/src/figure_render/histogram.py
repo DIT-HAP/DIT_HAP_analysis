@@ -24,13 +24,9 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from loguru import logger
-from matplotlib.axes import Axes
-
-from figures import (  # noqa: E402
+from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
@@ -40,8 +36,10 @@ from figures import (  # noqa: E402
     panel_labels,
     save_dual,
 )
+from loguru import logger
+from matplotlib.axes import Axes
 
-from ._schema import require_columns  # noqa: E402
+from ._schema import require_columns
 
 # =============================================================================
 # CONSTANTS

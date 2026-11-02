@@ -11,7 +11,6 @@ from workflow.src.coherence.sources import (
     LONG_TABLE_COLUMNS,
     load_gaf_namespace,
     load_gene_names,
-    load_macrocomplex,
     load_source,
 )
 

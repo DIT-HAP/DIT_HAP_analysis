@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot All Variant Clusters — one-page grid of every variant's final clusters
@@ -43,24 +42,24 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# 3. Third-party Imports
+import matplotlib
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
-# 3. Third-party Imports
-import matplotlib
-
 matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
-import matplotlib.pyplot as plt  # noqa: E402
-from loguru import logger  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
+import matplotlib.pyplot as plt
+from loguru import logger
+from matplotlib.backends.backend_pdf import PdfPages
 
 # 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from plotting.gene_level import plot_cluster_on_axis  # noqa: E402
+from logging_setup import setup_logger
+from plotting.gene_level import plot_cluster_on_axis
 
 
 # =============================================================================

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Verification Boxplots
@@ -31,13 +30,13 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet  # noqa: E402
-from figure_render.verification import (  # noqa: E402
+from figure_render.verification import (
     render_category_boxplot_figure,
     render_critical_group_figure,
 )
-from logging_setup import setup_logger  # noqa: E402
-from verification.core import (  # noqa: E402
+from io_table import read_parquet
+from logging_setup import setup_logger
+from verification.core import (
     CRITICAL_GROUPS,
     build_final_merged,
     critical_group_boxplot_data,

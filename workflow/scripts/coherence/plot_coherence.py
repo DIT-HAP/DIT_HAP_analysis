@@ -82,21 +82,20 @@ from typing import Any
 import cnsplots as cns
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
 
 # 3. Third-party Imports
 from loguru import logger
+from matplotlib.axes import Axes
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from figure_render.histogram import draw_histogram_panel  # noqa: E402
-from figures import apply_house_style, apply_log_scale, house_colors, save_dual  # noqa: E402
-from coherence.palette import SOURCE_ORDER, source_colors  # noqa: E402
-from io_table import read_file  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from coherence.palette import SOURCE_ORDER, source_colors
+from figure_render.histogram import draw_histogram_panel
+from figures import apply_house_style, apply_log_scale, house_colors, save_dual
+from io_table import read_file
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

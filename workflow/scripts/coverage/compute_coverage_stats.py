@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Compute Coverage Stats
@@ -54,9 +53,7 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from coverage.core import (  # noqa: E402
+from coverage.core import (
     DIMENSION_LABELS,
     build_detailed_gene_table,
     build_fypo_unknown_table,
@@ -69,6 +66,8 @@ from coverage.core import (  # noqa: E402
     write_detailed_gene_excel,
     write_unknown_annotation_excel,
 )
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot Domain Segments
@@ -73,27 +72,27 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-import cnsplots as cns  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
-from domain_differences.core import (  # noqa: E402
+import cnsplots as cns
+import matplotlib.pyplot as plt
+import pandas as pd
+from domain_differences.core import (
     TERM_ORDER,
     UNANNOTATED,
     collapse_sites,
     hand_region_map,
     read_gene_context,
 )
-from figures import (  # noqa: E402
+from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
     fit_panels,
     grid_axes,
 )
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from io_table import read_parquet
+from logging_setup import setup_logger
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.lines import Line2D
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

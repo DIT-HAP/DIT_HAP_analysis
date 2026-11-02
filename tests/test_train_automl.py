@@ -9,17 +9,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.src.io_table import write_parquet, read_parquet
-
-from workflow.src.ml.data import load_modeling_data
 from workflow.scripts.ml.prepare_ml_data import PrepareConfig
 from workflow.scripts.ml.train_automl import (
-    AutoMLConfig,
     FEATURE_COLUMNS,
+    AutoMLConfig,
     aggregate_feature_importance,
     evaluate,
+)
+from workflow.scripts.ml.train_automl import (
     load_modeling_data as load_modeling_data_pickle,
 )
+from workflow.src.io_table import write_parquet
+from workflow.src.ml.data import load_modeling_data
 
 
 def _cfg(tmp_path, target="DR", mode="Explain", **kw):

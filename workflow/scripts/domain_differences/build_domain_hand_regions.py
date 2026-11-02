@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Build Domain Hand Regions
@@ -64,8 +63,8 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from domain_differences.core import gene_name_to_sid, read_hand_regions  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from domain_differences.core import gene_name_to_sid, read_hand_regions
+from logging_setup import setup_logger
 
 
 # =============================================================================

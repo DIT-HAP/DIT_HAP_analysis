@@ -33,11 +33,11 @@ from pathlib import Path
 # 2. Data Processing Imports
 import pandas as pd
 
-# 3. Third-party Imports
-from loguru import logger
-
 # 4. Local Imports
 from enrichment.pipeline import revigo_analysis, stringdb_enrichment
+
+# 3. Third-party Imports
+from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

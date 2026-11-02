@@ -1,15 +1,16 @@
 """Tests for workflow/src/data_config.py registry loader and dataclasses."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from workflow.src.data_config import (
     InsertionLevelConfig,
-    GeneLevelConfig,
-    load_dataset_config,
-    list_dataset_names,
     default_dataset_name,
-    reference_pombase_version,
+    list_dataset_names,
+    load_dataset_config,
     reference_alphafold_dir,
+    reference_pombase_version,
 )
 
 

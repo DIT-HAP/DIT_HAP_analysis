@@ -39,14 +39,13 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+
 # =============================================================================
 # READING
 # =============================================================================
 def read_file(file: Path, **kwargs) -> pd.DataFrame:
     """Read a table into a DataFrame, dispatching on file extension (tsv/bed/csv/xlsx/parquet)."""
-    if "tsv" in file.name:
-        return pd.read_csv(file, sep="\t", **kwargs)
-    elif "bed" in file.name:
+    if "tsv" in file.name or "bed" in file.name:
         return pd.read_csv(file, sep="\t", **kwargs)
     elif "csv" in file.name:
         return pd.read_csv(file, sep=",", **kwargs)

@@ -81,9 +81,8 @@ from scipy.stats import false_discovery_control
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet, write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from io_table import read_parquet, write_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

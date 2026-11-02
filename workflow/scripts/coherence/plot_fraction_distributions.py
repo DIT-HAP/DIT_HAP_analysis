@@ -59,9 +59,9 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from coherence.fractions import MOONLIGHTING_QUANTILE  # noqa: E402
-from figure_render.histogram import draw_histogram_panel  # noqa: E402
-from figures import (  # noqa: E402
+from coherence.fractions import MOONLIGHTING_QUANTILE
+from figure_render.histogram import draw_histogram_panel
+from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
@@ -70,9 +70,8 @@ from figures import (  # noqa: E402
     panel_labels,
     save_dual,
 )
-from io_table import read_file  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from io_table import read_file
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

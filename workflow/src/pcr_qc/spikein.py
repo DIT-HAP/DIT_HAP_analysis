@@ -26,8 +26,7 @@ import numpy as np
 import pandas as pd
 
 # 2. Third-party Imports
-from loguru import logger  # noqa: E402
-
+from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

@@ -63,7 +63,11 @@ def test_compute_coherence_table_adds_q_value_column():
     [median_pairwise_distance_p_coherent, 1]. We build a few groups over a real background
     point cloud so the permutation test runs end-to-end.
     """
-    from compute_coherence import build_groups, compute_coherence_table, group_annotations
+    from compute_coherence import (
+        build_groups,
+        compute_coherence_table,
+        group_annotations,
+    )
 
     ids = [f"g{i}" for i in range(40)]
     bg = _background(ids)
@@ -111,7 +115,12 @@ def test_compute_coherence_table_paralog_fraction_uses_scored_members():
     ids, the id space that table is indexed by (NOT the `Name` display column), and
     it is left out entirely when no features table was passed.
     """
-    from compute_coherence import build_groups, compute_coherence_table, group_annotations
+    from compute_coherence import (
+        build_groups,
+        compute_coherence_table,
+        group_annotations,
+    )
+
     from workflow.src.coherence.fractions import paralog_ids_from_features
 
     bg = _background([f"g{i}" for i in range(10)])
@@ -156,7 +165,12 @@ def test_null_cache_reproduces_the_live_permutation_statistics():
     The cache is valid only because the null depends on n alone; this test builds
     both paths from the same background and seed and requires exact equality.
     """
-    from compute_coherence import build_groups, compute_coherence_table, group_annotations
+    from compute_coherence import (
+        build_groups,
+        compute_coherence_table,
+        group_annotations,
+    )
+
     from workflow.src.coherence.null_cache import null_for_n
 
     ids = [f"g{i}" for i in range(40)]

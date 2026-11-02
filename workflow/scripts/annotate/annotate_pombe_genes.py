@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Pombe Gene Table Annotation
@@ -66,9 +65,9 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from annotation.core import annotate_table, summarise_match  # noqa: E402
-from io_table import read_file, read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from annotation.core import annotate_table, summarise_match
+from io_table import read_file, read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

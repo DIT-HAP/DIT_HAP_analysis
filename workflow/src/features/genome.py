@@ -35,22 +35,24 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+# 3. Third-party Imports
+import gffutils
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-import gffutils
 import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqUtils import GC123, gc_fraction
 from codonbias.scores import EffectiveNumberOfCodons
 from loguru import logger
+
 
 # =============================================================================
 # GENOME LANDMARKS

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 STRING Network Enrichment
@@ -50,8 +49,9 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from enrichment.network import WT_CLUSTER, NetworkConfig, run_string_enrichment  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.network import WT_CLUSTER, NetworkConfig, run_string_enrichment
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # HELPERS

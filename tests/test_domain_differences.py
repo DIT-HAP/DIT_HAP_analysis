@@ -38,7 +38,6 @@ from workflow.src.domain_differences.segmentation import (
     universe_floor,
 )
 
-
 # ---------------------------------------------------------------------------
 # fixture builders — the release tables' key columns, in their real order
 # ---------------------------------------------------------------------------

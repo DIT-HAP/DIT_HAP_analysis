@@ -6,18 +6,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-import pytest
 
-from workflow.src.enrichment import pipeline
+from workflow.src.enrichment.network import NetworkConfig, annotate_go_with_revigo
 from workflow.src.enrichment.pipeline import (
     _cache_key,
     _cache_load,
     _cache_store,
     format_string_enrichment_results,
-    stringdb_enrichment,
     revigo_analysis,
+    stringdb_enrichment,
 )
-from workflow.src.enrichment.network import NetworkConfig, annotate_go_with_revigo
 
 
 def test_cache_key_is_deterministic_and_order_independent_per_arg():

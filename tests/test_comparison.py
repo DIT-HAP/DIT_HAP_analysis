@@ -3,8 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.cluster.hierarchy import is_valid_linkage, leaves_list, linkage
-
 from comparison.core import (
     CLIP_UPPER,
     DENSITY_COLUMNS,
@@ -26,6 +24,7 @@ from comparison.core import (
     select_fitness_columns,
     transform_fitness_columns,
 )
+from scipy.cluster.hierarchy import is_valid_linkage, leaves_list, linkage
 
 
 def test_clip_upper_constant():

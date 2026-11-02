@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 REVIGO GO Annotation
@@ -47,8 +46,14 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from enrichment.network import REVIGO_CUTOFFS, WT_CLUSTER, NetworkConfig, annotate_go_with_revigo  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.network import (
+    REVIGO_CUTOFFS,
+    WT_CLUSTER,
+    NetworkConfig,
+    annotate_go_with_revigo,
+)
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # HELPERS

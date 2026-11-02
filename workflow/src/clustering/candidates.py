@@ -42,11 +42,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# 4. Local Imports
+from io_table import read_file
+
 # 3. Third-party Imports
 from loguru import logger
 
 # 4. Local Imports
-from release_schema import LEGACY_METRIC_RENAME, normalize_legacy_metrics
+from release_schema import LEGACY_METRIC_RENAME
 from scipy.cluster.hierarchy import fcluster, linkage
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
@@ -55,9 +58,6 @@ from sklearn.metrics import (
     silhouette_score,
 )
 from sklearn.mixture import GaussianMixture
-
-# 4. Local Imports
-from io_table import read_file
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -113,7 +113,7 @@ def scale_features(
 ) -> pd.DataFrame:
     """Apply the notebook's bespoke scaling: clamp DR at dr_clamp (a floor), divide DL by dl_divisor; dropna defines the clustered set."""
     scaled_data = data_df[selected_features].dropna().copy()
-    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: x if x > dr_clamp else dr_clamp)
+    scaled_data["DR"] = scaled_data["DR"].apply(lambda x: max(dr_clamp, x))
     scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / dl_divisor)
     logger.info(f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features")
     return scaled_data

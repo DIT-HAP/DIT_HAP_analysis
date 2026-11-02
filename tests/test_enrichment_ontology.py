@@ -1,7 +1,9 @@
 """Tests for workflow/src/enrichment/ontology.py — OBO/GAF loading."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from workflow.src.enrichment.ontology import OntologyDataConfig
 
 POMBASE_DIR = Path("resources/external/pombase/2025-10-01")

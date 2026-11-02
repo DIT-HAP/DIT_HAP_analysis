@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Layout regression tests for the coherence figures.
 
@@ -33,10 +32,10 @@ import pytest
 
 pytest.importorskip("cnsplots")
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 # Overlaps shallower than this on both axes are grid-abutting artefacts, not defects.
 # Measured on the real figure: neighbouring panels D and E show an 8 px tightbbox
@@ -344,7 +343,6 @@ def test_fdr_label_text_does_not_overlap():
     the gap logic is never stressed and the assertion passes vacuously.
     """
     from matplotlib.text import Text
-
     from plot_coherence import plot_coherence
 
     n = 120  # per end, so ceil(5% * 120) = 6 > the cap of 5 on both sides
@@ -408,8 +406,8 @@ def test_comparison_layout_is_clean():
 
 
 def test_comparison_panel_c_has_one_colour_per_source_and_no_z_colourbar():
-    from plot_coherence import _source_series, plot_coherence
     from coherence.palette import source_colors
+    from plot_coherence import _source_series, plot_coherence
 
     sources = ["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway", "dedup"]
     table = _sourced_coherence_table(sources)

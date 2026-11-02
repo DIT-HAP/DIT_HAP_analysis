@@ -27,6 +27,7 @@ Writes: results/verification/HD_DIT_HAP/a3_novel_genes.tsv
 """
 
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -145,7 +146,7 @@ def a5_difference_explanation(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     cross = pd.crosstab(flips["essentiality_concordance"], flips["FYPOviability"])
-    print(f"\n[a5] flip × FYPOviability:")
+    print("\n[a5] flip × FYPOviability:")
     print(cross.to_string())
 
     cols = ["gene", "gene_name", "essentiality_concordance", "outcome",
@@ -157,7 +158,7 @@ def a5_difference_explanation(df: pd.DataFrame) -> pd.DataFrame:
     print(out["flip_reason"].value_counts().to_string())
 
     # Colony-area cross-validation: fraction of flips whose day6 growth agrees
-    print(f"\n=== colony-area cross-validation (independent growth axis) ===")
+    print("\n=== colony-area cross-validation (independent growth axis) ===")
     for grp in ["flip_V2E", "flip_E2V"]:
         g = out[out["essentiality_concordance"] == grp]
         print(f"  {grp}: {g['area_confirms_flip'].sum()}/{len(g)} confirmed by day6 area "

@@ -1,7 +1,9 @@
 """Tests for workflow/src/gene_ids.py systematic ID resolution."""
 
 import math
+
 import pandas as pd
+
 from workflow.src.gene_ids import update_sysIDs
 
 

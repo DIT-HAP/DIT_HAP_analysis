@@ -35,7 +35,6 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from matplotlib.axes import Axes
 
-
 # =============================================================================
 # CONSTANTS
 # =============================================================================

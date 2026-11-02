@@ -30,19 +30,20 @@ Usage
 import re
 from pathlib import Path
 
+# 3. Third-party Imports
+import matplotlib
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
-# 3. Third-party Imports
-import matplotlib
-
 matplotlib.use("Agg")  # headless: builders only write PDFs, never display
-import matplotlib.pyplot as plt  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+from loguru import logger
 
 # 4. Local Imports
-from release_schema import LEGACY_METRIC_RENAME  # noqa: E402
+from release_schema import LEGACY_METRIC_RENAME
+
 # Single-panel figure size and the categorical colour cycle, as matplotlib defines
 # them at import — the house style is applied later, inside run(), so these are the
 # stock values the retired plotting.style constants of the same name also captured.

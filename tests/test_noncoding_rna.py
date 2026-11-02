@@ -6,14 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-import numpy as np
-import pytest
 
 from workflow.src.noncoding_rna.core import (
-    normalize_chromosome_names,
-    merge_gtrnadb_by_position,
-    extract_tRNA_amino_acid_and_anticodon,
     compute_tRNA_copy_number,
+    extract_tRNA_amino_acid_and_anticodon,
+    merge_gtrnadb_by_position,
+    normalize_chromosome_names,
 )
 
 

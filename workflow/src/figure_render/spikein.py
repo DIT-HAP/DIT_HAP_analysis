@@ -15,9 +15,9 @@ Version:  3.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import cnsplots as cns
 import matplotlib.pyplot as plt
 import pandas as pd
-import cnsplots as cns
 from loguru import logger
 
 # The zero-dilution reference sample: no spike-in reads to be linear against.

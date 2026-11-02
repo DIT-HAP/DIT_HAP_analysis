@@ -15,7 +15,6 @@ from workflow.src.enrichment.ontology import (
     format_phaf_file,
 )
 from workflow.src.enrichment.pipeline import (
-    get_slim_ns2assoc,
     ontology_enrichment_pipeline,
 )
 

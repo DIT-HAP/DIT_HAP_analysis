@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Non-coding RNA Figures
@@ -29,17 +28,17 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+from loguru import logger
+from matplotlib.backends.backend_pdf import PdfPages
 
 # 3. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from noncoding_rna.core import plot_feature_type_donut, plot_trna_summary  # noqa: E402
+from io_table import read_parquet
+from logging_setup import setup_logger
+from noncoding_rna.core import plot_feature_type_donut, plot_trna_summary
 
 
 # =============================================================================

@@ -38,13 +38,11 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 import gffutils
-from loguru import logger
-from tqdm import tqdm
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 from features.genome import DNA_level_features, PombaseGenomeConfig
@@ -54,6 +52,8 @@ from features.protein import (
 )
 from gene_ids import update_sysIDs
 from io_table import read_parquet
+from loguru import logger
+from tqdm import tqdm
 
 # =============================================================================
 # GLOBAL CONSTANTS

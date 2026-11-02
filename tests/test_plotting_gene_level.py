@@ -14,11 +14,11 @@ import pandas as pd
 
 from workflow.src.plotting.gene_level import (
     CLUSTER_COLORS,
+    FITTED_VALUE_COLS,
     MULTI_COLORS,
     RAW_VALUE_COLS,
-    FITTED_VALUE_COLS,
-    visualize_cluster_on_feature_space,
     plot_groups_on_feature_space,
+    visualize_cluster_on_feature_space,
 )
 
 

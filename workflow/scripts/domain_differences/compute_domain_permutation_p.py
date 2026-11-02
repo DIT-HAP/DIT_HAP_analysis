@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Compute Domain Permutation P
@@ -64,10 +63,10 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from domain_differences.core import ordered_genes  # noqa: E402
-from domain_differences.segmentation import segment_permutation  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from domain_differences.core import ordered_genes
+from domain_differences.segmentation import segment_permutation
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

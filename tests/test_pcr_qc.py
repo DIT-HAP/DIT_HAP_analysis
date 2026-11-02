@@ -9,12 +9,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from workflow.src.data_config import MERGED_READS_SUBDIR, merged_reads_path
 from workflow.scripts.pcr_qc.prepare_pcr_qc_data import PCRQCConfig
+from workflow.src.data_config import MERGED_READS_SUBDIR, merged_reads_path
 
 
 # =============================================================================

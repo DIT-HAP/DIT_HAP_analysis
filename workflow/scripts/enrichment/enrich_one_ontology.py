@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Single-Ontology Cluster Enrichment
@@ -55,7 +54,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from enrichment.cluster_enrichment import (  # noqa: E402
+from enrichment.cluster_enrichment import (
     FDR_THRESHOLD,
     ONTOLOGIES,
     WT_CLUSTER,

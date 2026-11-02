@@ -5,14 +5,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from workflow.scripts.ml.prepare_features_targets import (
-    PrepConfig,
-    TARGET_FEATURES,
     SELECTED_FEATURES_AND_TRANSFORMATIONS,
+    TARGET_FEATURES,
+    PrepConfig,
     merge_features_targets,
     transform_data,
 )

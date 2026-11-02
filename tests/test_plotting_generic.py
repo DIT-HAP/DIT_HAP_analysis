@@ -10,7 +10,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-
 from workflow.src.plotting.generic import boxplot_with_violinplot
 
 

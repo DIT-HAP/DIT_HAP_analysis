@@ -1,8 +1,8 @@
 """Tests for workflow/src/io.py file-extension dispatch."""
 
+
 import pytest
-import pandas as pd
-from pathlib import Path
+
 from workflow.src.io_table import read_file
 
 

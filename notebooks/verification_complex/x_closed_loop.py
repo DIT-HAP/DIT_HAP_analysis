@@ -31,13 +31,13 @@ Output:
 
 import sys
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from workflow.src.coherence.metrics import geometric_median
 
 # Paths
 base = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis/.claude/worktrees/followup-analysis-expansion")
@@ -163,7 +163,7 @@ targets_out = targets.merge(enrich, on=["group_type", "group_name"], how="left")
 flip_v2e = long_target[long_target["outcome"] == "flip_V2E"]
 flip_e2v = long_target[long_target["outcome"] == "flip_E2V"]
 
-print(f"\n=== flip contrast ===")
+print("\n=== flip contrast ===")
 print(f"flip_V2E: n={len(flip_v2e)}, DR={flip_v2e['DR'].mean():.3f}±{flip_v2e['DR'].std():.3f}, DL={flip_v2e['DL'].mean():.2f}±{flip_v2e['DL'].std():.2f}")
 print(f"flip_E2V: n={len(flip_e2v)}, DR={flip_e2v['DR'].mean():.3f}±{flip_e2v['DR'].std():.3f}, DL={flip_e2v['DL'].mean():.2f}±{flip_e2v['DL'].std():.2f}")
 
@@ -175,17 +175,17 @@ long_target.to_csv(results / "closed_loop_genes_long.tsv", sep="\t", index=False
 print(f"[closed_loop_genes_long] ({long_target.shape[0]}, {long_target.shape[1]}) -> {results / 'closed_loop_genes_long.tsv'}")
 
 # (13) Summary stats
-print(f"\n=== enrichment signal distribution ===")
+print("\n=== enrichment signal distribution ===")
 print(targets_out["enrichment_signal"].value_counts())
 
-print(f"\n=== top 10 flip_peripheral groups (flip genes furthest from the geometric median) ===")
+print("\n=== top 10 flip_peripheral groups (flip genes furthest from the geometric median) ===")
 peripheral = targets_out[targets_out["enrichment_signal"] == "flip_peripheral"].sort_values("distance_delta", ascending=False).head(10)
 if len(peripheral) > 0:
     print(peripheral[["group_type", "group_name", "n_flip", "coherence_z", "distance_delta"]].to_string(index=False))
 else:
     print("(none)")
 
-print(f"\n=== top 10 flip_central groups (flip genes closest to the geometric median) ===")
+print("\n=== top 10 flip_central groups (flip genes closest to the geometric median) ===")
 central = targets_out[targets_out["enrichment_signal"] == "flip_central"].sort_values("distance_delta").head(10)
 if len(central) > 0:
     print(central[["group_type", "group_name", "n_flip", "coherence_z", "distance_delta"]].to_string(index=False))

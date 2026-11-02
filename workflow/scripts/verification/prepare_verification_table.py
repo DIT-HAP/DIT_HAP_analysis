@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Prepare Verification Tables
@@ -36,10 +35,10 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from release_schema import read_gene_level  # noqa: E402
-from verification.core import (  # noqa: E402
+from io_table import write_parquet
+from logging_setup import setup_logger
+from release_schema import read_gene_level
+from verification.core import (
     CATEGORY_WITH_ESSENTIALITY_COLUMN,
     apply_category_with_essentiality,
     load_deletion_library,

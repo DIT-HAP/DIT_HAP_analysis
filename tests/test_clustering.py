@@ -8,13 +8,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
 import pytest
+from workflow.scripts.clustering.select_candidate_clusters import (
+    SelectConfig,
+    combine_metrics,
+)
 
-from workflow.src.io_table import write_parquet, read_parquet
-
+from workflow.scripts.clustering.cluster_one_method import MethodConfig
+from workflow.scripts.clustering.finalize_auto_merge_clusters import (
+    FinalizeAutoMergeConfig,
+)
+from workflow.scripts.clustering.finalize_auto_merge_clusters import (
+    run as run_finalize_auto_merge,
+)
+from workflow.scripts.clustering.finalize_direct_clusters import FinalizeDirectConfig
+from workflow.scripts.clustering.finalize_direct_clusters import (
+    run as run_finalize_direct,
+)
+from workflow.scripts.clustering.finalize_grid_clusters import FinalizeGridConfig
+from workflow.scripts.clustering.finalize_grid_clusters import run as run_finalize_grid
+from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.src.clustering.candidates import (
     BEST_METHOD,
     DR_CLAMP,
-    DL_DIVISOR,
     METHODS,
     cluster_one_method,
     finalize_auto_merge,
@@ -24,12 +39,7 @@ from workflow.src.clustering.candidates import (
     scale_features,
     score_labels,
 )
-from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
-from workflow.scripts.clustering.cluster_one_method import MethodConfig
-from workflow.scripts.clustering.select_candidate_clusters import SelectConfig, combine_metrics
-from workflow.scripts.clustering.finalize_direct_clusters import FinalizeDirectConfig, run as run_finalize_direct
-from workflow.scripts.clustering.finalize_auto_merge_clusters import FinalizeAutoMergeConfig, run as run_finalize_auto_merge
-from workflow.scripts.clustering.finalize_grid_clusters import FinalizeGridConfig, run as run_finalize_grid
+from workflow.src.io_table import write_parquet
 
 
 def test_best_method_is_pinned_to_kmeans():

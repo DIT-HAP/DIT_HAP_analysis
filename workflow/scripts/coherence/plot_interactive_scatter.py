@@ -101,11 +101,10 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from coherence.io import load_fitting_results, load_long_table  # noqa: E402
-from figures import FURNITURE_COLOR, house_colors  # noqa: E402
-from io_table import read_file  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from coherence.io import load_fitting_results, load_long_table
+from figures import FURNITURE_COLOR, house_colors
+from io_table import read_file
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

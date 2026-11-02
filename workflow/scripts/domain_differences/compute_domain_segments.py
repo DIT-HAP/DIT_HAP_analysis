@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Compute Domain Segments
@@ -96,7 +95,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from domain_differences.core import (  # noqa: E402
+from domain_differences.core import (
     hand_region_map,
     hand_terms,
     ordered_genes,
@@ -104,15 +103,15 @@ from domain_differences.core import (  # noqa: E402
     read_protein_lengths,
     segment_counts,
 )
-from domain_differences.segmentation import (  # noqa: E402
+from domain_differences.segmentation import (
     merge_threshold,
     region_contrasts,
     segment_metrics,
     tguh_tuned,
     universe_floor,
 )
-from io_table import read_parquet, write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from io_table import read_parquet, write_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

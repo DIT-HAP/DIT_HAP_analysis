@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Prepare Fitness Table
@@ -54,12 +53,12 @@ from loguru import logger
 # 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet, write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from comparison.core import (  # noqa: E402
+from comparison.core import (
     CLIP_UPPER,
     build_fitness_table,
 )
+from io_table import read_parquet, write_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

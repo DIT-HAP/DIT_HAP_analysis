@@ -49,7 +49,7 @@ import pandas as pd
 from loguru import logger
 
 # 4. Local Imports
-from release_schema import GRNA_METRIC_SIGN, read_gene_level
+from release_schema import GRNA_METRIC_SIGN
 
 # =============================================================================
 # GLOBAL CONSTANTS

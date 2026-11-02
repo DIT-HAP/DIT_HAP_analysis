@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Gene Annotation Reference Construction
@@ -69,7 +68,7 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from annotation.core import (  # noqa: E402
+from annotation.core import (
     VALID_GENE_TYPES,
     add_gene_status_column,
     assemble_annotation_reference_split,
@@ -89,11 +88,10 @@ from annotation.core import (  # noqa: E402
     read_sgd_phenotype_data,
     report_gene_status_summary,
 )
-from enrichment.ontology import OntologyDataConfig, load_ontology_data  # noqa: E402
-from enrichment.pipeline import get_slim_ns2assoc  # noqa: E402
-from io_table import read_file, write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from enrichment.ontology import OntologyDataConfig, load_ontology_data
+from enrichment.pipeline import get_slim_ns2assoc
+from io_table import read_file, write_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES

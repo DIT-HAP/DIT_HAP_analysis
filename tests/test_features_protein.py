@@ -1,12 +1,14 @@
 """Tests for workflow/src/features/protein.py — peptide + pLDDT feature extraction."""
 
 import gzip
-import pytest
 from pathlib import Path
+
+import pytest
+
 from workflow.src.features.protein import (
     calculate_aliphatic_index_biopython,
-    extract_protein_features_from_peptide_sequence,
     extract_pLDDT_pdb_gz,
+    extract_protein_features_from_peptide_sequence,
     pLDDT_statistics_report,
 )
 

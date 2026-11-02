@@ -134,7 +134,6 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
-
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
@@ -205,13 +204,15 @@ class DedupConfig:
 # =============================================================================
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from logging_setup import setup_logger  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from coherence.fractions import (  # noqa: E402
+from coherence.fractions import (
     MOONLIGHTING_QUANTILE,
     moonlighting_fraction,
     view_breadth,
 )
+from io_table import read_parquet
+from logging_setup import setup_logger
+
+
 # =============================================================================
 # CORE LOGIC — redundancy graph (member overlap)
 # =============================================================================
@@ -367,7 +368,9 @@ def pick_representative(cluster_rows: pd.DataFrame, forced: set[str]) -> tuple[i
 def load_dag_depth(obo: Path, group_ids: list[str]) -> dict[str, int]:
     """Load the GO DAG once -> {gid: depth}."""
     # Terms absent from the DAG get depth 0 (they only rank last in the tiebreak).
-    from goatools.obo_parser import GODag  # imported here: only this rule's env has goatools
+    from goatools.obo_parser import (
+        GODag,  # imported here: only this rule's env has goatools
+    )
 
     dag = GODag(str(obo), prt=None)
     depth: dict[str, int] = {}

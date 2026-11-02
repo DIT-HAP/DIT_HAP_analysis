@@ -39,14 +39,11 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
 import pandas as pd
-
-# 3. Third-party Imports
-from loguru import logger
 
 # 4. Local Imports
 from enrichment.ontology import (
@@ -61,6 +58,9 @@ from enrichment.pipeline import (
     ontology_enrichment,
 )
 from io_table import read_file
+
+# 3. Third-party Imports
+from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

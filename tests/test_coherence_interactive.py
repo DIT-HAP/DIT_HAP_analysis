@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Tests for the two interactive Altair pages.
 
@@ -20,8 +19,8 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "workflow" / "src"))
 sys.path.insert(0, str(_REPO_ROOT / "workflow" / "scripts" / "coherence"))
 
-import pandas as pd  # noqa: E402
-import pytest  # noqa: E402
+import pandas as pd
+import pytest
 
 pytest.importorskip("altair")
 pytest.importorskip("networkx")
@@ -60,7 +59,13 @@ def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
 def _scatter_pieces() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """(gene detail, members, centroids) — the frames run() hands to build_chart."""
-    from plot_interactive_scatter import centroid_table, cohort_labels, gene_detail, member_table, term_labels
+    from plot_interactive_scatter import (
+        centroid_table,
+        cohort_labels,
+        gene_detail,
+        member_table,
+        term_labels,
+    )
 
     metrics, long_table, fitting = _scatter_frames()
     metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
@@ -182,7 +187,13 @@ def test_pooled_terms_are_prefixed_with_their_source():
 
 
 def test_pooled_members_join_on_source_as_well_as_group_id():
-    from plot_interactive_scatter import centroid_table, cohort_labels, gene_detail, member_table, term_labels
+    from plot_interactive_scatter import (
+        centroid_table,
+        cohort_labels,
+        gene_detail,
+        member_table,
+        term_labels,
+    )
 
     metrics, long_table, fitting = _pooled_frames()
     metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
@@ -200,7 +211,12 @@ def test_pooled_members_join_on_source_as_well_as_group_id():
 
 
 def test_pooled_view_drops_the_other_sources_genes():
-    from plot_interactive_scatter import cohort_labels, gene_detail, member_table, term_labels
+    from plot_interactive_scatter import (
+        cohort_labels,
+        gene_detail,
+        member_table,
+        term_labels,
+    )
 
     metrics, long_table, fitting = _pooled_frames()
     metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
@@ -483,7 +499,7 @@ def test_overview_names_only_representatives(tmp_path):
     out = tmp_path / "overview.html"
     write_overview(nodes, edges, out)
     page = out.read_text()
-    drawn = json.loads(re.search(r"nodes\s*=\s*new vis\.DataSet\((\[.*?\])\);", page, re.S).group(1))
+    drawn = json.loads(re.search(r"nodes\s*=\s*new vis\.DataSet\((\[.*?\])\);", page, re.DOTALL).group(1))
 
     # pyvis substitutes the node id for a falsy label, so an unfixed page comes back
     # with every absorbed term labelled "go_cc:t2" — 1,944 of them in the real run.
@@ -550,7 +566,6 @@ def test_pull_in_lonely_only_moves_the_clusters_with_no_relatives():
     import math
 
     import networkx as nx
-
     from plot_redundancy_network import pull_in_lonely
 
     graph = nx.Graph()

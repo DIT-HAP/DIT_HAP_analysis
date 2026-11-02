@@ -52,6 +52,7 @@ from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from loguru import logger
 from tqdm import tqdm
 
+
 # =============================================================================
 # CORE LOGIC — peptide-sequence features
 # =============================================================================

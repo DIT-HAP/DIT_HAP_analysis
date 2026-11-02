@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Enrichment Preprocessing (the spine)
@@ -58,9 +57,14 @@ from loguru import logger
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from enrichment.cluster_enrichment import CLUSTER_COLUMN, WT_CLUSTER, load_cluster_genesets, write_gene_lists  # noqa: E402
-from enrichment.ontology import GeneMetaConfig  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.cluster_enrichment import (
+    CLUSTER_COLUMN,
+    WT_CLUSTER,
+    load_cluster_genesets,
+    write_gene_lists,
+)
+from enrichment.ontology import GeneMetaConfig
+from logging_setup import setup_logger
 
 
 # =============================================================================

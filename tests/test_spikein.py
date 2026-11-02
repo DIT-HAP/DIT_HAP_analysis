@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 
 from workflow.src.pcr_qc.spikein import (
+    SPIKE_IN_RATIO,
     assign_ratio_by_order,
     build_spike_sites_df,
-    SPIKE_IN_RATIO,
 )
-
 
 SPIKE_IN_RATIO_EXPECTED = np.array([1.5, 4, 16, 64, 256, 1024]) / 100000
 

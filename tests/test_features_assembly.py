@@ -8,8 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
-from workflow.src.io_table import write_parquet, read_parquet
-
+from workflow.scripts.features.collect_dna_features import DnaConfig
+from workflow.scripts.features.collect_rna_features import RnaConfig
+from workflow.scripts.features.merge_features import MergeConfig
 from workflow.src.features.assembly import (
     count_paralogs,
     get_ortholog_counts,
@@ -20,9 +21,7 @@ from workflow.src.features.assembly import (
     read_coding_genes,
     read_deletion_library_paralogs,
 )
-from workflow.scripts.features.collect_dna_features import DnaConfig
-from workflow.scripts.features.collect_rna_features import RnaConfig
-from workflow.scripts.features.merge_features import MergeConfig
+from workflow.src.io_table import write_parquet
 
 
 def test_get_ortholog_counts_counts_pipe_separated_entries(tmp_path):

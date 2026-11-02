@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 PCR / Library-Prep Quality Control Figure
@@ -58,17 +57,17 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from figures import (  # noqa: E402
-    apply_house_style,
-    grid_axes,
-    fit_panels,
-    save_dual,
+from figure_render.scatter import ScatterPanel, render_scatter_panel
+from figure_render.spikein import render_spikein_panel
+from figures import (
     PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    save_dual,
 )
-from figure_render.scatter import ScatterPanel, render_scatter_panel  # noqa: E402
-from figure_render.spikein import render_spikein_panel  # noqa: E402
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

@@ -20,7 +20,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from workflow.src.coherence.attribution import (  # noqa: E402
+from workflow.src.coherence.attribution import (
     attribute_incoherence,
     major_minor_split,
     shared_subunit_fractions,

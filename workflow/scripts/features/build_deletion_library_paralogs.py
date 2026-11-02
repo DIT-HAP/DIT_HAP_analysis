@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Deletion-Library Paralogues -> Long Table
@@ -54,9 +53,9 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import write_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from features.assembly import parse_deletion_library_paralogs  # noqa: E402
+from features.assembly import parse_deletion_library_paralogs
+from io_table import write_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

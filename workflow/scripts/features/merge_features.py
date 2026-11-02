@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Feature Matrix Merge
@@ -47,17 +46,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet, write_parquet  # noqa: E402
-from features.assembly import load_gene_meta, merge_all_features  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from features.assembly import load_gene_meta, merge_all_features
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

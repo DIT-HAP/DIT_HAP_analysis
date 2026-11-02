@@ -1,7 +1,9 @@
 """Tests for workflow/src/features/genome.py — DNA-level feature extraction."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from workflow.src.features.genome import (
     determine_primary_candidate,
     load_genome_landmarks,
@@ -55,7 +57,8 @@ def test_pombase_genome_config_loads_real_data():
 def test_dna_level_features_for_one_known_gene(tmp_path):
     """DNA_level_features.from_gffutils_feature reproduces the known SPAC1002.01 record."""
     import gffutils
-    from workflow.src.features.genome import PombaseGenomeConfig, DNA_level_features
+
+    from workflow.src.features.genome import DNA_level_features, PombaseGenomeConfig
 
     cfg = PombaseGenomeConfig.from_pombase_dir(POMBASE_DIR, GENOME_LANDMARKS)
     db_path = tmp_path / "test.db"

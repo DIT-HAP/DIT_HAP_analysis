@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Verification Depletion Curves
@@ -33,11 +32,11 @@ from loguru import logger
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from io_table import read_parquet  # noqa: E402
-from figure_render.verification import render_depletion_curves_figure  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-from release_schema import read_gene_level  # noqa: E402
-from verification.core import (  # noqa: E402
+from figure_render.verification import render_depletion_curves_figure
+from io_table import read_parquet
+from logging_setup import setup_logger
+from release_schema import read_gene_level
+from verification.core import (
     CRITICAL_GROUPS,
     load_grna_timepoints,
     select_group_outliers,
