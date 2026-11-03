@@ -55,6 +55,20 @@ clustering:
     grid9:                {type: grid,         dr_cuts: [-0.8, -0.4], dl_cuts: [0.05, 0.3]}
   selected_variant: kmeans_direct9   # variant ml.smk reads (equiv. old finalize_mode: auto)
   selected_variant_overrides: {}     # per-dataset override, e.g. {HD_DIT_HAP: kmeans_merge9_manual}
+  # --- Grid search: methods x k sweep on the same scaled (DR, DL) matrix ---
+  # The redesigned comparison stage: every method at every k in the range, labels
+  # DR-ascending (1 = most depleted), QC metrics per (method, k). cluster_grid
+  # writes _work/{grid_labels.parquet,k_selection_metrics.tsv,k_selection_profile.tsv};
+  # plot rules render clusters_grid.pdf (one page per k, one panel per method) and
+  # k_selection.pdf (QC panels); finalize_grid_search emits the chosen partition.
+  grid:
+    methods: [kmeans, kmedoids, HC_ward, HC_complete, HC_average]
+    k_min: 4             # sweep lower bound (continuous, step 1)
+    k_max: 15            # sweep upper bound
+    col_num: 3           # subplot columns per clusters_grid page
+  grid_finalize:
+    method: kmeans       # selected from QC + clusters_grid review
+    k: 9                 # selected cluster count (WT = enrichment.wt_cluster = 9)
 
 # --- Ontology enrichment (enrichment.smk) ---
 enrichment:

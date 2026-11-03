@@ -49,7 +49,7 @@ wildcard_constraints:
 # and library directories keep the unprefixed stage name (workflow/scripts/
 # coherence/, workflow/src/coherence/).
 #
-# Included in prefix order. clustering.smk must stay ahead of enrichment /
+# Included in prefix order. 3b_clustering.smk must stay ahead of enrichment /
 # ml / comparison — they call its selected_variant() / final_clusters_path();
 # 1c_annotate.smk must stay ahead of 2a_coverage.smk — coverage reads _ANNOT_REF.
 include: "workflow/rules/1a_pcr_qc.smk"

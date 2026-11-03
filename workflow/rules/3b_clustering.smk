@@ -410,3 +410,189 @@ rule plot_all_variants_grid:
             --dataset {wildcards.dataset} \
             --output {output.scatter} &> {log}
         """
+
+
+# =============================================================================
+# Grid search: methods x k sweep on the same scaled (DR, DL) matrix
+# =============================================================================
+# The redesigned comparison stage. One sweep job computes every method at every
+# k (hierarchical linkages build their tree once and cut it at each k); plotting
+# and finalize then read the sweep's three artifacts. Unlike the variants above,
+# there is no fan-out — the grid IS the comparison.
+_GRID = _CLUSTERING.get("grid", {})
+_GRID_METHODS = _GRID.get("methods", ["kmeans", "kmedoids", "HC_ward", "HC_complete", "HC_average"])
+_GRID_K_MIN = _GRID.get("k_min", 4)
+_GRID_K_MAX = _GRID.get("k_max", 15)
+_GFINAL = _CLUSTERING.get("grid_finalize", {})
+_GFINAL_METHOD = _GFINAL.get("method", "kmeans")
+_GFINAL_K = _GFINAL.get("k", _FINAL_N)
+
+
+rule cluster_grid_search:
+    input:
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+    output:
+        labels=f"{_CWORK}/grid_labels.parquet",
+        metrics=f"{_CWORK}/k_selection_metrics.tsv",
+        profile=f"{_CWORK}/k_selection_profile.tsv",
+    params:
+        methods=_GRID_METHODS,
+        k_min=_GRID_K_MIN,
+        k_max=_GRID_K_MAX,
+        random_state=_CLUSTERING.get("random_state", 42),
+    log:
+        "logs/clustering/cluster_grid_search_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] Grid search: {params.methods} x k={params.k_min}..{params.k_max} for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/compute_clustering_grid.py \
+            --annotated {input.annotated} \
+            --scaled {input.scaled} \
+            --output-labels {output.labels} \
+            --output-metrics {output.metrics} \
+            --output-profile {output.profile} \
+            --methods {params.methods} \
+            --k-min {params.k_min} \
+            --k-max {params.k_max} \
+            --random-state {params.random_state} &> {log}
+        """
+
+
+rule plot_clusters_grid:
+    input:
+        labels=f"{_CWORK}/grid_labels.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        curated=_GRID.get("curated", "tmp/manual_curated_clusters.tsv"),
+    output:
+        # One PDF per k (stem + _k<k>), not a merged multipage figure.
+        scatter=touch("results/clustering/{dataset}/clusters_grid_plots.done"),
+    params:
+        stem="results/clustering/{dataset}/clusters_grid",
+        dataset=lambda wc: wc.dataset,
+        reference_k=_GFINAL_K,
+        col_num=_GRID.get("col_num", 3),
+    log:
+        "logs/clustering/plot_clusters_grid_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting per-k method grids for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_clusters_grid.py \
+            --labels {input.labels} \
+            --scaled {input.scaled} \
+            --annotated {input.annotated} \
+            --output-stem {params.stem} \
+            --dataset {params.dataset} \
+            --reference-k {params.reference_k} \
+            --curated {input.curated} \
+            --col-num {params.col_num} &> {log}
+        """
+
+
+rule plot_k_selection:
+    input:
+        metrics=f"{_CWORK}/k_selection_metrics.tsv",
+    output:
+        figure="results/clustering/{dataset}/k_selection.pdf",
+    params:
+        k_reference=_GFINAL_K,
+        col_num=_GRID.get("ksel_col_num", 3),
+    log:
+        "logs/clustering/plot_k_selection_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting k-selection QC panels for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_k_selection.py \
+            --metrics {input.metrics} \
+            --output {output.figure} \
+            --k-reference {params.k_reference} \
+            --col-num {params.col_num} &> {log}
+        """
+
+
+rule plot_cluster_genealogy:
+    input:
+        labels=f"{_CWORK}/grid_labels.parquet",
+    output:
+        figure="results/clustering/{dataset}/cluster_genealogy.pdf",
+    params:
+        col_num=_GRID.get("col_num", 3),
+    log:
+        "logs/clustering/plot_cluster_genealogy_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting per-method cluster genealogy alluvials for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_cluster_sizes.py \
+            --labels {input.labels} \
+            --output {output.figure} \
+            --col-num {params.col_num} &> {log}
+        """
+
+
+rule plot_clustering_distribution:
+    input:
+        annotated=f"{_CWORK}/annotated_data.parquet",
+        scaled=f"{_CWORK}/scaled_data.parquet",
+    output:
+        stats="results/clustering/{dataset}/distribution_stats.tsv",
+        figure="results/clustering/{dataset}/distribution.pdf",
+    params:
+        bins=_GRID.get("distribution_bins", 60),
+    log:
+        "logs/clustering/plot_clustering_distribution_{dataset}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [clustering] Plotting DR/DL input-space diagnostics for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/plot_clustering_distribution.py \
+            --annotated {input.annotated} \
+            --scaled {input.scaled} \
+            --output-stats {output.stats} \
+            --output-figure {output.figure} \
+            --bins {params.bins} &> {log}
+        """
+
+
+rule finalize_grid_search:
+    input:
+        labels=f"{_CWORK}/grid_labels.parquet",
+        metrics=f"{_CWORK}/k_selection_metrics.tsv",
+        annotated=f"{_CWORK}/annotated_data.parquet",
+    output:
+        clusters="results/clustering/{dataset}/grid_search/final_clusters.tsv",
+        metrics="results/clustering/{dataset}/grid_search/metrics.tsv",
+    params:
+        method=_GFINAL_METHOD,
+        k=_GFINAL_K,
+    log:
+        "logs/clustering/finalize_grid_search_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [clustering] finalize_grid_search {params.method} k={params.k} for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/clustering/finalize_grid_search.py \
+            --labels {input.labels} \
+            --metrics {input.metrics} \
+            --annotated {input.annotated} \
+            --output {output.clusters} \
+            --metrics-output {output.metrics} \
+            --method {params.method} \
+            --k {params.k} &> {log}
+        """
