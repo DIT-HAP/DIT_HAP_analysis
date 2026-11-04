@@ -14,6 +14,7 @@ import pandas as pd
 
 from workflow.src.plotting.gene_level import (
     CLUSTER_COLORS,
+    DR_XLIM,
     FITTED_VALUE_COLS,
     MULTI_COLORS,
     RAW_VALUE_COLS,
@@ -53,6 +54,14 @@ def test_visualize_candidate_64_clusters_does_not_overrun_palette():
     # cluster_minus_one=False -> idx can reach 63; modulo indexing must keep it safe.
     fig = visualize_cluster_on_feature_space(df, "cluster")
     assert len(fig.axes) == 2
+
+
+def test_cluster_scatter_uses_post_flip_dr_window():
+    """DR axis is the mirrored pre-flip window: depleted (negative DR) is shown, WT at the right."""
+    df = _synthetic(90, 9, "cluster")
+    fig = visualize_cluster_on_feature_space(df, "cluster", cluster_minus_one=True)
+    assert all(ax.get_xlim() == DR_XLIM for ax in fig.axes)
+    assert DR_XLIM[0] < 0 < DR_XLIM[1] and abs(DR_XLIM[0]) > DR_XLIM[1]
 
 
 def test_palette_sizes():

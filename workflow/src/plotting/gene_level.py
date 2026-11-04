@@ -52,6 +52,11 @@ AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
 RAW_VALUE_COLS = ["YES0", "YES1", "YES2", "YES3", "YES4"]
 FITTED_VALUE_COLS = ["YES0_fitted", "YES1_fitted", "YES2_fitted", "YES3_fitted", "YES4_fitted"]
 
+# DR window shown by the cluster scatters. Mirrored from the pre-2026-09-17
+# (-0.15, 1.45) when upstream flipped the DR sign: depleted is the negative end
+# now, and the raw DR of the fitted table runs from about -2.1 to +0.17.
+DR_XLIM = (-1.45, 0.15)
+
 # 10-color palette for final (merged) clusters — assumes <= 10 clusters.
 CLUSTER_COLORS = [
     "#dd8369", "#6b99df", "#98a64e", "#64af6d", "#a78bd9",
@@ -254,7 +259,7 @@ def plot_cluster_on_axis(
 
     ax.set_xlabel("DR")
     ax.set_ylabel("DL")
-    ax.set_xlim(-0.15, 1.45)
+    ax.set_xlim(DR_XLIM)
     if title:
         ax.set_title(title)
     return ax
@@ -308,7 +313,7 @@ def visualize_cluster_on_feature_space(
         ax.tick_params(axis="both", which="major", labelsize=20, labelleft=True, labelbottom=True)
         if legend:
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=16, frameon=True, markerscale=5)
-        ax.set_xlim(-0.15, 1.45)
+        ax.set_xlim(DR_XLIM)
 
     plt.tight_layout()
     return fig
