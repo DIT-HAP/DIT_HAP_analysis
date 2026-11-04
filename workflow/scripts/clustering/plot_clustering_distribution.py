@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot Clustering Distribution — input-space diagnostics
@@ -59,20 +58,20 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import cnsplots as cns  # noqa: E402
-from loguru import logger  # noqa: E402
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.colors import Normalize  # noqa: E402
+import cnsplots as cns
+import numpy as np
+import pandas as pd
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.colors import Normalize
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from coverage.core import DELETION_ESSENTIALITY_LABELS  # noqa: E402
-from figure_render._point_density import point_density  # noqa: E402
-from figure_render.scatter import DENSITY_SCATTER_KWS, SCATTERPLOT_KWS  # noqa: E402
-from figures import (  # noqa: E402
+from coverage.core import DELETION_ESSENTIALITY_LABELS
+from figure_render._point_density import point_density
+from figure_render.scatter import DENSITY_SCATTER_KWS, SCATTERPLOT_KWS
+from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
@@ -83,9 +82,8 @@ from figures import (  # noqa: E402
     save_dual,
     series_colors,
 )
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

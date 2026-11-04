@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot Clusters Grid — one PDF per k, all methods side by side
@@ -54,16 +53,16 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # headless: writes PDF/PNG only
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
+from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, cluster_color, grid_axes, save_dual  # noqa: E402
-from io_table import read_parquet  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from figures import apply_house_style, cluster_color, grid_axes, save_dual
+from io_table import read_parquet
+from logging_setup import setup_logger
 
 
 # =============================================================================

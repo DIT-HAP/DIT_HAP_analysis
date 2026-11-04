@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot K Selection — cluster-count QC panels
@@ -43,15 +42,14 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # headless
-import pandas as pd  # noqa: E402
-from loguru import logger  # noqa: E402
+import pandas as pd
+from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
-
+from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS

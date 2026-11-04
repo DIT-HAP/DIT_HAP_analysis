@@ -41,8 +41,12 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 
+# 4. Local Imports
+from clustering.candidates import renumber_by_dr
+
 # 3. Third-party Imports
-from scipy.cluster.hierarchy import fcluster, linkage as scipy_linkage
+from scipy.cluster.hierarchy import fcluster
+from scipy.cluster.hierarchy import linkage as scipy_linkage
 from sklearn.cluster import KMeans
 from sklearn.metrics import (
     adjusted_rand_score,
@@ -51,9 +55,6 @@ from sklearn.metrics import (
     silhouette_samples,
     silhouette_score,
 )
-
-# 4. Local Imports
-from clustering.candidates import renumber_by_dr
 
 # =============================================================================
 # GLOBAL CONSTANTS

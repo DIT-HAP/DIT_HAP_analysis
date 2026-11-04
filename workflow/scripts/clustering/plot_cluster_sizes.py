@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Plot Cluster Genealogy — how clusters relate from k=4 to k=15 per method
@@ -49,15 +48,22 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import pandas as pd  # noqa: E402
-from loguru import logger  # noqa: E402
+import pandas as pd
+from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from clustering.genealogy import cluster_genealogy, render_genealogy_panel  # noqa: E402
-from figures import PanelShape, apply_house_style, fit_panels, grid_axes, panel_labels, save_dual  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from clustering.genealogy import cluster_genealogy, render_genealogy_panel
+from figures import (
+    PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    panel_labels,
+    save_dual,
+)
+from logging_setup import setup_logger
 
 
 # =============================================================================

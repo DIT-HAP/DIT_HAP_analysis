@@ -35,12 +35,11 @@ from collections.abc import Sequence
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
-from matplotlib.patches import Rectangle
 
 # 4. Local Imports
 from figures import cluster_color
-
+from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -110,7 +109,7 @@ def cluster_genealogy(labels: pd.DataFrame, k_values: Sequence[int]) -> pd.DataF
                     "child_genes": int(child_sizes[child_label]),
                     "overlap": int(shared.max()),
                     "overlap_share_of_child": share,
-                    "n_parents": int(len(shared)),
+                    "n_parents": len(shared),
                 }
             )
     return pd.DataFrame(rows).reindex(columns=GENEALOGY_COLUMNS)
