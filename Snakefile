@@ -34,17 +34,19 @@ wildcard_constraints:
 #
 #   1  data plausibility + reference layer          (1a pcr_qc, 1b features, 1c annotate)
 #   2  characterisation that does not need clusters (2a coverage, 2b verification)
-#   3  group-level analysis in fitness space        (3a coherence)
-#   4  structure inside the gene                    (4a domain_differences)
-#
-# The clustering block and everything downstream of it (enrichment, ml, ...) are
-# still unprefixed in both places; they take the next free chapter when they do.
+#   3  group-level analysis in fitness space        (3a coherence, 3b clustering,
+#                                                    3c enrichment, 3d enrichment_network)
+#   4  structure inside the gene                    (4a domain_differences, 4b utr, 4c noncoding_rna)
+#   5  prediction                                   (5a ml)
+#   6  comparison against external studies          (6a comparison)
 #
 # Every prefixed stage carries the same prefix into results/, so `ls results/`
 # reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
 # results/1b_features/, results/1c_annotation/ (the stage noun — the rule file is
 # the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/,
-# results/4a_domain_differences/.
+# results/3b_clustering/, results/3c_enrichment/, results/3d_enrichment_network/,
+# results/4a_domain_differences/, results/4b_utr/, results/4c_noncoding_rna/,
+# results/5a_ml/, results/6a_comparison/.
 # The prefix stops at the rule file and the results/logs directories: the script
 # and library directories keep the unprefixed stage name (workflow/scripts/
 # coherence/, workflow/src/coherence/).
@@ -95,12 +97,12 @@ rule all:
         # f"results/clustering/{_DATASET}/variant_metrics_comparison.tsv",
         # f"results/clustering/{_DATASET}/all_variants_cluster_scatter.pdf",
         # Enrichment (per variant):
-        # f"results/enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
+        # f"results/3c_enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
         # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
-        # f"results/enrichment/network/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_revigo.tsv",
+        # f"results/3d_enrichment_network/network/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_revigo.tsv",
         # ML AutoML (target x mode; uses selected_variant):
-        # f"results/ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
-        # f"results/ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
+        # f"results/5a_ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
+        # f"results/5a_ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",
         # Library-prep QC (no dataset wildcard; spike-in stats feed the figure's
         # panel d, so both targets come from 1a_pcr_qc.smk):
         # "results/1a_pcr_qc/PCR_quality_control.pdf",
@@ -122,7 +124,7 @@ rule all:
         # f"results/2b_verification/{_DATASET}/verification_category_boxplot.pdf",
         # f"results/2b_verification/{_DATASET}/critical_genes",
         # f"results/2b_verification/{_DATASET}/depletion_curves",
-        # f"results/noncoding_rna/{_DATASET}/ncrna_stats.tsv",
+        # f"results/4c_noncoding_rna/{_DATASET}/ncrna_stats.tsv",
         # Batch B (requires resources/curated/final_clusters.tsv):
         # f"results/6a_comparison/{_DATASET}/fitness_correlation_stats.tsv",
         # 3a_coherence is organised as one folder per view — {source}/, combined/
@@ -166,7 +168,7 @@ rule all:
         expand(f"results/3a_coherence/{_DATASET}/{{source}}/fraction_distributions.pdf",
                source=_COHERENCE_SOURCES),
         # Batch C (requires insertion-level results):
-        # f"results/utr/{_DATASET}/utr_insertion_stats.tsv",
+        # f"results/4b_utr/{_DATASET}/utr_insertion_stats.tsv",
         # 4a intra-gene segmentation (two tables + the gallery). The permutation
         # table is NOT part of a full run: config.domain_differences.permutation_p.
         # enabled is false by default and gates the rule itself, so ask for

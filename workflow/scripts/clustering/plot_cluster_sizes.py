@@ -26,8 +26,8 @@ Output
 Usage
 -----
     python plot_cluster_sizes.py \\
-        --labels results/clustering/{dataset}/_work/grid_labels.parquet \\
-        --output results/clustering/{dataset}/cluster_genealogy.pdf \\
+        --labels results/3b_clustering/{dataset}/_work/grid_labels.parquet \\
+        --output results/3b_clustering/{dataset}/cluster_genealogy.pdf \\
         --col-num 3
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

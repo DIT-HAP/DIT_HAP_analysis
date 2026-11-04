@@ -20,7 +20,7 @@
 # (Task 9), which reads the classify_utr_insertions rule's utr_insertion_stats.tsv.
 
 # Parquet intermediates shared by the classification rule.
-_UWORK = "results/utr/{dataset}/_work"
+_UWORK = "results/4b_utr/{dataset}/_work"
 
 
 rule prepare_utr_data:
@@ -42,7 +42,7 @@ rule prepare_utr_data:
         annotations=f"{_UWORK}/annotations.parquet",
         gene_result=f"{_UWORK}/gene_result.parquet",
     log:
-        "logs/utr/prepare_utr_data_{dataset}.log",
+        "logs/4b_utr/prepare_utr_data_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -65,11 +65,11 @@ rule classify_utr_insertions:
         annotations=f"{_UWORK}/annotations.parquet",
         gene_result=f"{_UWORK}/gene_result.parquet",
     output:
-        stats="results/utr/{dataset}/utr_insertion_stats.tsv",
+        stats="results/4b_utr/{dataset}/utr_insertion_stats.tsv",
     params:
         distance_threshold=400,
     log:
-        "logs/utr/classify_utr_insertions_{dataset}.log",
+        "logs/4b_utr/classify_utr_insertions_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:

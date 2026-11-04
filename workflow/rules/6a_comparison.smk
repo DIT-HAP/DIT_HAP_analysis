@@ -39,7 +39,7 @@ rule prepare_fitness_table:
     params:
         clip_upper=config.get("comparison", {}).get("clip_upper", 200),
     log:
-        "logs/comparison/prepare_fitness_table_{dataset}.log",
+        "logs/6a_comparison/prepare_fitness_table_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -60,7 +60,7 @@ rule compute_comparison_stats:
     output:
         stats="results/6a_comparison/{dataset}/fitness_correlation_stats.tsv",
     log:
-        "logs/comparison/compute_comparison_stats_{dataset}.log",
+        "logs/6a_comparison/compute_comparison_stats_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -81,7 +81,7 @@ rule plot_comparison_figures:
         figures="results/6a_comparison/{dataset}/pairwise_fitness_comparison.pdf",
         heatmap="results/6a_comparison/{dataset}/correlation_heatmap.pdf",
     log:
-        "logs/comparison/plot_comparison_figures_{dataset}.log",
+        "logs/6a_comparison/plot_comparison_figures_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -103,7 +103,7 @@ rule qc_fitness_distributions:
         figure="results/6a_comparison/{dataset}/fitness_distributions_qc.pdf",
         preview="results/6a_comparison/{dataset}/fitness_distributions_qc.review.png",
     log:
-        "logs/comparison/qc_fitness_distributions_{dataset}.log",
+        "logs/6a_comparison/qc_fitness_distributions_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:

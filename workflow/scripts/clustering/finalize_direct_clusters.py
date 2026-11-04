@@ -26,11 +26,11 @@ Output
 Usage
 -----
     python finalize_direct_clusters.py \\
-        --annotated-data results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --scaled-data    results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --labels         results/clustering/{dataset}/{variant}/_labels.parquet \\
-        --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
-        --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
+        --annotated-data results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled-data    results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --labels         results/3b_clustering/{dataset}/{variant}/_labels.parquet \\
+        --output         results/3b_clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/3b_clustering/{dataset}/{variant}/metrics.tsv \\
         --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

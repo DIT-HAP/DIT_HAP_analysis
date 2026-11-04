@@ -30,7 +30,7 @@ Usage
     python prepare_features_targets.py \\
         --feature-matrix results/1b_features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
         --final-clusters resources/curated/final_clusters.tsv \\
-        --output-dir results/ml/features_targets/{dataset}
+        --output-dir results/5a_ml/features_targets/{dataset}
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-16

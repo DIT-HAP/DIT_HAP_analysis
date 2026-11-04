@@ -39,11 +39,11 @@ Output
 Usage
 -----
     python classify_utr_insertions.py \\
-        --fitting-results results/utr/{dataset}/_work/fitting_results.parquet \\
-        --annotations results/utr/{dataset}/_work/annotations.parquet \\
-        --gene-result results/utr/{dataset}/_work/gene_result.parquet \\
+        --fitting-results results/4b_utr/{dataset}/_work/fitting_results.parquet \\
+        --annotations results/4b_utr/{dataset}/_work/annotations.parquet \\
+        --gene-result results/4b_utr/{dataset}/_work/gene_result.parquet \\
         --distance-threshold 400 \\
-        --output-stats results/utr/{dataset}/utr_insertion_stats.tsv
+        --output-stats results/4b_utr/{dataset}/utr_insertion_stats.tsv
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-22

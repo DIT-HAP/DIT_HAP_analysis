@@ -24,11 +24,11 @@ Output
 Usage
 -----
     python finalize_grid_search.py \\
-        --labels results/clustering/{dataset}/_work/grid_labels.parquet \\
-        --metrics results/clustering/{dataset}/_work/k_selection_metrics.tsv \\
-        --annotated results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --output results/clustering/{dataset}/{variant}/final_clusters.tsv \\
-        --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
+        --labels results/3b_clustering/{dataset}/_work/grid_labels.parquet \\
+        --metrics results/3b_clustering/{dataset}/_work/k_selection_metrics.tsv \\
+        --annotated results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --output results/3b_clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/3b_clustering/{dataset}/{variant}/metrics.tsv \\
         --method kmeans --k 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

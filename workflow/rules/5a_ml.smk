@@ -11,7 +11,7 @@
 # that pickle for each target x mode instead of re-merging. Byte-faithful to the
 # self-contained source notebook (its own train-only PowerTransform).
 
-_MLWORK = "results/ml/models/{dataset}/{pombase_version}/_work"
+_MLWORK = "results/5a_ml/models/{dataset}/{pombase_version}/_work"
 
 wildcard_constraints:
     target="DR|DL",
@@ -28,7 +28,7 @@ rule prepare_ml_data:
     params:
         dr_filter=config.get("ml", {}).get("dr_filter", 0.3),
     log:
-        "logs/ml/prepare_ml_data_{dataset}_{pombase_version}.log",
+        "logs/5a_ml/prepare_ml_data_{dataset}_{pombase_version}.log",
     conda:
         "../envs/machine_learning.yml"
     message:
@@ -48,16 +48,16 @@ rule train_automl:
     input:
         modeling_data=f"{_MLWORK}/modeling_data.parquet",
     output:
-        metrics="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/metrics.tsv",
-        importance="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/features_importance.csv",
-        plot="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}/prediction_and_residuals.pdf",
+        metrics="results/5a_ml/models/{dataset}/{pombase_version}/{target}_{mode}/metrics.tsv",
+        importance="results/5a_ml/models/{dataset}/{pombase_version}/{target}_{mode}/features_importance.csv",
+        plot="results/5a_ml/models/{dataset}/{pombase_version}/{target}_{mode}/prediction_and_residuals.pdf",
     params:
-        output_dir="results/ml/models/{dataset}/{pombase_version}/{target}_{mode}",
+        output_dir="results/5a_ml/models/{dataset}/{pombase_version}/{target}_{mode}",
         test_size=config.get("ml", {}).get("test_size", 0.2),
         random_state=config.get("ml", {}).get("random_state", 42),
         total_time_limit=config.get("ml", {}).get("total_time_limit", 14400),
     log:
-        "logs/ml/train_automl_{dataset}_{pombase_version}_{target}_{mode}.log",
+        "logs/5a_ml/train_automl_{dataset}_{pombase_version}_{target}_{mode}.log",
     conda:
         "../envs/machine_learning.yml"
     message:

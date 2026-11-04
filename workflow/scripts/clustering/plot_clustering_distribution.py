@@ -34,10 +34,10 @@ Output
 Usage
 -----
     python plot_clustering_distribution.py \\
-        --annotated results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --scaled results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output-stats results/clustering/{dataset}/distribution_stats.tsv \\
-        --output-figure results/clustering/{dataset}/distribution.pdf \\
+        --annotated results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-stats results/3b_clustering/{dataset}/distribution_stats.tsv \\
+        --output-figure results/3b_clustering/{dataset}/distribution.pdf \\
         --bins 60
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

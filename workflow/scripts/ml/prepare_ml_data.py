@@ -24,7 +24,7 @@ Usage
     python prepare_ml_data.py \\
         --feature-matrix results/1b_features/2025-10-01/pombe_coding_gene_protein_features.tsv \\
         --final-clusters resources/curated/final_clusters.tsv \\
-        --output results/ml/models/{dataset}/{version}/_work/modeling_data.parquet
+        --output results/5a_ml/models/{dataset}/{version}/_work/modeling_data.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

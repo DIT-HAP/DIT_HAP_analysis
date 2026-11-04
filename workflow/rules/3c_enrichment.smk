@@ -21,8 +21,8 @@
 # finalize_manual_merge (executes finalize_gene_clusters.ipynb headlessly).
 
 _ENRICH_ONTOLOGIES = ["GO", "FYPO", "MONDO"]
-_ERAW = "results/enrichment/raw/{dataset}/{variant}/{pombase_version}"
-_EWORK = "results/enrichment/raw/{dataset}/{variant}/{pombase_version}/_work"
+_ERAW = "results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}"
+_EWORK = "results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}/_work"
 
 wildcard_constraints:
     ontology="|".join(_ENRICH_ONTOLOGIES),
@@ -43,7 +43,7 @@ rule prepare_genesets:
         work_dir=_EWORK,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
     log:
-        "logs/enrichment/prepare_genesets_{dataset}_{variant}_{pombase_version}.log",
+        "logs/3c_enrichment/prepare_genesets_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -74,7 +74,7 @@ rule enrich_one_ontology:
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
         fdr_threshold=config.get("enrichment", {}).get("fdr_threshold", 0.05),
     log:
-        "logs/enrichment/enrich_{ontology}_{dataset}_{variant}_{pombase_version}.log",
+        "logs/3c_enrichment/enrich_{ontology}_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -105,7 +105,7 @@ rule finalize_enrichment:
         output_dir=_ERAW,
         pop_count_max=config.get("enrichment", {}).get("pop_count_max", 400),
     log:
-        "logs/enrichment/finalize_enrichment_{dataset}_{variant}_{pombase_version}.log",
+        "logs/3c_enrichment/finalize_enrichment_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:

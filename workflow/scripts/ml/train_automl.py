@@ -34,9 +34,9 @@ Output
 Usage
 -----
     python train_automl.py \\
-        --modeling-data results/ml/models/{dataset}/{version}/_work/modeling_data.parquet \\
+        --modeling-data results/5a_ml/models/{dataset}/{version}/_work/modeling_data.parquet \\
         --target DR --mode Explain \\
-        --output-dir results/ml/models/{dataset}/{version}/DR_Explain
+        --output-dir results/5a_ml/models/{dataset}/{version}/DR_Explain
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-07-16

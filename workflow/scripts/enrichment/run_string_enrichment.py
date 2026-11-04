@@ -23,8 +23,8 @@ Output
 Usage
 -----
     python run_string_enrichment.py \\
-        --enrichment-dir results/enrichment/raw/{dataset}/{pombase_version} \\
-        --output-dir results/enrichment/network/{dataset}/{pombase_version} \\
+        --enrichment-dir results/3c_enrichment/raw/{dataset}/{pombase_version} \\
+        --output-dir results/3d_enrichment_network/network/{dataset}/{pombase_version} \\
         --cache-dir resources/external/enrichment_cache/{dataset}
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)

@@ -28,8 +28,8 @@ Usage
         --ontology GO \\
         --genesets .../_work/genesets.pkl --id2name .../_work/id2name.pkl \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
-        --output-dir results/enrichment/raw/{dataset}/{version} \\
-        --work-dir results/enrichment/raw/{dataset}/{version}/_work
+        --output-dir results/3c_enrichment/raw/{dataset}/{version} \\
+        --work-dir results/3c_enrichment/raw/{dataset}/{version}/_work
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

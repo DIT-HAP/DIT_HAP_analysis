@@ -26,9 +26,9 @@ Usage
     python prepare_clustering_data.py \\
         --fitting-results .../release/gene_level/fitting_results.tsv \\
         --essentiality-verification-csv resources/curated/essentiality_verification.csv \\
-        --output-annotated results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --output-scaled results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output-ksweep results/clustering/{dataset}/_work/k_sweep_metrics.parquet
+        --output-annotated results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --output-scaled results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-ksweep results/3b_clustering/{dataset}/_work/k_sweep_metrics.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

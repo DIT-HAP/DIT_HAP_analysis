@@ -31,7 +31,7 @@ _NONCODING_FITTING = {
 }
 
 # Parquet intermediates shared by the two downstream rules.
-_NCWORK = "results/noncoding_rna/{dataset}/_work"
+_NCWORK = "results/4c_noncoding_rna/{dataset}/_work"
 
 
 rule prepare_ncrna_table:
@@ -47,7 +47,7 @@ rule prepare_ncrna_table:
         combined=f"{_NCWORK}/combined.parquet",
         nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
     log:
-        "logs/noncoding_rna/prepare_ncrna_table_{dataset}.log",
+        "logs/4c_noncoding_rna/prepare_ncrna_table_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -68,9 +68,9 @@ rule compute_ncrna_stats:
     input:
         nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
     output:
-        stats="results/noncoding_rna/{dataset}/ncrna_stats.tsv",
+        stats="results/4c_noncoding_rna/{dataset}/ncrna_stats.tsv",
     log:
-        "logs/noncoding_rna/compute_ncrna_stats_{dataset}.log",
+        "logs/4c_noncoding_rna/compute_ncrna_stats_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -96,9 +96,9 @@ rule plot_ncrna_figures:
         combined=f"{_NCWORK}/combined.parquet",
         nuclear_trnas=f"{_NCWORK}/nuclear_trnas.parquet",
     output:
-        figures="results/noncoding_rna/{dataset}/ncrna_analysis.pdf",
+        figures="results/4c_noncoding_rna/{dataset}/ncrna_analysis.pdf",
     log:
-        "logs/noncoding_rna/plot_ncrna_figures_{dataset}.log",
+        "logs/4c_noncoding_rna/plot_ncrna_figures_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:

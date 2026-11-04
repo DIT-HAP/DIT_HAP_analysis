@@ -11,7 +11,7 @@ per-ontology enrichment jobs (design doc §5).
 
 final_clusters.tsv is sourced via final_clusters_path(dataset, variant)
 (clustering.smk). Every finalize variant BUILDS it under
-results/clustering/{dataset}/{variant}/final_clusters.tsv: direct/auto_merge/grid via
+results/3b_clustering/{dataset}/{variant}/final_clusters.tsv: direct/auto_merge/grid via
 deterministic finalize scripts, manual_merge via the finalize_manual_merge rule
 (executes finalize_gene_clusters.ipynb headlessly) (design doc §8).
 
@@ -28,11 +28,11 @@ Output
 Usage
 -----
     python prepare_genesets.py \\
-        --final-clusters results/clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --final-clusters results/3b_clustering/{dataset}/{variant}/final_clusters.tsv \\
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
-        --output-dir results/enrichment/raw/{dataset}/{version} \\
-        --work-dir results/enrichment/raw/{dataset}/{version}/_work
+        --output-dir results/3c_enrichment/raw/{dataset}/{version} \\
+        --work-dir results/3c_enrichment/raw/{dataset}/{version}/_work
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

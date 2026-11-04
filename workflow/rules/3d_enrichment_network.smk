@@ -13,16 +13,16 @@
 # stage to factor out (unlike 2b_verification.smk's prepare->result split).
 rule run_string_enrichment:
     input:
-        all_genes="results/enrichment/raw/{dataset}/{variant}/{pombase_version}/DIT_HAP_all_genes.txt",
+        all_genes="results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}/DIT_HAP_all_genes.txt",
     output:
-        string_workbook="results/enrichment/network/{dataset}/{variant}/{pombase_version}/string_enrichment_results.xlsx",
+        string_workbook="results/3d_enrichment_network/network/{dataset}/{variant}/{pombase_version}/string_enrichment_results.xlsx",
     params:
-        enrichment_dir="results/enrichment/raw/{dataset}/{variant}/{pombase_version}",
-        output_dir="results/enrichment/network/{dataset}/{variant}/{pombase_version}",
+        enrichment_dir="results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}",
+        output_dir="results/3d_enrichment_network/network/{dataset}/{variant}/{pombase_version}",
         cache_dir="resources/external/enrichment_cache/{dataset}",
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
     log:
-        "logs/enrichment/run_string_enrichment_{dataset}_{variant}_{pombase_version}.log",
+        "logs/3d_enrichment_network/run_string_enrichment_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:
@@ -39,19 +39,19 @@ rule run_string_enrichment:
 
 rule run_revigo_annotation:
     input:
-        go_full="results/enrichment/raw/{dataset}/{variant}/{pombase_version}/go_enrichment_full.tsv",
+        go_full="results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}/go_enrichment_full.tsv",
     output:
-        go_revigo="results/enrichment/network/{dataset}/{variant}/{pombase_version}/go_enrichment_full_revigo.tsv",
+        go_revigo="results/3d_enrichment_network/network/{dataset}/{variant}/{pombase_version}/go_enrichment_full_revigo.tsv",
     params:
-        enrichment_dir="results/enrichment/raw/{dataset}/{variant}/{pombase_version}",
-        output_dir="results/enrichment/network/{dataset}/{variant}/{pombase_version}",
+        enrichment_dir="results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}",
+        output_dir="results/3d_enrichment_network/network/{dataset}/{variant}/{pombase_version}",
         cache_dir="resources/external/enrichment_cache/{dataset}",
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
         revigo_cutoffs=" ".join(
             str(c) for c in config.get("enrichment_network", {}).get("revigo_cutoffs", [0.7, 0.5])
         ),
     log:
-        "logs/enrichment/run_revigo_annotation_{dataset}_{variant}_{pombase_version}.log",
+        "logs/3d_enrichment_network/run_revigo_annotation_{dataset}_{variant}_{pombase_version}.log",
     conda:
         "../envs/biopython.yml"
     message:

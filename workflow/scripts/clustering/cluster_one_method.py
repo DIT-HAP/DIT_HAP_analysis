@@ -26,8 +26,8 @@ Usage
 -----
     python cluster_one_method.py \\
         --method kmeans \\
-        --scaled-data results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output-labels results/clustering/{dataset}/{variant}/_labels.parquet \\
+        --scaled-data results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-labels results/3b_clustering/{dataset}/{variant}/_labels.parquet \\
         --final-n-clusters 9 --n-intermediate 64 --random-state 42
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

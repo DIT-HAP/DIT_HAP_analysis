@@ -35,7 +35,7 @@ Usage
 
     # only some annotation columns, and drop rows that have no annotation
     python annotate_pombe_genes.py \\
-        --input results/clustering/HD_DIT_HAP/kmeans_direct9/final_clusters.tsv \\
+        --input results/3b_clustering/HD_DIT_HAP/kmeans_direct9/final_clusters.tsv \\
         --gene-column Gene_id \\
         --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --columns gene_name Sc_ortholog_name Sc_essentiality \\

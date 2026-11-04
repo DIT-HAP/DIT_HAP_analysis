@@ -20,8 +20,8 @@ Output
 Usage
 -----
     python plot_k_selection.py \\
-        --metrics results/clustering/{dataset}/_work/k_selection_metrics.tsv \\
-        --output results/clustering/{dataset}/k_selection.pdf \\
+        --metrics results/3b_clustering/{dataset}/_work/k_selection_metrics.tsv \\
+        --output results/3b_clustering/{dataset}/k_selection.pdf \\
         --k-reference 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

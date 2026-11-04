@@ -252,7 +252,7 @@ annotate:
   # Output lands at results/1c_annotation/{dataset}/tables/{name}.annotated.tsv
   tables:
     final_clusters:
-      input: "results/clustering/{dataset}/{variant}/final_clusters.tsv"
+      input: "results/3b_clustering/{dataset}/{variant}/final_clusters.tsv"
       gene_column: "Systematic ID"
 
 # --- Intra-gene DR segmentation (4a_domain_differences.smk) ---

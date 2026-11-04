@@ -25,10 +25,10 @@ Output
 Usage
 -----
     python finalize_grid_clusters.py \\
-        --annotated-data results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --scaled-data    results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output         results/clustering/{dataset}/{variant}/final_clusters.tsv \\
-        --metrics-output results/clustering/{dataset}/{variant}/metrics.tsv \\
+        --annotated-data results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled-data    results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output         results/3b_clustering/{dataset}/{variant}/final_clusters.tsv \\
+        --metrics-output results/3b_clustering/{dataset}/{variant}/metrics.tsv \\
         --dr-cuts 0.3 0.6 0.9 --dl-cuts 0.2 0.5 --n-clusters 9 --wt-cluster 9
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)

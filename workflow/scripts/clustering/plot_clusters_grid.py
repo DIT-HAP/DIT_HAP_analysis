@@ -29,9 +29,9 @@ Output
 Usage
 -----
     python plot_clusters_grid.py \\
-        --labels results/clustering/{dataset}/_work/grid_labels.parquet \\
-        --scaled results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output-stem results/clustering/{dataset}/clusters_grid \\
+        --labels results/3b_clustering/{dataset}/_work/grid_labels.parquet \\
+        --scaled results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-stem results/3b_clustering/{dataset}/clusters_grid \\
         --dataset HD_DIT_HAP --reference-k 9 \\
         --curated tmp/manual_curated_clusters.tsv
 

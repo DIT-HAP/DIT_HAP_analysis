@@ -22,8 +22,8 @@ Output
 Usage
 -----
     python finalize_enrichment.py \\
-        --work-dir results/enrichment/raw/{dataset}/{version}/_work \\
-        --output-dir results/enrichment/raw/{dataset}/{version}
+        --work-dir results/3c_enrichment/raw/{dataset}/{version}/_work \\
+        --output-dir results/3c_enrichment/raw/{dataset}/{version}
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-17

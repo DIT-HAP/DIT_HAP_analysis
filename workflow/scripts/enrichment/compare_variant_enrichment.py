@@ -28,7 +28,7 @@ Usage
         --dataset HD_DIT_HAP \\
         --pombase-version 2026-06-01 \\
         --variants kmeans_direct9 kmeans_merge9_auto hc_direct9 \\
-        --output results/enrichment/comparison/HD_DIT_HAP/variant_enrichment_comparison.pdf
+        --output results/3c_enrichment/comparison/HD_DIT_HAP/variant_enrichment_comparison.pdf
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-21
@@ -88,7 +88,7 @@ class CompareEnrichmentConfig:
 # =============================================================================
 def load_variant_enrichment(dataset: str, variant: str, pombase_version: str) -> pd.DataFrame:
     """Load one variant's GO enrichment results and add variant column."""
-    path = Path(f"results/enrichment/raw/{dataset}/{variant}/{pombase_version}/go_enrichment_full_filtered.tsv")
+    path = Path(f"results/3c_enrichment/raw/{dataset}/{variant}/{pombase_version}/go_enrichment_full_filtered.tsv")
     if not path.exists():
         raise FileNotFoundError(f"Enrichment file not found: {path}")
     df = pd.read_csv(path, sep="\t")

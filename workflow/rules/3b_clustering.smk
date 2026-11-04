@@ -29,7 +29,7 @@
 # survives round-trip; only final_clusters.tsv / metrics.tsv are user-facing.
 
 _CLUSTER_METHODS = ["kmeans", "hierarchical_agg", "hierarchical_div", "gmm"]
-_CWORK = "results/clustering/{dataset}/_work"
+_CWORK = "results/3b_clustering/{dataset}/_work"
 
 _CLUSTERING = config.get("clustering", {})
 _VARIANTS = _CLUSTERING.get("variants", {})
@@ -69,7 +69,7 @@ def final_clusters_path(dataset: str, variant: str) -> str:
         raise ValueError(f"Unknown clustering variant {variant!r} (configure it under clustering.variants)")
     vtype = spec.get("type")
     if vtype in _FINALIZE_TYPES:
-        return f"results/clustering/{dataset}/{variant}/final_clusters.tsv"
+        return f"results/3b_clustering/{dataset}/{variant}/final_clusters.tsv"
     raise ValueError(f"Unknown finalize type {vtype!r} for variant {variant!r} (expected {'|'.join(_FINALIZE_TYPES)})")
 
 
@@ -87,17 +87,17 @@ def buildable_variants() -> list[str]:
 
 def all_variant_metrics(dataset: str) -> list[str]:
     """Per-variant metrics.tsv for every buildable variant (inputs to compare_variants)."""
-    return [f"results/clustering/{dataset}/{v}/metrics.tsv" for v in buildable_variants()]
+    return [f"results/3b_clustering/{dataset}/{v}/metrics.tsv" for v in buildable_variants()]
 
 
 def all_variant_scatters(dataset: str) -> list[str]:
     """Per-variant cluster_scatter.pdf for every buildable variant (request-all convenience target)."""
-    return [f"results/clustering/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
+    return [f"results/3b_clustering/{dataset}/{v}/cluster_scatter.pdf" for v in buildable_variants()]
 
 
 def all_variant_final_clusters(dataset: str) -> list[str]:
     """Every buildable variant's final_clusters.tsv (inputs to the summary grid scatter)."""
-    return [f"results/clustering/{dataset}/{v}/final_clusters.tsv" for v in buildable_variants()]
+    return [f"results/3b_clustering/{dataset}/{v}/final_clusters.tsv" for v in buildable_variants()]
 
 
 # --- Preprocessing spine (load/annotate/scale/k-sweep) ---
@@ -119,7 +119,7 @@ rule prepare_clustering_data:
         dr_clamp=_CLUSTERING.get("dr_clamp", -1.3),
         dl_divisor=_CLUSTERING.get("dl_divisor", 10),
     log:
-        "logs/clustering/prepare_clustering_data_{dataset}.log",
+        "logs/3b_clustering/prepare_clustering_data_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -146,7 +146,7 @@ rule cluster_variant_labels:
     input:
         scaled=f"{_CWORK}/scaled_data.parquet",
     output:
-        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
+        labels="results/3b_clustering/{dataset}/{variant}/_labels.parquet",
     params:
         method=lambda wc: _VARIANTS[wc.variant].get("method", "kmeans"),
         final_n_clusters=_FINAL_N,
@@ -159,7 +159,7 @@ rule cluster_variant_labels:
     wildcard_constraints:
         variant=_alt(_variants_of_type("direct") + _variants_of_type("auto_merge")),
     log:
-        "logs/clustering/cluster_variant_labels_{dataset}_{variant}.log",
+        "logs/3b_clustering/cluster_variant_labels_{dataset}_{variant}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -181,17 +181,17 @@ rule finalize_direct:
     input:
         annotated=f"{_CWORK}/annotated_data.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
-        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
+        labels="results/3b_clustering/{dataset}/{variant}/_labels.parquet",
     output:
-        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
+        clusters="results/3b_clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/3b_clustering/{dataset}/{variant}/metrics.tsv",
     params:
         n_clusters=_FINAL_N,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
     wildcard_constraints:
         variant=_alt(_variants_of_type("direct")),
     log:
-        "logs/clustering/finalize_direct_{dataset}_{variant}.log",
+        "logs/3b_clustering/finalize_direct_{dataset}_{variant}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -214,17 +214,17 @@ rule finalize_auto_merge:
     input:
         annotated=f"{_CWORK}/annotated_data.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
-        labels="results/clustering/{dataset}/{variant}/_labels.parquet",
+        labels="results/3b_clustering/{dataset}/{variant}/_labels.parquet",
     output:
-        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
+        clusters="results/3b_clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/3b_clustering/{dataset}/{variant}/metrics.tsv",
     params:
         n_clusters=_FINAL_N,
         wt_cluster=config.get("enrichment", {}).get("wt_cluster", 9),
     wildcard_constraints:
         variant=_alt(_variants_of_type("auto_merge")),
     log:
-        "logs/clustering/finalize_auto_merge_{dataset}_{variant}.log",
+        "logs/3b_clustering/finalize_auto_merge_{dataset}_{variant}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -248,8 +248,8 @@ rule finalize_grid:
         annotated=f"{_CWORK}/annotated_data.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
     output:
-        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
+        clusters="results/3b_clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/3b_clustering/{dataset}/{variant}/metrics.tsv",
     params:
         dr_cuts=lambda wc: " ".join(str(c) for c in _VARIANTS[wc.variant].get("dr_cuts", [])),
         dl_cuts=lambda wc: " ".join(str(c) for c in _VARIANTS[wc.variant].get("dl_cuts", [])),
@@ -258,7 +258,7 @@ rule finalize_grid:
     wildcard_constraints:
         variant=_alt(_variants_of_type("grid")),
     log:
-        "logs/clustering/finalize_grid_{dataset}_{variant}.log",
+        "logs/3b_clustering/finalize_grid_{dataset}_{variant}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -289,8 +289,8 @@ rule finalize_manual_merge:
         annotated=f"{_CWORK}/annotated_data.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
     output:
-        clusters="results/clustering/{dataset}/{variant}/final_clusters.tsv",
-        metrics="results/clustering/{dataset}/{variant}/metrics.tsv",
+        clusters="results/3b_clustering/{dataset}/{variant}/final_clusters.tsv",
+        metrics="results/3b_clustering/{dataset}/{variant}/metrics.tsv",
     params:
         method=lambda wc: _VARIANTS[wc.variant].get("method", "kmeans"),
         n_intermediate=lambda wc: _VARIANTS[wc.variant].get("n_intermediate", 64),
@@ -300,7 +300,7 @@ rule finalize_manual_merge:
     wildcard_constraints:
         variant=_alt(_variants_of_type("manual_merge")),
     log:
-        notebook="logs/clustering/finalize_manual_merge_{dataset}_{variant}.ipynb",
+        notebook="logs/3b_clustering/finalize_manual_merge_{dataset}_{variant}.ipynb",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -321,16 +321,16 @@ rule finalize_manual_merge:
 # NOT part of `rule all` (ml only needs selected_variant). Request it explicitly to
 # build ALL buildable variants at once and get a side-by-side metrics table for
 # choosing which variant to select:
-#   snakemake --use-conda results/clustering/{dataset}/variant_metrics_comparison.tsv
+#   snakemake --use-conda results/3b_clustering/{dataset}/variant_metrics_comparison.tsv
 rule compare_variants:
     input:
         metrics=lambda wc: all_variant_metrics(wc.dataset),
     output:
-        table="results/clustering/{dataset}/variant_metrics_comparison.tsv",
+        table="results/3b_clustering/{dataset}/variant_metrics_comparison.tsv",
     params:
         variants=lambda wc: buildable_variants(),
     log:
-        "logs/clustering/compare_variants_{dataset}.log",
+        "logs/3b_clustering/compare_variants_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -349,12 +349,12 @@ rule compare_variants:
 # --- Plot all: build every buildable variant's cluster_scatter.pdf in one go ---
 # Also NOT part of `rule all`. Request it explicitly to render every variant's
 # scatter for a visual side-by-side (pairs with compare_variants' metrics table):
-#   snakemake --use-conda results/clustering/{dataset}/all_variants_plotted.done
+#   snakemake --use-conda results/3b_clustering/{dataset}/all_variants_plotted.done
 rule plot_all_variants:
     input:
         scatters=lambda wc: all_variant_scatters(wc.dataset),
     output:
-        marker=touch("results/clustering/{dataset}/all_variants_plotted.done"),
+        marker=touch("results/3b_clustering/{dataset}/all_variants_plotted.done"),
     message:
         "*** [clustering] Plotted all {wildcards.dataset} variants: {input.scatters}"
 
@@ -364,7 +364,7 @@ rule plot_all_variants:
 # grid (one subplot per variant, final `cluster` column, shared DR/DL axes) for a
 # quick visual comparison of how the finalize strategies differ. NOT part of
 # `rule all`; request explicitly:
-#   snakemake --use-conda results/clustering/{dataset}/all_variants_cluster_scatter.pdf
+#   snakemake --use-conda results/3b_clustering/{dataset}/all_variants_cluster_scatter.pdf
 # Moved to figure.smk: rule plot_all_variants_grid
 # Reads all final_clusters.tsv files -> all_variants_cluster_scatter.pdf
 
@@ -373,9 +373,9 @@ rule plot_variant_clusters:
     input:
         final_clusters=lambda wc: final_clusters_path(wc.dataset, wc.variant),
     output:
-        scatter="results/clustering/{dataset}/{variant}/cluster_scatter.pdf",
+        scatter="results/3b_clustering/{dataset}/{variant}/cluster_scatter.pdf",
     log:
-        "logs/clustering/plot_variant_clusters_{dataset}_{variant}.log",
+        "logs/3b_clustering/plot_variant_clusters_{dataset}_{variant}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -393,11 +393,11 @@ rule plot_all_variants_grid:
     input:
         final_clusters=lambda wc: all_variant_final_clusters(wc.dataset),
     output:
-        scatter="results/clustering/{dataset}/all_variants_cluster_scatter.pdf",
+        scatter="results/3b_clustering/{dataset}/all_variants_cluster_scatter.pdf",
     params:
         variant_labels=lambda wc: buildable_variants(),
     log:
-        "logs/clustering/plot_all_variants_grid_{dataset}.log",
+        "logs/3b_clustering/plot_all_variants_grid_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -442,7 +442,7 @@ rule cluster_grid_search:
         k_max=_GRID_K_MAX,
         random_state=_CLUSTERING.get("random_state", 42),
     log:
-        "logs/clustering/cluster_grid_search_{dataset}.log",
+        "logs/3b_clustering/cluster_grid_search_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -470,14 +470,14 @@ rule plot_clusters_grid:
         curated=_GRID.get("curated", "tmp/manual_curated_clusters.tsv"),
     output:
         # One PDF per k (stem + _k<k>), not a merged multipage figure.
-        scatter=touch("results/clustering/{dataset}/clusters_grid_plots.done"),
+        scatter=touch("results/3b_clustering/{dataset}/clusters_grid_plots.done"),
     params:
-        stem="results/clustering/{dataset}/clusters_grid",
+        stem="results/3b_clustering/{dataset}/clusters_grid",
         dataset=lambda wc: wc.dataset,
         reference_k=_GFINAL_K,
         col_num=_GRID.get("col_num", 3),
     log:
-        "logs/clustering/plot_clusters_grid_{dataset}.log",
+        "logs/3b_clustering/plot_clusters_grid_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -500,12 +500,12 @@ rule plot_k_selection:
     input:
         metrics=f"{_CWORK}/k_selection_metrics.tsv",
     output:
-        figure="results/clustering/{dataset}/k_selection.pdf",
+        figure="results/3b_clustering/{dataset}/k_selection.pdf",
     params:
         k_reference=_GFINAL_K,
         col_num=_GRID.get("ksel_col_num", 3),
     log:
-        "logs/clustering/plot_k_selection_{dataset}.log",
+        "logs/3b_clustering/plot_k_selection_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -524,11 +524,11 @@ rule plot_cluster_genealogy:
     input:
         labels=f"{_CWORK}/grid_labels.parquet",
     output:
-        figure="results/clustering/{dataset}/cluster_genealogy.pdf",
+        figure="results/3b_clustering/{dataset}/cluster_genealogy.pdf",
     params:
         col_num=_GRID.get("col_num", 3),
     log:
-        "logs/clustering/plot_cluster_genealogy_{dataset}.log",
+        "logs/3b_clustering/plot_cluster_genealogy_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -547,12 +547,12 @@ rule plot_clustering_distribution:
         annotated=f"{_CWORK}/annotated_data.parquet",
         scaled=f"{_CWORK}/scaled_data.parquet",
     output:
-        stats="results/clustering/{dataset}/distribution_stats.tsv",
-        figure="results/clustering/{dataset}/distribution.pdf",
+        stats="results/3b_clustering/{dataset}/distribution_stats.tsv",
+        figure="results/3b_clustering/{dataset}/distribution.pdf",
     params:
         bins=_GRID.get("distribution_bins", 60),
     log:
-        "logs/clustering/plot_clustering_distribution_{dataset}.log",
+        "logs/3b_clustering/plot_clustering_distribution_{dataset}.log",
     conda:
         "../envs/cnsplots.yml"
     message:
@@ -574,13 +574,13 @@ rule finalize_grid_search:
         metrics=f"{_CWORK}/k_selection_metrics.tsv",
         annotated=f"{_CWORK}/annotated_data.parquet",
     output:
-        clusters="results/clustering/{dataset}/grid_search/final_clusters.tsv",
-        metrics="results/clustering/{dataset}/grid_search/metrics.tsv",
+        clusters="results/3b_clustering/{dataset}/grid_search/final_clusters.tsv",
+        metrics="results/3b_clustering/{dataset}/grid_search/metrics.tsv",
     params:
         method=_GFINAL_METHOD,
         k=_GFINAL_K,
     log:
-        "logs/clustering/finalize_grid_search_{dataset}.log",
+        "logs/3b_clustering/finalize_grid_search_{dataset}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:

@@ -24,11 +24,11 @@ Output
 Usage
 -----
     python compute_clustering_grid.py \\
-        --annotated results/clustering/{dataset}/_work/annotated_data.parquet \\
-        --scaled results/clustering/{dataset}/_work/scaled_data.parquet \\
-        --output-labels results/clustering/{dataset}/_work/grid_labels.parquet \\
-        --output-metrics results/clustering/{dataset}/_work/k_selection_metrics.tsv \\
-        --output-profile results/clustering/{dataset}/_work/k_selection_profile.tsv \\
+        --annotated results/3b_clustering/{dataset}/_work/annotated_data.parquet \\
+        --scaled results/3b_clustering/{dataset}/_work/scaled_data.parquet \\
+        --output-labels results/3b_clustering/{dataset}/_work/grid_labels.parquet \\
+        --output-metrics results/3b_clustering/{dataset}/_work/k_selection_metrics.tsv \\
+        --output-profile results/3b_clustering/{dataset}/_work/k_selection_profile.tsv \\
         --methods kmeans kmedoids HC_ward HC_complete HC_average \\
         --k-min 4 --k-max 15
 
