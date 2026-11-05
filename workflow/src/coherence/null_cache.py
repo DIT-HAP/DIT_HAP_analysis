@@ -18,15 +18,17 @@ The fingerprint lets the compute stage reject a cache built from a different
 background (a changed fitting table or DR threshold) instead of silently mixing
 nulls.
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
+
 # 1. Standard Library Imports
 import hashlib
 import json
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -85,7 +87,13 @@ def build_null_cache(
     n_values = sorted({int(n) for n in n_values})
     if jobs <= 1 or len(n_values) <= 1:
         return {
-            n: dict(zip(METHOD_KEYS, null_for_n(background_points, n, n_permutations, random_state)))
+            n: dict(
+                zip(
+                    METHOD_KEYS,
+                    null_for_n(background_points, n, n_permutations, random_state),
+                    strict=False,
+                )
+            )
             for n in n_values
         }
 
@@ -94,10 +102,7 @@ def build_null_cache(
             n: pool.submit(null_for_n, background_points, n, n_permutations, random_state)
             for n in n_values
         }
-        return {
-            n: dict(zip(METHOD_KEYS, futures[n].result()))
-            for n in n_values
-        }
+        return {n: dict(zip(METHOD_KEYS, futures[n].result(), strict=False)) for n in n_values}
 
 
 def save_null_cache(
@@ -118,9 +123,7 @@ def load_null_cache(path: Path) -> tuple[dict[int, dict[str, np.ndarray]], dict]
     """Read a cache written by `save_null_cache`; validate array lengths."""
     with np.load(path, allow_pickle=False) as data:
         meta = json.loads(str(data["meta"]))
-        n_values = sorted(
-            int(key.split("_", 1)[1]) for key in data.files if key != "meta"
-        )
+        n_values = sorted(int(key.split("_", 1)[1]) for key in data.files if key != "meta")
         expected = int(meta["n_permutations"])
         nulls: dict[int, dict[str, np.ndarray]] = {}
         for n in n_values:
@@ -150,7 +153,8 @@ def validate_null_cache(
         "random_state": (meta.get("random_state"), random_state),
         "background_n": (meta.get("background_n"), int(background_points.shape[0])),
         "background_fingerprint": (
-            meta.get("background_fingerprint"), background_fingerprint(background_points)
+            meta.get("background_fingerprint"),
+            background_fingerprint(background_points),
         ),
     }
     for name, (cached, wanted) in checks.items():

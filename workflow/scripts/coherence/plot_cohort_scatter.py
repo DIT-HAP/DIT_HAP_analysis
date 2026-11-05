@@ -56,19 +56,19 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from math import ceil
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
 import cnsplots as cns
-import matplotlib.pyplot as plt
-import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+import matplotlib.pyplot as plt
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -122,6 +122,7 @@ def _clip(text: str, width: int = _TITLE_WIDTH) -> str:
     """A panel-title line that fits a 100 px panel: truncated with an ellipsis."""
     return text if len(text) <= width else text[: width - 1] + "…"
 
+
 # Per-gene hover card is not needed here — this is a static grid — but the
 # cohort thresholds ARE persisted into the figure path/log only, matching the
 # other plot scripts.
@@ -174,14 +175,15 @@ def member_sets_by_group(long_table: pd.DataFrame) -> dict[str, set[str]]:
     return long_table.groupby("group_id")["Systematic ID"].apply(set).to_dict()
 
 
-def draw_split_cloud(
-    fitting: pd.DataFrame, dr_threshold: float
-) -> None:
+def draw_split_cloud(fitting: pd.DataFrame, dr_threshold: float) -> None:
     """The genome cloud on the current axes, in one grey, with the dashed threshold line."""
     cns.scatterplot(fitting, "DR", "DL", ax=plt.gca(), color=FURNITURE_COLOR, legend=False)
     plt.axvline(
-        dr_threshold, color=FURNITURE_COLOR, linestyle="--",
-        linewidth=plt.rcParams["lines.linewidth"] * 0.8, zorder=0.5,
+        dr_threshold,
+        color=FURNITURE_COLOR,
+        linestyle="--",
+        linewidth=plt.rcParams["lines.linewidth"] * 0.8,
+        zorder=0.5,
     )
 
 
@@ -198,8 +200,12 @@ def draw_grid(
     n_cols = min(_MAX_COLUMNS, n_panels)
     n_rows = ceil(n_panels / n_cols)
     axes = grid_axes(
-        n_rows, n_cols, labels=panel_labels(n_panels), shape=PanelShape.SQUARE,
-        share_x=True, share_y=True,
+        n_rows,
+        n_cols,
+        labels=panel_labels(n_panels),
+        shape=PanelShape.SQUARE,
+        share_x=True,
+        share_y=True,
     )
     for ax in axes[n_panels:]:
         # grid_axes fills every cell; fit_panels measures only visible axes.
@@ -207,15 +213,19 @@ def draw_grid(
 
     if cohort.empty:
         axes[0].text(
-            0.5, 0.5, f"No {side.value} terms in this view",
-            ha="center", va="center", transform=axes[0].transAxes,
+            0.5,
+            0.5,
+            f"No {side.value} terms in this view",
+            ha="center",
+            va="center",
+            transform=axes[0].transAxes,
         )
         axes[0].set_axis_off()
         fit_panels()
         return
 
     member_color = house_colors((0,))[0]
-    for ax, (_, row) in zip(axes, cohort.iterrows()):
+    for ax, (_, row) in zip(axes, cohort.iterrows(), strict=False):
         plt.sca(ax)
         draw_split_cloud(fitting, dr_threshold)
         members = members_by_group.get(row["group_id"], set())
@@ -225,8 +235,9 @@ def draw_grid(
         scored_members = highlighted[highlighted["DR"] < dr_threshold]
         unscored_members = highlighted[highlighted["DR"] >= dr_threshold]
         if not unscored_members.empty:
-            cns.scatterplot(unscored_members, "DR", "DL", ax=ax,
-                            color=_UNSCORED_MEMBER_COLOR, legend=False)
+            cns.scatterplot(
+                unscored_members, "DR", "DL", ax=ax, color=_UNSCORED_MEMBER_COLOR, legend=False
+            )
         if not scored_members.empty:
             cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
         name = _clip(str(row["group_name"]))
@@ -239,7 +250,7 @@ def draw_grid(
             xlabel="DR",
             ylabel="DL",
             title=f"{name}\n({_clip(group_id, _TITLE_WIDTH - 4)}), n={row['n_scored_members']}\n"
-                  f"z={row[_Z_COLUMN]:.2f}, q={row[_Q_COLUMN]:.3g}",
+            f"z={row[_Z_COLUMN]:.2f}, q={row[_Q_COLUMN]:.3g}",
         )
     fit_panels()
 
@@ -255,10 +266,15 @@ def run(config: CohortScatterConfig) -> None:
     # read_file dispatches on extension: per-source views hand Parquet, the dedup
     # view hands the representatives TSV.
     metrics = read_file(config.metrics)
-    missing = [c for c in (_Z_COLUMN, _Q_COLUMN, "group_id", "group_name", "n_scored_members")
-               if c not in metrics.columns]
+    missing = [
+        c
+        for c in (_Z_COLUMN, _Q_COLUMN, "group_id", "group_name", "n_scored_members")
+        if c not in metrics.columns
+    ]
     if missing:
-        raise ValueError(f"metrics table missing required column(s) {missing} (have: {list(metrics.columns)})")
+        raise ValueError(
+            f"metrics table missing required column(s) {missing} (have: {list(metrics.columns)})"
+        )
 
     long_table = pd.concat(
         [load_long_table(path) for path in config.annotations], ignore_index=True
@@ -267,13 +283,12 @@ def run(config: CohortScatterConfig) -> None:
     logger.info(
         f"[{config.cohort.value}] {len(cohort):,} terms in {config.metrics.name} "
         f"(q<={config.q_max:g} & z<{config.coherent_z:g}"
-        if config.cohort == CohortSide.COHERENT else
-        f"[{config.cohort.value}] {len(cohort):,} terms in {config.metrics.name} "
+        if config.cohort == CohortSide.COHERENT
+        else f"[{config.cohort.value}] {len(cohort):,} terms in {config.metrics.name} "
         f"(z>{config.incoherent_z:g})"
     )
 
-    draw_grid(fitting, member_sets_by_group(long_table), cohort, config.cohort,
-              config.dr_threshold)
+    draw_grid(fitting, member_sets_by_group(long_table), cohort, config.cohort, config.dr_threshold)
     save_dual(config.output.with_suffix(""))
     logger.success(f"[{config.cohort.value}] {len(cohort):,} panels -> {config.output}")
 
@@ -286,21 +301,50 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="One feature-space scatter panel per coherent/incoherent term of a view",
     )
-    parser.add_argument("--metrics", type=Path, required=True,
-                        help="The view's metrics table (per-source Parquet or the dedup representatives TSV)")
-    parser.add_argument("--annotation", dest="annotations", type=Path, nargs="+", required=True,
-                        help="The matching group_annotation_long.tsv table(s), concatenated")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv")
-    parser.add_argument("--cohort", required=True, choices=[s.value for s in CohortSide],
-                        help="Which cohort end to draw")
-    parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q at or below this")
-    parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
-    parser.add_argument("--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this")
-    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
-                        help="The coherence scored/unscored cut, drawn as a dashed line")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="Output cohort_scatter_{cohort}.pdf")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--metrics",
+        type=Path,
+        required=True,
+        help="The view's metrics table (per-source Parquet or the dedup representatives TSV)",
+    )
+    parser.add_argument(
+        "--annotation",
+        dest="annotations",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="The matching group_annotation_long.tsv table(s), concatenated",
+    )
+    parser.add_argument(
+        "--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--cohort",
+        required=True,
+        choices=[s.value for s in CohortSide],
+        help="Which cohort end to draw",
+    )
+    parser.add_argument(
+        "--q-max", type=float, default=0.05, help="Coherent cohort: q at or below this"
+    )
+    parser.add_argument(
+        "--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this"
+    )
+    parser.add_argument(
+        "--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this"
+    )
+    parser.add_argument(
+        "--dr-threshold",
+        type=float,
+        default=_DR_THRESHOLD,
+        help="The coherence scored/unscored cut, drawn as a dashed line",
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output cohort_scatter_{cohort}.pdf"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

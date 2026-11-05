@@ -36,9 +36,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 import gffutils
@@ -59,6 +59,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class DnaConfig:
     """Inputs/outputs for DNA-level feature collection."""
+
     pombase_dir: Path
     genome_landmarks: Path
     output_dna: Path
@@ -84,13 +85,17 @@ def run(config: DnaConfig) -> None:
     """Build the gffutils DB, collect DNA-level features, and write the codon usage matrix."""
     logger.info(f"Building gffutils DB from {config.pombase_dir}")
     genome_cfg = PombaseGenomeConfig.from_pombase_dir(config.pombase_dir, config.genome_landmarks)
-    gffutils.create_db(genome_cfg.gff3_file, genome_cfg.database_file, force=True, merge_strategy="create_unique")
+    gffutils.create_db(
+        genome_cfg.gff3_file, genome_cfg.database_file, force=True, merge_strategy="create_unique"
+    )
     db = gffutils.FeatureDB(genome_cfg.database_file)
 
     logger.info("Collecting DNA-level features")
     dna_df, coding_genes = collect_dna_level_features(db, genome_cfg)
     write_parquet(dna_df, config.output_dna)
-    logger.success(f"Wrote {len(dna_df)} mRNA rows ({len(coding_genes)} coding genes) to {config.output_dna}")
+    logger.success(
+        f"Wrote {len(dna_df)} mRNA rows ({len(coding_genes)} coding genes) to {config.output_dna}"
+    )
 
     logger.info("Writing codon usage matrix")
     codon_usage_matrix = calculate_anticodon_usage_matrix(db, genome_cfg)
@@ -105,10 +110,29 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Collect DNA-level pombe features (spine stage)")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--genome-landmarks", type=Path, required=True, help="Genome-landmarks YAML (telomere/centromere coordinates)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_dna", help="Output DNA-level features parquet")
-    parser.add_argument("--codon-usage-output", type=Path, required=True, dest="output_codon_usage", help="Output codon usage matrix path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--genome-landmarks",
+        type=Path,
+        required=True,
+        help="Genome-landmarks YAML (telomere/centromere coordinates)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_dna",
+        help="Output DNA-level features parquet",
+    )
+    parser.add_argument(
+        "--codon-usage-output",
+        type=Path,
+        required=True,
+        dest="output_codon_usage",
+        help="Output codon usage matrix path",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -25,7 +25,8 @@ Usage
     python build_annotated_workbook.py \\
         --detailed-xlsx results/2a_coverage/HD_DIT_HAP/detailed_genes.xlsx \\
         --critical-dir results/2b_verification/HD_DIT_HAP/critical_genes \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --annotation-reference
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output results/1c_annotation/HD_DIT_HAP/HD_DIT_HAP_annotated.xlsx
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
@@ -37,11 +38,11 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 import argparse
-import sys
 from pathlib import Path
+import sys
 
-import pandas as pd
 from loguru import logger
+import pandas as pd
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
@@ -84,7 +85,7 @@ def make_sheet_name_with_count(base_name: str, row_count: int, used_names: set[s
     from the right turned "essentiality_not_determined (287)" into "(28".
     """
     suffix = f" ({row_count})"
-    trimmed_base = base_name[:EXCEL_SHEET_NAME_MAX_LENGTH - len(suffix)]
+    trimmed_base = base_name[: EXCEL_SHEET_NAME_MAX_LENGTH - len(suffix)]
     return truncate_sheet_name(f"{trimmed_base}{suffix}", used_names)
 
 
@@ -147,7 +148,10 @@ def build_workbook(
         output_name = make_sheet_name_with_count(sheet_name, len(df), used_names)
         used_names.add(output_name)
         annotated_sheets[output_name] = annotated
-        logger.info(f"  Annotated '{sheet_name}' -> '{output_name}': {len(df):,} rows, {annotated.shape[1]} columns")
+        logger.info(
+            f"  Annotated '{sheet_name}' -> '{output_name}': {len(df):,} rows, "
+            f"{annotated.shape[1]} columns"
+        )
 
     # Process critical_genes files (4 files)
     for tsv_file in critical_files:
@@ -159,7 +163,10 @@ def build_workbook(
         output_name = make_sheet_name_with_count(sheet_name, len(df), used_names)
         used_names.add(output_name)
         annotated_sheets[output_name] = annotated
-        logger.info(f"  Annotated '{sheet_name}' -> '{output_name}': {len(df):,} rows, {annotated.shape[1]} columns")
+        logger.info(
+            f"  Annotated '{sheet_name}' -> '{output_name}': {len(df):,} rows, "
+            f"{annotated.shape[1]} columns"
+        )
 
     # Write to Excel with "All genes" as the first sheet
     logger.info(f"Writing {len(annotated_sheets)} sheets to {output}")
@@ -214,7 +221,9 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Output annotated workbook xlsx",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -223,14 +232,21 @@ def main() -> int:
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
-    try:
-        # Validate inputs
-        for path in [args.detailed_xlsx, args.critical_dir, args.annotation_reference]:
-            if not path.exists():
-                raise FileNotFoundError(f"Required input does not exist: {path}")
+    missing = [
+        path
+        for path in [args.detailed_xlsx, args.critical_dir, args.annotation_reference]
+        if not path.exists()
+    ]
+    if missing:
+        logger.error(f"Error: Required input does not exist: {missing[0]}")
+        return 1
 
+    try:
         annotation_reference = read_parquet(args.annotation_reference)
-        logger.info(f"Loaded annotation reference: {len(annotation_reference):,} genes × {annotation_reference.shape[1]} columns")
+        logger.info(
+            f"Loaded annotation reference: {len(annotation_reference):,} genes x "
+            f"{annotation_reference.shape[1]} columns"
+        )
 
         build_workbook(
             detailed_xlsx=args.detailed_xlsx,

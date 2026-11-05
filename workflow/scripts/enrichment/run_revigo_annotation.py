@@ -47,11 +47,11 @@ SRC_DIR = SCRIPT_DIR.parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from enrichment.network import (  # noqa: E402
+from enrichment.network import (
     RevigoNetworkConfig,
     annotate_go_with_revigo,
 )
-from logging_setup import setup_logger  # noqa: E402
+from logging_setup import setup_logger
 
 # =============================================================================
 # 2. CONSTANTS

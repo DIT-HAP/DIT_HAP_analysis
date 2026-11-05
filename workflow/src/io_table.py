@@ -32,29 +32,29 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+from typing import Any
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 
 # =============================================================================
 # READING
 # =============================================================================
-def read_file(file: Path, **kwargs) -> pd.DataFrame:
+def read_file(file: Path, **kwargs: Any) -> pd.DataFrame:
     """Read a table into a DataFrame, dispatching on file extension (tsv/bed/csv/xlsx/parquet)."""
     if "tsv" in file.name or "bed" in file.name:
         return pd.read_csv(file, sep="\t", **kwargs)
-    elif "csv" in file.name:
+    if "csv" in file.name:
         return pd.read_csv(file, sep=",", **kwargs)
-    elif "xlsx" in file.name:
+    if "xlsx" in file.name:
         return pd.read_excel(file, **kwargs)
-    elif "parquet" in file.name:
+    if "parquet" in file.name:
         return pd.read_parquet(file, engine="pyarrow", **kwargs)
-    else:
-        raise ValueError(f"Unsupported file type: {file.name}")
+    raise ValueError(f"Unsupported file type: {file.name}")
 
 
 # Schema-metadata keys used to make the Series <-> DataFrame round-trip transparent.
@@ -88,7 +88,7 @@ def read_parquet(file_path: Path | str) -> pd.DataFrame | pd.Series:
     FileNotFoundError
         If the file does not exist
     """
-    import pyarrow.parquet as pq
+    import pyarrow.parquet as pq  # noqa: PLC0415
 
     file_path = Path(file_path)
     if not file_path.exists():
@@ -102,7 +102,8 @@ def read_parquet(file_path: Path | str) -> pd.DataFrame | pd.Series:
 
     # Restore duplicate column names if they were renamed during write
     if b"__original_columns__" in metadata:
-        import ast
+        import ast  # noqa: PLC0415
+
         original_columns = ast.literal_eval(metadata[b"__original_columns__"].decode("utf-8"))
         frame.columns = original_columns
 
@@ -149,8 +150,8 @@ def write_parquet(
     - Handles duplicate column names by suffixing them for storage, then restoring
       on read (intentional byte-faithful quirk for phenotype features)
     """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    import pyarrow as pa  # noqa: PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
 
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)

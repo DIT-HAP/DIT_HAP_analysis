@@ -1,17 +1,16 @@
 """Tests for workflow/src/figures.py."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")  # 无头后端
+mpl.use("Agg")  # 无头后端
 
 import matplotlib.pyplot as plt
 import pytest
-
 from workflow.src import figures
 from workflow.src.figures import PanelShape
 
@@ -79,7 +78,7 @@ def test_panel_labels_adds_text_to_axes():
     """grid_axes adds panel labels (A, B, C, ...) to each axes."""
     figures.apply_house_style()
 
-    # 创建 1x3 网格，提供自定义标签
+    # 创建 1x3 网格,提供自定义标签
     custom_labels = ["X", "Y", "Z"]
     axes = figures.grid_axes(1, 3, labels=custom_labels, shape=PanelShape.SQUARE)
 
@@ -90,7 +89,7 @@ def test_panel_labels_adds_text_to_axes():
     fig = plt.gcf()
     assert fig is not None
 
-    # 注意：cns.add_panel_label 添加的标签不是通过 ax.texts 访问的，
+    # 注意:cns.add_panel_label 添加的标签不是通过 ax.texts 访问的,
     # 而是通过 cnsplots 的内部机制。这里我们只验证函数调用成功完成。
     # 实际的标签渲染由 cnsplots 保证。
 
@@ -99,12 +98,12 @@ def test_panel_labels_adds_text_to_axes():
 
 def test_panel_labels_function_generates_correct_sequence():
     """panel_labels generates A-Z, then A1, A2, ... for n > 26."""
-    # 测试前 26 个标签（A-Z）
+    # 测试前 26 个标签(A-Z)
     labels = figures.panel_labels(26)
     assert labels[0] == "A"
     assert labels[25] == "Z"
 
-    # 测试超过 26 个标签（A1, A2, ...）
+    # 测试超过 26 个标签(A1, A2, ...)
     labels = figures.panel_labels(30)
     assert labels[26] == "A1"
     assert labels[27] == "A2"

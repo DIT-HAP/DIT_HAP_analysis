@@ -10,11 +10,12 @@ Outputs (results/verification/HD_DIT_HAP/):
 This is a deterministic build; run with the `data_analysis` conda env. Iterate here,
 then port to a notebook cell + (later) workflow/scripts/verification/build_foundation.py.
 """
+
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 import pandas as pd
 
@@ -30,8 +31,14 @@ ONTO = POMBASE / "ontologies_and_associations"
 
 @dataclass(frozen=True)
 class Paths:
-    verification_xlsx: Path = PIPE / "results/HD_DIT_HAP_generationRAW/20_essentiality_verification/organized_verification_summary.xlsx"
-    dr_dl_tsv: Path = PIPE / "results/HD_DIT_HAP_generationRAW/18_gene_level_clustering/all_coding_genes_with_DIT_HAP_clustering.tsv"
+    verification_xlsx: Path = (
+        PIPE / "results/HD_DIT_HAP_generationRAW/20_essentiality_verification/"
+        "organized_verification_summary.xlsx"
+    )
+    dr_dl_tsv: Path = (
+        PIPE / "results/HD_DIT_HAP_generationRAW/18_gene_level_clustering/"
+        "all_coding_genes_with_DIT_HAP_clustering.tsv"
+    )
     complex_cc: Path = ONTO / "macromolecular_complex_annotation.tsv"
     gaf: Path = ONTO / "gene_ontology_annotation.gaf.tsv"
     obo: Path = ONTO / "go-basic.obo"
@@ -44,17 +51,25 @@ class Paths:
 
 P = Paths()
 
+
 def build_go_cc_complex() -> pd.DataFrame:
     """GO cellular_component macromolecular-complex annotation → long rows."""
     cx = pd.read_csv(P.complex_cc, sep="\t")
     out = cx[["systematic_id", "complex_term_id", "GO_term_name"]].dropna(subset=["systematic_id"])
-    out = out.rename(columns={"systematic_id": "gene", "complex_term_id": "group_id", "GO_term_name": "group_name"})
+    out = out.rename(
+        columns={
+            "systematic_id": "gene",
+            "complex_term_id": "group_id",
+            "GO_term_name": "group_name",
+        }
+    )
     out.insert(0, "group_type", "GO_CC_complex")
     return out.drop_duplicates()
 
 
 def build_go_bp() -> pd.DataFrame:
-    """GO biological_process, goatools-propagated (part_of/is_a) via load_ontology_data → long rows."""
+    """GO biological_process, goatools-propagated (part_of/is_a) via load_ontology_data → long
+    rows."""
     cfg = OntologyDataConfig(
         ontology_obo=P.obo,
         ontology_association_gaf=P.gaf,
@@ -69,14 +84,14 @@ def build_go_bp() -> pd.DataFrame:
         term = dag.get(go_id)
         if term is None or term.namespace != "biological_process":
             continue
-        for g in genes:
-            rows.append(("GO_BP", go_id, term.name, g))
+        rows.extend(("GO_BP", go_id, term.name, g) for g in genes)
     out = pd.DataFrame(rows, columns=["group_type", "group_id", "group_name", "gene"])
     return out.drop_duplicates()
 
 
 def build_kegg_pathway() -> pd.DataFrame:
-    """KEGG pathway from combined_brite_table Level_4 [PATH:spoNNNNN]; map gene Name → systematic_id."""
+    """KEGG pathway from combined_brite_table Level_4 [PATH:spoNNNNN]; map gene Name →
+    systematic_id."""
     kg = pd.read_csv(P.kegg_combined, sep="\t")
     lvl4 = kg["Level_4"].astype(str)
     path = lvl4.str.extract(r"\[PATH:(spo\d+)\]")[0]
@@ -117,8 +132,7 @@ def build_verification_master() -> pd.DataFrame:
     dr = pd.read_csv(P.dr_dl_tsv, sep="\t")[
         ["Systematic ID", "DR", "DL", "Cluster", "RevisedDeletion_essentiality"]
     ]
-    master = ver.merge(dr, on="Systematic ID", how="left", suffixes=("", "_cluster"))
-    return master
+    return ver.merge(dr, on="Systematic ID", how="left", suffixes=("", "_cluster"))
 
 
 def main() -> None:
@@ -128,9 +142,11 @@ def main() -> None:
     long_path = P.out_dir / "gene_annotation_long.tsv"
     long.to_csv(long_path, sep="\t", index=False)
     print(f"[gene_annotation_long] {long.shape} -> {long_path}")
-    print(long.groupby("group_type").agg(
-        n_rows=("gene", "size"), n_genes=("gene", "nunique"), n_groups=("group_id", "nunique")
-    ).to_string())
+    print(
+        long.groupby("group_type")
+        .agg(n_rows=("gene", "size"), n_genes=("gene", "nunique"), n_groups=("group_id", "nunique"))
+        .to_string()
+    )
 
     master = build_verification_master()
     master_path = P.out_dir / "verification_master.tsv"

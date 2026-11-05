@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from workflow.src.enrichment.ontology import OntologyDataConfig
 
 POMBASE_DIR = Path("resources/external/pombase/2025-10-01")
@@ -21,7 +20,9 @@ def test_validate_paths_raises_on_missing_obo(tmp_path):
         cfg.validate_paths()
 
 
-@pytest.mark.skipif(not ONTOLOGY_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)")
+@pytest.mark.skipif(
+    not ONTOLOGY_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)"
+)
 def test_load_data_concatenates_slim_tables():
     """load_data() concatenates all three GO slim tables into one Term/Description frame."""
     cfg = OntologyDataConfig(
@@ -38,7 +39,9 @@ def test_load_data_concatenates_slim_tables():
     assert len(data.slim_term_dataframe) > 0
 
 
-@pytest.mark.skipif(not ONTOLOGY_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)")
+@pytest.mark.skipif(
+    not ONTOLOGY_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)"
+)
 def test_load_ontology_data_returns_gene2go_for_known_gene():
     """load_ontology_data's gene2go dict has an entry for a known coding gene."""
     from workflow.src.enrichment.ontology import load_ontology_data
@@ -48,7 +51,7 @@ def test_load_ontology_data_returns_gene2go_for_known_gene():
         ontology_association_gaf=ONTOLOGY_DIR / "gene_ontology_annotation.gaf.tsv",
         slim_terms_table=[ONTOLOGY_DIR / "bp_go_slim_terms.tsv"],
     )
-    dag, objanno, ns2assoc, gene2go, go2genes, slim_dag = load_ontology_data(
+    _dag, _objanno, _ns2assoc, gene2go, _go2genes, _slim_dag = load_ontology_data(
         cfg.load_data(),
         relationships={"is_a", "part_of"},
         propagate_counts=True,

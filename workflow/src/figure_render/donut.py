@@ -59,10 +59,7 @@ def draw_donut_panel(
     first, legend beneath. Counts of zero on both sides are handled by the
     caller — this primitive always draws a wedge ring, however degenerate.
     """
-    counts = [part, whole]
-    status_df = pd.DataFrame(
-        {STATUS_COLUMN: [part_label] * part + [whole_label] * whole}
-    )
+    status_df = pd.DataFrame({STATUS_COLUMN: [part_label] * part + [whole_label] * whole})
     cns.donutplot(
         data=status_df,
         x=STATUS_COLUMN,
@@ -86,9 +83,7 @@ def draw_donut_panel(
     return center
 
 
-def _tighten_bottom_legend(
-    ax: matplotlib.axes.Axes, legend: matplotlib.legend.Legend
-) -> None:
+def _tighten_bottom_legend(ax: matplotlib.axes.Axes, legend: matplotlib.legend.Legend) -> None:
     """Re-anchor a bottom legend LEGEND_RING_GAP_PX below the ring, not below the axes box."""
     axes_height_px = ax.get_position().height * ax.figure.get_size_inches()[1] * 72
     if axes_height_px <= 0:

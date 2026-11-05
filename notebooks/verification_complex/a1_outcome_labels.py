@@ -13,6 +13,7 @@ verification_outcome_table.tsv with:
 Run with the `data_analysis` conda env. Iterate here, then port to notebook +
 (later) workflow/scripts/verification/.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,8 +27,24 @@ MASTER = OUT_DIR / "verification_master.tsv"
 # The 18 data-quality exclusions hand-curated in the source notebook
 # (compare_with_deletion_library.ipynb cell 19). Matched on gene_name.
 NOISED_GENES = [
-    "pyp3", "mam2", "hul6", "fub1", "csn5", "rdl1", "ymr1", "meu31", "msn5",
-    "SPAC4C5.03", "SPAC977.03", "mal1", "num1", "dbl8", "fmo1", "erm2", "thp1", "pmc3",
+    "pyp3",
+    "mam2",
+    "hul6",
+    "fub1",
+    "csn5",
+    "rdl1",
+    "ymr1",
+    "meu31",
+    "msn5",
+    "SPAC4C5.03",
+    "SPAC977.03",
+    "mal1",
+    "num1",
+    "dbl8",
+    "fmo1",
+    "erm2",
+    "thp1",
+    "pmc3",
 ]
 
 # Chinese comment fragments that flag a borderline / low-confidence wet-lab readout.
@@ -36,16 +53,28 @@ NOISED_GENES = [
 # (81/411) and almost always note a caveat — has_any_comment (below) keeps the looser
 # signal available so A4 can choose strict-vs-loose.
 AMBIGUOUS_COMMENT_KEYWORDS = [
-    "轻微可见", "可见但", "很小", "小",           # faint / small colonies
-    "一大一小", "一个长一个不长", "不都是", "一半",  # mixed / inconsistent growth
-    "极少数", "少数", "不规则", "形状",             # sparse / irregular
-    "难长",                                        # hard to grow after replica-plating (assay-technical)
-    "部分", "几列", "?", "？",                      # partial / uncertain marker
+    "轻微可见",
+    "可见但",
+    "很小",
+    "小",  # faint / small colonies
+    "一大一小",
+    "一个长一个不长",
+    "不都是",
+    "一半",  # mixed / inconsistent growth
+    "极少数",
+    "少数",
+    "不规则",
+    "形状",  # sparse / irregular
+    "难长",  # hard to grow after replica-plating (assay-technical)
+    "部分",
+    "几列",
+    "?",
+    "？",  # noqa: RUF001 — fullwidth ? is a data marker, not punctuation
 ]
 
 # QC thresholds (justified against the observed distributions, see A1 exploration).
-R2_MIN = 0.80              # median R2 ~0.98; below this the curve fit is poor
-TOTAL_COLONIES_MIN = 50    # min observed 48, 25th pct 52; thin support
+R2_MIN = 0.80  # median R2 ~0.98; below this the curve fit is poor
+TOTAL_COLONIES_MIN = 50  # min observed 48, 25th pct 52; thin support
 FILTERING_FRACTION_MIN = 0.5  # min 0.08, 25th pct 0.88; most colonies filtered out
 
 

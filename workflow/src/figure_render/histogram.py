@@ -13,9 +13,10 @@ Version:  1.1.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+import sys
+from typing import Any
 
 # Add workflow/src to path for imports
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -24,8 +25,11 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
+from loguru import logger
+from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
+
 from figures import (
     FURNITURE_COLOR,
     PanelShape,
@@ -36,8 +40,6 @@ from figures import (
     panel_labels,
     save_dual,
 )
-from loguru import logger
-from matplotlib.axes import Axes
 
 from ._schema import require_columns
 
@@ -101,7 +103,9 @@ def draw_histogram_panel(
     # internal column. The scale is set afterwards rather than through
     # log_scale=: the edges are already laid out in log10 space above, and
     # passing both would have seaborn re-bin them.
-    cns.histplot(data=values.to_frame(_VALUE_COLUMN), x=_VALUE_COLUMN, bins=edges, ax=ax, shrink=0.9)
+    cns.histplot(
+        data=values.to_frame(_VALUE_COLUMN), x=_VALUE_COLUMN, bins=edges, ax=ax, shrink=0.9
+    )
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
@@ -134,7 +138,7 @@ def render_histogram_grid_figure(
     if df.empty or not value_columns:
         logger.warning("No data to plot!")
         return
-    
+
     if n_cols < 1:
         raise ValueError(f"n_cols must be at least 1, got {n_cols}")
 
@@ -171,6 +175,152 @@ def render_histogram_grid_figure(
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
+
+
+def _panel_values(
+    group_df: pd.DataFrame,
+    *,
+    value_column: str,
+    log_scale: bool,
+    upper_quantile: float | None,
+) -> pd.Series:
+    """Drop nulls, non-positive values under log scale, and per-group upper outliers."""
+    data = group_df[value_column].dropna()
+    if log_scale:
+        data = data[data > 0]
+    if upper_quantile is None or data.empty:
+        return data
+
+    threshold = data.quantile(upper_quantile)
+    dropped = int((data > threshold).sum())
+    if dropped:
+        logger.info(
+            f"upper_quantile={upper_quantile}: dropping {dropped} outlier(s) above {threshold:.4g}"
+        )
+    return data[data <= threshold]
+
+
+def _collect_panel_values(
+    groups: Iterable[tuple[Any, pd.DataFrame]],
+    *,
+    value_column: str,
+    log_scale: bool,
+    upper_quantile: float | None,
+) -> dict[Any, pd.Series]:
+    """Filter every row_key/col_key group down to the values its panel will bin."""
+    return {
+        key: _panel_values(
+            group_df, value_column=value_column, log_scale=log_scale, upper_quantile=upper_quantile
+        )
+        for key, group_df in groups
+    }
+
+
+def _hide_absent_cells(
+    axes: Sequence[Axes],
+    panel_values: Mapping[Any, pd.Series],
+    row_values: Sequence[Any],
+    col_values: Sequence[Any],
+    n_cols: int,
+) -> None:
+    """Hide the frame of every row/col cell absent from the data, keeping its slot."""
+    for r, row_val in enumerate(row_values):
+        for c, col_val in enumerate(col_values):
+            if (row_val, col_val) not in panel_values:
+                axes[r * n_cols + c].set_visible(False)
+
+
+def _shared_log_edges(
+    panel_values: Mapping[Any, pd.Series],
+    *,
+    share_x_range: bool,
+    log_scale: bool,
+    bins: int | np.ndarray,
+) -> np.ndarray | None:
+    """Common log-spaced bin edges across panels, or None when ranges stay per-panel."""
+    if not (share_x_range and log_scale):
+        return None
+
+    non_empty = [data for data in panel_values.values() if not data.empty]
+    lo = min(data.min() for data in non_empty)
+    hi = max(data.max() for data in non_empty)
+    return np.logspace(np.log10(lo), np.log10(hi), bins + 1)
+
+
+def _shared_y_top(
+    panel_values: Mapping[Any, pd.Series],
+    *,
+    share_y_range: bool,
+    shared_edges: np.ndarray | None,
+    bins: int | np.ndarray,
+) -> float | None:
+    """Highest bar count across panels, with headroom, or None without a shared y range."""
+    if not share_y_range:
+        return None
+
+    edges = shared_edges if shared_edges is not None else bins
+    counts = [
+        int(np.histogram(data.to_numpy(), bins=edges)[0].max())
+        for data in panel_values.values()
+        if not data.empty
+    ]
+    return max(counts) * 1.05
+
+
+def _grouped_panel_titles(
+    row_val: Any, col_val: Any, c: int, *, un_faceted: bool, ylabel: str
+) -> tuple[str, str]:
+    """Return the panel ylabel/title, carrying the row value in the first column."""
+    if un_faceted:
+        return ylabel, str(row_val)
+
+    panel_ylabel = f"{row_val}\n{ylabel}" if c == 0 else ylabel
+    return panel_ylabel, str(col_val)
+
+
+def _draw_grouped_panel(
+    ax: Axes,
+    data: pd.Series,
+    *,
+    panel_ylabel: str,
+    panel_title: str,
+    bins: int | np.ndarray,
+    log_scale: bool,
+    xlabel: str,
+    bin_edges: np.ndarray | None,
+    y_top: float | None,
+) -> None:
+    """Bin one group's values into its panel and apply the shared y limit, if any."""
+    draw_histogram_panel(
+        ax,
+        data,
+        bins=bins,
+        log_scale=log_scale,
+        xlabel=xlabel,
+        ylabel=panel_ylabel,
+        title=panel_title,
+        bin_edges=bin_edges,
+    )
+    if y_top is not None and not data.empty:
+        ax.set_ylim(0, y_top)
+
+
+def _draw_grouped_marker(
+    ax: Axes,
+    *,
+    col_val: Any,
+    marker_value: float | None,
+    marker_label: str,
+    marker_on_col_value: str | None,
+) -> None:
+    """Draw the cutoff marker, only on the panels the caller scoped it to."""
+    if marker_value is None:
+        return
+    if marker_on_col_value is not None and col_val != marker_on_col_value:
+        return
+
+    ax.axvline(marker_value, color=FURNITURE_COLOR, linestyle="--", label=marker_label)
+    ax.legend(loc="upper right")
 
 
 @logger.catch(reraise=True)
@@ -231,19 +381,9 @@ def render_grouped_histogram_figure(
         logger.warning("No groups to plot!")
         return
 
-    def _panel_values(group_df: pd.DataFrame) -> pd.Series:
-        data = group_df[value_column].dropna()
-        if log_scale:
-            data = data[data > 0]
-        if upper_quantile is not None and not data.empty:
-            threshold = data.quantile(upper_quantile)
-            dropped = int((data > threshold).sum())
-            if dropped:
-                logger.info(f"upper_quantile={upper_quantile}: dropping {dropped} outlier(s) above {threshold:.4g}")
-            data = data[data <= threshold]
-        return data
-
-    panel_values = {key: _panel_values(group_df) for key, group_df in grouped}
+    panel_values = _collect_panel_values(
+        grouped, value_column=value_column, log_scale=log_scale, upper_quantile=upper_quantile
+    )
     if all(data.empty for data in panel_values.values()):
         logger.warning("All panels are empty after filtering!")
         return
@@ -264,55 +404,43 @@ def render_grouped_histogram_figure(
 
     # A row/col combination absent from the data keeps its cell but shows no
     # frame, so the remaining panels stay in their own row and column.
-    for r, row_val in enumerate(row_values):
-        for c, col_val in enumerate(col_values):
-            if (row_val, col_val) not in panel_values:
-                axes[r * n_cols + c].set_visible(False)
+    _hide_absent_cells(axes, panel_values, row_values, col_values, n_cols)
 
-    if share_x_range and log_scale:
-        lo = min(d.min() for d in panel_values.values() if not d.empty)
-        hi = max(d.max() for d in panel_values.values() if not d.empty)
-        shared_edges = np.logspace(np.log10(lo), np.log10(hi), bins + 1)
-    else:
-        shared_edges = None
+    shared_edges = _shared_log_edges(
+        panel_values, share_x_range=share_x_range, log_scale=log_scale, bins=bins
+    )
+    y_top = _shared_y_top(
+        panel_values, share_y_range=share_y_range, shared_edges=shared_edges, bins=bins
+    )
 
     for (row_val, col_val), data in panel_values.items():
         r = row_values.index(row_val)
         c = col_values.index(col_val)
         ax = axes[r * n_cols + c]
 
-        if un_faceted:
-            panel_ylabel, panel_title = ylabel, str(row_val)
-        else:
-            panel_ylabel = f"{row_val}\n{ylabel}" if c == 0 else ylabel
-            panel_title = str(col_val)
-        draw_histogram_panel(
-            ax, data,
+        panel_ylabel, panel_title = _grouped_panel_titles(
+            row_val, col_val, c, un_faceted=un_faceted, ylabel=ylabel
+        )
+        _draw_grouped_panel(
+            ax,
+            data,
+            panel_ylabel=panel_ylabel,
+            panel_title=panel_title,
             bins=bins,
             log_scale=log_scale,
             xlabel=xlabel,
-            ylabel=panel_ylabel,
-            title=panel_title,
             bin_edges=shared_edges,
+            y_top=y_top,
         )
 
-        if share_y_range and not data.empty:
-            y_max = max(
-                int(np.histogram(d.to_numpy(), bins=(shared_edges if shared_edges is not None else bins))[0].max())
-                for d in panel_values.values()
-                if not d.empty
-            )
-            ax.set_ylim(0, y_max * 1.05)
-
         logger.info(f"  Panel ({r},{c}): {row_val} {col_val} (n={len(data):,})")
-
-        if marker_value is None:
-            continue
-        if marker_on_col_value is not None and col_val != marker_on_col_value:
-            continue
-
-        ax.axvline(marker_value, color=FURNITURE_COLOR, linestyle="--", label=marker_label)
-        ax.legend(loc="upper right")
+        _draw_grouped_marker(
+            ax,
+            col_val=col_val,
+            marker_value=marker_value,
+            marker_label=marker_label,
+            marker_on_col_value=marker_on_col_value,
+        )
 
     fit_panels()
 

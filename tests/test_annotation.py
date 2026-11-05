@@ -1,7 +1,7 @@
 """Tests for workflow/src/annotation/core.py gene annotation assembly."""
 
-import sys
 from pathlib import Path
+import sys
 
 # core.py imports its sibling src modules by bare name (as every src module does),
 # so src/ has to be importable — same path the scripts append.
@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src")
 
 import pandas as pd
 import pytest
-
 from workflow.src.annotation.core import (
     annotate_table,
     assemble_annotation_reference_split,
@@ -300,9 +299,7 @@ def test_summary_raises_a_helpful_error_for_a_wrong_gene_column(annotation_refer
 def test_summary_reports_matched_count_and_unmatched_ids(annotation_reference):
     """The caller needs both numbers to notice a wrong column or a non-coding gene slipping in."""
     user_table = pd.DataFrame({"gene": ["SPBC11B10.09", "not_a_gene", "also_missing"]})
-    matched, unmatched = summarise_match(
-        user_table, annotation_reference, gene_column="gene"
-    )
+    matched, unmatched = summarise_match(user_table, annotation_reference, gene_column="gene")
     assert matched == 1
     assert unmatched == ["also_missing", "not_a_gene"]
 
@@ -310,9 +307,7 @@ def test_summary_reports_matched_count_and_unmatched_ids(annotation_reference):
 def test_summary_deduplicates_unmatched_ids(annotation_reference):
     """A repeated unmatched id is reported once, so the log stays readable."""
     user_table = pd.DataFrame({"gene": ["nope", "nope", "nope"]})
-    matched, unmatched = summarise_match(
-        user_table, annotation_reference, gene_column="gene"
-    )
+    matched, unmatched = summarise_match(user_table, annotation_reference, gene_column="gene")
     assert matched == 0
     assert unmatched == ["nope"]
 
@@ -417,9 +412,7 @@ def test_gene_with_no_ortholog_has_empty_id_and_zero_count(sc_gene_info, sc_esse
 
 def test_human_ortholog_block_gives_symbols_and_count():
     """Human orthologs come straight from PomBase symbols, with a count column."""
-    orthologs = _ortholog_frame(
-        [("SPAC1002.05c", "KDM5A|KDM5B|KDM5C"), ("SPAC0003.01", "NONE")]
-    )
+    orthologs = _ortholog_frame([("SPAC1002.05c", "KDM5A|KDM5B|KDM5C"), ("SPAC0003.01", "NONE")])
     result = build_hs_ortholog_block(orthologs)
     assert result.loc["SPAC1002.05c", "Hs_ortholog_symbol"] == "KDM5A|KDM5B|KDM5C"
     assert result.loc["SPAC1002.05c", "Hs_ortholog_count"] == 3
@@ -431,16 +424,18 @@ def test_human_ortholog_block_gives_symbols_and_count():
 # =============================================================================
 def _pombase_metadata_frame() -> pd.DataFrame:
     """Minimal gene_ids_and_details.parquet stand-in: two protein genes + one lncRNA."""
-    return pd.DataFrame({
-        "systematic_id": ["SPAC1002.01", "SPAC1002.02", "SPNCRNA.01"],
-        "name": ["mrx11", None, "nc1"],
-        "gene_product": ["MIOREX component Mrx11", "conserved protein", "lncRNA"],
-        "product": ["p1", "p2", "p3"],
-        "feature_type": ["protein", "protein", "lncRNA gene"],
-        "characterisation_status": ["biological role published"] * 3,
-        "taxonomic_distribution": ["fungi only"] * 3,
-        "deletion_viability": ["viable", "inviable", "unknown"],
-    })
+    return pd.DataFrame(
+        {
+            "systematic_id": ["SPAC1002.01", "SPAC1002.02", "SPNCRNA.01"],
+            "name": ["mrx11", None, "nc1"],
+            "gene_product": ["MIOREX component Mrx11", "conserved protein", "lncRNA"],
+            "product": ["p1", "p2", "p3"],
+            "feature_type": ["protein", "protein", "lncRNA gene"],
+            "characterisation_status": ["biological role published"] * 3,
+            "taxonomic_distribution": ["fungi only"] * 3,
+            "deletion_viability": ["viable", "inviable", "unknown"],
+        }
+    )
 
 
 def test_pombase_metadata_block_filters_gene_type_and_keeps_reference_column_names(tmp_path):
@@ -468,10 +463,12 @@ def test_pombase_metadata_block_fills_missing_name_with_systematic_id(tmp_path):
 def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
     """A gene in the xlsx with no dispensability call becomes Not_determined, not NaN."""
     path = tmp_path / "deletion_library_categories.xlsx"
-    pd.DataFrame({
-        "Systematic ID": ["SPAC1002.01", "SPAC1002.02"],
-        "Gene dispensability. This study": ["E", None],
-    }).to_excel(path, index=False)
+    pd.DataFrame(
+        {
+            "Systematic ID": ["SPAC1002.01", "SPAC1002.02"],
+            "Gene dispensability. This study": ["E", None],
+        }
+    ).to_excel(path, index=False)
 
     block = build_deletion_library_block(path)
 
@@ -482,7 +479,9 @@ def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
 def test_verification_block_raises_when_a_depended_on_column_is_absent(tmp_path):
     """A curated source missing a column we depend on means the wrong file, so it raises."""
     path = tmp_path / "essentiality_verification.csv"
-    pd.DataFrame({"systematic_id": ["SPAC1002.01"], "wrong_column": ["E"]}).to_csv(path, index=False)
+    pd.DataFrame({"systematic_id": ["SPAC1002.01"], "wrong_column": ["E"]}).to_csv(
+        path, index=False
+    )
 
     with pytest.raises(ValueError, match="missing required column"):
         build_verification_block(path)
@@ -601,7 +600,8 @@ def test_assembly_is_keyed_on_the_pombe_gene_set():
 
 
 def test_annotation_blocks_do_not_add_rows_but_experimental_blocks_do():
-    """The two join strategies are the point of the split: left for annotation, outer for experimental.
+    """The two join strategies are the point of the split: left for annotation, outer for
+    experimental.
 
     An ortholog file must never introduce a gene PomBase no longer has, while an
     experimental source (deletion library, DR/DL, gRNA) legitimately covers genes
@@ -612,11 +612,14 @@ def test_annotation_blocks_do_not_add_rows_but_experimental_blocks_do():
     index = pd.Index(["SPAC0001.01", *extra], name="gene_systematic_id")
 
     annotation_block = pd.DataFrame({"Sc_ortholog_id": ["YAL001C", "YAL002W"]}, index=index)
-    assert list(assemble_annotation_reference_split(pombe, [], [annotation_block]).index) == ["SPAC0001.01"]
+    assert list(assemble_annotation_reference_split(pombe, [], [annotation_block]).index) == [
+        "SPAC0001.01"
+    ]
 
     experimental_block = pd.DataFrame({"deletion_essentiality": ["E", "V"]}, index=index)
     assert list(assemble_annotation_reference_split(pombe, [experimental_block], []).index) == [
-        "SPAC0001.01", "SPAC_RETIRED.01",
+        "SPAC0001.01",
+        "SPAC_RETIRED.01",
     ]
 
 
@@ -663,7 +666,7 @@ def test_grna_block_renames_legacy_um_and_lam():
     """The curated table uses legacy um/lam names; gRNA_DR is sign-flipped to match DIT-HAP."""
     grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
     result = build_grna_block(grna)
-    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == -1.048   # sign-flipped to the DIT-HAP convention
+    assert result.loc["SPAC3A12.11c", "gRNA_DR"] == -1.048  # sign-flipped to the DIT-HAP convention
     assert result.loc["SPAC3A12.11c", "gRNA_DL"] == 1.103
 
 
@@ -675,7 +678,8 @@ def test_grna_block_emits_only_the_two_depletion_columns():
 
 
 def test_grna_columns_are_prefixed_to_avoid_colliding_with_gene_level_dr_dl():
-    """Gene-level DR/DL are different measurements (DL correlates only ~0.55), so names must differ."""
+    """Gene-level DR/DL are different measurements (DL correlates only ~0.55), so names must
+    differ."""
     grna = _grna_frame([("SPAC3A12.11c", 1.048, 1.103)])
     result = build_grna_block(grna)
     assert "DR" not in result.columns

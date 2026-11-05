@@ -12,8 +12,8 @@ cannot say anything about a gene you point at.
 This is the same picture as an interactive document, plus the maps that make the
 term pickable: three panels side by side.
 
-- **Terms in q–z space** — one marker per group at its coherent-tail q (the x
-  axis, pinned 0–1 because q is a probability) against its median pairwise
+- **Terms in q-z space** — one marker per group at its coherent-tail q (the x
+  axis, pinned 0-1 because q is a probability) against its median pairwise
   distance z, with the marker's area carrying the scored-member count. This is
   the plane the cohort labels are cut on, so the two dashed rules ARE the cuts,
   and it is the interactive counterpart of the static figure's "Coherence vs
@@ -22,7 +22,7 @@ term pickable: three panels side by side.
   position of its scored members. The selected group is a large solid marker, the
   rest fade back. This is where a reader browses: the axis is the same fitness
   space as the right panel, so an outlying group is visibly outlying.
-- **Genes of the selected term in DR–DL space** — the genome-wide cloud with the
+- **Genes of the selected term in DR-DL space** — the genome-wide cloud with the
   selected term's genes on top. Hovering any point — cloud or highlighted — shows
   that gene's fitness record.
 
@@ -77,7 +77,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
 Date:     2026-09-22 (cohort dropdown + marker colours 2026-10-08;
-          q–z term panel 2026-10-22)
+          q-z term panel 2026-10-22)
 Version:  2.3.0
 """
 
@@ -86,17 +86,17 @@ Version:  2.3.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
 import altair as alt
-import numpy as np
-import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+import numpy as np
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -175,9 +175,7 @@ _CENTROID_STROKE = "#ffffff"
 # panels already use. The same vocabulary the cohort workbooks use
 # (export_cohorts.py's Cohort), cut with the same thresholds the figures label
 # with (--coherent-z/--incoherent-z, below).
-_COHORT_COLORS = dict(
-    zip(("coherent", "incoherent"), house_colors((2, 3)))
-)
+_COHORT_COLORS = dict(zip(("coherent", "incoherent"), house_colors((2, 3)), strict=False))
 
 # The coherent cohort's FDR half. The z thresholds arrive through --label-*
 # style CLI flags (config/analysis.yaml's `coherence:` block drives them via the
@@ -189,7 +187,7 @@ _COHERENT_Q_MAX = 0.05
 # q-z panel draws its dashed rule at it, so the two cannot disagree.
 _DEFAULT_COHERENT_Z = -2.0
 
-# --- q–z term panel ---------------------------------------------------------
+# --- q-z term panel ---------------------------------------------------------
 # q is a probability, so its axis is pinned to the full 0-1 instead of autoscaled
 # to the observed range: the significance cut then sits at its true position, and
 # pages over different row sets (a source, combined, dedup) stay comparable. This
@@ -213,8 +211,12 @@ _ROUND_DP = 4
 _ROUND_COLUMNS = ["DR", "DL", "norm_DR", "norm_DL", "R2"]
 
 _REQUIRED_METRIC_COLUMNS = [
-    "source", "group_id", "group_name", "median_pairwise_distance_z",
-    "q_value_coherent", "q_value_incoherent",
+    "source",
+    "group_id",
+    "group_name",
+    "median_pairwise_distance_z",
+    "q_value_coherent",
+    "q_value_incoherent",
 ]
 
 # The cohort dropdown's choices, in order. `all` keeps the page's default view
@@ -331,6 +333,7 @@ _PAGE_CSS = """
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
     """Inputs and output for the interactive scatter page."""
+
     metrics: Path
     # One path per source: a per-source run passes one, the pooled `combined/` and
     # `dedup/` runs pass every registered source's table. They are concatenated,
@@ -360,9 +363,7 @@ class PlotConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def cohort_labels(
-    metrics: pd.DataFrame, coherent_z: float, incoherent_z: float
-) -> pd.DataFrame:
+def cohort_labels(metrics: pd.DataFrame, coherent_z: float, incoherent_z: float) -> pd.DataFrame:
     """Add the `cohort` column the dropdown filters and the markers colour on.
 
     Same cuts the figures and workbooks label with (config/analysis.yaml's
@@ -394,12 +395,10 @@ def term_labels(metrics: pd.DataFrame) -> pd.DataFrame:
     table prefixes every term with its source.
     """
     name = metrics["group_name"].astype(str)
-    if metrics["source"].nunique() > 1:
+    if metrics["source"].ne(metrics["source"].iloc[0]).any():
         name = metrics["source"].astype(str) + ": " + name
     shared = metrics.groupby(["source", "group_name"])["group_id"].transform("nunique") > 1
-    return metrics.assign(
-        term=name.where(~shared, name + " (" + metrics["group_id"] + ")")
-    )
+    return metrics.assign(term=name.where(~shared, name + " (" + metrics["group_id"] + ")"))
 
 
 def gene_detail(fitting: pd.DataFrame) -> pd.DataFrame:
@@ -453,10 +452,16 @@ def centroid_table(
     """One row per term: where its members sit, on average, in the same space."""
     coords = members.merge(detail[["Systematic ID", "norm_DR", "norm_DL"]], on="Systematic ID")
     means = coords.groupby("term", as_index=False)[["norm_DR", "norm_DL"]].mean()
-    stats = metrics[[
-        "term", "median_pairwise_distance_z", "q_value_coherent",
-        "q_value_incoherent", "n_scored_members", "cohort",
-    ]]
+    stats = metrics[
+        [
+            "term",
+            "median_pairwise_distance_z",
+            "q_value_coherent",
+            "q_value_incoherent",
+            "n_scored_members",
+            "cohort",
+        ]
+    ]
     return means.merge(stats, on="term", how="left")
 
 
@@ -481,11 +486,15 @@ def member_extent(centroids: pd.DataFrame) -> tuple[float, float]:
 
 
 def build_chart(
-    background: pd.DataFrame, members: pd.DataFrame, centroids: pd.DataFrame,
-    options: list[str], cohort_colors: dict[str, str] | None = None,
-    dr_threshold: float = _DR_THRESHOLD, coherent_z: float = _DEFAULT_COHERENT_Z,
+    background: pd.DataFrame,
+    members: pd.DataFrame,
+    centroids: pd.DataFrame,
+    options: list[str],
+    cohort_colors: dict[str, str] | None = None,
+    dr_threshold: float = _DR_THRESHOLD,
+    coherent_z: float = _DEFAULT_COHERENT_Z,
 ) -> alt.Chart:
-    """The three-panel page: q–z left, the term map middle, the picked genes right."""
+    """The three-panel page: q-z left, the term map middle, the picked genes right."""
     if cohort_colors is None:
         cohort_colors = _COHORT_COLORS
     # ONE selection, two ways to set it. `bind` renders the dropdown; `on="click"`
@@ -523,8 +532,7 @@ def build_chart(
         "cohort:N",
         scale=alt.Scale(
             domain=["coherent", "incoherent", "other"],
-            range=[cohort_colors["coherent"], cohort_colors["incoherent"],
-                   _BACKGROUND_LIGHT_GREY],
+            range=[cohort_colors["coherent"], cohort_colors["incoherent"], _BACKGROUND_LIGHT_GREY],
         ),
         legend=None,
     )
@@ -542,10 +550,14 @@ def build_chart(
     # frame feeds both term panels, and the whole metrics row is also what lets a
     # click here write the same `term` the other panels read.
     z_limits = padded_extent(centroids["median_pairwise_distance_z"])
-    stats_x = alt.X("q_value_coherent:Q", title="q coherent (BH)",
-                    scale=alt.Scale(domain=list(_Q_LIMITS)))
-    stats_y = alt.Y("median_pairwise_distance_z:Q", title="median pairwise distance z",
-                    scale=alt.Scale(domain=list(z_limits)))
+    stats_x = alt.X(
+        "q_value_coherent:Q", title="q coherent (BH)", scale=alt.Scale(domain=list(_Q_LIMITS))
+    )
+    stats_y = alt.Y(
+        "median_pairwise_distance_z:Q",
+        title="median pairwise distance z",
+        scale=alt.Scale(domain=list(z_limits)),
+    )
     size_scale = alt.Scale(
         type="log", domain=list(member_extent(centroids)), range=list(_STATS_SIZE_RANGE)
     )
@@ -555,8 +567,11 @@ def build_chart(
     # bottom because Vega-Lite hoists a concat's legends to the far RIGHT of the
     # whole page by default, where a size key for the left panel reads as if it
     # belonged to the gene panel.
-    stats_size = alt.Size("n_scored_members:Q", scale=size_scale,
-                          legend=alt.Legend(title="scored genes", orient="bottom"))
+    stats_size = alt.Size(
+        "n_scored_members:Q",
+        scale=size_scale,
+        legend=alt.Legend(title="scored genes", orient="bottom"),
+    )
     stats_size_silent = alt.Size("n_scored_members:Q", scale=size_scale, legend=None)
     # The cohort cuts, drawn behind the markers in the same dashed furniture the
     # gene panel uses for the DR threshold: the bottom-left corner — q at or below
@@ -601,16 +616,13 @@ def build_chart(
         alt.Chart(centroids).transform_filter(picker).transform_filter(cohort_filter),
     )
     # No .interactive() here either: a pan gesture would fight the term click.
-    stats = (
-        (q_cut + z_cut + dimmed_stats + picked_stats)
-        .properties(
-            width=_CHART_WIDTH,
-            height=_CHART_HEIGHT,
-            title=alt.TitleParams(
-                text="Terms — q coherent vs z",
-                subtitle="size = scored genes; click a term",
-            ),
-        )
+    stats = (q_cut + z_cut + dimmed_stats + picked_stats).properties(
+        width=_CHART_WIDTH,
+        height=_CHART_HEIGHT,
+        title=alt.TitleParams(
+            text="Terms — q coherent vs z",
+            subtitle="size = scored genes; click a term",
+        ),
     )
 
     # Two layers, not one conditional mark: a source with 1,400 terms draws a
@@ -627,15 +639,12 @@ def build_chart(
         # on its colour. `other` keeps the old grey, so the idle page reads as
         # before apart from the two flagged ends.
         color = alt.value(highlight) if picked else cohort_color
-        return (
-            sample.mark_circle(
-                stroke=_CENTROID_STROKE,
-                strokeWidth=0.6,
-                size=_CENTROID_SELECTED_SIZE if picked else _CENTROID_SIZE,
-                opacity=1.0 if picked else _CENTROID_OPACITY,
-            )
-            .encode(x=centroid_x, y=centroid_y, tooltip=_TERM_TOOLTIP, color=color)
-        )
+        return sample.mark_circle(
+            stroke=_CENTROID_STROKE,
+            strokeWidth=0.6,
+            size=_CENTROID_SELECTED_SIZE if picked else _CENTROID_SIZE,
+            opacity=1.0 if picked else _CENTROID_OPACITY,
+        ).encode(x=centroid_x, y=centroid_y, tooltip=_TERM_TOOLTIP, color=color)
 
     dimmed = centroid_layer(
         False,
@@ -661,7 +670,9 @@ def build_chart(
     # in red, not-scored ones in the blue-teal — via an if/else condition colour.
     cloud = (
         alt.Chart(background)
-        .mark_circle(size=_BACKGROUND_SIZE, color=_BACKGROUND_LIGHT_GREY, opacity=_BACKGROUND_OPACITY)
+        .mark_circle(
+            size=_BACKGROUND_SIZE, color=_BACKGROUND_LIGHT_GREY, opacity=_BACKGROUND_OPACITY
+        )
         .encode(x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP)
     )
     threshold_rule = (
@@ -686,7 +697,9 @@ def build_chart(
         .transform_filter(cohort_filter)
         .mark_circle(size=_MEMBER_SIZE, opacity=_MEMBER_OPACITY)
         .encode(
-            x=gene_x, y=gene_y, tooltip=_GENE_TOOLTIP,
+            x=gene_x,
+            y=gene_y,
+            tooltip=_GENE_TOOLTIP,
             color=alt.condition(
                 alt.datum.unscored,
                 alt.value(_UNSCORED_MEMBER_COLOR),
@@ -722,7 +735,9 @@ def run(config: PlotConfig) -> None:
     metrics = read_file(config.metrics)
     missing = [column for column in _REQUIRED_METRIC_COLUMNS if column not in metrics.columns]
     if missing:
-        raise ValueError(f"metrics table missing required column(s) {missing} (have: {list(metrics.columns)})")
+        raise ValueError(
+            f"metrics table missing required column(s) {missing} (have: {list(metrics.columns)})"
+        )
 
     long_table = pd.concat(
         [load_long_table(path) for path in config.annotations], ignore_index=True
@@ -738,16 +753,19 @@ def run(config: PlotConfig) -> None:
     if not options:
         raise ValueError(f"no groups for source '{config.source}' in {config.metrics}")
 
-    scope = config.source if config.source else f"pooled, {metrics['source'].nunique()} sources"
+    scope = config.source or f"pooled, {metrics['source'].nunique()} sources"
     logger.info(
         f"{len(metrics):,} groups ({scope}), {len(members):,} member rows, "
         f"{len(fitting):,} background genes; opening on '{options[0]}'"
     )
-    chart = build_chart(detail, members, centroids, options, _COHORT_COLORS,
-                        config.dr_threshold, config.coherent_z)
+    chart = build_chart(
+        detail, members, centroids, options, _COHORT_COLORS, config.dr_threshold, config.coherent_z
+    )
     chart.save(config.output)
     embed_page_css(config.output)
-    logger.success(f"Wrote {config.output} ({len(members):,} member rows over {len(options):,} terms)")
+    logger.success(
+        f"Wrote {config.output} ({len(members):,} member rows over {len(options):,} terms)"
+    )
 
 
 # =============================================================================
@@ -755,21 +773,49 @@ def run(config: PlotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Interactive Altair scatter of a source's coherence terms")
-    parser.add_argument("--metrics", type=Path, required=True,
-                        help="coherence_metrics.parquet, or dedup/coherence_terms_representatives.tsv")
-    parser.add_argument("--annotation", type=Path, nargs="+", required=True,
-                        help="The matching group_annotation_long.tsv table(s) — one per source, concatenated")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv")
-    parser.add_argument("--source", type=str,
-                        help="One source's rows; omit to pool everything in --annotation (combined / dedup)")
-    parser.add_argument("--coherent-z", type=float, default=_DEFAULT_COHERENT_Z,
-                        help="Coherent cohort: z below this, and the q-z panel's horizontal cut")
-    parser.add_argument("--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this")
-    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
-                        help="The coherence scored/unscored cut, shown in the gene panel")
+    parser = argparse.ArgumentParser(
+        description="Interactive Altair scatter of a source's coherence terms"
+    )
+    parser.add_argument(
+        "--metrics",
+        type=Path,
+        required=True,
+        help="coherence_metrics.parquet, or dedup/coherence_terms_representatives.tsv",
+    )
+    parser.add_argument(
+        "--annotation",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="The matching group_annotation_long.tsv table(s) — one per source, concatenated",
+    )
+    parser.add_argument(
+        "--fitting-results", type=Path, required=True, help="Upstream fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="One source's rows; omit to pool everything in --annotation (combined / dedup)",
+    )
+    parser.add_argument(
+        "--coherent-z",
+        type=float,
+        default=_DEFAULT_COHERENT_Z,
+        help="Coherent cohort: z below this, and the q-z panel's horizontal cut",
+    )
+    parser.add_argument(
+        "--incoherent-z", type=float, default=0.5, help="Incoherent cohort: z above this"
+    )
+    parser.add_argument(
+        "--dr-threshold",
+        type=float,
+        default=_DR_THRESHOLD,
+        help="The coherence scored/unscored cut, shown in the gene panel",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output HTML page")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

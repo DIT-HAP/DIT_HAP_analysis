@@ -10,7 +10,8 @@ INCOHERENT ones (dispersed) — as one Excel workbook with a sheet per cohort pl
 the full annotated table. The cohort cuts are the same ones the figures label
 with (config/analysis.yaml's `coherence:` block):
 
-- coherent   = q_value_coherent <= coherent_q_max AND median_pairwise_distance_z < coherent_z_threshold
+- coherent   = q_value_coherent <= coherent_q_max AND median_pairwise_distance_z <
+coherent_z_threshold
 - incoherent = median_pairwise_distance_z > incoherent_z_threshold — a DESCRIPTIVE
   cut, deliberately kept on z so the existing incoherent figures/workbooks do not
   silently move. The mirrored one-sided dispersion tail is carried in the same
@@ -24,7 +25,8 @@ Input
 -----
 - --metrics: a coherence metrics table. The dataset-level
   combined/coherence_metrics.parquet is the intended one (all sources, q
-  re-derived over the union, which is the q the de-duplication stage ranks on); a per-source coherence_metrics.parquet works too — same columns,
+  re-derived over the union, which is the q the de-duplication stage ranks on); a per-source
+  coherence_metrics.parquet works too — same columns,
   but its q is the per-source BH and not cross-source comparable.
 - --source (optional): keep one source's rows only, writing that source's workbook
   into its own folder. The per-source rule runs this on that source's OWN
@@ -84,16 +86,16 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -108,6 +110,7 @@ from logging_setup import setup_logger
 # =============================================================================
 class Cohort(StrEnum):
     """The three cohort labels written into the `cohort` column."""
+
     COHERENT = "coherent"
     INCOHERENT = "incoherent"
     OTHER = "other"
@@ -129,6 +132,7 @@ _DEFAULT_WIDTH = 13
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ExportConfig:
     """Inputs, cohort thresholds, source subset and output path for the cohort export."""
+
     metrics: Path
     output: Path
     dedup_terms: Path | None = None
@@ -186,14 +190,19 @@ def attach_dedup_columns(table: pd.DataFrame, dedup_terms: Path | None) -> pd.Da
     # and presence in it IS the flag — hence the two branches below.
     flag_column = "is_representative" if "is_representative" in dedup.columns else None
     carried = [column for column in ("moonlighting_fraction",) if column in dedup.columns]
-    kept = dedup[_KEY_COLUMNS + [c for c in (flag_column, *carried) if c]].drop_duplicates(subset=_KEY_COLUMNS)
+    kept = dedup[_KEY_COLUMNS + [c for c in (flag_column, *carried) if c]].drop_duplicates(
+        subset=_KEY_COLUMNS
+    )
     if flag_column is None:
         kept["in_dedup_set"] = True
     else:
         kept = kept.rename(columns={flag_column: "in_dedup_set"})
     merged = table.merge(kept, on=_KEY_COLUMNS, how="left")
     merged["in_dedup_set"] = merged["in_dedup_set"].fillna(False).astype(bool)
-    logger.info(f"{int(merged['in_dedup_set'].sum()):,} of {len(merged):,} groups are in the de-duplicated set")
+    logger.info(
+        f"{int(merged['in_dedup_set'].sum()):,} of {len(merged):,} groups "
+        f"are in the de-duplicated set"
+    )
     return merged
 
 
@@ -201,7 +210,7 @@ def label_cohorts(table: pd.DataFrame, config: ExportConfig) -> pd.DataFrame:
     """Append the `cohort` label from the configured thresholds."""
     z = table[_Z_COLUMN]
     coherent = (table[_Q_COLUMN] <= config.q_max) & (z < config.coherent_z)
-    incoherent = z > config.incoherent_z    # disjoint from `coherent`: z < -2 vs z > 1
+    incoherent = z > config.incoherent_z  # disjoint from `coherent`: z < -2 vs z > 1
 
     labelled = table.copy()
     labelled["cohort"] = Cohort.OTHER.value
@@ -218,14 +227,29 @@ def label_cohorts(table: pd.DataFrame, config: ExportConfig) -> pd.DataFrame:
 def build_sheets(labelled: pd.DataFrame, config: ExportConfig) -> dict[str, pd.DataFrame]:
     """The four sheets, in workbook order."""
     coherent = labelled[labelled["cohort"] == Cohort.COHERENT.value].sort_values(_Z_COLUMN)
-    incoherent = labelled[labelled["cohort"] == Cohort.INCOHERENT.value].sort_values(_Z_COLUMN, ascending=False)
+    incoherent = labelled[labelled["cohort"] == Cohort.INCOHERENT.value].sort_values(
+        _Z_COLUMN, ascending=False
+    )
     thresholds = pd.DataFrame(
         {
-            "cut": ["coherent_q_max", "coherent_z_threshold", "incoherent_z_threshold",
-                    "n_coherent", "n_incoherent", "n_total", "source_subset"],
-            "value": [config.q_max, config.coherent_z, config.incoherent_z,
-                      len(coherent), len(incoherent), len(labelled),
-                      config.source or "all sources"],
+            "cut": [
+                "coherent_q_max",
+                "coherent_z_threshold",
+                "incoherent_z_threshold",
+                "n_coherent",
+                "n_incoherent",
+                "n_total",
+                "source_subset",
+            ],
+            "value": [
+                config.q_max,
+                config.coherent_z,
+                config.incoherent_z,
+                len(coherent),
+                len(incoherent),
+                len(labelled),
+                config.source or "all sources",
+            ],
         }
     )
     return {
@@ -237,13 +261,18 @@ def build_sheets(labelled: pd.DataFrame, config: ExportConfig) -> dict[str, pd.D
 
 
 def flatten_list_cells(frame: pd.DataFrame) -> pd.DataFrame:
-    """Join iterable cells (a list column such as scored_member_names) into one comma-separated string."""
+    """Join iterable cells (a list column such as scored_member_names) into one comma-separated
+    string."""
     out = frame.copy()
     for column in out.columns:
         sample = out[column].dropna()
         # Duck-typed instead of isinstance(list, ndarray): a Parquet list column comes
         # back as a numpy array, and `str` is the one iterable that must NOT be split.
-        if len(sample) and not isinstance(sample.iloc[0], str) and hasattr(sample.iloc[0], "__iter__"):
+        if (
+            len(sample)
+            and not isinstance(sample.iloc[0], str)
+            and hasattr(sample.iloc[0], "__iter__")
+        ):
             out[column] = [
                 ", ".join(str(gene) for gene in cell)
                 if hasattr(cell, "__iter__") and not isinstance(cell, str)
@@ -272,15 +301,35 @@ def write_workbook(sheets: dict[str, pd.DataFrame], output: Path) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Export threshold-filtered coherence cohort tables to Excel.")
-    parser.add_argument("--metrics", type=Path, required=True, help="Coherence metrics table (parquet/tsv)")
-    parser.add_argument("--dedup-terms", type=Path, default=None,
-                        help="dedup/coherence_terms_deduplicated.tsv; adds in_dedup_set + moonlighting_fraction")
-    parser.add_argument("--source", default=None,
-                        help="Keep one source's rows only (run this on the combined table)")
-    parser.add_argument("--q-max", type=float, default=0.05, help="Coherent cohort: q_value_coherent at or below this")
-    parser.add_argument("--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this")
-    parser.add_argument("--incoherent-z", type=float, default=1.0, help="Incoherent cohort: z above this")
+    parser = argparse.ArgumentParser(
+        description="Export threshold-filtered coherence cohort tables to Excel."
+    )
+    parser.add_argument(
+        "--metrics", type=Path, required=True, help="Coherence metrics table (parquet/tsv)"
+    )
+    parser.add_argument(
+        "--dedup-terms",
+        type=Path,
+        default=None,
+        help="dedup/coherence_terms_deduplicated.tsv; adds in_dedup_set + moonlighting_fraction",
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Keep one source's rows only (run this on the combined table)",
+    )
+    parser.add_argument(
+        "--q-max",
+        type=float,
+        default=0.05,
+        help="Coherent cohort: q_value_coherent at or below this",
+    )
+    parser.add_argument(
+        "--coherent-z", type=float, default=-2.0, help="Coherent cohort: z below this"
+    )
+    parser.add_argument(
+        "--incoherent-z", type=float, default=1.0, help="Incoherent cohort: z above this"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output .xlsx path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug-level logging")
     return parser.parse_args()

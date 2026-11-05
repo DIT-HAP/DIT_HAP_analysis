@@ -20,9 +20,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -47,6 +47,7 @@ from verification.core import (
 @dataclass(kw_only=True, frozen=True)
 class CategorySummaryConfig:
     """Parquet inputs + TSV/summary-figure outputs for the category summary."""
+
     merged: Path
     verification: Path
     output_stats: Path
@@ -93,12 +94,25 @@ def run(config: CategorySummaryConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Verification category summary (stats TSV + comparison figure)")
+    parser = argparse.ArgumentParser(
+        description="Verification category summary (stats TSV + comparison figure)"
+    )
     parser.add_argument("--merged", type=Path, required=True, help="Input merged.parquet")
-    parser.add_argument("--verification", type=Path, required=True, help="Input verification.parquet")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output verification stats TSV")
-    parser.add_argument("--output-figure", type=Path, required=True, help="Output figure stem (writes <stem>.pdf + <stem>.review.png)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--verification", type=Path, required=True, help="Input verification.parquet"
+    )
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output verification stats TSV"
+    )
+    parser.add_argument(
+        "--output-figure",
+        type=Path,
+        required=True,
+        help="Output figure stem (writes <stem>.pdf + <stem>.review.png)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

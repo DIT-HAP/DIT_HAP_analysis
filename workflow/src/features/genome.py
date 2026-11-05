@@ -16,14 +16,15 @@ Input
 
 Output
 ------
-- One DNA_level_features record per mRNA feature in the FeatureDB
+- One DNALevelFeatures record per mRNA feature in the FeatureDB
 
 Usage
 -----
-    from features.genome import PombaseGenomeConfig, DNA_level_features
+    from features.genome import PombaseGenomeConfig, DNALevelFeatures
     cfg = PombaseGenomeConfig.from_pombase_dir(pombase_dir, landmarks_file)
     db = gffutils.FeatureDB(cfg.database_file)
-    features = [DNA_level_features.from_gffutils_feature(m, db, cfg) for m in db.features_of_type("mRNA")]
+    features = [DNALevelFeatures.from_gffutils_feature(m, db, cfg) for m in
+    db.features_of_type("mRNA")]
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-15
@@ -36,22 +37,24 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqUtils import GC123, gc_fraction
+from codonbias.scores import EffectiveNumberOfCodons
+
 # 3. Third-party Imports
 import gffutils
+from loguru import logger
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 import yaml
-from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqUtils import GC123, gc_fraction
-from codonbias.scores import EffectiveNumberOfCodons
-from loguru import logger
 
 
 # =============================================================================
@@ -63,11 +66,14 @@ from loguru import logger
 # resolves the path itself — the caller passes the file in (design doc §3/§4).
 def load_genome_landmarks(landmarks_file: Path) -> tuple[dict, dict]:
     """Load chromosome_end and centromere_positions dicts from a genome-landmarks YAML."""
-    with open(landmarks_file) as f:
+    with landmarks_file.open() as f:
         landmarks = yaml.safe_load(f)
     chromosome_end = landmarks["chromosome_end"]
-    centromere_positions = {chrom: tuple(span) for chrom, span in landmarks["centromere_positions"].items()}
+    centromere_positions = {
+        chrom: tuple(span) for chrom, span in landmarks["centromere_positions"].items()
+    }
     return chromosome_end, centromere_positions
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -75,6 +81,7 @@ def load_genome_landmarks(landmarks_file: Path) -> tuple[dict, dict]:
 @dataclass(kw_only=True, frozen=True)
 class PombaseGenomeConfig:
     """Genome sequence/annotation paths and derived lookup tables for one PomBase version."""
+
     fasta_file: str
     fai_file: str
     gff3_file: str
@@ -94,7 +101,9 @@ class PombaseGenomeConfig:
         """
         genome_dir = pombase_dir / "genome_sequence_and_features"
         fasta_file = str(genome_dir / "Schizosaccharomyces_pombe_all_chromosomes.fa")
-        peptide_stats = pd.read_csv(pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0)
+        peptide_stats = pd.read_csv(
+            pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0
+        )
         genome_sequence_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, "fasta"))
         chromosome_end, centromere_positions = load_genome_landmarks(landmarks_file)
 
@@ -115,14 +124,23 @@ class PombaseGenomeConfig:
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def determine_primary_candidate(gene_id: str, mRNA_id: str, peptide_length: int, primary_peptide_length: int) -> bool:
-    """Determine if the mRNA is the primary transcript, with hardcoded exceptions for known mis-annotated loci."""
+def determine_primary_candidate(
+    gene_id: str, mRNA_id: str, peptide_length: int, primary_peptide_length: int
+) -> bool:
+    """Determine if the mRNA is the primary transcript, with hardcoded exceptions for known
+    mis-annotated loci."""
     # Known mis-annotated loci whose ".1" isoform is primary regardless of peptide length.
     # (Two separate exception lists in the source notebook, merged here: both applied the
     # identical ".1" rule, so the split was cosmetic.)
     primary_is_dot_one = [
-        "SPBC119.04", "SPBC17A3.07",
-        "SPAC212.11", "SPAC2E12.05", "SPAC977.01", "SPMIT.03", "SPMIT.06", "SPMIT.08",
+        "SPBC119.04",
+        "SPBC17A3.07",
+        "SPAC212.11",
+        "SPAC2E12.05",
+        "SPAC977.01",
+        "SPMIT.03",
+        "SPMIT.06",
+        "SPMIT.08",
     ]
     if gene_id in primary_is_dot_one:
         return mRNA_id.endswith(".1")
@@ -130,11 +148,14 @@ def determine_primary_candidate(gene_id: str, mRNA_id: str, peptide_length: int,
 
 
 @dataclass
-class DNA_level_features:
+class DNALevelFeatures:
     """One mRNA's DNA-level feature record."""
+
     Gene_id: str
-    mRNA_id: str
-    Chromosome: Literal["chr_II_telomeric_gap", "I", "II", "III", "mating_type_region", "mitochondrial"]
+    mRNA_id: str  # noqa: N815
+    Chromosome: Literal[
+        "chr_II_telomeric_gap", "I", "II", "III", "mating_type_region", "mitochondrial"
+    ]
     Start: int
     End: int
     Strand: Literal["+", "-"]
@@ -161,7 +182,9 @@ class DNA_level_features:
     Primary_candidate: bool
 
     @classmethod
-    def from_gffutils_feature(cls, mRNA: gffutils.Feature, db: gffutils.FeatureDB, cfg: PombaseGenomeConfig) -> DNA_level_features:
+    def from_gffutils_feature(
+        cls, mRNA: gffutils.Feature, db: gffutils.FeatureDB, cfg: PombaseGenomeConfig
+    ) -> DNALevelFeatures:
         """Compute one mRNA's DNA-level features from its gffutils Feature."""
         if mRNA.strand == "+":
             CDSs = list(db.children(mRNA, featuretype="CDS", order_by="start"))
@@ -182,12 +205,20 @@ class DNA_level_features:
             abs(midpoint - cfg.chromosome_end["left"].get(chrom, np.nan)),
             abs(midpoint - cfg.chromosome_end["right"].get(chrom, np.nan)),
         )
-        relative_distance_from_telomere = round(abs_distance_from_telomere / cfg.genome_length_dict[chrom], 3)
-        abs_distance_from_centromere = abs(midpoint - np.mean(cfg.centromere_positions.get(chrom, (np.nan, np.nan))))
-        relative_distance_from_centromere = round(abs_distance_from_centromere / cfg.genome_length_dict[chrom], 3)
+        relative_distance_from_telomere = round(
+            abs_distance_from_telomere / cfg.genome_length_dict[chrom], 3
+        )
+        abs_distance_from_centromere = abs(
+            midpoint - np.mean(cfg.centromere_positions.get(chrom, (np.nan, np.nan)))
+        )
+        relative_distance_from_centromere = round(
+            abs_distance_from_centromere / cfg.genome_length_dict[chrom], 3
+        )
 
         gene_length = abs(end - start) + 1
-        GC_content_of_gene = round(gc_fraction(cfg.genome_sequence_dict[chrom][min(start, end):max(start, end)]), 3)
+        GC_content_of_gene = round(
+            gc_fraction(cfg.genome_sequence_dict[chrom][min(start, end) : max(start, end)]), 3
+        )
 
         CDS_number = len(CDSs)
         CDS_sequence = "".join(cds.sequence(cfg.fasta_file) for cds in CDSs)
@@ -204,42 +235,60 @@ class DNA_level_features:
         Total_intron_length = len(intron_sequence)
         Average_intron_length = Total_intron_length / Intron_number if Intron_number > 0 else 0
         Length_of_first_intron = len(intron_sequences[0]) if Intron_number > 0 else 0
-        GC_contents_of_first_intron = round(gc_fraction(intron_sequences[0]), 3) if Intron_number > 0 else 0.0
+        GC_contents_of_first_intron = (
+            round(gc_fraction(intron_sequences[0]), 3) if Intron_number > 0 else 0.0
+        )
 
         ENC_model = EffectiveNumberOfCodons(mean="unweighted")
         ENC = np.round(ENC_model.get_score(CDS_sequence), 2)
 
         Peptide_length = len(Seq(CDS_sequence).translate(to_stop=True))
         primary_peptide_length = cfg.primary_peptide_length[gene_id]
-        primary_candidate = determine_primary_candidate(gene_id, mRNA_id, Peptide_length, primary_peptide_length)
+        primary_candidate = determine_primary_candidate(
+            gene_id, mRNA_id, Peptide_length, primary_peptide_length
+        )
 
         return cls(
-            Gene_id=gene_id, mRNA_id=mRNA_id, Chromosome=chrom, Start=start, End=end, Strand=strand,
+            Gene_id=gene_id,
+            mRNA_id=mRNA_id,
+            Chromosome=chrom,
+            Start=start,
+            End=end,
+            Strand=strand,
             Abs_distance_from_telomere=abs_distance_from_telomere,
             Relative_distance_from_telomere=relative_distance_from_telomere,
             Abs_distance_from_centromere=abs_distance_from_centromere,
             Relative_distance_from_centromere=relative_distance_from_centromere,
-            Gene_length=gene_length, GC_content_of_gene=GC_content_of_gene,
-            CDS_number=CDS_number, GC_content_of_CDS=GC_content_of_CDS,
-            Fraction_of_CDS=Fraction_of_CDS, GC3=GC3,
-            Containing_intron=Containing_intron, Intron_number=Intron_number,
-            GC_content_of_intron=GC_content_of_intron, Total_intron_length=Total_intron_length,
-            Average_intron_length=Average_intron_length, Length_of_first_intron=Length_of_first_intron,
-            GC_contents_of_first_intron=GC_contents_of_first_intron, ENC=ENC,
-            Peptide_length=Peptide_length, Primary_peptide_length=primary_peptide_length,
+            Gene_length=gene_length,
+            GC_content_of_gene=GC_content_of_gene,
+            CDS_number=CDS_number,
+            GC_content_of_CDS=GC_content_of_CDS,
+            Fraction_of_CDS=Fraction_of_CDS,
+            GC3=GC3,
+            Containing_intron=Containing_intron,
+            Intron_number=Intron_number,
+            GC_content_of_intron=GC_content_of_intron,
+            Total_intron_length=Total_intron_length,
+            Average_intron_length=Average_intron_length,
+            Length_of_first_intron=Length_of_first_intron,
+            GC_contents_of_first_intron=GC_contents_of_first_intron,
+            ENC=ENC,
+            Peptide_length=Peptide_length,
+            Primary_peptide_length=primary_peptide_length,
             Primary_candidate=primary_candidate,
         )
 
 
 @logger.catch(reraise=True)
-def calculate_anticodon_usage_matrix(db: gffutils.FeatureDB, cfg: PombaseGenomeConfig) -> pd.DataFrame:
-    """Compute a gene x anti-codon count matrix across all coding genes' concatenated CDS sequence."""
-    from collections import Counter
-
+def calculate_anticodon_usage_matrix(
+    db: gffutils.FeatureDB, cfg: PombaseGenomeConfig
+) -> pd.DataFrame:
+    """Compute a gene x anti-codon count matrix across all coding genes' concatenated CDS
+    sequence."""
     bases = ["A", "T", "G", "C"]
     codons = [f"{b1}{b2}{b3}" for b1 in bases for b2 in bases for b3 in bases]
     anticodons = [str(Seq(codon).reverse_complement()) for codon in codons]
-    codon_to_anticodon = dict(zip(codons, anticodons))
+    codon_to_anticodon = dict(zip(codons, anticodons, strict=False))
 
     records = []
     for mRNA in db.features_of_type("mRNA"):
@@ -253,7 +302,7 @@ def calculate_anticodon_usage_matrix(db: gffutils.FeatureDB, cfg: PombaseGenomeC
         CDS_length = len(CDS_sequence) - (len(CDS_sequence) % 3)
         CDS_sequence = CDS_sequence[:CDS_length]
 
-        codon_counts = Counter(CDS_sequence[i:i + 3] for i in range(0, CDS_length, 3))
+        codon_counts = Counter(CDS_sequence[i : i + 3] for i in range(0, CDS_length, 3))
         anticodon_counts = {
             codon_to_anticodon.get(codon): count
             for codon, count in codon_counts.items()

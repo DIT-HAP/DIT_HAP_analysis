@@ -43,9 +43,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -55,7 +55,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from features.assembly import (
     collect_phenotype_level_features,
-    load_phyloP_and_divergence,
+    load_phylop_and_divergence,
     read_coding_genes,
 )
 from io_table import write_parquet
@@ -68,6 +68,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PhenotypeConfig:
     """Inputs/outputs for phenotype-level feature collection."""
+
     pombase_dir: Path
     literature_dir: Path
     deletion_library_xlsx: Path
@@ -78,8 +79,11 @@ class PhenotypeConfig:
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure the output dir exists."""
         for path in [
-            self.pombase_dir, self.literature_dir, self.deletion_library_xlsx,
-            self.essentiality_verification_csv, self.dna_features,
+            self.pombase_dir,
+            self.literature_dir,
+            self.deletion_library_xlsx,
+            self.essentiality_verification_csv,
+            self.dna_features,
         ]:
             if not path.exists():
                 raise ValueError(f"Required input path does not exist: {path}")
@@ -87,7 +91,7 @@ class PhenotypeConfig:
 
     @property
     def gene_meta_file(self) -> Path:
-        """PomBase gene_IDs_names_products.tsv, used for update_sysIDs()."""
+        """PomBase gene_IDs_names_products.tsv, used for update_sys_ids()."""
         return self.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv"
 
 
@@ -101,12 +105,17 @@ class PhenotypeConfig:
 def run(config: PhenotypeConfig) -> None:
     """Collect phenotype-level features filtered to the DNA-level coding-gene set."""
     coding_genes = read_coding_genes(config.dna_features)
-    phyloP_and_divergence = load_phyloP_and_divergence(config.literature_dir, config.gene_meta_file)
+    phyloP_and_divergence = load_phylop_and_divergence(config.literature_dir, config.gene_meta_file)
 
     logger.info("Collecting phenotype-level features")
     phenotype_df = collect_phenotype_level_features(
-        config.pombase_dir, config.deletion_library_xlsx, config.essentiality_verification_csv,
-        config.literature_dir, config.gene_meta_file, coding_genes, phyloP_and_divergence,
+        config.pombase_dir,
+        config.deletion_library_xlsx,
+        config.essentiality_verification_csv,
+        config.literature_dir,
+        config.gene_meta_file,
+        coding_genes,
+        phyloP_and_divergence,
     )
     write_parquet(phenotype_df, config.output_phenotype)
     logger.success(f"Wrote {len(phenotype_df)} gene rows to {config.output_phenotype}")
@@ -119,12 +128,40 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Collect phenotype-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion library categories xlsx")
-    parser.add_argument("--essentiality-verification-csv", type=Path, required=True, help="Curated essentiality verification csv")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_phenotype", help="Output phenotype-level features parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--literature-dir",
+        type=Path,
+        required=True,
+        help="Directory of literature supplementary tables",
+    )
+    parser.add_argument(
+        "--deletion-library-xlsx",
+        type=Path,
+        required=True,
+        help="Curated deletion library categories xlsx",
+    )
+    parser.add_argument(
+        "--essentiality-verification-csv",
+        type=Path,
+        required=True,
+        help="Curated essentiality verification csv",
+    )
+    parser.add_argument(
+        "--dna-features",
+        type=Path,
+        required=True,
+        help="DNA-level features parquet (for coding-gene set)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_phenotype",
+        help="Output phenotype-level features parquet",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -134,10 +171,12 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = PhenotypeConfig(
-            pombase_dir=args.pombase_dir, literature_dir=args.literature_dir,
+            pombase_dir=args.pombase_dir,
+            literature_dir=args.literature_dir,
             deletion_library_xlsx=args.deletion_library_xlsx,
             essentiality_verification_csv=args.essentiality_verification_csv,
-            dna_features=args.dna_features, output_phenotype=args.output_phenotype,
+            dna_features=args.dna_features,
+            output_phenotype=args.output_phenotype,
         )
         config.validate()
         run(config)

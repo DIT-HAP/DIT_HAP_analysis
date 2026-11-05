@@ -42,11 +42,11 @@ Usage
 from collections.abc import Iterable
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 from release_schema import GRNA_METRIC_SIGN
@@ -92,7 +92,14 @@ _CATEGORY_ORDER = [
 # label; the family exists so one phenotype keeps one colour across every panel
 # of the stage (design decision 2026-09-17 — Cell, the house palette, holds 10
 # colours and the raw vocabulary has 11 labels).
-CATEGORY_FAMILIES = ("essential", "spores", "germinated", "microcolonies", "small_colonies", "wt_like")
+CATEGORY_FAMILIES = (
+    "essential",
+    "spores",
+    "germinated",
+    "microcolonies",
+    "small_colonies",
+    "wt_like",
+)
 
 # Genes with no wet-lab call are not a phenotype — the renderer draws them in the
 # neutral furniture grey rather than a palette colour.
@@ -125,7 +132,14 @@ CATEGORY_FAMILY = {
 # Grouping is by Category_with_essentiality after restricting to these
 # categories. Compound multi-phenotype labels are intentionally excluded (they
 # are not one of the notebook's canonical single-phenotype buckets).
-BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small colonies", "small colonies", "WT-like"]
+BASIC_BOXPLOT_CATEGORIES = [
+    "spores",
+    "germinated",
+    "microcolonies",
+    "very small colonies",
+    "small colonies",
+    "WT-like",
+]
 
 # The four "critical gene" outlier groups (notebook §4.2-4.4). Each filter runs
 # against the RAW `Category` column (literal curated labels — no folding), so
@@ -136,16 +150,35 @@ BASIC_BOXPLOT_CATEGORIES = ["spores", "germinated", "microcolonies", "very small
 # both the thresholds and every `sort` direction are mirrored from the original).
 CRITICAL_GROUPS = {
     "WT2nonWT": {"filter": "Category == 'WT-like' and DR < -0.35", "sort": "asc"},
-    "scE2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality == 'E'", "sort": "asc"},
-    "sc2E": {"filter": "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality != 'E'", "sort": "asc"},
-    "E2V": {"filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR > -0.35", "sort": "desc"},
+    "scE2E": {
+        "filter": (
+            "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality == 'E'"
+        ),
+        "sort": "asc",
+    },
+    "sc2E": {
+        "filter": (
+            "Category == 'small colonies' and DR < -0.75 and DeletionLibrary_essentiality != 'E'"
+        ),
+        "sort": "asc",
+    },
+    "E2V": {
+        "filter": "Category in ['spores', 'germinated', 'microcolonies'] and DR > -0.35",
+        "sort": "desc",
+    },
 }
 
 # Verification-result bucket order for the critical-group boxplots/donuts,
 # byte-faithful to the notebook's prepare_verification_data loop + label_orders.
 _VERIFICATION_BUCKET_ORDER = [
-    "spores", "germinated", "microcolonies", "E", "E (tiny colonies)",
-    "very small colonies", "small colonies", "WT",
+    "spores",
+    "germinated",
+    "microcolonies",
+    "E",
+    "E (tiny colonies)",
+    "very small colonies",
+    "small colonies",
+    "WT",
 ]
 
 # Bucket shown for critical-group genes that carry no wet-lab call.
@@ -156,7 +189,11 @@ NOT_VERIFIED_BUCKET = "Not verified"
 # verification file then and still isn't now, but it IS a real release gene, so
 # the append stays meaningful. Kept byte-faithful.
 _MANUAL_VERIFICATION_ROWS = pd.DataFrame(
-    {"Systematic ID": ["SPBC215.05"], "Verification result": ["E"], "verification_essentiality": ["E"]}
+    {
+        "Systematic ID": ["SPBC215.05"],
+        "Verification result": ["E"],
+        "verification_essentiality": ["E"],
+    }
 )
 
 # DIT-HAP per-timepoint LFC columns in the release gene-level statistics table
@@ -222,7 +259,7 @@ def order_labels_present(known_order: list[str], values: Iterable[str]) -> list[
 
     `values` may be a Series, array or set — the renderer passes whichever it has.
     """
-    present = {v for v in pd.Series(list(values)).dropna()}
+    present = set(pd.Series(list(values)).dropna())
     return [label for label in known_order if label in present] + sorted(present - set(known_order))
 
 
@@ -232,7 +269,8 @@ def order_categories(labels: pd.Series) -> list[str]:
 
 
 def order_verification_buckets(labels: pd.Series) -> list[str]:
-    """Order verification-result buckets from most-arrested to healthiest (see _VERIFICATION_BUCKET_ORDER)."""
+    """Order verification-result buckets from most-arrested to healthiest (see
+    _VERIFICATION_BUCKET_ORDER)."""
     return order_labels_present(_VERIFICATION_BUCKET_ORDER, labels)
 
 
@@ -248,7 +286,9 @@ def load_deletion_library(deletion_library_path: Path) -> pd.DataFrame:
     """
     deletion_library = pd.read_excel(deletion_library_path)
     if "Updated_Systematic_ID" in deletion_library.columns:
-        deletion_library = deletion_library.rename(columns={"Updated_Systematic_ID": "Systematic ID"})
+        deletion_library = deletion_library.rename(
+            columns={"Updated_Systematic_ID": "Systematic ID"}
+        )
     return deletion_library[["Systematic ID", "Category"]]
 
 
@@ -303,12 +343,15 @@ def load_grna_timepoints(grna_path: Path | None) -> tuple[pd.DataFrame, list[flo
         return None
 
     grna = pd.read_csv(grna_path, sep="\t")
-    missing = [c for c in ("Systematic ID", "time_points", *GRNA_SIGN_FLIP_COLS) if c not in grna.columns]
+    missing = [
+        c for c in ("Systematic ID", "time_points", *GRNA_SIGN_FLIP_COLS) if c not in grna.columns
+    ]
     if missing:
         raise KeyError(f"gRNA table {grna_path} is missing columns: {missing}")
 
     grids = grna["time_points"].astype(str).str.split(",").map(lambda pts: [float(p) for p in pts])
-    if grids.map(tuple).nunique() != 1:
+    first_grid = tuple(grids.iloc[0])
+    if grids.map(lambda grid: tuple(grid) != first_grid).any():
         raise ValueError(f"gRNA table {grna_path} carries more than one time-point grid")
     generations = grids.iloc[0]
 
@@ -327,7 +370,9 @@ def load_grna_timepoints(grna_path: Path | None) -> tuple[pd.DataFrame, list[flo
 # =============================================================================
 # MERGE + STATS (unit-tested)
 # =============================================================================
-def merge_deletion_library(gene_result: pd.DataFrame, deletion_library: pd.DataFrame) -> pd.DataFrame:
+def merge_deletion_library(
+    gene_result: pd.DataFrame, deletion_library: pd.DataFrame
+) -> pd.DataFrame:
     """Left-merge gene-level results with deletion library categories on Systematic ID.
 
     `deletion_library` is expected to come from load_deletion_library, which normalizes
@@ -353,7 +398,9 @@ def count_by(merged: pd.DataFrame, column: str) -> pd.DataFrame:
     )
 
 
-def compute_verification_match_stats(merged: pd.DataFrame, verification: pd.DataFrame) -> dict[str, int]:
+def compute_verification_match_stats(
+    merged: pd.DataFrame, verification: pd.DataFrame
+) -> dict[str, int]:
     """Compare the curated verification call against the library's, where both are known.
 
     Only genes carrying both calls can agree or disagree, so this is an inner
@@ -362,7 +409,11 @@ def compute_verification_match_stats(merged: pd.DataFrame, verification: pd.Data
     """
     both = (
         merged[["Systematic ID", "DeletionLibrary_essentiality"]]
-        .merge(verification[["Systematic ID", "verification_essentiality"]], on="Systematic ID", how="inner")
+        .merge(
+            verification[["Systematic ID", "verification_essentiality"]],
+            on="Systematic ID",
+            how="inner",
+        )
         .dropna()
     )
     match = int((both["verification_essentiality"] == both["DeletionLibrary_essentiality"]).sum())
@@ -433,7 +484,11 @@ def prepare_verification_data(
     if missing:
         buckets[NOT_VERIFIED_BUCKET] = missing
     for category in _VERIFICATION_BUCKET_ORDER:
-        genes = verified.loc[verified["Verification result"] == category, "Systematic ID"].unique().tolist()
+        genes = (
+            verified.loc[verified["Verification result"] == category, "Systematic ID"]
+            .unique()
+            .tolist()
+        )
         if genes:
             buckets[category] = genes
 
@@ -453,7 +508,11 @@ def prepare_verification_data(
         sub = source[source["Systematic ID"].isin(genes)].copy()
         sub[BUCKET_COLUMN] = bucket
         detail_frames.append(sub)
-    detail = pd.concat(detail_frames, ignore_index=True) if detail_frames else final_merged.iloc[0:0].copy()
+    detail = (
+        pd.concat(detail_frames, ignore_index=True)
+        if detail_frames
+        else final_merged.iloc[0:0].copy()
+    )
 
     return dr_dict, detail
 
@@ -474,7 +533,8 @@ def _sorted_unique_ids(merged: pd.DataFrame, filter_expr: str, ascending: bool) 
 
 
 def select_group_outliers(merged: pd.DataFrame, group: str) -> list[str]:
-    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see CRITICAL_GROUPS)."""
+    """Return the DR-sorted, deduped outlier Systematic IDs for a critical group (see
+    CRITICAL_GROUPS)."""
     spec = CRITICAL_GROUPS[group]
     return _sorted_unique_ids(merged, spec["filter"], spec["sort"] == "asc")
 
@@ -488,6 +548,9 @@ def critical_group_boxplot_data(
     """``prepare_verification_data`` for one named critical group (see CRITICAL_GROUPS)."""
     spec = CRITICAL_GROUPS[group]
     return prepare_verification_data(
-        merged, final_merged, verification,
-        outlier_filter=spec["filter"], sort=spec["sort"],
+        merged,
+        final_merged,
+        verification,
+        outlier_filter=spec["filter"],
+        sort=spec["sort"],
     )

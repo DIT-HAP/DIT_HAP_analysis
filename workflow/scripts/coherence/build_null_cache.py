@@ -49,14 +49,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+import time
+
+from loguru import logger
 
 # 2. Third-party Imports
 import pandas as pd
-from loguru import logger
 
 # 3. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -79,6 +80,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class CacheConfig:
     """Inputs and parameters for the global null cache."""
+
     fitting_results: Path
     annotations: list[Path]
     output: Path
@@ -117,8 +119,11 @@ def collect_group_sizes(config: CacheConfig, background: pd.DataFrame) -> list[i
     for path in config.annotations:
         long_table = load_long_table(path)
         groups = build_groups(
-            background, long_table,
-            config.min_size, config.max_size, config.max_term_genes,
+            background,
+            long_table,
+            config.min_size,
+            config.max_size,
+            config.max_term_genes,
         )
         sizes.update(len(grp) for grp in groups.values())
     return sorted(sizes)
@@ -167,7 +172,7 @@ def run(config: CacheConfig) -> None:
     save_null_cache(config.output, nulls, meta)
     logger.success(
         f"wrote {config.output} ({config.output.stat().st_size / 1024 / 1024:.1f} MB): "
-        f"{len(n_values)} sizes × {config.n_permutations:,} draws in {elapsed / 60:.1f} min"
+        f"{len(n_values)} sizes x {config.n_permutations:,} draws in {elapsed / 60:.1f} min"
     )
 
 
@@ -177,20 +182,29 @@ def run(config: CacheConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Build the global coherence null cache")
-    parser.add_argument("--fitting-results", type=Path, required=True,
-                        help="Upstream fitting_results.tsv (defines the background)")
-    parser.add_argument("--annotation", type=Path, nargs="+", required=True,
-                        help="Prepared group_annotation_long.tsv, one per source")
+    parser.add_argument(
+        "--fitting-results",
+        type=Path,
+        required=True,
+        help="Upstream fitting_results.tsv (defines the background)",
+    )
+    parser.add_argument(
+        "--annotation",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="Prepared group_annotation_long.tsv, one per source",
+    )
     parser.add_argument("--min-size", type=int, default=3)
     parser.add_argument("--max-size", type=int, default=300)
     parser.add_argument("--max-term-genes", type=int, default=500)
     parser.add_argument("--dr-threshold", type=float, default=-0.3)
     parser.add_argument("--n-permutations", type=int, default=1000)
     parser.add_argument("--random-state", type=int, default=42)
-    parser.add_argument("--jobs", type=int, default=1,
-                        help="Processes used to fill the cache (one per group size)")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="Output .npz null cache")
+    parser.add_argument(
+        "--jobs", type=int, default=1, help="Processes used to fill the cache (one per group size)"
+    )
+    parser.add_argument("--output", type=Path, required=True, help="Output .npz null cache")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 

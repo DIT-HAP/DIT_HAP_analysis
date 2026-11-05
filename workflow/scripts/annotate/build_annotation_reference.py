@@ -22,7 +22,8 @@ OBO/GAF and the 200k-row SGD phenotype table costs far more than the join does.
 
 Input
 -----
-- A PomBase version directory (curated_orthologs, Gene_metadata, ontologies_and_associations, Protein_features)
+- A PomBase version directory (curated_orthologs, Gene_metadata, ontologies_and_associations,
+Protein_features)
 - An SGD version directory (SGD_features.tab, phenotype_data.tab) from fetch_sgd_data.sh
 - resources/curated/deletion_library_categories.xlsx
 - HD_DIT_HAP dataset gene-level fitting results (gene DR/DL)
@@ -30,7 +31,8 @@ Input
 
 Output
 ------
-- gene_annotation_reference.{gene_type}.parquet: one row per pombe gene, one column per annotation field
+- gene_annotation_reference.{gene_type}.parquet: one row per pombe gene, one column per annotation
+field
   where {gene_type} can be: all, protein, lncRNA, tRNA, rRNA, snoRNA, sncRNA, snRNA, noncoding
 
 Usage
@@ -41,9 +43,11 @@ Usage
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
         --verification-csv resources/curated/essentiality_verification.csv \\
         --hd-dithap-dataset HD_DIT_HAP \\
-        --grna-parameters-tsv resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
+        --grna-parameters-tsv
+        resources/curated/260127-all_genes_order1_gRNA_HDdata_fitted_parameters.tsv \\
         --gene-type protein \\
-        --output results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
+        --output
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Opus 5 (implementation)
 Date:     2026-09-03
@@ -55,15 +59,15 @@ Version:  2.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -115,7 +119,8 @@ class AnnotationReferenceConfig:
         """Raise ValueError if any required input is missing, then ensure the output dir exists."""
         if self.gene_type not in VALID_GENE_TYPES:
             raise ValueError(
-                f"Invalid gene_type '{self.gene_type}'. Valid options: {list(VALID_GENE_TYPES.keys())}"
+                f"Invalid gene_type '{self.gene_type}'. "
+                f"Valid options: {list(VALID_GENE_TYPES.keys())}"
             )
         for path in [
             self.pombase_dir,
@@ -263,7 +268,8 @@ def run(config: AnnotationReferenceConfig) -> None:
 
     write_parquet(reference, config.output)
     logger.success(
-        f"Wrote {len(reference):,} genes x {reference.shape[1]} annotation columns to {config.output}"
+        f"Wrote {len(reference):,} genes x {reference.shape[1]} annotation columns "
+        f"to {config.output}"
     )
 
 

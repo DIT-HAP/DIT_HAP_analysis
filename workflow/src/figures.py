@@ -31,9 +31,9 @@ from enum import StrEnum
 from pathlib import Path
 
 import cnsplots as cns
-import matplotlib.pyplot as plt
 from loguru import logger
 from matplotlib.axes import Axes
+import matplotlib.pyplot as plt
 
 # =============================================================================
 # CONSTANTS
@@ -94,6 +94,7 @@ class _GridSpecification:
     n_cols: int
     shape: PanelShape
     axes: tuple[Axes, ...]
+
 
 # Panel-label offsets from the axes corner, in layout pixels. cnsplots defaults
 # both to 0, which puts the letter on top of the y tick labels; measured over a
@@ -241,10 +242,7 @@ def apply_house_style() -> None:
 
 def panel_labels(n: int) -> list[str]:
     """Return n unique panel labels: A-Z, then A1, A2, ... for n > 26."""
-    return [
-        chr(65 + i) if i < _ALPHABET_SIZE else f"A{i - _ALPHABET_SIZE + 1}"
-        for i in range(n)
-    ]
+    return [chr(65 + i) if i < _ALPHABET_SIZE else f"A{i - _ALPHABET_SIZE + 1}" for i in range(n)]
 
 
 def figure_size_for_grid(
@@ -413,7 +411,8 @@ def series_colors(n: int) -> list[str]:
 
 
 def save_dual(stem: Path | str) -> None:
-    """Save the current figure as a journal PDF plus a review PNG, given a stem with no extension."""
+    """Save the current figure as a journal PDF plus a review PNG, given a stem with no
+    extension."""
     # Append rather than replace suffixes: Path.with_suffix()/.stem would truncate
     # at the first dot, so a stem like "HD1328-4.YES0_corr" would silently collapse
     # to "HD1328-4" and two samples would overwrite each other's figures.

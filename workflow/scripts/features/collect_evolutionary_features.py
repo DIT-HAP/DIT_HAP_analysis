@@ -29,8 +29,10 @@ Usage
         --pombase-dir resources/external/pombase/2025-10-01 \\
         --literature-dir resources/literature \\
         --paralog-source deletion_library \\
-        --ensembl-paralogs-tsv resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
-        --deletion-library-paralogs results/1b_features/2025-10-01/deletion_library_paralogs.parquet \\
+        --ensembl-paralogs-tsv
+        resources/external/ensembl/pombe_paralog_from_ensemble_biomart_export.tsv \\
+        --deletion-library-paralogs results/1b_features/2025-10-01/deletion_library_paralogs.parquet
+        \\
         --dna-features results/1b_features/2025-10-01/_levels/dna_features.parquet \\
         --output results/1b_features/2025-10-01/_levels/evolutionary_features.parquet
 
@@ -44,9 +46,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -58,7 +60,7 @@ from features.assembly import (
     PARALOG_SOURCES,
     collect_evolutionary_level_features,
     load_paralogs,
-    load_phyloP_and_divergence,
+    load_phylop_and_divergence,
     read_coding_genes,
 )
 from io_table import write_parquet
@@ -71,6 +73,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class EvolutionaryConfig:
     """Inputs/outputs for evolutionary-level feature collection."""
+
     pombase_dir: Path
     literature_dir: Path
     paralog_source: str
@@ -89,7 +92,9 @@ class EvolutionaryConfig:
         )
 
     def validate(self) -> None:
-        """Raise ValueError if the source is unknown or any required input is missing, then ensure the output dir exists."""
+        """Raise ValueError if the source is unknown or any required input is missing, then ensure
+        the
+        output dir exists."""
         if self.paralog_source not in PARALOG_SOURCES:
             raise ValueError(
                 f"features.paralog_source must be one of {PARALOG_SOURCES}, "
@@ -102,7 +107,7 @@ class EvolutionaryConfig:
 
     @property
     def gene_meta_file(self) -> Path:
-        """PomBase gene_IDs_names_products.tsv, used for update_sysIDs()."""
+        """PomBase gene_IDs_names_products.tsv, used for update_sys_ids()."""
         return self.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv"
 
 
@@ -116,7 +121,7 @@ class EvolutionaryConfig:
 def run(config: EvolutionaryConfig) -> None:
     """Collect evolutionary-level features filtered to the DNA-level coding-gene set."""
     coding_genes = read_coding_genes(config.dna_features)
-    phyloP_and_divergence = load_phyloP_and_divergence(config.literature_dir, config.gene_meta_file)
+    phyloP_and_divergence = load_phylop_and_divergence(config.literature_dir, config.gene_meta_file)
     paralog_pairs = load_paralogs(
         config.paralog_source,
         config.ensembl_paralogs_tsv,
@@ -126,8 +131,12 @@ def run(config: EvolutionaryConfig) -> None:
 
     logger.info(f"Collecting evolutionary-level features (paralogs from {config.paralog_source})")
     evolutionary_df = collect_evolutionary_level_features(
-        config.pombase_dir, config.literature_dir, paralog_pairs,
-        config.gene_meta_file, coding_genes, phyloP_and_divergence,
+        config.pombase_dir,
+        config.literature_dir,
+        paralog_pairs,
+        config.gene_meta_file,
+        coding_genes,
+        phyloP_and_divergence,
     )
     write_parquet(evolutionary_df, config.output_evolutionary)
     logger.success(f"Wrote {len(evolutionary_df)} gene rows to {config.output_evolutionary}")
@@ -140,13 +149,47 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Collect evolutionary-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--paralog-source", required=True, choices=PARALOG_SOURCES, help="Which paralog source feeds paralog_count (config.features.paralog_source)")
-    parser.add_argument("--ensembl-paralogs-tsv", type=Path, required=True, help="Ensembl paralog export table (read only when --paralog-source=ensembl)")
-    parser.add_argument("--deletion-library-paralogs", type=Path, required=True, help="Long (gene, paralog) parquet from build_deletion_library_paralogs (read only when --paralog-source=deletion_library)")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_evolutionary", help="Output evolutionary-level features parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--literature-dir",
+        type=Path,
+        required=True,
+        help="Directory of literature supplementary tables",
+    )
+    parser.add_argument(
+        "--paralog-source",
+        required=True,
+        choices=PARALOG_SOURCES,
+        help="Which paralog source feeds paralog_count (config.features.paralog_source)",
+    )
+    parser.add_argument(
+        "--ensembl-paralogs-tsv",
+        type=Path,
+        required=True,
+        help="Ensembl paralog export table (read only when --paralog-source=ensembl)",
+    )
+    parser.add_argument(
+        "--deletion-library-paralogs",
+        type=Path,
+        required=True,
+        help="Long (gene, paralog) parquet from build_deletion_library_paralogs "
+        "(read only when --paralog-source=deletion_library)",
+    )
+    parser.add_argument(
+        "--dna-features",
+        type=Path,
+        required=True,
+        help="DNA-level features parquet (for coding-gene set)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_evolutionary",
+        help="Output evolutionary-level features parquet",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -156,11 +199,13 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = EvolutionaryConfig(
-            pombase_dir=args.pombase_dir, literature_dir=args.literature_dir,
+            pombase_dir=args.pombase_dir,
+            literature_dir=args.literature_dir,
             paralog_source=args.paralog_source,
             ensembl_paralogs_tsv=args.ensembl_paralogs_tsv,
             deletion_library_paralogs=args.deletion_library_paralogs,
-            dna_features=args.dna_features, output_evolutionary=args.output_evolutionary,
+            dna_features=args.dna_features,
+            output_evolutionary=args.output_evolutionary,
         )
         config.validate()
         run(config)

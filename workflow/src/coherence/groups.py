@@ -6,16 +6,17 @@ compute stage applies. Keeping one copy of `build_groups` here is what makes tha
 guarantee real; a second, drifting copy would silently leave some n out of the
 cache and make the compute stage fall back or fail.
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
 from __future__ import annotations
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 
 # =============================================================================

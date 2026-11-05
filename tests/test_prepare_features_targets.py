@@ -1,13 +1,12 @@
 """Tests for workflow/scripts/ml/prepare_features_targets.py."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import pytest
-
 from workflow.scripts.ml.prepare_features_targets import (
     SELECTED_FEATURES_AND_TRANSFORMATIONS,
     TARGET_FEATURES,
@@ -19,7 +18,15 @@ from workflow.scripts.ml.prepare_features_targets import (
 
 def test_transform_dict_has_expected_transformation_types():
     """The transformation map uses only the supported transform names."""
-    allowed = {"set_index", "OneHotEncoder", "binary_encoding", "StandardScaler", "PowerTransformer", "np.log1p", "No processing"}
+    allowed = {
+        "set_index",
+        "OneHotEncoder",
+        "binary_encoding",
+        "StandardScaler",
+        "PowerTransformer",
+        "np.log1p",
+        "No processing",
+    }
     assert set(SELECTED_FEATURES_AND_TRANSFORMATIONS.values()) <= allowed
     assert SELECTED_FEATURES_AND_TRANSFORMATIONS["Systematic_ID"] == "set_index"
     assert SELECTED_FEATURES_AND_TRANSFORMATIONS["Chromosome"] == "OneHotEncoder"
@@ -58,11 +65,21 @@ def test_transform_data_applies_each_transformation():
 def test_transform_data_skips_absent_features():
     """A configured feature missing from the data is skipped (not a KeyError)."""
     df = pd.DataFrame(
-        {"GC3": [0.1, 0.2], "A": [1.0, 2.0], "DR": [0.1, 0.2], "DL": [1.0, 2.0], "DIT_HAP_cluster": [1, 2]},
+        {
+            "GC3": [0.1, 0.2],
+            "A": [1.0, 2.0],
+            "DR": [0.1, 0.2],
+            "DL": [1.0, 2.0],
+            "DIT_HAP_cluster": [1, 2],
+        },
         index=["g1", "g2"],
     )
     # set_index first (mirrors the real dict, which always starts with Systematic_ID).
-    transformations = {"Systematic_ID": "set_index", "GC3": "StandardScaler", "NonexistentFeature": "PowerTransformer"}
+    transformations = {
+        "Systematic_ID": "set_index",
+        "GC3": "StandardScaler",
+        "NonexistentFeature": "PowerTransformer",
+    }
     out = transform_data(df, transformations, TARGET_FEATURES)
     assert "GC3" in out.columns
     assert "NonexistentFeature" not in out.columns
@@ -75,7 +92,13 @@ def test_merge_uses_cluster_as_dit_hap_cluster(tmp_path):
     feat.to_csv(feat_path, sep="\t", index=False)
 
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2"], "A": [1.0, 2.0], "DR": [0.5, 0.1], "DL": [3.0, 4.0], "cluster": [1, 9]}
+        {
+            "Systematic ID": ["SPAC1", "SPAC2"],
+            "A": [1.0, 2.0],
+            "DR": [0.5, 0.1],
+            "DL": [3.0, 4.0],
+            "cluster": [1, 9],
+        }
     )
     clusters_path = tmp_path / "final_clusters.tsv"
     clusters.to_csv(clusters_path, sep="\t", index=False)
@@ -85,7 +108,10 @@ def test_merge_uses_cluster_as_dit_hap_cluster(tmp_path):
     assert "Systematic_ID" in merged.columns
     # SPAC3 has no cluster -> NaN target (left join keeps all feature rows).
     assert len(merged) == 3
-    assert merged.set_index("Systematic_ID").loc["SPAC3", "DIT_HAP_cluster"] != merged.set_index("Systematic_ID").loc["SPAC3", "DIT_HAP_cluster"]  # NaN
+    assert (
+        merged.set_index("Systematic_ID").loc["SPAC3", "DIT_HAP_cluster"]
+        != merged.set_index("Systematic_ID").loc["SPAC3", "DIT_HAP_cluster"]
+    )  # NaN
 
 
 def test_config_validate_rejects_missing_input(tmp_path):

@@ -1,17 +1,17 @@
-"""Tests for the PCR / library-prep quality control stage (loader + generic plot + script config)."""
+"""Tests for the PCR / library-prep quality control stage (loader + generic plot + script
+config)."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 
 import pandas as pd
 import pytest
-
 from workflow.scripts.pcr_qc.prepare_pcr_qc_data import PCRQCConfig
 from workflow.src.data_config import MERGED_READS_SUBDIR, merged_reads_path
 
@@ -79,5 +79,5 @@ def test_config_validate_creates_output_dir(tmp_path):
 def test_config_validate_raises_on_missing_input(tmp_path):
     """A missing input file surfaces as ValueError, not a downstream read error."""
     config = _make_config(tmp_path, missing=True)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Required input not found"):
         config.validate()

@@ -31,7 +31,8 @@ Usage
         --gene-result results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet \\
         --output-stats results/2a_coverage/HD_DIT_HAP/coverage_stats.tsv \\
         --output-detailed-genes-xlsx results/2a_coverage/HD_DIT_HAP/detailed_genes.xlsx \\
-        --output-unknown-annotation-xlsx results/2a_coverage/HD_DIT_HAP/unknown_annotation_genes.xlsx
+        --output-unknown-annotation-xlsx
+        results/2a_coverage/HD_DIT_HAP/unknown_annotation_genes.xlsx
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-22
@@ -43,9 +44,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -76,6 +77,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ComputeStatsConfig:
     """Parquet inputs + TSV/XLSX outputs for the coverage stats computation."""
+
     annotations: Path
     gene_result: Path
     output_stats: Path
@@ -134,7 +136,8 @@ def run(config: ComputeStatsConfig) -> None:
 
     essential = dimension_coverage["deletion_essentiality"]["E"]
     logger.success(
-        f"Coverage: {insertion_coverage['in_gene']:,}/{insertion_coverage['total']:,} insertions in-gene, "
+        f"Coverage: {insertion_coverage['in_gene']:,}/{insertion_coverage['total']:,} "
+        f"insertions in-gene, "
         f"{gene_coverage['covered']:,}/{gene_coverage['total']:,} genes covered "
         f"({essential['covered']:,}/{essential['total']:,} essential)"
     )
@@ -150,15 +153,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compute gene insertion coverage statistics")
     parser.add_argument("--annotations", type=Path, required=True, help="Input annotations.parquet")
     parser.add_argument("--gene-result", type=Path, required=True, help="Input gene_result.parquet")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output coverage stats TSV")
-    parser.add_argument("--output-detailed-genes-xlsx", type=Path, required=True, help="Output detailed gene Excel file")
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output coverage stats TSV"
+    )
+    parser.add_argument(
+        "--output-detailed-genes-xlsx",
+        type=Path,
+        required=True,
+        help="Output detailed gene Excel file",
+    )
     parser.add_argument(
         "--output-unknown-annotation-xlsx",
         type=Path,
         required=True,
         help="Output Excel of the annotation-gap populations (one sheet each)",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

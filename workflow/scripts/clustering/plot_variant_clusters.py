@@ -38,17 +38,17 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 3. Third-party Imports
-import matplotlib
+import matplotlib as mpl
 
 # 2. Data Processing Imports
 import pandas as pd
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
+mpl.use("Agg")  # headless: this script only writes a PDF, never displays
 from loguru import logger
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -66,6 +66,7 @@ from plotting.gene_level import visualize_cluster_on_feature_space
 @dataclass(kw_only=True, frozen=True)
 class PlotVariantClustersConfig:
     """Inputs, output, and the figure title label for one variant's cluster scatter."""
+
     final_clusters: Path
     output: Path
     variant_label: str
@@ -95,20 +96,27 @@ def run(config: PlotVariantClustersConfig) -> None:
             intermediate = df.dropna(subset=["raw_cluster"]).copy()
             intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
             fig = visualize_cluster_on_feature_space(intermediate, "raw_cluster")
-            fig.suptitle(f"{config.variant_label} — intermediate (raw_cluster, n={intermediate['raw_cluster'].nunique()})")
+            fig.suptitle(
+                f"{config.variant_label} — intermediate "
+                f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
+            )
             pdf.savefig(fig)
             fig.clf()
             pages += 1
 
         final = df.dropna(subset=["cluster"]).copy()
         final["cluster"] = final["cluster"].astype(int)
-        fig = visualize_cluster_on_feature_space(final, "cluster", cluster_minus_one=True, show_box=True, legend=True)
+        fig = visualize_cluster_on_feature_space(
+            final, "cluster", cluster_minus_one=True, show_box=True, legend=True
+        )
         fig.suptitle(f"{config.variant_label} — final (cluster, n={final['cluster'].nunique()})")
         pdf.savefig(fig)
         fig.clf()
         pages += 1
 
-    logger.success(f"Wrote {pages}-page cluster scatter for {config.variant_label} -> {config.output}")
+    logger.success(
+        f"Wrote {pages}-page cluster scatter for {config.variant_label} -> {config.output}"
+    )
 
 
 # =============================================================================
@@ -116,11 +124,22 @@ def run(config: PlotVariantClustersConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Plot DR/DL cluster scatter for one finalize variant")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="final_clusters.tsv (any finalize variant)")
+    parser = argparse.ArgumentParser(
+        description="Plot DR/DL cluster scatter for one finalize variant"
+    )
+    parser.add_argument(
+        "--final-clusters",
+        type=Path,
+        required=True,
+        help="final_clusters.tsv (any finalize variant)",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output cluster_scatter.pdf")
-    parser.add_argument("--variant-label", type=str, required=True, help="Variant name, used in figure titles")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--variant-label", type=str, required=True, help="Variant name, used in figure titles"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

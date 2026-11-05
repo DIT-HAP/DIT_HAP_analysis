@@ -1,13 +1,12 @@
 """Tests for the split feature-collection layout: assembly helpers + per-level driver configs."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import pytest
-
 from workflow.scripts.features.collect_dna_features import DnaConfig
 from workflow.scripts.features.collect_rna_features import RnaConfig
 from workflow.scripts.features.merge_features import MergeConfig
@@ -37,7 +36,7 @@ def _write_gene_meta(tmp_path: Path, ids: list[str]) -> Path:
     """Minimal PomBase gene_IDs_names_products.tsv listing `ids` as coding genes.
 
     `synonyms` must hold at least one real value: an all-empty column reads back as
-    float64 and update_sysIDs()'s `.str.split(",")` then raises.
+    float64 and update_sys_ids()'s `.str.split(",")` then raises.
     """
     f = tmp_path / "gene_IDs_names_products.tsv"
     f.write_text(
@@ -50,13 +49,22 @@ def _write_gene_meta(tmp_path: Path, ids: list[str]) -> Path:
 def test_count_paralogs_distinguishes_none_from_one(tmp_path):
     """A blank-paralogue row means "none", not 1; unnamed genes are still counted."""
     meta = _write_gene_meta(tmp_path, ["g1", "g2", "g3", "g4"])
-    export = pd.DataFrame({
-        "Gene stable ID": ["g1", "g1", "g1", "g2", "g3", "g4"],
-        "Gene name": ["a", "a", "a", "b", None, None],
-        # g2: no paralogue at all (one row, blank paralogue column)
-        # g3: 1 paralogue, but Ensembl ships no gene name for it
-        "Schizosaccharomyces pombe paralogue gene stable ID": ["g9", "g10", None, None, "g8", "g7"],
-    })
+    export = pd.DataFrame(
+        {
+            "Gene stable ID": ["g1", "g1", "g1", "g2", "g3", "g4"],
+            "Gene name": ["a", "a", "a", "b", None, None],
+            # g2: no paralogue at all (one row, blank paralogue column)
+            # g3: 1 paralogue, but Ensembl ships no gene name for it
+            "Schizosaccharomyces pombe paralogue gene stable ID": [
+                "g9",
+                "g10",
+                None,
+                None,
+                "g8",
+                "g7",
+            ],
+        }
+    )
     tsv = tmp_path / "ensembl_paralogs.tsv"
     export.to_csv(tsv, sep="\t", index=False)
 
@@ -76,15 +84,20 @@ def test_parse_deletion_library_paralogs_explodes_none_and_normalises_case(tmp_p
         ["SPAC1002.13c", "SPAC1002.16c", "SPAC1002.12c", "SPBC2G2.17c", "SPAC1399.04c"],
     )
     xlsx = tmp_path / "deletion_library_categories.xlsx"
-    pd.DataFrame({
-        "Systematic ID": ["SPAC1002.13c", "SPAC1002.12c", "SPAC1002.16c"],
-        "Paralogues": ["SPBC2G2.17C", "NONE", "SPAC1399.04C|SPAC1399.04c"],
-    }).to_excel(xlsx, index=False)
+    pd.DataFrame(
+        {
+            "Systematic ID": ["SPAC1002.13c", "SPAC1002.12c", "SPAC1002.16c"],
+            "Paralogues": ["SPBC2G2.17C", "NONE", "SPAC1399.04C|SPAC1399.04c"],
+        }
+    ).to_excel(xlsx, index=False)
 
     pairs = parse_deletion_library_paralogs(xlsx, meta)
 
     assert list(pairs.columns) == [
-        "gene_systematic_id", "gene_name", "paralog_systematic_id", "paralog_name"
+        "gene_systematic_id",
+        "gene_name",
+        "paralog_systematic_id",
+        "paralog_name",
     ]
     assert set(pairs["gene_systematic_id"]) == {"SPAC1002.13c", "SPAC1002.16c"}
     assert set(pairs["paralog_systematic_id"]) == {"SPBC2G2.17c", "SPAC1399.04c"}
@@ -101,10 +114,12 @@ def test_parse_deletion_library_paralogs_falls_back_to_the_systematic_id(tmp_pat
         "SPAC1002.13c\t\tSPAC1002.13c-old\tprotein coding gene\n"
     )
     xlsx = tmp_path / "dl.xlsx"
-    pd.DataFrame({
-        "Systematic ID": ["SPAC1002.13c"],
-        "Paralogues": ["SPBC2G2.17c"],
-    }).to_excel(xlsx, index=False)
+    pd.DataFrame(
+        {
+            "Systematic ID": ["SPAC1002.13c"],
+            "Paralogues": ["SPBC2G2.17c"],
+        }
+    ).to_excel(xlsx, index=False)
 
     pairs = parse_deletion_library_paralogs(xlsx, meta)
 
@@ -116,10 +131,12 @@ def test_deletion_library_paralogs_round_trip_through_parquet(tmp_path):
     """What build_deletion_library_paralogs writes is what the feature reads back."""
     meta = _write_gene_meta(tmp_path, ["g1", "g2"])
     xlsx = tmp_path / "dl.xlsx"
-    pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
-        "Paralogues": ["g2", "NONE"],
-    }).to_excel(xlsx, index=False)
+    pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2"],
+            "Paralogues": ["g2", "NONE"],
+        }
+    ).to_excel(xlsx, index=False)
 
     pairs = parse_deletion_library_paralogs(xlsx, meta)
     out = tmp_path / "deletion_library_paralogs.parquet"
@@ -149,7 +166,10 @@ def test_get_ortholog_counts_strips_parenthetical_gene_name(tmp_path):
 def test_read_coding_genes_recovers_unique_gene_ids(tmp_path):
     """read_coding_genes returns the unique Gene_id set from a DNA-level parquet."""
     parquet_file = tmp_path / "dna_features.parquet"
-    write_parquet(pd.DataFrame({"Gene_id": ["g1", "g1", "g2"], "Primary_candidate": [True, False, True]}), parquet_file)
+    write_parquet(
+        pd.DataFrame({"Gene_id": ["g1", "g1", "g2"], "Primary_candidate": [True, False, True]}),
+        parquet_file,
+    )
     assert read_coding_genes(parquet_file) == ["g1", "g2"]
 
 
@@ -173,11 +193,15 @@ def test_rna_config_gene_meta_file_property(tmp_path):
         dna_features=tmp_path / "dna.parquet",
         output_rna=tmp_path / "out" / "rna.parquet",
     )
-    assert cfg.gene_meta_file == tmp_path / "pombase" / "2025-10-01" / "Gene_metadata" / "gene_IDs_names_products.tsv"
+    assert (
+        cfg.gene_meta_file
+        == tmp_path / "pombase" / "2025-10-01" / "Gene_metadata" / "gene_IDs_names_products.tsv"
+    )
 
 
-def test_merge_all_features_fills_new_deletion_library_columns(tmp_path):
-    """Sub_category/Growth_tier ride along with the other DeletionLibrary_* columns and get NA-filled."""
+def test_merge_all_features_fills_new_deletion_library_columns():
+    """Sub_category/Growth_tier ride along with the other DeletionLibrary_* columns and get
+    NA-filled."""
     dna_df = pd.DataFrame({"Gene_id": ["g1", "g2"], "Primary_candidate": [True, True]})
     empty_df = pd.DataFrame(index=pd.Index(["g1", "g2"], name="Gene_id"))
     network_df = pd.DataFrame(
@@ -196,7 +220,9 @@ def test_merge_all_features_fills_new_deletion_library_columns(tmp_path):
     )
     gene_meta = pd.DataFrame({"gene_systematic_id": ["g1", "g2"], "gene_name": ["a", "b"]})
 
-    merged = merge_all_features(dna_df, empty_df, empty_df, empty_df, network_df, phenotype_df, gene_meta)
+    merged = merge_all_features(
+        dna_df, empty_df, empty_df, empty_df, network_df, phenotype_df, gene_meta
+    )
 
     assert merged.set_index("gene_systematic_id").loc["g2", "Sub_category"] == "Not_determined"
     assert merged.set_index("gene_systematic_id").loc["g2", "Growth_tier"] == 0

@@ -58,13 +58,13 @@ SRC_DIR = SCRIPT_DIR.parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from enrichment.cluster_enrichment import (  # noqa: E402
+from enrichment.cluster_enrichment import (
     ONTOLOGIES,
     enrich_all_clusters,
     resolve_ontology,
     write_ontology_workbook,
 )
-from logging_setup import setup_logger  # noqa: E402
+from logging_setup import setup_logger
 
 # =============================================================================
 # 2. CONFIGURATION

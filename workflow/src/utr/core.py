@@ -22,7 +22,7 @@ Usage
 -----
     from utr.core import (
         load_insertion_level,
-        filter_intergenic_near_gene, assign_UTR_type, resolve_parental_gene,
+        filter_intergenic_near_gene, assign_utr_type, resolve_parental_gene,
         classify_utr_insertions,
     )
 """
@@ -33,12 +33,12 @@ Usage
 # 1. Standard Library Imports
 from pathlib import Path
 
+# 3. Third-party Imports
+from loguru import logger
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-from loguru import logger
 
 # 4. Local Imports
 from release_schema import normalize_legacy_metrics
@@ -58,8 +58,11 @@ _INTERGENIC = "Intergenic region"
 # =============================================================================
 # HELPERS
 # =============================================================================
-def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate, Strand, Target].
+def load_insertion_level(
+    fitting_results_path: Path, annotations_path: Path
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate, Strand,
+    Target].
 
     Intergenic annotation rows are uniquely indexed in the release/ files (a
     coordinate falls in at most one intergenic interval), so — unlike the
@@ -76,7 +79,9 @@ def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> 
 # =============================================================================
 # CORE LOGIC — UTR classification primitives (unit-tested)
 # =============================================================================
-def filter_intergenic_near_gene(df: pd.DataFrame, distance_threshold: int = UTR_DISTANCE_THRESHOLD) -> pd.DataFrame:
+def filter_intergenic_near_gene(
+    df: pd.DataFrame, distance_threshold: int = UTR_DISTANCE_THRESHOLD
+) -> pd.DataFrame:
     """Keep intergenic rows within ``distance_threshold`` of either flanking gene boundary.
 
     Byte-faithful to the source notebook's UTR_insertions query:
@@ -91,11 +96,11 @@ def filter_intergenic_near_gene(df: pd.DataFrame, distance_threshold: int = UTR_
     return df[mask]
 
 
-def assign_UTR_type(row: pd.Series, distance_threshold: int = UTR_DISTANCE_THRESHOLD) -> str:
+def assign_utr_type(row: pd.Series, distance_threshold: int = UTR_DISTANCE_THRESHOLD) -> str:
     """Classify a single insertion as ``"5UTR"``, ``"3UTR"``, or ``"neither"`` for one gene.
 
     This is the strand-aware primitive extracted from the notebook's
-    assign_UTR_type. It reasons about ONE gene at a time using the gene's
+    assign_utr_type. It reasons about ONE gene at a time using the gene's
     coding strand (``gene_strand``) and the genomic distances to the
     intergenic region's start/end:
 
@@ -121,22 +126,25 @@ def assign_UTR_type(row: pd.Series, distance_threshold: int = UTR_DISTANCE_THRES
     dist_end = row["Distance_to_region_end"]
 
     if gene_strand == "+":
-        if dist_start < distance_threshold:
-            return "5UTR"
-        if dist_end < distance_threshold:
-            return "3UTR"
+        near_start = dist_start < distance_threshold
+        near_end = dist_end < distance_threshold
     else:  # "-" strand gene: 5' end is at the high-coordinate boundary
-        if dist_end < distance_threshold:
-            return "5UTR"
-        if dist_start < distance_threshold:
-            return "3UTR"
+        near_start = dist_end < distance_threshold
+        near_end = dist_start < distance_threshold
+
+    if near_start:
+        return "5UTR"
+    if near_end:
+        return "3UTR"
     return "neither"
 
 
 # =============================================================================
 # CORE LOGIC — intergenic interval -> parental gene resolution
 # =============================================================================
-def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE_THRESHOLD) -> pd.Series:
+def resolve_parental_gene(
+    row: pd.Series, distance_threshold: int = UTR_DISTANCE_THRESHOLD
+) -> pd.Series:
     """Map a two-gene intergenic interval row to a single parental gene, then classify it.
 
     The release/ annotations describe each intergenic interval by the pair of
@@ -148,11 +156,11 @@ def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE
     ``Distance_to_region_end`` the distance to the HIGH-coordinate end (the
     RIGHT gene's near boundary).
 
-    Byte-faithful to the notebook's assign_UTR_type, this picks the closer
+    Byte-faithful to the notebook's assign_utr_type, this picks the closer
     flanking gene (left when only region_start is within threshold, right when
     only region_end is, and the strictly closer one — ties to the left — when
     both are). It then delegates the strand-aware 5'/3' call to the tested
-    ``assign_UTR_type`` primitive, which expects SINGLE-GENE coordinates. The
+    ``assign_utr_type`` primitive, which expects SINGLE-GENE coordinates. The
     coordinate systems differ, so the interval distances are remapped:
 
     - LEFT gene: the insertion sits just past that gene's HIGH-coordinate (3')
@@ -211,29 +219,35 @@ def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE
         # Dead zone (exactly one distance == distance_threshold) or neither
         # boundary within threshold (only reachable if called without the
         # pre-filter). The notebook assigns nothing in either case.
-        return pd.Series({
-            "Parental_gene": "",
-            "Parental_gene_id": "",
-            "UTR_type": "neither",
-            "Insertion_direction": "",
-            "Distance_to_gene_boundary": 0,
-        })
+        return pd.Series(
+            {
+                "Parental_gene": "",
+                "Parental_gene_id": "",
+                "UTR_type": "neither",
+                "Insertion_direction": "",
+                "Distance_to_gene_boundary": 0,
+            }
+        )
 
     # Remap interval distances to the single-gene convention the primitive uses
     # (see docstring). float("inf") disables the far boundary's branch.
     if is_left:
-        primitive_row = pd.Series({
-            "gene_strand": gene_strand,
-            "Distance_to_region_start": float("inf"),
-            "Distance_to_region_end": near,
-        })
+        primitive_row = pd.Series(
+            {
+                "gene_strand": gene_strand,
+                "Distance_to_region_start": float("inf"),
+                "Distance_to_region_end": near,
+            }
+        )
     else:
-        primitive_row = pd.Series({
-            "gene_strand": gene_strand,
-            "Distance_to_region_start": near,
-            "Distance_to_region_end": float("inf"),
-        })
-    utr_type = assign_UTR_type(primitive_row, distance_threshold)
+        primitive_row = pd.Series(
+            {
+                "gene_strand": gene_strand,
+                "Distance_to_region_start": near,
+                "Distance_to_region_end": float("inf"),
+            }
+        )
+    utr_type = assign_utr_type(primitive_row, distance_threshold)
 
     # Signed distance to the gene boundary: negative upstream (5'UTR), positive
     # downstream (3'UTR), matching the notebook's Distance_to_gene_boundary.
@@ -241,13 +255,15 @@ def resolve_parental_gene(row: pd.Series, distance_threshold: int = UTR_DISTANCE
 
     insertion_direction = "Forward" if insertion_strand == gene_strand else "Reverse"
 
-    return pd.Series({
-        "Parental_gene": gene_name,
-        "Parental_gene_id": gene_id,
-        "UTR_type": utr_type,
-        "Insertion_direction": insertion_direction,
-        "Distance_to_gene_boundary": signed_distance,
-    })
+    return pd.Series(
+        {
+            "Parental_gene": gene_name,
+            "Parental_gene_id": gene_id,
+            "UTR_type": utr_type,
+            "Insertion_direction": insertion_direction,
+            "Distance_to_gene_boundary": signed_distance,
+        }
+    )
 
 
 def classify_utr_insertions(
@@ -286,8 +302,7 @@ def classify_utr_insertions(
     # Join gene-level stats on the parental gene's short Name.
     gene_cols = ["Name", "Systematic ID", "DeletionLibrary_essentiality", "A", "DR"]
     gene_cols = [c for c in gene_cols if c in gene_result.columns]
-    merged = pd.merge(
-        utr,
+    merged = utr.merge(
         gene_result[gene_cols],
         left_on="Parental_gene",
         right_on="Name",

@@ -26,7 +26,8 @@ Usage
         --dna-features   results/1b_features/2025-10-01/_levels/dna_features.parquet \\
         --rna-features   results/1b_features/2025-10-01/_levels/rna_features.parquet \\
         --protein-features results/1b_features/2025-10-01/_levels/protein_features.parquet \\
-        --evolutionary-features results/1b_features/2025-10-01/_levels/evolutionary_features.parquet \\
+        --evolutionary-features results/1b_features/2025-10-01/_levels/evolutionary_features.parquet
+        \\
         --network-features results/1b_features/2025-10-01/_levels/network_features.parquet \\
         --phenotype-features results/1b_features/2025-10-01/_levels/phenotype_features.parquet \\
         --output results/1b_features/2025-10-01/pombe_coding_gene_protein_features.tsv
@@ -41,9 +42,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
 # 3. Third-party Imports
@@ -63,6 +64,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class MergeConfig:
     """The six per-level parquets, gene metadata, and the final output path."""
+
     pombase_dir: Path
     dna_features: Path
     rna_features: Path
@@ -75,8 +77,13 @@ class MergeConfig:
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure the output dir exists."""
         for path in [
-            self.pombase_dir, self.dna_features, self.rna_features, self.protein_features,
-            self.evolutionary_features, self.network_features, self.phenotype_features,
+            self.pombase_dir,
+            self.dna_features,
+            self.rna_features,
+            self.protein_features,
+            self.evolutionary_features,
+            self.network_features,
+            self.phenotype_features,
         ]:
             if not path.exists():
                 raise ValueError(f"Required input path does not exist: {path}")
@@ -107,7 +114,9 @@ def run(config: MergeConfig) -> None:
     phenotype_df = read_parquet(config.phenotype_features)
 
     logger.info("Merging all feature groups")
-    pombe_features = merge_all_features(dna_df, rna_df, protein_df, evolutionary_df, network_df, phenotype_df, gene_meta)
+    pombe_features = merge_all_features(
+        dna_df, rna_df, protein_df, evolutionary_df, network_df, phenotype_df, gene_meta
+    )
 
     pombe_features.to_csv(config.output_features, sep="\t", index=False)
     logger.success(f"Wrote {len(pombe_features)} gene records to {config.output_features}")
@@ -118,16 +127,41 @@ def run(config: MergeConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Merge per-level pombe feature parquets into the final matrix")
+    parser = argparse.ArgumentParser(
+        description="Merge per-level pombe feature parquets into the final matrix"
+    )
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet")
-    parser.add_argument("--rna-features", type=Path, required=True, help="RNA-level features parquet")
-    parser.add_argument("--protein-features", type=Path, required=True, help="Protein-level features parquet")
-    parser.add_argument("--evolutionary-features", type=Path, required=True, help="Evolutionary-level features parquet")
-    parser.add_argument("--network-features", type=Path, required=True, help="Network-level features parquet")
-    parser.add_argument("--phenotype-features", type=Path, required=True, help="Phenotype-level features parquet")
-    parser.add_argument("--output", type=Path, required=True, dest="output_features", help="Output feature matrix path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--dna-features", type=Path, required=True, help="DNA-level features parquet"
+    )
+    parser.add_argument(
+        "--rna-features", type=Path, required=True, help="RNA-level features parquet"
+    )
+    parser.add_argument(
+        "--protein-features", type=Path, required=True, help="Protein-level features parquet"
+    )
+    parser.add_argument(
+        "--evolutionary-features",
+        type=Path,
+        required=True,
+        help="Evolutionary-level features parquet",
+    )
+    parser.add_argument(
+        "--network-features", type=Path, required=True, help="Network-level features parquet"
+    )
+    parser.add_argument(
+        "--phenotype-features", type=Path, required=True, help="Phenotype-level features parquet"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_features",
+        help="Output feature matrix path",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

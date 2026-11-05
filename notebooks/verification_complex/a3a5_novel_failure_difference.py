@@ -35,9 +35,9 @@ MAIN = Path("/data/c/yangyusheng_optimized/DIT_HAP_analysis")
 TABLE = MAIN / "results/verification/HD_DIT_HAP/verification_outcome_table.tsv"
 OUT_DIR = MAIN / "results/verification/HD_DIT_HAP"
 
-R2_HIGH = 0.98          # top-half fit; median is 0.984
-COLONY_LOW = 52         # 25th percentile of total_colonies
-FILTER_LOW = 0.88       # 25th percentile of filtering_fraction
+R2_HIGH = 0.98  # top-half fit; median is 0.984
+COLONY_LOW = 52  # 25th percentile of total_colonies
+FILTER_LOW = 0.88  # 25th percentile of filtering_fraction
 
 
 def load() -> pd.DataFrame:
@@ -51,24 +51,32 @@ def load() -> pd.DataFrame:
 # ---------------------------------------------------------------- A3
 def a3_novel_genes(df: pd.DataFrame) -> pd.DataFrame:
     """Uncharacterized + high-R² + clear outcome, flip_V2E prioritized."""
-    novel = df[
-        df["is_uncharacterized"]
-        & (df["R2"] >= R2_HIGH)
-        & (~df["is_ambiguous"])
-    ].copy()
+    novel = df[df["is_uncharacterized"] & (df["R2"] >= R2_HIGH) & (~df["is_ambiguous"])].copy()
 
     # priority: flip_V2E (discovery) > concordant_E > everything else
     priority = {"flip_V2E": 0, "concordant_E": 1, "flip_E2V": 2}
     novel["priority"] = novel["outcome"].map(priority).fillna(9).astype(int)
     novel = novel.sort_values(["priority", "R2"], ascending=[True, False])
 
-    cols = ["gene", "gene_name", "outcome", "essentiality_concordance",
-            "FYPOviability", "DR", "DL", "R2", "verification_essentiality",
-            "DeletionLibrary_essentiality"]
+    cols = [
+        "gene",
+        "gene_name",
+        "outcome",
+        "essentiality_concordance",
+        "FYPOviability",
+        "DR",
+        "DL",
+        "R2",
+        "verification_essentiality",
+        "DeletionLibrary_essentiality",
+    ]
     out = novel[cols].reset_index(drop=True)
     out.to_csv(OUT_DIR / "a3_novel_genes.tsv", sep="\t", index=False)
-    print(f"[a3_novel_genes] {out.shape} -> {OUT_DIR/'a3_novel_genes.tsv'}")
-    print(f"  {out.shape[0]} novel genes; {(out['outcome']=='flip_V2E').sum()} are flip_V2E reclassifications")
+    print(f"[a3_novel_genes] {out.shape} -> {OUT_DIR / 'a3_novel_genes.tsv'}")
+    print(
+        f"  {out.shape[0]} novel genes; "
+        f"{(out['outcome'] == 'flip_V2E').sum()} are flip_V2E reclassifications"
+    )
     if len(out):
         print(out.head(12).to_string(index=False))
     return out
@@ -80,35 +88,48 @@ def a4_failure_attribution(df: pd.DataFrame) -> pd.DataFrame:
     amb = df[df["is_ambiguous"]].copy()
 
     has_data_flag = (
-        amb["qc_flag_reason"].astype(str).str.contains("poor_fit|thin_colonies|noised_gene", na=False)
+        amb["qc_flag_reason"]
+        .astype(str)
+        .str.contains("poor_fit|thin_colonies|noised_gene", na=False)
         | (amb["total_colonies"] < COLONY_LOW)
         | (amb["filtering_fraction"] < FILTER_LOW)
     )
     is_cond_dep = amb["FYPOviability"].astype(str).eq("condition-dependent")
     only_comment = amb["qc_flag_reason"].astype(str).eq("borderline_comment")
 
-    def label(row_idx):
+    def label(row_idx: str) -> str:
         data = has_data_flag.loc[row_idx]
         cond = is_cond_dep.loc[row_idx]
         comment_only = only_comment.loc[row_idx]
-        if data and cond:
-            return "both"
-        if data:
-            return "data_quality"
-        if cond:
-            return "biology_condition_dependent"
-        if comment_only:
-            return "borderline_observation"
+        reasons = (
+            (data and cond, "both"),
+            (data, "data_quality"),
+            (cond, "biology_condition_dependent"),
+            (comment_only, "borderline_observation"),
+        )
+        for matched, reason in reasons:
+            if matched:
+                return reason
         return "unattributed"
 
     amb["failure_cause"] = [label(i) for i in amb.index]
 
-    cols = ["gene", "gene_name", "outcome", "essentiality_concordance",
-            "failure_cause", "qc_flag_reason", "FYPOviability",
-            "R2", "total_colonies", "filtering_fraction", "comments"]
+    cols = [
+        "gene",
+        "gene_name",
+        "outcome",
+        "essentiality_concordance",
+        "failure_cause",
+        "qc_flag_reason",
+        "FYPOviability",
+        "R2",
+        "total_colonies",
+        "filtering_fraction",
+        "comments",
+    ]
     out = amb[cols].sort_values("failure_cause").reset_index(drop=True)
     out.to_csv(OUT_DIR / "a4_failure_attribution.tsv", sep="\t", index=False)
-    print(f"\n[a4_failure_attribution] {out.shape} -> {OUT_DIR/'a4_failure_attribution.tsv'}")
+    print(f"\n[a4_failure_attribution] {out.shape} -> {OUT_DIR / 'a4_failure_attribution.tsv'}")
     print(out["failure_cause"].value_counts().to_string())
     return out
 
@@ -125,7 +146,7 @@ def a5_difference_explanation(df: pd.DataFrame) -> pd.DataFrame:
     AREA_GROW = 0.1
     flips["day6_grows"] = flips["median_area_day6"] > AREA_GROW
 
-    def flip_reason(row):
+    def flip_reason(row: pd.Series) -> str:
         fypo = str(row["FYPOviability"])
         if fypo == "condition-dependent":
             return "condition_dependent_annotation"
@@ -141,28 +162,48 @@ def a5_difference_explanation(df: pd.DataFrame) -> pd.DataFrame:
     # V2E should NOT grow (area≈0); E2V SHOULD grow.
     flips["area_confirms_flip"] = np.where(
         flips["essentiality_concordance"] == "flip_V2E",
-        ~flips["day6_grows"],   # V2E confirmed if it does not grow
-        flips["day6_grows"],    # E2V confirmed if it grows
+        ~flips["day6_grows"],  # V2E confirmed if it does not grow
+        flips["day6_grows"],  # E2V confirmed if it grows
     )
 
     cross = pd.crosstab(flips["essentiality_concordance"], flips["FYPOviability"])
-    print("\n[a5] flip × FYPOviability:")
+    print("\n[a5] flip x FYPOviability:")
     print(cross.to_string())
 
-    cols = ["gene", "gene_name", "essentiality_concordance", "outcome",
-            "flip_reason", "FYPOviability", "DR", "DL", "R2",
-            "median_area_day6", "day6_grows", "area_confirms_flip", "is_ambiguous"]
-    out = flips[cols].sort_values(["flip_reason", "R2"], ascending=[True, False]).reset_index(drop=True)
+    cols = [
+        "gene",
+        "gene_name",
+        "essentiality_concordance",
+        "outcome",
+        "flip_reason",
+        "FYPOviability",
+        "DR",
+        "DL",
+        "R2",
+        "median_area_day6",
+        "day6_grows",
+        "area_confirms_flip",
+        "is_ambiguous",
+    ]
+    out = (
+        flips[cols]
+        .sort_values(["flip_reason", "R2"], ascending=[True, False])
+        .reset_index(drop=True)
+    )
     out.to_csv(OUT_DIR / "a5_difference_explanation.tsv", sep="\t", index=False)
-    print(f"\n[a5_difference_explanation] {out.shape} -> {OUT_DIR/'a5_difference_explanation.tsv'}")
+    print(
+        f"\n[a5_difference_explanation] {out.shape} -> {OUT_DIR / 'a5_difference_explanation.tsv'}"
+    )
     print(out["flip_reason"].value_counts().to_string())
 
     # Colony-area cross-validation: fraction of flips whose day6 growth agrees
     print("\n=== colony-area cross-validation (independent growth axis) ===")
     for grp in ["flip_V2E", "flip_E2V"]:
         g = out[out["essentiality_concordance"] == grp]
-        print(f"  {grp}: {g['area_confirms_flip'].sum()}/{len(g)} confirmed by day6 area "
-              f"({g['area_confirms_flip'].mean()*100:.0f}%)")
+        print(
+            f"  {grp}: {g['area_confirms_flip'].sum()}/{len(g)} confirmed by day6 area "
+            f"({g['area_confirms_flip'].mean() * 100:.0f}%)"
+        )
 
     # Highest-confidence reclassifications: unconditional V2E, clean, area confirms (no growth)
     gold = out[
@@ -170,9 +211,16 @@ def a5_difference_explanation(df: pd.DataFrame) -> pd.DataFrame:
         & (~out["is_ambiguous"])
         & (out["area_confirms_flip"])
     ].sort_values("R2", ascending=False)
-    print(f"\n=== gold-standard reclassifications (unconditional V→E, non-ambiguous, area-confirmed): {len(gold)} ===")
+    print(
+        f"\n=== gold-standard reclassifications (unconditional V→E, non-ambiguous, "
+        f"area-confirmed): {len(gold)} ==="
+    )
     if len(gold):
-        print(gold[["gene", "gene_name", "DR", "R2", "median_area_day6"]].head(12).to_string(index=False))
+        print(
+            gold[["gene", "gene_name", "DR", "R2", "median_area_day6"]]
+            .head(12)
+            .to_string(index=False)
+        )
     return out
 
 

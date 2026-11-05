@@ -24,15 +24,16 @@ Usage
 # 1. Standard Library Imports
 from typing import Any
 
+from matplotlib.axes import Axes
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.figure import Figure
+
 # 3. Third-party Imports
 import matplotlib.pyplot as plt
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.figure import Figure
 from scipy import stats
 from scipy.stats import gaussian_kde
 
@@ -59,8 +60,16 @@ DR_XLIM = (-1.45, 0.15)
 
 # 10-color palette for final (merged) clusters — assumes <= 10 clusters.
 CLUSTER_COLORS = [
-    "#dd8369", "#6b99df", "#98a64e", "#64af6d", "#a78bd9",
-    "#d57fbd", "#c4954b", "#4bb29c", "#e0788f", "#4aadce",
+    "#dd8369",
+    "#6b99df",
+    "#98a64e",
+    "#64af6d",
+    "#a78bd9",
+    "#d57fbd",
+    "#c4954b",
+    "#4bb29c",
+    "#e0788f",
+    "#4aadce",
 ]
 
 
@@ -81,13 +90,21 @@ def plot_depletion_curves_for_given_genes(
     value_cols = FITTED_VALUE_COLS if use_fitted else RAW_VALUE_COLS
 
     for gene in genes:
-        values = data_df.query(f"{gene_column} == @gene")[value_cols].values.flatten().tolist()
+        mask = data_df[gene_column] == gene
+        values = data_df.loc[mask, value_cols].to_numpy().flatten().tolist()
         ax.plot(time_points, values, color="gray", alpha=0.5, linewidth=0.5, **kwargs)
 
     subset_df = data_df.query(f"{gene_column} in @genes")
     if subset_df.shape[0] > 0:
         centroid = [subset_df[col].mean() for col in value_cols]
-        ax.plot(time_points, centroid, color="red", linewidth=2, label=f"Centroid (n={len(subset_df)})", **kwargs)
+        ax.plot(
+            time_points,
+            centroid,
+            color="red",
+            linewidth=2,
+            label=f"Centroid (n={len(subset_df)})",
+            **kwargs,
+        )
 
     ax.set_title(f"{title}\n(n={len(subset_df)})")
     ax.set_xlabel("Generations")
@@ -109,7 +126,13 @@ def plot_depletion_curves_for_groups(
     groups = sorted(data_df[group_column].unique().tolist())
     row_num = int(np.ceil(len(groups) / col_num))
 
-    fig, axes = plt.subplots(row_num, col_num, figsize=(AX_WIDTH * col_num, AX_HEIGHT * row_num), sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        row_num,
+        col_num,
+        figsize=(AX_WIDTH * col_num, AX_HEIGHT * row_num),
+        sharex=True,
+        sharey=True,
+    )
     axes = axes.reshape(1, -1) if (row_num == 1 and col_num == 1) else axes.flatten()
 
     idx = -1
@@ -152,14 +175,14 @@ def plot_given_genes_on_feature_space(
     """Scatter all genes in light gray, highlighting the given subset in color."""
     ax.scatter(data_df[x_feature], data_df[y_feature], color="lightgray", alpha=0.4, **kwargs)
 
-    subset_df = data_df.query(f"`{gene_column}` in @genes")
+    subset_df = data_df.loc[data_df[gene_column].isin(genes)]
     x_subset = subset_df[x_feature]
     y_subset = subset_df[y_feature]
     try:
         xy_subset = np.vstack([x_subset, y_subset])
         gaussian_kde(xy_subset)(xy_subset)  # density check preserved from source
         ax.scatter(x_subset, y_subset, color=cmap, **kwargs, label=f"{label} (n={len(subset_df)})")
-    except Exception:
+    except (np.linalg.LinAlgError, ValueError):
         ax.scatter(x_subset, y_subset, color="red", **kwargs, label=f"{label} (n={len(subset_df)})")
 
     ax.set_title(f"{title}\n(n={len(subset_df)})" if title_with_count else f"{title}")
@@ -181,7 +204,13 @@ def plot_groups_on_feature_space(
     groups = sorted(data_df[group_column].unique().tolist())
     row_num = int(np.ceil(len(groups) / col_num))
 
-    fig, axes = plt.subplots(row_num, col_num, figsize=(AX_WIDTH * col_num, AX_HEIGHT * row_num), sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        row_num,
+        col_num,
+        figsize=(AX_WIDTH * col_num, AX_HEIGHT * row_num),
+        sharex=True,
+        sharey=True,
+    )
     axes = axes.reshape(1, -1) if (row_num == 1 and col_num == 1) else axes.flatten()
 
     idx = -1
@@ -210,14 +239,70 @@ def plot_groups_on_feature_space(
 # =============================================================================
 # 64-color palette sized to match the candidate n_clusters=64 scatter.
 MULTI_COLORS = [
-    "#452062", "#8be93d", "#6d2bde", "#5bdb62", "#cc3ce7", "#cfe044", "#5447d1", "#e5c83b",
-    "#9643bf", "#6cac2e", "#d93eb4", "#63e3a1", "#49288c", "#b8e181", "#6474df", "#da9b33",
-    "#c875d8", "#55a95c", "#dd3d86", "#69decb", "#e63923", "#63c0df", "#db632f", "#6897da",
-    "#c1712e", "#425594", "#9ca13e", "#913379", "#477126", "#de4867", "#3c8b67", "#cc403c",
-    "#afddd8", "#271c45", "#e4cc7f", "#9379c4", "#90782c", "#d9a5df", "#2b4826", "#dc76ab",
-    "#d0e2aa", "#321521", "#e1d2bf", "#182f3b", "#d49968", "#537d9a", "#8a3e1f", "#b6bbdc",
-    "#652524", "#97bc8f", "#9e2e4c", "#649f9e", "#612643", "#788a63", "#b15f6a", "#385f5d",
-    "#e28c7e", "#3f311f", "#d4a4b1", "#605320", "#8f6c8b", "#b09a7e", "#52485f", "#8a6653",
+    "#452062",
+    "#8be93d",
+    "#6d2bde",
+    "#5bdb62",
+    "#cc3ce7",
+    "#cfe044",
+    "#5447d1",
+    "#e5c83b",
+    "#9643bf",
+    "#6cac2e",
+    "#d93eb4",
+    "#63e3a1",
+    "#49288c",
+    "#b8e181",
+    "#6474df",
+    "#da9b33",
+    "#c875d8",
+    "#55a95c",
+    "#dd3d86",
+    "#69decb",
+    "#e63923",
+    "#63c0df",
+    "#db632f",
+    "#6897da",
+    "#c1712e",
+    "#425594",
+    "#9ca13e",
+    "#913379",
+    "#477126",
+    "#de4867",
+    "#3c8b67",
+    "#cc403c",
+    "#afddd8",
+    "#271c45",
+    "#e4cc7f",
+    "#9379c4",
+    "#90782c",
+    "#d9a5df",
+    "#2b4826",
+    "#dc76ab",
+    "#d0e2aa",
+    "#321521",
+    "#e1d2bf",
+    "#182f3b",
+    "#d49968",
+    "#537d9a",
+    "#8a3e1f",
+    "#b6bbdc",
+    "#652524",
+    "#97bc8f",
+    "#9e2e4c",
+    "#649f9e",
+    "#612643",
+    "#788a63",
+    "#b15f6a",
+    "#385f5d",
+    "#e28c7e",
+    "#3f311f",
+    "#d4a4b1",
+    "#605320",
+    "#8f6c8b",
+    "#b09a7e",
+    "#52485f",
+    "#8a6653",
 ]
 
 
@@ -252,10 +337,23 @@ def plot_cluster_on_axis(
         ax.scatter(x, y, c=cluster_color, s=point_size, label=f"Cluster {cluster} (n={len(x)})")
         centroid_x, centroid_y = x.mean(), y.mean()
         if show_box:
-            ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=label_fontsize,
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.8))
+            ax.text(
+                centroid_x,
+                centroid_y,
+                f"{cluster}",
+                fontweight="bold",
+                fontsize=label_fontsize,
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "alpha": 0.8,
+                },
+            )
         else:
-            ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=label_fontsize)
+            ax.text(
+                centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=label_fontsize
+            )
 
     ax.set_xlabel("DR")
     ax.set_ylabel("DL")
@@ -295,15 +393,26 @@ def visualize_cluster_on_feature_space(
             z = stats.gaussian_kde(xy)(xy)
             cmap = create_gradient_colormap(multi_color, f"{cluster}_gradient")
             axes[0].scatter(x, y, c=z, s=20, cmap=cmap, label=f"Cluster {cluster} (n={len(x)})")
-        except Exception:
+        except (np.linalg.LinAlgError, ValueError):
             axes[0].scatter(x, y, c=multi_color, s=20, label=f"Cluster {cluster}\n(n={len(x)})")
 
         axes[1].scatter(x, y, c=cluster_color, s=20, label=f"Cluster {cluster}\n(n={len(x)})")
         centroid_x, centroid_y = x.mean(), y.mean()
         for ax in axes:
             if show_box:
-                ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=22,
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="none", alpha=0.8))
+                ax.text(
+                    centroid_x,
+                    centroid_y,
+                    f"{cluster}",
+                    fontweight="bold",
+                    fontsize=22,
+                    bbox={
+                        "boxstyle": "round,pad=0.3",
+                        "facecolor": "white",
+                        "edgecolor": "none",
+                        "alpha": 0.8,
+                    },
+                )
             else:
                 ax.text(centroid_x, centroid_y, f"{cluster}", fontweight="bold", fontsize=22)
 
@@ -312,7 +421,9 @@ def visualize_cluster_on_feature_space(
         ax.set_ylabel("DL")
         ax.tick_params(axis="both", which="major", labelsize=20, labelleft=True, labelbottom=True)
         if legend:
-            ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=16, frameon=True, markerscale=5)
+            ax.legend(
+                bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=16, frameon=True, markerscale=5
+            )
         ax.set_xlim(DR_XLIM)
 
     plt.tight_layout()

@@ -25,9 +25,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -53,6 +53,7 @@ from verification.core import (
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs and parquet outputs for the verification table preparation."""
+
     fitting_results: Path
     deletion_library: Path
     essentiality_verification: Path
@@ -80,7 +81,9 @@ def run(config: PrepareConfig) -> None:
         read_gene_level(config.fitting_results),
         load_deletion_library(config.deletion_library),
     )
-    merged[CATEGORY_WITH_ESSENTIALITY_COLUMN] = merged.apply(apply_category_with_essentiality, axis=1)
+    merged[CATEGORY_WITH_ESSENTIALITY_COLUMN] = merged.apply(
+        apply_category_with_essentiality, axis=1
+    )
     verification = load_verification(config.essentiality_verification)
 
     write_parquet(merged, config.output_merged)
@@ -98,12 +101,28 @@ def run(config: PrepareConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare verification parquet intermediates")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Gene-level fitting_results.tsv")
-    parser.add_argument("--deletion-library", type=Path, required=True, help="Curated deletion_library_categories.xlsx")
-    parser.add_argument("--essentiality-verification", type=Path, required=True, help="Curated essentiality_verification.csv")
+    parser.add_argument(
+        "--fitting-results", type=Path, required=True, help="Gene-level fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--deletion-library",
+        type=Path,
+        required=True,
+        help="Curated deletion_library_categories.xlsx",
+    )
+    parser.add_argument(
+        "--essentiality-verification",
+        type=Path,
+        required=True,
+        help="Curated essentiality_verification.csv",
+    )
     parser.add_argument("--output-merged", type=Path, required=True, help="Output merged.parquet")
-    parser.add_argument("--output-verification", type=Path, required=True, help="Output verification.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--output-verification", type=Path, required=True, help="Output verification.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

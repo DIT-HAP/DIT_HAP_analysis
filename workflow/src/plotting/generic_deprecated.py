@@ -22,7 +22,8 @@ every caller gets the shared publication look without re-applying it.
 
 Usage
 -----
-    from plotting.generic import create_scatter_correlation_plot, donut_chart, boxplot_with_violinplot
+    from plotting.generic import create_scatter_correlation_plot, donut_chart,
+    boxplot_with_violinplot
 """
 
 # =============================================================================
@@ -30,11 +31,14 @@ Usage
 # =============================================================================
 # 1. Data Processing Imports
 # 2. Third-party Imports
+from typing import Any
+
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 
 # 3. Local Imports
 # Imported for its side effect: applies config/DIT_HAP.mplstyle once (design doc §7).
@@ -48,10 +52,10 @@ def create_scatter_correlation_plot(
     x: pd.Series | np.ndarray | list,
     y: pd.Series | np.ndarray | list,
     ax: Axes,
-    xscale: None | str = None,
-    yscale: None | str = None,
+    xscale: str | None = None,
+    yscale: str | None = None,
     show_diagonal: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> Axes:
     """Scatter two vectors with a y=x diagonal and a PCC/R²/slope/RMSE stats box."""
     # Drop NaNs, then (for log axes) non-positive values that can't be log-scaled.
@@ -68,7 +72,8 @@ def create_scatter_correlation_plot(
     y = y[mask]
 
     ax.scatter(
-        x, y,
+        x,
+        y,
         alpha=0.5,
         s=10,
         facecolor="none",
@@ -106,7 +111,7 @@ def create_scatter_correlation_plot(
         y_pred = intercept + slope * x_for_fitting
         rmse = np.sqrt(np.mean((y_for_fitting - y_pred) ** 2))
     except Exception as e:  # noqa: BLE001 — degenerate input (e.g. <2 points) shouldn't abort the figure
-        print("Error in linear regression:", e)
+        logger.warning(f"Error in linear regression: {e}")
         slope, intercept, rmse = np.nan, np.nan, np.nan
 
     stats_text = [
@@ -127,7 +132,7 @@ def create_scatter_correlation_plot(
 # =============================================================================
 def donut_chart(
     values: list[int],
-    labels: list[str],
+    _labels: list[str],
     colors: list[str],
     center_text: str = "",
     ax: Axes | None = None,
@@ -141,10 +146,10 @@ def donut_chart(
     ax.pie(
         values,
         colors=colors,
-        autopct=lambda pct: f"{pct:.1f}%\n({int(round(pct / 100 * sum(values))):,})",
+        autopct=lambda pct: f"{pct:.1f}%\n({round(pct / 100 * sum(values)):,})",
         startangle=90,
         pctdistance=0.75,
-        wedgeprops=dict(width=0.5, edgecolor="white"),
+        wedgeprops={"width": 0.5, "edgecolor": "white"},
         textprops={"fontsize": 22, "weight": "bold"},
     )
     ax.text(0, 0, center_text, ha="center", va="center", fontsize=26, fontweight="bold")
@@ -172,22 +177,32 @@ def boxplot_with_violinplot(
     positions = range(len(labels))
 
     parts = ax.violinplot(
-        values, positions=positions,
-        showmeans=False, showmedians=False, showextrema=False, vert=False,
+        values,
+        positions=positions,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
+        vert=False,
     )
     for i, pc in enumerate(parts["bodies"]):
         pc.set_facecolor(colors[i])
         pc.set_alpha(0.6)
 
     box_parts = ax.boxplot(
-        values, positions=positions, widths=0.2, patch_artist=True,
-        medianprops=dict(color="black", linewidth=2), vert=False,
+        values,
+        positions=positions,
+        widths=0.2,
+        patch_artist=True,
+        medianprops={"color": "black", "linewidth": 2},
+        vert=False,
     )
     for i, bp in enumerate(box_parts["boxes"]):
         bp.set_facecolor(colors[i])
         bp.set_alpha(0.8)
 
     ax.set_yticks(list(positions))
-    ax.set_yticklabels([f"{label} (n={len(values[i])})" for i, label in enumerate(labels)], fontweight="bold")
+    ax.set_yticklabels(
+        [f"{label} (n={len(values[i])})" for i, label in enumerate(labels)], fontweight="bold"
+    )
     ax.tick_params(axis="y", which="minor", length=0)
     return ax

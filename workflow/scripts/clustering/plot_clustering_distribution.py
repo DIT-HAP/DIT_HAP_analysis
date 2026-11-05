@@ -50,20 +50,20 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import cnsplots as cns
-import numpy as np
-import pandas as pd
 from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
+import numpy as np
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -90,7 +90,9 @@ from logging_setup import setup_logger
 # =============================================================================
 DR_COLUMN = "DR"
 DL_COLUMN = "DL"
-DL_DIVISOR = 10  # prepare_clustering_data's DL scaling (dr_clamp is a no-op on the CDF panel: clamped tail)
+DL_DIVISOR = (
+    10  # prepare_clustering_data's DL scaling (dr_clamp is a no-op on the CDF panel: clamped tail)
+)
 COORDINATE_COLUMNS = (DR_COLUMN, DL_COLUMN)
 
 # The density bar's inset, outside the axes on the right (the cloud's densest
@@ -105,7 +107,19 @@ ESSENTIALITY_DRAW_ORDER: tuple[str, ...] = ("V", "Not_determined", "E")
 
 # The stats table's columns, in reading order (v2 distribution lineage).
 STAT_COLUMNS: tuple[str, ...] = (
-    "axis", "scale", "n", "mean", "std", "min", "q25", "median", "q75", "max", "iqr", "skew", "share_zero",
+    "axis",
+    "scale",
+    "n",
+    "mean",
+    "std",
+    "min",
+    "q25",
+    "median",
+    "q75",
+    "max",
+    "iqr",
+    "skew",
+    "share_zero",
 )
 CDF_VALUE_COLUMN = "value"
 CDF_CUMULATIVE_COLUMN = "cumulative"
@@ -117,6 +131,7 @@ CDF_CUMULATIVE_COLUMN = "cumulative"
 @dataclass(kw_only=True, slots=True, frozen=True)
 class DistributionConfig:
     """Spine parquets in; one stats table + one 2x3 diagnostics figure out."""
+
     annotated: Path
     scaled: Path
     output_stats: Path
@@ -139,7 +154,7 @@ def describe_axis(values: pd.Series, *, axis: str, scale: str) -> dict[str, obje
     """One coordinate's shape descriptors: spread, skew, and the point masses."""
     finite = pd.Series(values).dropna()
     if finite.empty:
-        return {"axis": axis, "scale": scale, **{c: np.nan for c in STAT_COLUMNS[2:]}, "n": 0}
+        return {"axis": axis, "scale": scale, **dict.fromkeys(STAT_COLUMNS[2:], np.nan), "n": 0}
     q25, q75 = finite.quantile([0.25, 0.75])
     return {
         "axis": axis,
@@ -162,7 +177,10 @@ def axis_cumulative(values: pd.Series) -> pd.DataFrame:
     """Empirical CDF of one axis: sorted values against their quantile."""
     finite = pd.Series(values).dropna().sort_values()
     return pd.DataFrame(
-        {CDF_VALUE_COLUMN: finite.to_numpy(), CDF_CUMULATIVE_COLUMN: np.arange(1, finite.size + 1) / finite.size}
+        {
+            CDF_VALUE_COLUMN: finite.to_numpy(),
+            CDF_CUMULATIVE_COLUMN: np.arange(1, finite.size + 1) / finite.size,
+        }
     )
 
 
@@ -175,15 +193,20 @@ def coordinate_variance_share(frame: pd.DataFrame) -> pd.Series:
 # =============================================================================
 # HELPERS — panels
 # =============================================================================
-def render_axis_histogram_panel(ax: Axes, values: pd.Series, *, bins: int, xlabel: str, title: str) -> None:
+def render_axis_histogram_panel(
+    ax: Axes, values: pd.Series, *, bins: int, xlabel: str, title: str
+) -> None:
     """One coordinate's histogram, median marked."""
     finite = pd.Series(values).dropna()
     cns.histplot(data=finite.to_frame("value"), x="value", bins=bins, ax=ax, shrink=0.9)
     median = float(finite.median())
     ax.axvline(median, color=FURNITURE_COLOR, linestyle="--")
     ax.text(
-        0.05, 0.95, f"n = {finite.size:,}\nmedian = {median:.3f}\nzero = {(finite.abs() <= 1e-9).mean():.0%}",
-        transform=ax.transAxes, va="top",
+        0.05,
+        0.95,
+        f"n = {finite.size:,}\nmedian = {median:.3f}\nzero = {(finite.abs() <= 1e-9).mean():.0%}",
+        transform=ax.transAxes,
+        va="top",
     )
     ax.set(xlabel=xlabel, ylabel="Genes", title=title)
 
@@ -202,7 +225,11 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
         span = np.ptp(ranked)
         scaled = (ranked - ranked.min()) / span if span > 0 else np.zeros_like(ranked)
         mappable = ax.scatter(
-            x[finite][order], y[finite][order], c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
+            x[finite][order],
+            y[finite][order],
+            c=scaled,
+            norm=Normalize(vmin=0, vmax=1),
+            **DENSITY_SCATTER_KWS,
         )
         # scatter.py's helper draws its inset on the cloud's densest corner; for
         # THIS panel the bar belongs in the empty upper-right margin instead
@@ -219,7 +246,9 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
 
 def render_essentiality_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str) -> None:
     """The cloud coloured by essentiality call — is the call separable on these axes at all."""
-    labels = frame[ESSENTIALITY_COLUMN].map(lambda call: DELETION_ESSENTIALITY_LABELS.get(call, call))
+    labels = frame[ESSENTIALITY_COLUMN].map(
+        lambda call: DELETION_ESSENTIALITY_LABELS.get(call, call)
+    )
     hue = frame.assign(**{ESSENTIALITY_HUE_COLUMN: labels})
     observed = set(labels.dropna())
     order = [
@@ -241,8 +270,14 @@ def render_essentiality_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: s
         DELETION_ESSENTIALITY_LABELS["Not_determined"]: unknown,
     }
     cns.scatterplot(
-        data=hue, x=DR_COLUMN, y=DL_COLUMN, hue=ESSENTIALITY_HUE_COLUMN, hue_order=order,
-        palette=palette, ax=ax, **SCATTERPLOT_KWS,
+        data=hue,
+        x=DR_COLUMN,
+        y=DL_COLUMN,
+        hue=ESSENTIALITY_HUE_COLUMN,
+        hue_order=order,
+        palette=palette,
+        ax=ax,
+        **SCATTERPLOT_KWS,
     )
     cns.take_legend_out(ax=ax)
     ax.set(xlabel=DR_COLUMN, ylabel=DL_COLUMN, title=title)
@@ -260,17 +295,26 @@ def render_variance_share_panel(ax: Axes, shares: pd.Series, *, title: str) -> N
     ax.invert_yaxis()
 
 
-def render_coordinate_cdf_panel(ax: Axes, frame: pd.DataFrame, series: list[tuple[str, str]]) -> None:
+def render_coordinate_cdf_panel(
+    ax: Axes, frame: pd.DataFrame, series: list[tuple[str, str]]
+) -> None:
     """Both coordinates' empirical CDFs on one axis, drawn as steps."""
     colors = series_colors(len(series))
     for index, (column, label) in enumerate(series):
         curve = axis_cumulative(frame[column])
         ax.plot(
-            curve[CDF_VALUE_COLUMN], curve[CDF_CUMULATIVE_COLUMN],
-            drawstyle="steps-post", label=label, color=colors[index],
+            curve[CDF_VALUE_COLUMN],
+            curve[CDF_CUMULATIVE_COLUMN],
+            drawstyle="steps-post",
+            label=label,
+            color=colors[index],
         )
     ax.legend(loc="best", frameon=False)
-    ax.set(xlabel="Standardised coordinate", ylabel="Share of genes at or below", title="Coordinate distributions")
+    ax.set(
+        xlabel="Standardised coordinate",
+        ylabel="Share of genes at or below",
+        title="Coordinate distributions",
+    )
 
 
 # =============================================================================
@@ -301,14 +345,25 @@ def run(config: DistributionConfig) -> None:
     labels = panel_labels(6)
     axes = grid_axes(2, 3, labels=labels, shape=PanelShape.WIDE)
 
-    render_axis_histogram_panel(axes[0], annotated[DR_COLUMN], bins=config.bins, xlabel=DR_COLUMN, title="Depletion rate")
-    render_axis_histogram_panel(axes[1], frame[DL_COLUMN], bins=config.bins, xlabel=DL_COLUMN, title="Depletion lag (scaled)")
+    render_axis_histogram_panel(
+        axes[0], annotated[DR_COLUMN], bins=config.bins, xlabel=DR_COLUMN, title="Depletion rate"
+    )
+    render_axis_histogram_panel(
+        axes[1],
+        frame[DL_COLUMN],
+        bins=config.bins,
+        xlabel=DL_COLUMN,
+        title="Depletion lag (scaled)",
+    )
     render_coordinate_scatter_panel(axes[2], frame, title="DR vs DL (density)")
     render_coordinate_cdf_panel(
-        axes[3], frame,
+        axes[3],
+        frame,
         [(DR_COLUMN, f"{DR_COLUMN} (clamped)"), (DL_COLUMN, f"{DL_COLUMN} / {DL_DIVISOR}")],
     )
-    render_variance_share_panel(axes[4], coordinate_variance_share(scaled), title="Coordinate variance")
+    render_variance_share_panel(
+        axes[4], coordinate_variance_share(scaled), title="Coordinate variance"
+    )
     render_essentiality_scatter_panel(axes[5], frame, title="DR vs DL by essentiality")
 
     fit_panels()  # after all panels drawn: it measures rendered text
@@ -321,13 +376,23 @@ def run(config: DistributionConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Render the clustering input-space diagnostics figure")
-    parser.add_argument("--annotated", type=Path, required=True, help="annotated_data.parquet from the spine")
-    parser.add_argument("--scaled", type=Path, required=True, help="scaled_data.parquet from the spine")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output distribution_stats.tsv")
+    parser = argparse.ArgumentParser(
+        description="Render the clustering input-space diagnostics figure"
+    )
+    parser.add_argument(
+        "--annotated", type=Path, required=True, help="annotated_data.parquet from the spine"
+    )
+    parser.add_argument(
+        "--scaled", type=Path, required=True, help="scaled_data.parquet from the spine"
+    )
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output distribution_stats.tsv"
+    )
     parser.add_argument("--output-figure", type=Path, required=True, help="Output distribution.pdf")
     parser.add_argument("--bins", type=int, default=60, help="Histogram bin count (default 60)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

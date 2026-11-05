@@ -20,6 +20,7 @@ Output
 - `FITTING_RESULTS_COLUMNS`, `LONG_TABLE_COLUMNS`
 - `load_fitting_results()`, `load_long_table()`
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
@@ -28,6 +29,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# 3. Third-party Imports
+from loguru import logger
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
@@ -35,9 +39,6 @@ import pandas as pd
 # 4. Local Imports
 from coherence.metrics import DL_NORM_MAX, DR_NORM_MAX
 from coherence.sources import LONG_TABLE_COLUMNS
-
-# 3. Third-party Imports
-from loguru import logger
 from release_schema import normalize_legacy_metrics
 
 # =============================================================================
@@ -80,7 +81,8 @@ def load_fitting_results(path: Path) -> pd.DataFrame:
     missing = [col for col in FITTING_RESULTS_COLUMNS if col not in fitting.columns]
     if missing:
         raise ValueError(
-            f"fitting_results.tsv missing required column(s) {missing} (have: {list(fitting.columns)})"
+            f"fitting_results.tsv missing required column(s) {missing} "
+            f"(have: {list(fitting.columns)})"
         )
 
     # Map +/-inf to NaN before dropna so non-finite DR/DL never reach a distance
@@ -99,6 +101,7 @@ def load_long_table(path: Path) -> pd.DataFrame:
     missing = [col for col in LONG_TABLE_COLUMNS if col not in long_table.columns]
     if missing:
         raise ValueError(
-            f"annotation long-table missing required column(s) {missing} (have: {list(long_table.columns)})"
+            f"annotation long-table missing required column(s) {missing} "
+            f"(have: {list(long_table.columns)})"
         )
     return long_table

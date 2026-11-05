@@ -25,15 +25,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -45,7 +45,7 @@ from noncoding_rna.core import (
     load_gtrnadb,
     load_marguerat_abundance,
     load_ncrna_fitting,
-    select_nuclear_tRNAs,
+    select_nuclear_trnas,
 )
 
 
@@ -55,6 +55,7 @@ from noncoding_rna.core import (
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs and parquet outputs for the ncRNA table preparation."""
+
     ncrna_fitting: Path
     ncrna_bed: Path
     gtrnadb_bed: Path
@@ -85,7 +86,7 @@ def run(config: PrepareConfig) -> None:
     marguerat_means = load_marguerat_abundance(config.marguerat_excel)
 
     combined = build_ncrna_table(ncrna_fitting, ncrna_bed, gtrnadb, marguerat_means)
-    nuclear_trnas = select_nuclear_tRNAs(combined)
+    nuclear_trnas = select_nuclear_trnas(combined)
 
     write_parquet(combined, config.output_combined)
     write_parquet(nuclear_trnas, config.output_nuclear_trnas)
@@ -102,13 +103,25 @@ def run(config: PrepareConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare non-coding RNA parquet intermediates")
-    parser.add_argument("--ncrna-fitting", type=Path, required=True, help="Non-coding-gene fitting_results.tsv")
+    parser.add_argument(
+        "--ncrna-fitting", type=Path, required=True, help="Non-coding-gene fitting_results.tsv"
+    )
     parser.add_argument("--ncrna-bed", type=Path, required=True, help="ncRNA genome-region bed")
-    parser.add_argument("--gtrnadb-bed", type=Path, required=True, help="GtRNAdb tRNA bed (schiPomb_972H-tRNAs.bed)")
-    parser.add_argument("--marguerat-excel", type=Path, required=True, help="Marguerat 2012 abundance xlsx")
-    parser.add_argument("--output-combined", type=Path, required=True, help="Output combined.parquet")
-    parser.add_argument("--output-nuclear-trnas", type=Path, required=True, help="Output nuclear_trnas.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--gtrnadb-bed", type=Path, required=True, help="GtRNAdb tRNA bed (schiPomb_972H-tRNAs.bed)"
+    )
+    parser.add_argument(
+        "--marguerat-excel", type=Path, required=True, help="Marguerat 2012 abundance xlsx"
+    )
+    parser.add_argument(
+        "--output-combined", type=Path, required=True, help="Output combined.parquet"
+    )
+    parser.add_argument(
+        "--output-nuclear-trnas", type=Path, required=True, help="Output nuclear_trnas.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -53,8 +53,8 @@ Version:  1.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -72,8 +72,9 @@ def run(source: str, pombase_dir: Path, output: Path, kegg_dir: Path | None = No
     output.parent.mkdir(parents=True, exist_ok=True)
     table = load_source(source, Path(pombase_dir), kegg_dir)
     table.to_csv(output, sep="\t", index=False)
-    logger.success(f"[{source}] {len(table):,} rows, "
-                   f"{table['group_id'].nunique():,} groups -> {output}")
+    logger.success(
+        f"[{source}] {len(table):,} rows, {table['group_id'].nunique():,} groups -> {output}"
+    )
 
 
 # =============================================================================
@@ -81,12 +82,28 @@ def run(source: str, pombase_dir: Path, output: Path, kegg_dir: Path | None = No
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Prepare a coherence source's unified long-table annotation")
-    parser.add_argument("--source", required=True, choices=sorted(SOURCE_LOADERS), help="Grouping-database source adapter to run")
+    parser = argparse.ArgumentParser(
+        description="Prepare a coherence source's unified long-table annotation"
+    )
+    parser.add_argument(
+        "--source",
+        required=True,
+        choices=sorted(SOURCE_LOADERS),
+        help="Grouping-database source adapter to run",
+    )
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--kegg-dir", type=Path, default=None, help="kegg_parser derived-table directory (kegg_* sources only)")
-    parser.add_argument("--output", type=Path, required=True, help="Output group_annotation_long.tsv")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--kegg-dir",
+        type=Path,
+        default=None,
+        help="kegg_parser derived-table directory (kegg_* sources only)",
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output group_annotation_long.tsv"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

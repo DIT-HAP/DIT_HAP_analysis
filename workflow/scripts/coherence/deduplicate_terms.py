@@ -15,7 +15,7 @@ compute_coherence.py is carried through unchanged, and every term is retained
 
 Redundancy axis (config-driven, "both" by design)
 -------------------------------------------------
-- MEMBER SIMILARITY (primary): jaccard_index(A, B) = |A ∩ B| / |A ∪ B| over each
+- MEMBER SIMILARITY (primary): jaccard_index(A, B) = |A ∩ B| / |A \u222a B| over each
   term's coherence member set (the DR<threshold `scored_member_names`, which is
   what the coherence z-score was computed on). Two terms with similarity
   >= dedup_jaccard_threshold are redundant.
@@ -106,7 +106,8 @@ Usage
         --overlap-threshold 0.5 --scope pooled \\
         --force-representatives GO:0042254 GO:0005762 \\
         --output-all results/3a_coherence/{dataset}/dedup/coherence_terms_deduplicated.tsv \\
-        --output-representatives results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
+        --output-representatives
+        results/3a_coherence/{dataset}/dedup/coherence_terms_representatives.tsv \\
         --output-group-members results/3a_coherence/{dataset}/dedup/coherence_group_members_long.tsv
 
 Author:   Yusheng Yang (guidance) + Claude Opus 4.8 (implementation)
@@ -119,17 +120,18 @@ Version:  1.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
+
+# 3. Third-party Imports
+from loguru import logger
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-from loguru import logger
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
@@ -164,8 +166,16 @@ _LINKAGE_METHODS = ("single", "average", "complete")
 # Columns of the (group, gene) long table, in write order. `redundancy_cluster` is
 # what the per-view breadth counts slice on; `n_groups` / `is_moonlighting` are per
 # GENE and filled after the rows are collected.
-_GROUP_MEMBER_COLUMNS = ["source", "group_id", "group_name", "full_name", "gene",
-                         "redundancy_cluster", "n_groups", "is_moonlighting"]
+_GROUP_MEMBER_COLUMNS = [
+    "source",
+    "group_id",
+    "group_name",
+    "full_name",
+    "gene",
+    "redundancy_cluster",
+    "n_groups",
+    "is_moonlighting",
+]
 
 
 # =============================================================================
@@ -174,6 +184,7 @@ _GROUP_MEMBER_COLUMNS = ["source", "group_id", "group_name", "full_name", "gene"
 @dataclass(kw_only=True, slots=True, frozen=True)
 class DedupConfig:
     """Inputs, outputs, and parameters for coherence term de-duplication."""
+
     combined: Path
     obo: Path
     output_all: Path
@@ -240,7 +251,7 @@ def candidate_pairs(member_sets: list[set[str]]) -> set[tuple[int, int]]:
 
 
 def jaccard_index(a: set[str], b: set[str]) -> float:
-    """|A ∩ B| / |A ∪ B|; 0.0 if either set is empty."""
+    """|A ∩ B| / |A \u222a B|; 0.0 if either set is empty."""
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
@@ -257,7 +268,8 @@ def member_set(value: object) -> set[str]:
         return set()
     if isinstance(value, str):
         raise TypeError(
-            f"scored_member_names is a list column in the metrics Parquet; got a string ({value[:40]!r}...). "
+            f"scored_member_names is a list column in the metrics Parquet; "
+            f"got a string ({value[:40]!r}...). "
             "Split it into a list at the source instead of parsing it here."
         )
     return {str(gene) for gene in value}
@@ -294,7 +306,7 @@ def build_clusters(
     if not edges:
         return list(range(n_rows))
 
-    rows, cols = zip(*edges)
+    rows, cols = zip(*edges, strict=False)
     graph = csr_matrix(([1] * len(edges), (rows, cols)), shape=(n_rows, n_rows))
     _, labels = connected_components(graph, directed=False)
     return _relabel_by_first_appearance(labels)
@@ -325,7 +337,9 @@ def hierarchical_labels(
 
     distances = np.ones(n_rows * (n_rows - 1) // 2, dtype=np.float64)
     for i, j in candidate_pairs(member_sets):
-        distances[condensed_index(i, j, n_rows)] = 1.0 - jaccard_index(member_sets[i], member_sets[j])
+        distances[condensed_index(i, j, n_rows)] = 1.0 - jaccard_index(
+            member_sets[i], member_sets[j]
+        )
 
     tree = linkage(distances, method=linkage_method)
     # `criterion="distance"` cuts at the height itself, and the height of a complete
@@ -334,7 +348,7 @@ def hierarchical_labels(
     return fcluster(tree, t=1.0 - threshold, criterion="distance")
 
 
-def _relabel_by_first_appearance(labels) -> list[int]:
+def _relabel_by_first_appearance(labels: Sequence[int]) -> list[int]:
     """Dense 0..k-1 labels in first-appearance order.
 
     The caller turns labels into cluster-id strings that the output sort keys on,
@@ -368,7 +382,7 @@ def pick_representative(cluster_rows: pd.DataFrame, forced: set[str]) -> tuple[i
 def load_dag_depth(obo: Path, group_ids: list[str]) -> dict[str, int]:
     """Load the GO DAG once -> {gid: depth}."""
     # Terms absent from the DAG get depth 0 (they only rank last in the tiebreak).
-    from goatools.obo_parser import (
+    from goatools.obo_parser import (  # noqa: PLC0415
         GODag,  # imported here: only this rule's env has goatools
     )
 
@@ -426,14 +440,22 @@ def deduplicate(table: pd.DataFrame, config: DedupConfig, depth: dict[str, int])
         others = rows[rows.index != rep_idx].sort_values("median_pairwise_distance_z")
         table.loc[rows.index, "non_representative_terms"] = "\n".join(
             f"{source}:{name} ({gid})"
-            for source, name, gid in zip(others["source"], others["group_name"], others["group_id"])
+            for source, name, gid in zip(
+                others["source"], others["group_name"], others["group_id"], strict=False
+            )
         )
 
     # Sort so each cluster's best (min) z leads, members grouped, best-first within.
-    table["_cluster_best_z"] = table.groupby("redundancy_cluster")["median_pairwise_distance_z"].transform("min")
-    return table.sort_values(
-        by=["_cluster_best_z", "redundancy_cluster", "median_pairwise_distance_z"],
-    ).drop(columns="_cluster_best_z").reset_index(drop=True)
+    table["_cluster_best_z"] = table.groupby("redundancy_cluster")[
+        "median_pairwise_distance_z"
+    ].transform("min")
+    return (
+        table.sort_values(
+            by=["_cluster_best_z", "redundancy_cluster", "median_pairwise_distance_z"],
+        )
+        .drop(columns="_cluster_best_z")
+        .reset_index(drop=True)
+    )
 
 
 def group_member_table(annotated: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -491,7 +513,9 @@ def write_dedup_table(table: pd.DataFrame, path: Path) -> None:
     out = table.copy()
     if "scored_member_names" in out.columns:
         out["scored_member_names"] = out["scored_member_names"].map(
-            lambda genes: "" if genes is None or isinstance(genes, float) else ", ".join(map(str, genes))
+            lambda genes: (
+                "" if genes is None or isinstance(genes, float) else ", ".join(map(str, genes))
+            )
         )
     out.to_csv(path, sep="\t", index=False)
 
@@ -501,10 +525,20 @@ def run(config: DedupConfig) -> None:
     """Load -> annotate clusters + representatives -> write full + representatives tables."""
     config.validate()
     table = read_parquet(config.combined)
-    for required in ["source", "group_id", "group_name", "n_scored_members",
-                     "scored_member_names", "median_pairwise_distance_z", "q_value_coherent"]:
+    for required in [
+        "source",
+        "group_id",
+        "group_name",
+        "n_scored_members",
+        "scored_member_names",
+        "median_pairwise_distance_z",
+        "q_value_coherent",
+    ]:
         if required not in table.columns:
-            raise ValueError(f"combined metrics missing required column '{required}' (have: {list(table.columns)})")
+            raise ValueError(
+                f"combined metrics missing required column '{required}' "
+                f"(have: {list(table.columns)})"
+            )
 
     if table.empty:
         logger.warning("combined metrics table is empty; writing empty dedup outputs")
@@ -527,7 +561,9 @@ def run(config: DedupConfig) -> None:
     write_dedup_table(reps, config.output_representatives)
 
     n_clusters = annotated["redundancy_cluster"].nunique()
-    n_forced = int((annotated["is_representative"] & (annotated["representative_source"] == "forced")).sum())
+    n_forced = int(
+        (annotated["is_representative"] & (annotated["representative_source"] == "forced")).sum()
+    )
     per_gene = group_members.drop_duplicates("gene")
     logger.success(
         f"{len(annotated):,} terms -> {n_clusters:,} non-redundant clusters "
@@ -546,21 +582,55 @@ def parse_args() -> argparse.Namespace:
     # Defaults come from the module constants above, shared with the dataclass.
     # Do NOT read them off `DedupConfig`: the dataclass is slots=True, so its class
     # attributes are member_descriptors rather than default values.
-    parser = argparse.ArgumentParser(description="De-duplicate coherence terms by member overlap + GO DAG structure")
-    parser.add_argument("--combined", type=Path, required=True, help="combined/coherence_metrics.parquet")
-    parser.add_argument("--obo", type=Path, required=True, help="go-basic.obo (GO DAG for depth + lineage)")
-    parser.add_argument("--jaccard-threshold", type=float, default=DEFAULT_JACCARD_THRESHOLD,
-                        help="Member-set Jaccard similarity at or above which two terms are redundant")
-    parser.add_argument("--linkage", choices=list(_LINKAGE_METHODS), default=DEFAULT_LINKAGE,
-                        help="How to group terms that clear the threshold: single (connected components, chains), average or complete (hierarchical cut)")
-    parser.add_argument("--scope", choices=["pooled", "per_source"], default=DEFAULT_SCOPE,
-                        help="Cluster across all sources (pooled) or within each source")
-    parser.add_argument("--force-representatives", nargs="*", default=[], help="group_ids forced to be their cluster's representative")
-    parser.add_argument("--output-all", type=Path, required=True, help="Output annotated (all terms) TSV")
-    parser.add_argument("--output-representatives", type=Path, required=True, help="Output representatives-only TSV")
-    parser.add_argument("--output-group-members", type=Path, required=True,
-                        help="Output (group, gene) long table TSV with the moonlighting columns")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="De-duplicate coherence terms by member overlap + GO DAG structure"
+    )
+    parser.add_argument(
+        "--combined", type=Path, required=True, help="combined/coherence_metrics.parquet"
+    )
+    parser.add_argument(
+        "--obo", type=Path, required=True, help="go-basic.obo (GO DAG for depth + lineage)"
+    )
+    parser.add_argument(
+        "--jaccard-threshold",
+        type=float,
+        default=DEFAULT_JACCARD_THRESHOLD,
+        help="Member-set Jaccard similarity at or above which two terms are redundant",
+    )
+    parser.add_argument(
+        "--linkage",
+        choices=list(_LINKAGE_METHODS),
+        default=DEFAULT_LINKAGE,
+        help="How to group terms that clear the threshold: single (connected components, "
+        "chains), average or complete (hierarchical cut)",
+    )
+    parser.add_argument(
+        "--scope",
+        choices=["pooled", "per_source"],
+        default=DEFAULT_SCOPE,
+        help="Cluster across all sources (pooled) or within each source",
+    )
+    parser.add_argument(
+        "--force-representatives",
+        nargs="*",
+        default=[],
+        help="group_ids forced to be their cluster's representative",
+    )
+    parser.add_argument(
+        "--output-all", type=Path, required=True, help="Output annotated (all terms) TSV"
+    )
+    parser.add_argument(
+        "--output-representatives", type=Path, required=True, help="Output representatives-only TSV"
+    )
+    parser.add_argument(
+        "--output-group-members",
+        type=Path,
+        required=True,
+        help="Output (group, gene) long table TSV with the moonlighting columns",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

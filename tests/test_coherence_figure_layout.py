@@ -19,8 +19,8 @@ cnsplots only exists in the cnsplots rule env, so this skips elsewhere.
 """
 
 import itertools
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
@@ -32,9 +32,9 @@ import pytest
 
 pytest.importorskip("cnsplots")
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 # Overlaps shallower than this on both axes are grid-abutting artefacts, not defects.
@@ -87,9 +87,9 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
         # test_q_fdr_panel_marginals_are_attached).
         if _is_joint_marginal(left) or _is_joint_marginal(right):
             continue
-        assert not _overlaps(
-            left.get_tightbbox(renderer), right.get_tightbbox(renderer)
-        ), f"panel decorations collide: {left.get_title()!r} vs {right.get_title()!r}"
+        assert not _overlaps(left.get_tightbbox(renderer), right.get_tightbbox(renderer)), (
+            f"panel decorations collide: {left.get_title()!r} vs {right.get_title()!r}"
+        )
 
     if not check_labels:
         return
@@ -105,17 +105,19 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
 
 
 def _coherence_table(n: int = 40) -> pd.DataFrame:
-    return pd.DataFrame({
-        "group_id": [f"GO:{i:07d}" for i in range(n)],
-        "group_name": [f"a fairly long group name {i}" for i in range(n)],
-        "n_scored_members": range(3, 3 + n),
-        "median_pairwise_distance_z": [(-1) ** i * (i / 10) for i in range(n)],
-        "q_value_coherent": [0.001 * (i + 1) for i in range(n)],
-        "geom_median_DR": [0.1 * (i % 7) for i in range(n)],
-        "geom_median_DL": [0.1 * (i % 5) for i in range(n)],
-        "abundance_cv": [(i % 4) / 4 for i in range(n)],
-        "conservation_cv": [(i % 6) / 6 for i in range(n)],
-    })
+    return pd.DataFrame(
+        {
+            "group_id": [f"GO:{i:07d}" for i in range(n)],
+            "group_name": [f"a fairly long group name {i}" for i in range(n)],
+            "n_scored_members": range(3, 3 + n),
+            "median_pairwise_distance_z": [(-1) ** i * (i / 10) for i in range(n)],
+            "q_value_coherent": [0.001 * (i + 1) for i in range(n)],
+            "geom_median_DR": [0.1 * (i % 7) for i in range(n)],
+            "geom_median_DL": [0.1 * (i % 5) for i in range(n)],
+            "abundance_cv": [(i % 4) / 4 for i in range(n)],
+            "conservation_cv": [(i % 6) / 6 for i in range(n)],
+        }
+    )
 
 
 def test_coherence_overview_layout_is_clean():
@@ -138,23 +140,31 @@ def test_group_scatter_layout_is_clean():
     """A long group name and id must not overflow the panel or hit the panel label."""
     from plot_group_scatter import plot_group_scatter_figure
 
-    fitting = pd.DataFrame({
-        "Systematic ID": [f"g{i}" for i in range(200)],
-        "DR": [0.05 * i for i in range(200)],
-        "DL": [0.02 * i for i in range(200)],
-    })
-    metrics = pd.DataFrame({
-        "group_id": ["GO:0005762", "GO:0030684", "GO:0032040"],
-        "median_pairwise_distance_z": [-3.99, -2.19, -6.13],
-        "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.01],
-        "q_value_coherent": [0.0192, 0.0482, 0.0192],
-    })
+    fitting = pd.DataFrame(
+        {
+            "Systematic ID": [f"g{i}" for i in range(200)],
+            "DR": [0.05 * i for i in range(200)],
+            "DL": [0.02 * i for i in range(200)],
+        }
+    )
+    metrics = pd.DataFrame(
+        {
+            "group_id": ["GO:0005762", "GO:0030684", "GO:0032040"],
+            "median_pairwise_distance_z": [-3.99, -2.19, -6.13],
+            "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.01],
+            "q_value_coherent": [0.0192, 0.0482, 0.0192],
+        }
+    )
     resolved = [
         ("GO:0005762", "mitochondrial large ribosomal subunit", [f"g{i}" for i in range(47)]),
         ("GO:0030684", "preribosome", [f"g{i}" for i in range(76)]),
         ("GO:0032040", "small-subunit processome", [f"g{i}" for i in range(47)]),
         ("GO:0005681", "spliceosomal complex", [f"g{i}" for i in range(64)]),
-        ("GO:9999999", "a very long group name that must be shortened to fit", [f"g{i}" for i in range(5)]),
+        (
+            "GO:9999999",
+            "a very long group name that must be shortened to fit",
+            [f"g{i}" for i in range(5)],
+        ),
     ]
     plot_group_scatter_figure(fitting, resolved, metrics)
     assert_layout_is_clean(plt.gcf())
@@ -173,16 +183,21 @@ def test_group_scatter_panels_share_both_axes():
     from plot_group_scatter import plot_group_scatter_figure
 
     rng = np.random.default_rng(0)
-    fitting = pd.DataFrame({
-        "Systematic ID": [f"g{i}" for i in range(300)],
-        "DR": rng.normal(-0.8, 0.4, 300),
-        "DL": rng.normal(4.0, 2.0, 300),
-    })
-    metrics = pd.DataFrame({
-        "group_id": ["GO:1", "GO:2", "GO:3"],
-        "median_pairwise_distance_z": [-3.0, -1.0, 0.5],
-        "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.4], "q_value_coherent": [0.03, 0.05, 0.5],
-    })
+    fitting = pd.DataFrame(
+        {
+            "Systematic ID": [f"g{i}" for i in range(300)],
+            "DR": rng.normal(-0.8, 0.4, 300),
+            "DL": rng.normal(4.0, 2.0, 300),
+        }
+    )
+    metrics = pd.DataFrame(
+        {
+            "group_id": ["GO:1", "GO:2", "GO:3"],
+            "median_pairwise_distance_z": [-3.0, -1.0, 0.5],
+            "median_pairwise_distance_p_coherent": [0.01, 0.02, 0.4],
+            "q_value_coherent": [0.03, 0.05, 0.5],
+        }
+    )
     resolved = [
         ("GO:1", "tight", [f"g{i}" for i in range(20)]),
         ("GO:2", "spread", [f"g{i}" for i in range(100, 200)]),
@@ -208,23 +223,25 @@ def test_coherence_biology_panels_share_the_zscore_axis():
 
     n = 57
     z_scores = np.linspace(-6.0, 3.0, n)
-    table = pd.DataFrame({
-        "group_id": [f"GO:{i:07d}" for i in range(n)],
-        "group_name": [f"group {i}" for i in range(n)],
-        "n_scored_members": range(3, 3 + n),
-        "median_pairwise_distance_z": z_scores,
-        "q_value_coherent": np.linspace(0.001, 0.4, n),
-        "geom_median_DR": np.linspace(-1.2, 0.0, n),
-        "geom_median_DL": np.linspace(0.0, 0.9, n),
-        "abundance_cv": np.linspace(0.0, 3.0, n),
-        "conservation_cv": np.linspace(0.0, 1.5, n),
-    })
+    table = pd.DataFrame(
+        {
+            "group_id": [f"GO:{i:07d}" for i in range(n)],
+            "group_name": [f"group {i}" for i in range(n)],
+            "n_scored_members": range(3, 3 + n),
+            "median_pairwise_distance_z": z_scores,
+            "q_value_coherent": np.linspace(0.001, 0.4, n),
+            "geom_median_DR": np.linspace(-1.2, 0.0, n),
+            "geom_median_DL": np.linspace(0.0, 0.9, n),
+            "abundance_cv": np.linspace(0.0, 3.0, n),
+            "conservation_cv": np.linspace(0.0, 1.5, n),
+        }
+    )
     plot_coherence(table)
     biology = [
-        ax for ax in plt.gcf().axes
-        if ax.get_visible() and ax.get_title().startswith(
-            ("Abundance uniformity", "Conservation uniformity")
-        )
+        ax
+        for ax in plt.gcf().axes
+        if ax.get_visible()
+        and ax.get_title().startswith(("Abundance uniformity", "Conservation uniformity"))
     ]
     assert len(biology) == 2
     expected = (float(z_scores.min()), float(z_scores.max()))
@@ -254,18 +271,25 @@ def test_q_fdr_panel_marginals_are_attached():
     right = next(ax for ax in marginals if ax.get_shared_y_axes().joined(ax, q_panel))
 
     assert top.get_position().y0 >= q_panel.get_position().y1, "top strip is not above the scatter"
-    assert right.get_position().x0 >= q_panel.get_position().x1, "right strip is not right of the scatter"
+    assert right.get_position().x0 >= q_panel.get_position().x1, (
+        "right strip is not right of the scatter"
+    )
     assert q_panel.get_xlim() == (0.0, 1.0), "q must be drawn on its full 0..1 range"
     assert top.get_xlim() == q_panel.get_xlim()
     assert right.get_ylim() == q_panel.get_ylim()
-    assert len(top.patches) > 0 and len(right.patches) > 0, "a marginal drew no bars"
+    assert len(top.patches) > 0, "a marginal drew no bars"
+    assert len(right.patches) > 0, "a marginal drew no bars"
     plt.close("all")
 
 
 def _fdr_table(rows: list[tuple[float, float]]) -> pd.DataFrame:
     """(z-score, q_value_coherent) pairs -> the minimum columns labelled_extremes reads."""
-    return pd.DataFrame({"median_pairwise_distance_z": [z for z, _ in rows],
-                         "q_value_coherent": [q for _, q in rows]})
+    return pd.DataFrame(
+        {
+            "median_pairwise_distance_z": [z for z, _ in rows],
+            "q_value_coherent": [q for _, q in rows],
+        }
+    )
 
 
 def test_labelled_extremes_caps_each_side():
@@ -277,7 +301,9 @@ def test_labelled_extremes_caps_each_side():
     coherent = labelled_extremes(table, "coherent", settings)
     assert len(coherent) == 5
     # The most negative z first.
-    assert list(coherent["median_pairwise_distance_z"]) == sorted(coherent["median_pairwise_distance_z"])
+    assert list(coherent["median_pairwise_distance_z"]) == sorted(
+        coherent["median_pairwise_distance_z"]
+    )
 
 
 def test_labelled_extremes_quantile_bites_below_the_cap():
@@ -301,18 +327,22 @@ def test_labelled_extremes_ignores_fdr_on_the_incoherent_side():
 
     table = _fdr_table([(-6.0, 0.001), (1.0, 0.99), (2.0, 1.0), (3.0, 0.98)])
     settings = LabelSettings(quantile=0.05, q_max=0.05, max_labels=5)
-    assert labelled_extremes(table, "coherent", settings)["median_pairwise_distance_z"].tolist() == [-6.0]
+    assert labelled_extremes(table, "coherent", settings)[
+        "median_pairwise_distance_z"
+    ].tolist() == [-6.0]
     # quantile=1.0 so the per-side cap is what limits the count, not the 5% share.
     capped = LabelSettings(quantile=1.0, q_max=0.05, max_labels=2)
-    assert labelled_extremes(table, "incoherent", capped)["median_pairwise_distance_z"].tolist() == [3.0, 2.0]
+    assert labelled_extremes(table, "incoherent", capped)[
+        "median_pairwise_distance_z"
+    ].tolist() == [3.0, 2.0]
 
 
 def test_place_label_avoids_a_point_it_could_cover():
     """A label is pushed clear of a drawn point when another candidate is free."""
     from plot_coherence import box_for, place_label
 
-    point = (0.9, 0.2)          # the label's own point, right of centre -> text leftwards
-    blocker = [(0.8, 0.2)]      # a point sitting exactly where the nearest candidate lands
+    point = (0.9, 0.2)  # the label's own point, right of centre -> text leftwards
+    blocker = [(0.8, 0.2)]  # a point sitting exactly where the nearest candidate lands
     anchor_x, anchor_y, to_the_left = place_label(
         point, width=0.3, height=0.1, band=(0.02, 0.98), occupied=[], points=blocker
     )
@@ -328,8 +358,10 @@ def test_place_label_keeps_its_box_inside_the_axes():
             point, width=0.35, height=0.1, band=(0.02, 0.98), occupied=[], points=[]
         )
         box = box_for(anchor_x, anchor_y, 0.35, 0.1, to_the_left)
-        assert 0.0 <= box[0] and box[1] <= 1.0, f"box escapes the axes for point {point}: {box}"
-        assert 0.0 <= box[2] and box[3] <= 1.0, f"box escapes the axes for point {point}: {box}"
+        assert box[0] >= 0.0, f"box escapes the axes for point {point}: {box}"
+        assert box[1] <= 1.0, f"box escapes the axes for point {point}: {box}"
+        assert box[2] >= 0.0, f"box escapes the axes for point {point}: {box}"
+        assert box[3] <= 1.0, f"box escapes the axes for point {point}: {box}"
 
 
 def test_fdr_label_text_does_not_overlap():
@@ -346,32 +378,41 @@ def test_fdr_label_text_does_not_overlap():
     from plot_coherence import plot_coherence
 
     n = 120  # per end, so ceil(5% * 120) = 6 > the cap of 5 on both sides
-    table = pd.DataFrame({
-        "group_id": [f"GO:{i:07d}" for i in range(2 * n)],
-        "group_name": [f"a fairly long group name number {i}" for i in range(2 * n)],
-        "n_scored_members": [3 + (i % 40) for i in range(2 * n)],
-        "median_pairwise_distance_z": np.concatenate([np.linspace(0.5, 8.0, n), np.linspace(-0.5, -8.0, n)]),
-        "q_value_coherent": np.linspace(0.001, 0.05, 2 * n),
-        "geom_median_DR": np.linspace(-1.2, 0.0, 2 * n),
-        "geom_median_DL": np.linspace(0.0, 0.9, 2 * n),
-        "abundance_cv": np.linspace(0.0, 3.0, 2 * n),
-        "conservation_cv": np.linspace(0.0, 1.5, 2 * n),
-    })
+    table = pd.DataFrame(
+        {
+            "group_id": [f"GO:{i:07d}" for i in range(2 * n)],
+            "group_name": [f"a fairly long group name number {i}" for i in range(2 * n)],
+            "n_scored_members": [3 + (i % 40) for i in range(2 * n)],
+            "median_pairwise_distance_z": np.concatenate(
+                [np.linspace(0.5, 8.0, n), np.linspace(-0.5, -8.0, n)]
+            ),
+            "q_value_coherent": np.linspace(0.001, 0.05, 2 * n),
+            "geom_median_DR": np.linspace(-1.2, 0.0, 2 * n),
+            "geom_median_DL": np.linspace(0.0, 0.9, 2 * n),
+            "abundance_cv": np.linspace(0.0, 3.0, 2 * n),
+            "conservation_cv": np.linspace(0.0, 1.5, 2 * n),
+        }
+    )
     plot_coherence(table)
     fig = plt.gcf()
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
-    panels = [ax for ax in fig.axes if ax.get_visible() and ax.get_title() == "Coherence vs significance"]
+    panels = [
+        ax for ax in fig.axes if ax.get_visible() and ax.get_title() == "Coherence vs significance"
+    ]
     assert len(panels) == 2  # one per x encoding
 
     for ax in panels:
         labels = [text for text in ax.texts if text.get_text().strip()]
-        assert len(labels) == 11, f"expected 5 + 5 labels plus the panel letter in {ax.get_xlabel()!r}"
+        assert len(labels) == 11, (
+            f"expected 5 + 5 labels plus the panel letter in {ax.get_xlabel()!r}"
+        )
         boxes = [Text.get_window_extent(text, renderer) for text in labels]
         for i, j in itertools.combinations(range(len(boxes)), 2):
             assert not _overlaps(boxes[i], boxes[j], tolerance=0.0), (
                 f"label text overlaps in {ax.get_xlabel()!r}: "
-                f"{labels[i].get_text().splitlines()[0]!r} vs {labels[j].get_text().splitlines()[0]!r}"
+                f"{labels[i].get_text().splitlines()[0]!r} vs "
+                f"{labels[j].get_text().splitlines()[0]!r}"
             )
         assert_layout_is_clean(fig)
     plt.close("all")
@@ -399,15 +440,18 @@ def _sourced_coherence_table(sources: list[str], n_per_source: int = 30) -> pd.D
 def test_comparison_layout_is_clean():
     from plot_coherence import plot_coherence
 
-    table = _sourced_coherence_table(["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway"])
+    table = _sourced_coherence_table(
+        ["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway"]
+    )
     plot_coherence(table, color_by="source")
     assert_layout_is_clean(plt.gcf())
     plt.close("all")
 
 
 def test_comparison_panel_c_has_one_colour_per_source_and_no_z_colourbar():
-    from coherence.palette import source_colors
     from plot_coherence import _source_series, plot_coherence
+
+    from coherence.palette import source_colors
 
     sources = ["go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway", "dedup"]
     table = _sourced_coherence_table(sources)
@@ -424,7 +468,7 @@ def test_comparison_panel_c_has_one_colour_per_source_and_no_z_colourbar():
         for collection in centroid.collections
         if len(collection.get_offsets())
     }
-    want = {tuple(np.round(matplotlib.colors.to_rgb(expected[s]), 6)) for s in sources}
+    want = {tuple(np.round(mpl.colors.to_rgb(expected[s]), 6)) for s in sources}
     assert drawn >= want, f"missing colours: {want - drawn}"
     # The z-score colourbar is what comparison mode replaces with the source key.
     assert not any(ax.get_label() == "<colorbar>" for ax in fig.axes)

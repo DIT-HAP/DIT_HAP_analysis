@@ -18,7 +18,7 @@ Usage
 -----
     from noncoding_rna.core import (
         load_ncrna_fitting, load_gtrnadb, load_marguerat_abundance,
-        build_ncrna_table, select_nuclear_tRNAs,
+        build_ncrna_table, select_nuclear_trnas,
         plot_feature_type_donut, plot_trna_summary,
     )
 """
@@ -27,19 +27,19 @@ Usage
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import re
 from pathlib import Path
+import re
 
 # 3. Third-party Imports
-import matplotlib
+import matplotlib as mpl
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
-matplotlib.use("Agg")  # headless: builders only write PDFs, never display
-import matplotlib.pyplot as plt
+mpl.use("Agg")  # headless: builders only write PDFs, never display
 from loguru import logger
+import matplotlib.pyplot as plt
 
 # 4. Local Imports
 from release_schema import LEGACY_METRIC_RENAME
@@ -63,8 +63,18 @@ _CHROMOSOME_NAME_MAP = {"chrI": "I", "chrII": "II", "chrIII": "III"}
 # Headerless GtRNAdb BED column names (standard 12-column BED); only the first
 # 6 are used downstream (GtRNAdb_Name carries the amino-acid/anticodon label).
 _GTRNADB_BED_COLUMNS = [
-    "#Chr", "Start", "End", "GtRNAdb_Name", "Score", "Strand",
-    "thickStart", "thickEnd", "itemRgb", "blockCount", "blockSizes", "blockStarts",
+    "#Chr",
+    "Start",
+    "End",
+    "GtRNAdb_Name",
+    "Score",
+    "Strand",
+    "thickStart",
+    "thickEnd",
+    "itemRgb",
+    "blockCount",
+    "blockSizes",
+    "blockStarts",
 ]
 
 # Marguerat 2012 Table_S2 replicate columns -> condition mean, byte-faithful to
@@ -94,9 +104,9 @@ def load_ncrna_fitting(ncrna_fitting_path: Path) -> pd.DataFrame:
 
 def load_gtrnadb(gtrnadb_bed_path: Path) -> pd.DataFrame:
     """Load the headerless GtRNAdb tRNA bed and normalize its chromosome names."""
-    gtrnadb = pd.read_csv(
-        gtrnadb_bed_path, sep="\t", header=None, names=_GTRNADB_BED_COLUMNS
-    )[["#Chr", "Start", "End", "GtRNAdb_Name", "Score", "Strand"]]
+    gtrnadb = pd.read_csv(gtrnadb_bed_path, sep="\t", header=None, names=_GTRNADB_BED_COLUMNS)[
+        ["#Chr", "Start", "End", "GtRNAdb_Name", "Score", "Strand"]
+    ]
     return normalize_chromosome_names(gtrnadb)
 
 
@@ -107,11 +117,14 @@ def load_marguerat_abundance(marguerat_excel_path: Path) -> pd.DataFrame:
     (EMM_Proliferating, EMM_Nitrogen_Starved) holding the mean of that
     condition's two replicate `.tot.cpc_ex` columns.
     """
-    abundance = pd.read_excel(
-        marguerat_excel_path, sheet_name="Table_S2", comment="#"
-    ).set_index("Systematic.name")
+    abundance = pd.read_excel(marguerat_excel_path, sheet_name="Table_S2", comment="#").set_index(
+        "Systematic.name"
+    )
     means = pd.DataFrame(
-        {condition: abundance[cols].mean(axis=1) for condition, cols in _MARGUERAT_CONDITIONS.items()}
+        {
+            condition: abundance[cols].mean(axis=1)
+            for condition, cols in _MARGUERAT_CONDITIONS.items()
+        }
     )
     means.columns = [f"{c}_RNA_Abundance_mean" for c in means.columns]
     return means
@@ -140,7 +153,7 @@ def merge_gtrnadb_by_position(ncrna: pd.DataFrame, gtrnadb: pd.DataFrame) -> pd.
     )
 
 
-def extract_tRNA_amino_acid_and_anticodon(row: pd.Series) -> pd.Series:
+def extract_trna_amino_acid_and_anticodon(row: pd.Series) -> pd.Series:
     """Parse (Amino_Acid, Anticodon) for one tRNA row.
 
     Amino acid from the Systematic ID via ``TRNA(\\w+)\\.`` (e.g. "SPATRNAPRO.01"
@@ -164,10 +177,12 @@ def extract_tRNA_amino_acid_and_anticodon(row: pd.Series) -> pd.Series:
     return pd.Series({"Amino_Acid": amino_acid, "Anticodon": anticodon})
 
 
-def compute_tRNA_copy_number(df: pd.DataFrame) -> pd.DataFrame:
+def compute_trna_copy_number(df: pd.DataFrame) -> pd.DataFrame:
     """Add tRNA_copy_number: count of tRNAs sharing the same Amino_Acid + Anticodon."""
     result = df.copy()
-    result["tRNA_copy_number"] = result.groupby(["Amino_Acid", "Anticodon"])["Systematic ID"].transform("count")
+    result["tRNA_copy_number"] = result.groupby(["Amino_Acid", "Anticodon"])[
+        "Systematic ID"
+    ].transform("count")
     return result
 
 
@@ -194,11 +209,10 @@ def build_ncrna_table(
     fitting = ncrna_fitting.drop(columns=["Name"], errors="ignore")
     combined = meta.merge(fitting, on="Systematic ID", how="outer")
 
-    combined = combined.merge(marguerat_means, left_on="Systematic ID", right_index=True, how="left")
-    return combined
+    return combined.merge(marguerat_means, left_on="Systematic ID", right_index=True, how="left")
 
 
-def select_nuclear_tRNAs(combined: pd.DataFrame) -> pd.DataFrame:
+def select_nuclear_trnas(combined: pd.DataFrame) -> pd.DataFrame:
     """Filter to nuclear tRNAs, then annotate amino acid / anticodon / copy number.
 
     Nuclear tRNA = ``Feature == 'tRNA' and #Chr != 'mitochondrial'`` (notebook
@@ -207,9 +221,13 @@ def select_nuclear_tRNAs(combined: pd.DataFrame) -> pd.DataFrame:
     """
     # Boolean indexing (not .query) because the "#Chr" column name breaks
     # pandas' backtick parser in some versions.
-    nuclear = combined[(combined["Feature"] == "tRNA") & (combined["#Chr"] != "mitochondrial")].copy()
-    nuclear[["Amino_Acid", "Anticodon"]] = nuclear.apply(extract_tRNA_amino_acid_and_anticodon, axis=1)
-    nuclear = compute_tRNA_copy_number(nuclear)
+    nuclear = combined[
+        (combined["Feature"] == "tRNA") & (combined["#Chr"] != "mitochondrial")
+    ].copy()
+    nuclear[["Amino_Acid", "Anticodon"]] = nuclear.apply(
+        extract_trna_amino_acid_and_anticodon, axis=1
+    )
+    nuclear = compute_trna_copy_number(nuclear)
     sort_cols = [c for c in ["tRNA_copy_number", "DR"] if c in nuclear.columns]
     if sort_cols:
         nuclear = nuclear.sort_values(sort_cols, ascending=[True] + [False] * (len(sort_cols) - 1))
@@ -221,7 +239,6 @@ def select_nuclear_tRNAs(combined: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 def _donut_chart(
     values: list[int],
-    labels: list[str],
     colors: list[str],
     center_text: str = "",
     ax: plt.Axes | None = None,
@@ -229,7 +246,7 @@ def _donut_chart(
     """Donut (ring) chart with per-wedge percent+count labels and centered text.
 
     Verbatim from the retired plotting/generic.donut_chart — that module is now
-    plotting/generic.deprecated.py, and everything drawn through figure_render is
+    plotting/generic_deprecated.py, and everything drawn through figure_render is
     cnsplots-based, which this module must not import: prepare_ncrna_table and
     compute_ncrna_stats run it in the statistics env (no cnsplots).
     """
@@ -241,10 +258,10 @@ def _donut_chart(
     ax.pie(
         values,
         colors=colors,
-        autopct=lambda pct: f"{pct:.1f}%\n({int(round(pct / 100 * sum(values))):,})",
+        autopct=lambda pct: f"{pct:.1f}%\n({round(pct / 100 * sum(values)):,})",
         startangle=90,
         pctdistance=0.75,
-        wedgeprops=dict(width=0.5, edgecolor="white"),
+        wedgeprops={"width": 0.5, "edgecolor": "white"},
         textprops={"fontsize": 22, "weight": "bold"},
     )
     ax.text(0, 0, center_text, ha="center", va="center", fontsize=26, fontweight="bold")
@@ -260,7 +277,6 @@ def plot_feature_type_donut(combined: pd.DataFrame) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
     _donut_chart(
         values=list(counts.values),
-        labels=list(counts.index),
         colors=palette,
         center_text=f"Total\n{int(counts.sum()):,}\nncRNA genes",
         ax=ax,
@@ -285,8 +301,11 @@ def plot_trna_summary(nuclear_trnas: pd.DataFrame) -> plt.Figure:
         rng = np.random.default_rng(42)
         jitter = rng.uniform(-0.2, 0.2, size=len(fitted))
         ax_scatter.scatter(
-            fitted["tRNA_copy_number"] + jitter, fitted["DR"],
-            alpha=0.5, s=12, color=COLORS[1],
+            fitted["tRNA_copy_number"] + jitter,
+            fitted["DR"],
+            alpha=0.5,
+            s=12,
+            color=COLORS[1],
         )
         ax_scatter.set_xlabel("tRNA copy number")
         ax_scatter.set_ylabel("Depletion Rate (DR)")

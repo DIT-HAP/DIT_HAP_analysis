@@ -40,9 +40,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -68,6 +68,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs, outputs, and k-sweep parameters for clustering preprocessing."""
+
     fitting_results: Path
     essentiality_verification_csv: Path
     output_annotated: Path
@@ -101,7 +102,9 @@ def run(config: PrepareConfig) -> None:
     config.validate()
 
     data_df = load_and_annotate(config.fitting_results, config.essentiality_verification_csv)
-    scaled_data = scale_features(data_df, config.selected_features, dr_clamp=config.dr_clamp, dl_divisor=config.dl_divisor)
+    scaled_data = scale_features(
+        data_df, config.selected_features, dr_clamp=config.dr_clamp, dl_divisor=config.dl_divisor
+    )
 
     k_range = range(config.k_min, config.k_max + 1)
     k_sweep = evaluate_cluster_numbers(scaled_data.values, k_range, config.random_state)
@@ -120,18 +123,45 @@ def run(config: PrepareConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Prepare clustering data (spine: load/annotate/scale/k-sweep)")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Gene-level curve-fitting statistics tsv")
-    parser.add_argument("--essentiality-verification-csv", type=Path, required=True, help="Curated essentiality verification csv")
-    parser.add_argument("--output-annotated", type=Path, required=True, help="Output annotated data pickle")
-    parser.add_argument("--output-scaled", type=Path, required=True, help="Output scaled (DR, DL) matrix pickle")
-    parser.add_argument("--output-ksweep", type=Path, required=True, help="Output k-sweep metrics pickle")
+    parser = argparse.ArgumentParser(
+        description="Prepare clustering data (spine: load/annotate/scale/k-sweep)"
+    )
+    parser.add_argument(
+        "--fitting-results",
+        type=Path,
+        required=True,
+        help="Gene-level curve-fitting statistics tsv",
+    )
+    parser.add_argument(
+        "--essentiality-verification-csv",
+        type=Path,
+        required=True,
+        help="Curated essentiality verification csv",
+    )
+    parser.add_argument(
+        "--output-annotated", type=Path, required=True, help="Output annotated data pickle"
+    )
+    parser.add_argument(
+        "--output-scaled", type=Path, required=True, help="Output scaled (DR, DL) matrix pickle"
+    )
+    parser.add_argument(
+        "--output-ksweep", type=Path, required=True, help="Output k-sweep metrics pickle"
+    )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")
     parser.add_argument("--k-min", type=int, default=2, help="k-sweep lower bound (default 2)")
     parser.add_argument("--k-max", type=int, default=20, help="k-sweep upper bound (default 20)")
-    parser.add_argument("--dr-clamp", type=float, default=DR_CLAMP, help=f"DR clamp floor (default {DR_CLAMP})")
-    parser.add_argument("--dl-divisor", type=float, default=DL_DIVISOR, help=f"DL scaling divisor (default {DL_DIVISOR})")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--dr-clamp", type=float, default=DR_CLAMP, help=f"DR clamp floor (default {DR_CLAMP})"
+    )
+    parser.add_argument(
+        "--dl-divisor",
+        type=float,
+        default=DL_DIVISOR,
+        help=f"DL scaling divisor (default {DL_DIVISOR})",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

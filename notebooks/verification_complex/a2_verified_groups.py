@@ -10,6 +10,7 @@ Reads:  verification_outcome_table.tsv (A1), gene_annotation_long.tsv (S0),
 Writes: results/verification/HD_DIT_HAP/verified_group_summary.tsv
 Run with the `data_analysis` conda env.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,18 +38,24 @@ def main() -> None:
 
     def agg(sub: pd.DataFrame) -> pd.Series:
         conc = sub["essentiality_concordance"]
-        return pd.Series({
-            "n_verified": sub["gene"].nunique(),
-            "n_concordant_E": (conc == "concordant_E").sum(),
-            "n_concordant_V": (conc == "concordant_V").sum(),
-            "n_flip_V2E": (conc == "flip_V2E").sum(),
-            "n_flip_E2V": (conc == "flip_E2V").sum(),
-            "n_flip": conc.isin(FLIP_OUTCOMES).sum(),
-            "n_ambiguous": sub["is_ambiguous"].sum(),
-            "flip_genes": ", ".join(sorted(sub.loc[conc.isin(FLIP_OUTCOMES), "gene"])),
-        })
+        return pd.Series(
+            {
+                "n_verified": sub["gene"].nunique(),
+                "n_concordant_E": (conc == "concordant_E").sum(),
+                "n_concordant_V": (conc == "concordant_V").sum(),
+                "n_flip_V2E": (conc == "flip_V2E").sum(),
+                "n_flip_E2V": (conc == "flip_E2V").sum(),
+                "n_flip": conc.isin(FLIP_OUTCOMES).sum(),
+                "n_ambiguous": sub["is_ambiguous"].sum(),
+                "flip_genes": ", ".join(sorted(sub.loc[conc.isin(FLIP_OUTCOMES), "gene"])),
+            }
+        )
 
-    summary = joined.groupby(["group_type", "group_id", "group_name"]).apply(agg, include_groups=False).reset_index()
+    summary = (
+        joined.groupby(["group_type", "group_id", "group_name"])
+        .apply(agg, include_groups=False)
+        .reset_index()
+    )
     summary["flip_fraction"] = (summary["n_flip"] / summary["n_verified"]).round(3)
 
     # overlay D1 coherence (median-pairwise z) so a flip-heavy group can be read against
@@ -56,8 +63,11 @@ def main() -> None:
     # in D1's 3..300 size window get a coherence_z; broad root terms are left NaN.
     zc = "median_pairwise_distance_z"
     summary = summary.merge(
-        coh[["group_type", "group_id", zc, "n_scored_members"]].rename(columns={zc: "coherence_z", "n_scored_members": "coherence_n_scored_members"}),
-        on=["group_type", "group_id"], how="left",
+        coh[["group_type", "group_id", zc, "n_scored_members"]].rename(
+            columns={zc: "coherence_z", "n_scored_members": "coherence_n_scored_members"}
+        ),
+        on=["group_type", "group_id"],
+        how="left",
     )
 
     out_path = VER_DIR / "verified_group_summary.tsv"
@@ -70,7 +80,15 @@ def main() -> None:
     # The interpretable cut for [X]: SPECIFIC groups D1 scored (have coherence_z),
     # flip-heavy, ranked by flips. Root terms (coherence_z NaN, too big) excluded.
     scored = summary[summary["coherence_z"].notna() & (summary["n_flip"] >= 2)]
-    cols = ["group_type", "group_name", "n_verified", "n_flip_V2E", "n_flip_E2V", "flip_fraction", "coherence_z"]
+    cols = [
+        "group_type",
+        "group_name",
+        "n_verified",
+        "n_flip_V2E",
+        "n_flip_E2V",
+        "flip_fraction",
+        "coherence_z",
+    ]
     print("\n=== flip-heavy SCORED groups, ranked by n_flip (excl. root terms) ===")
     print(scored.sort_values("n_flip_V2E", ascending=False)[cols].head(20).to_string(index=False))
     print("\n=== [X] target: COHERENT (z<-1) AND flip-heavy — library-mixed but DR-DL-tight ===")

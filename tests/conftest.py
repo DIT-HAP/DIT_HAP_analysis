@@ -8,8 +8,8 @@ on the path here, once, instead of in each test file — three test modules were
 silently un-collectable because they only had the repo root.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

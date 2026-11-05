@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from workflow.src.features.genome import (
     determine_primary_candidate,
     load_genome_landmarks,
@@ -29,7 +28,7 @@ def test_load_genome_landmarks_centromeres_are_start_less_than_end():
         assert start < end, chrom
 
 
-def test_determine_primary_candidate_hardcoded_exception_sPBC119_04():
+def test_determine_primary_candidate_hardcoded_exception_spbc119_04():
     """SPBC119.04's .1 transcript is always primary regardless of peptide length match."""
     assert determine_primary_candidate("SPBC119.04", "SPBC119.04.1", 100, 999) is True
     assert determine_primary_candidate("SPBC119.04", "SPBC119.04.2", 100, 999) is False
@@ -41,7 +40,9 @@ def test_determine_primary_candidate_falls_back_to_length_match():
     assert determine_primary_candidate("SPAC1002.01", "SPAC1002.01.2", 100, 162) is False
 
 
-@pytest.mark.skipif(not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)")
+@pytest.mark.skipif(
+    not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)"
+)
 def test_pombase_genome_config_loads_real_data():
     """PombaseGenomeConfig.from_pombase_dir loads the real genome FASTA and peptide_stats.tsv."""
     from workflow.src.features.genome import PombaseGenomeConfig
@@ -53,19 +54,20 @@ def test_pombase_genome_config_loads_real_data():
     assert cfg.centromere_positions["I"] == (3753687, 3789421)
 
 
-@pytest.mark.skipif(not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)")
+@pytest.mark.skipif(
+    not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)"
+)
 def test_dna_level_features_for_one_known_gene(tmp_path):
-    """DNA_level_features.from_gffutils_feature reproduces the known SPAC1002.01 record."""
+    """DNALevelFeatures.from_gffutils_feature reproduces the known SPAC1002.01 record."""
     import gffutils
-
-    from workflow.src.features.genome import DNA_level_features, PombaseGenomeConfig
+    from workflow.src.features.genome import DNALevelFeatures, PombaseGenomeConfig
 
     cfg = PombaseGenomeConfig.from_pombase_dir(POMBASE_DIR, GENOME_LANDMARKS)
     db_path = tmp_path / "test.db"
     db = gffutils.create_db(cfg.gff3_file, str(db_path), force=True, merge_strategy="create_unique")
 
     mRNA = db["SPAC1002.01.1"]
-    feat = DNA_level_features.from_gffutils_feature(mRNA, db, cfg)
+    feat = DNALevelFeatures.from_gffutils_feature(mRNA, db, cfg)
 
     assert feat.Gene_id == "SPAC1002.01"
     assert feat.Chromosome == "I"

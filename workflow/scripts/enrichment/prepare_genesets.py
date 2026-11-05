@@ -57,15 +57,15 @@ SRC_DIR = SCRIPT_DIR.parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from enrichment.cluster_enrichment import (  # noqa: E402
+from enrichment.cluster_enrichment import (
     CLUSTER_COLUMN,
     load_cluster_genesets,
     write_gene_lists,
 )
-from enrichment.ontology import GeneMetaConfig  # noqa: E402
-from enrichment.schema import FINAL_CLUSTER_COLUMNS  # noqa: E402
-from io_table import read_file  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.ontology import GeneMetaConfig
+from enrichment.schema import FINAL_CLUSTER_COLUMNS
+from io_table import read_file
+from logging_setup import setup_logger
 
 # =============================================================================
 # 2. CONFIGURATION

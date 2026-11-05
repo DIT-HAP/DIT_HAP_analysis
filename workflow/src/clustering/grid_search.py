@@ -41,12 +41,8 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 
-# 4. Local Imports
-from clustering.candidates import renumber_by_dr
-
 # 3. Third-party Imports
-from scipy.cluster.hierarchy import fcluster
-from scipy.cluster.hierarchy import linkage as scipy_linkage
+from scipy.cluster.hierarchy import fcluster, linkage as scipy_linkage
 from sklearn.cluster import KMeans
 from sklearn.metrics import (
     adjusted_rand_score,
@@ -55,6 +51,9 @@ from sklearn.metrics import (
     silhouette_samples,
     silhouette_score,
 )
+
+# 4. Local Imports
+from clustering.candidates import renumber_by_dr
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -76,7 +75,8 @@ HC_METRICS: dict[str, dict[str, str]] = {
 # CORE LOGIC — estimators
 # =============================================================================
 def cluster_kmeans(coordinates: np.ndarray, k: int, random_state: int) -> np.ndarray:
-    """KMeans partition; n_init=10 because a single draw can land two centroids in the DL=0 spike."""
+    """KMeans partition; n_init=10 because a single draw can land two centroids in the DL=0
+    spike."""
     return KMeans(n_clusters=k, n_init=10, random_state=random_state).fit_predict(coordinates)
 
 
@@ -116,10 +116,15 @@ def _pam(D: np.ndarray, k: int) -> np.ndarray:
                 continue
             # Exact PAM pricing for moving THIS medoid to a member of its cluster.
             within = D[np.ix_(members, members)]
-            deltas = (np.minimum(within, second_nearest[members][:, None]) - D[members, medoid][:, None]).sum(axis=0)
+            deltas = (
+                np.minimum(within, second_nearest[members][:, None]) - D[members, medoid][:, None]
+            ).sum(axis=0)
             candidate = int(np.argmin(deltas))
             if deltas[candidate] < best_delta:
-                best_delta, best_swap = float(deltas[candidate]), (position, int(members[candidate]))
+                best_delta, best_swap = (
+                    float(deltas[candidate]),
+                    (position, int(members[candidate])),
+                )
         if best_swap is None:
             break
         position, candidate = best_swap
@@ -137,7 +142,9 @@ def _pam(D: np.ndarray, k: int) -> np.ndarray:
 def distance_matrix(coordinates: np.ndarray) -> np.ndarray:
     """Full Euclidean distance matrix via the ||a||^2 + ||b||^2 - 2ab identity."""
     squared = (coordinates**2).sum(axis=1)
-    return np.sqrt(np.maximum(squared[:, None] + squared[None, :] - 2 * coordinates @ coordinates.T, 0))
+    return np.sqrt(
+        np.maximum(squared[:, None] + squared[None, :] - 2 * coordinates @ coordinates.T, 0)
+    )
 
 
 def cluster_kmedoids(coordinates: np.ndarray, k: int, random_state: int) -> np.ndarray:
@@ -161,7 +168,10 @@ def _hierarchical_partitioner(linkage: str, metric: str) -> Callable[..., np.nda
 FIT_FUNCTIONS: dict[str, Callable[..., np.ndarray]] = {
     "kmeans": cluster_kmeans,
     "kmedoids": cluster_kmedoids,
-    **{name: _hierarchical_partitioner(spec["linkage"], spec["metric"]) for name, spec in HC_METRICS.items()},
+    **{
+        name: _hierarchical_partitioner(spec["linkage"], spec["metric"])
+        for name, spec in HC_METRICS.items()
+    },
 }
 
 
@@ -187,11 +197,15 @@ def label_grid(
             tree = scipy_linkage(coordinates, method=spec["linkage"], metric=spec["metric"])
             for k in range(k_min, k_max + 1):
                 partitions = fcluster(tree, k, criterion="maxclust") - 1  # 1-based -> 0-based
-                rows.append(pd.DataFrame({"method": method, "k": k, "cluster": pd.Series(partitions)}))
+                rows.append(
+                    pd.DataFrame({"method": method, "k": k, "cluster": pd.Series(partitions)})
+                )
         else:
             for k in range(k_min, k_max + 1):
                 partitions = fit(coordinates, k, random_state)
-                rows.append(pd.DataFrame({"method": method, "k": k, "cluster": pd.Series(partitions)}))
+                rows.append(
+                    pd.DataFrame({"method": method, "k": k, "cluster": pd.Series(partitions)})
+                )
     return pd.concat(rows, ignore_index=True)
 
 
@@ -215,7 +229,9 @@ def dunn_index(coordinates: np.ndarray, labels: np.ndarray, *, seed: int = 0) ->
     if len(np.unique(labels)) < 2:
         return float("nan")
     if len(coordinates) > DUNN_MAX_POINTS:
-        picked = np.random.default_rng(seed).choice(len(coordinates), size=DUNN_MAX_POINTS, replace=False)
+        picked = np.random.default_rng(seed).choice(
+            len(coordinates), size=DUNN_MAX_POINTS, replace=False
+        )
         coordinates, labels = coordinates[picked], labels[picked]
 
     groups = [coordinates[labels == label] for label in np.unique(labels)]
@@ -230,7 +246,7 @@ def dunn_index(coordinates: np.ndarray, labels: np.ndarray, *, seed: int = 0) ->
 
     smallest_gap = np.inf
     for i, first in enumerate(groups):
-        for second in groups[i + 1:]:
+        for second in groups[i + 1 :]:
             gap = float(np.sqrt(((first[:, None, :] - second[None, :, :]) ** 2).sum(axis=-1)).min())
             smallest_gap = min(smallest_gap, gap)
     return smallest_gap / largest_diameter
@@ -255,9 +271,19 @@ def score_labels(coordinates: np.ndarray, labels: np.ndarray) -> dict:
     # Degenerate partitions (1 cluster, or k == n points) break every metric below;
     # NaN keeps the sweep alive and the table honest about it.
     if n_clusters < 2 or n_clusters >= len(labels):
-        return {name: float("nan") for name in
-                ("silhouette_score", "calinski_harabasz_score", "davies_bouldin_score", "dunn",
-                 "min_cluster_silhouette", "min_cluster_share", "max_cluster_share", "n_clusters")}
+        return {
+            name: float("nan")
+            for name in (
+                "silhouette_score",
+                "calinski_harabasz_score",
+                "davies_bouldin_score",
+                "dunn",
+                "min_cluster_silhouette",
+                "min_cluster_share",
+                "max_cluster_share",
+                "n_clusters",
+            )
+        }
     samples = silhouette_samples(coordinates, labels)
     per_cluster = np.array([samples[labels == label].mean() for label in np.unique(labels)])
     sizes = np.array([(labels == label).sum() for label in np.unique(labels)])
@@ -283,19 +309,33 @@ def gap_statistic(
     """
     lows, highs = coordinates.min(axis=0), coordinates.max(axis=0)
     rng = np.random.default_rng(random_state)
-    references = [rng.uniform(lows, highs, size=coordinates.shape) for _ in range(GAP_REFERENCE_DRAWS)]
+    references = [
+        rng.uniform(lows, highs, size=coordinates.shape) for _ in range(GAP_REFERENCE_DRAWS)
+    ]
     gaps: dict[int, tuple[float, float]] = {}
     for k in range(k_min, k_max + 1):
-        observed = float(np.log(KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(coordinates).inertia_))
+        observed = float(
+            np.log(
+                KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(coordinates).inertia_
+            )
+        )
         reference_logs = np.log(
-            [KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(ref).inertia_ for ref in references]
+            [
+                KMeans(n_clusters=k, n_init=10, random_state=random_state).fit(ref).inertia_
+                for ref in references
+            ]
         )
         # Mean-of-logs is what the statistic is defined on; SE per Tibshirani 2001 eq. 4.
-        gaps[k] = (float(reference_logs.mean() - observed), float(reference_logs.std(ddof=1) * np.sqrt(1 + 1 / GAP_REFERENCE_DRAWS)))
+        gaps[k] = (
+            float(reference_logs.mean() - observed),
+            float(reference_logs.std(ddof=1) * np.sqrt(1 + 1 / GAP_REFERENCE_DRAWS)),
+        )
     return gaps
 
 
-def partitioner(method: str, coordinates: np.ndarray, *, random_state: int = 42) -> Callable[[int], np.ndarray]:
+def partitioner(
+    method: str, coordinates: np.ndarray, *, random_state: int = 42
+) -> Callable[[int], np.ndarray]:
     """A `k -> labels` closure for one method on one sample.
 
     Whatever the method needs before any k (a merge tree, a distance matrix) is
@@ -339,9 +379,7 @@ def bootstrap_stability(
     }
 
 
-def sort_labels_by_dr(
-    annotated: pd.DataFrame, labels: pd.Series
-) -> pd.Series:
+def sort_labels_by_dr(annotated: pd.DataFrame, labels: pd.Series) -> pd.Series:
     """Renumber arbitrary labels to 1..k ascending in mean DR (depleted end = 1).
 
     The generic form of candidates.renumber_by_dr: the wt_cluster is the LAST id

@@ -1,5 +1,5 @@
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
@@ -11,16 +11,28 @@ import pytest
 
 
 def _long(rows):
-    return pd.DataFrame(rows, columns=["source", "group_id", "group_name",
-                                       "Systematic ID", "Name", "n_annotated_members"])
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "source",
+            "group_id",
+            "group_name",
+            "Systematic ID",
+            "Name",
+            "n_annotated_members",
+        ],
+    )
 
 
 def test_member_feature_cv_computes_per_group_cv():
     from compute_coherence import member_feature_cv
-    long = _long([
-        ("go_cc", "GO:1", "one", "gA", "gA", 2),
-        ("go_cc", "GO:1", "one", "gB", "gB", 2),
-    ])
+
+    long = _long(
+        [
+            ("go_cc", "GO:1", "one", "gA", "gA", 2),
+            ("go_cc", "GO:1", "one", "gB", "gB", 2),
+        ]
+    )
     features = pd.DataFrame({"gene_systematic_id": ["gA", "gB"], "abundance": [10.0, 30.0]})
     cv = member_feature_cv(long, features, "abundance")
     assert cv["GO:1"] == pytest.approx(0.70711, rel=1e-3)  # sample std/mean of [10,30] = 0.707
@@ -28,8 +40,8 @@ def test_member_feature_cv_computes_per_group_cv():
 
 def test_member_feature_cv_accepts_gene_systematic_id_column():
     from compute_coherence import member_feature_cv
-    long = _long([("go_cc", "GO:1", "one", "gA", "gA", 2),
-                  ("go_cc", "GO:1", "one", "gB", "gB", 2)])
+
+    long = _long([("go_cc", "GO:1", "one", "gA", "gA", 2), ("go_cc", "GO:1", "one", "gB", "gB", 2)])
     features = pd.DataFrame({"gene_systematic_id": ["gA", "gB"], "evolutionary_rate": [1.0, 2.0]})
     cv = member_feature_cv(long, features, "evolutionary_rate")
     assert "GO:1" in cv
@@ -42,6 +54,7 @@ def test_group_annotations_omits_columns_with_no_source_feature():
     order and warns), not in member_feature_cv, so that is what this pins.
     """
     from compute_coherence import group_annotations
+
     long = _long([("go_cc", "GO:1", "one", "gA", "gA", 1)])
     features = pd.DataFrame({"gene_systematic_id": ["gA"], "other": [1.0]})
     annotations = group_annotations(long, features)
@@ -51,18 +64,21 @@ def test_group_annotations_omits_columns_with_no_source_feature():
 
 def test_member_feature_cv_drops_nan_feature_members():
     from compute_coherence import member_feature_cv
-    long = _long([
-        ("go_cc", "GO:1", "one", "gA", "gA", 2),
-        ("go_cc", "GO:1", "one", "gB", "gB", 2),  # gB has NaN feature -> dropped -> <2 left
-    ])
+
+    long = _long(
+        [
+            ("go_cc", "GO:1", "one", "gA", "gA", 2),
+            ("go_cc", "GO:1", "one", "gB", "gB", 2),  # gB has NaN feature -> dropped -> <2 left
+        ]
+    )
     features = pd.DataFrame({"gene_systematic_id": ["gA", "gB"], "abundance": [10.0, np.nan]})
     assert "GO:1" not in member_feature_cv(long, features, "abundance")
 
 
 def test_member_feature_cv_skips_zero_mean_group():
     from compute_coherence import member_feature_cv
-    long = _long([("go_cc", "GO:1", "one", "gA", "gA", 2),
-                  ("go_cc", "GO:1", "one", "gB", "gB", 2)])
+
+    long = _long([("go_cc", "GO:1", "one", "gA", "gA", 2), ("go_cc", "GO:1", "one", "gB", "gB", 2)])
     features = pd.DataFrame({"gene_systematic_id": ["gA", "gB"], "abundance": [0.0, 0.0]})
     assert "GO:1" not in member_feature_cv(long, features, "abundance")
 
@@ -74,23 +90,29 @@ def test_plot_coherence_panel_counts():
     where the figure cannot be drawn at all.
     """
     pytest.importorskip("cnsplots")
-    import matplotlib
-    matplotlib.use("Agg")
+    import matplotlib as mpl
+
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
     from plot_coherence import biology_panels, plot_coherence
 
     base = {
         "group_id": ["GO:1", "GO:2", "GO:3"],
         "group_name": ["a", "b", "c"],
-        "n_scored_members": [3, 4, 5], "median_pairwise_distance_z": [-1.0, 0.5, -0.5],
+        "n_scored_members": [3, 4, 5],
+        "median_pairwise_distance_z": [-1.0, 0.5, -0.5],
         "q_value_coherent": [0.01, 0.2, 0.03],
-        "geom_median_DR": [0.5, 0.6, 0.4], "geom_median_DL": [0.1, 0.2, 0.3],
+        "geom_median_DR": [0.5, 0.6, 0.4],
+        "geom_median_DL": [0.1, 0.2, 0.3],
     }
     without = pd.DataFrame(base)
-    with_biology = pd.DataFrame(base | {
-        "abundance_cv": [0.1, 0.2, 0.3],
-        "conservation_cv": [0.4, 0.5, 0.6],
-    })
+    with_biology = pd.DataFrame(
+        base
+        | {
+            "abundance_cv": [0.1, 0.2, 0.3],
+            "conservation_cv": [0.4, 0.5, 0.6],
+        }
+    )
 
     assert biology_panels(without) == []
     assert len(biology_panels(with_biology)) == 2
@@ -102,10 +124,13 @@ def test_plot_coherence_panel_counts():
         drawn inside that panel's own reserved margin (gid "joint-marginal").
         """
         plot_coherence(table)
-        count = len([
-            ax for ax in plt.gcf().axes
-            if not ax.get_label().startswith("<") and ax.get_gid() != "joint-marginal"
-        ])
+        count = len(
+            [
+                ax
+                for ax in plt.gcf().axes
+                if not ax.get_label().startswith("<") and ax.get_gid() != "joint-marginal"
+            ]
+        )
         plt.close("all")
         return count
 

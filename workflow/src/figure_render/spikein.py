@@ -16,9 +16,9 @@ Version:  3.0.0
 # IMPORTS
 # =============================================================================
 import cnsplots as cns
+from loguru import logger
 import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
 
 # The zero-dilution reference sample: no spike-in reads to be linear against.
 REFERENCE_SAMPLE = "Spikein0"
@@ -94,6 +94,5 @@ def render_spikein_panel(
         cns.take_legend_out(title="Spike-in", ax=ax)
 
     logger.debug(
-        f"Rendered spike-in panel: {len(spikein_filtered)} points, "
-        f"{len(hue_order)} insertion sites"
+        f"Rendered spike-in panel: {len(spikein_filtered)} points, {len(hue_order)} insertion sites"
     )

@@ -37,13 +37,14 @@ Version:  5.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+
+from loguru import logger
 
 # 2. Third-party Imports
 import pandas as pd
-from loguru import logger
 
 # 3. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -76,7 +77,10 @@ PERCENT_AXIS = "Coverage (%)"
 # gene_result column. A dimension missing here falls back to its column name
 # rather than failing, so adding one to DIMENSION_LABELS still renders.
 DIMENSION_AXES = {
-    "characterisation_status": ("Characterisation status", "Gene coverage by characterisation status"),
+    "characterisation_status": (
+        "Characterisation status",
+        "Gene coverage by characterisation status",
+    ),
     "FYPOviability": ("FYPO viability", "Gene coverage by FYPO viability"),
     "deletion_essentiality": ("Deletion essentiality", "Gene coverage by deletion essentiality"),
 }
@@ -85,13 +89,15 @@ HISTOGRAM_FEATURES = (("DR", DR_BINS), ("DL", DL_BINS))
 
 
 def figure_stems(output_dir: Path) -> dict[str, Path]:
-    """Every figure's output stem: a composition + two DR/DL histograms per dimension, plus insertion placement."""
+    """Every figure's output stem: a composition + two DR/DL histograms per dimension, plus
+    insertion
+    placement."""
     stems = {
-        f"composition_{column}": output_dir / f"coverage_by_{column}"
-        for column in DIMENSION_LABELS
+        f"composition_{column}": output_dir / f"coverage_by_{column}" for column in DIMENSION_LABELS
     }
     stems |= {
-        f"histogram_{feature.lower()}_{column}": output_dir / f"coverage_{feature.lower()}_by_{column}"
+        f"histogram_{feature.lower()}_{column}": output_dir
+        / f"coverage_{feature.lower()}_by_{column}"
         for column in DIMENSION_LABELS
         for feature, _ in HISTOGRAM_FEATURES
     }
@@ -105,6 +111,7 @@ def figure_stems(output_dir: Path) -> dict[str, Path]:
 @dataclass(kw_only=True, frozen=True)
 class PlotFiguresConfig:
     """Inputs (stats TSV + gene_result parquet) and the directory the figures are written to."""
+
     stats: Path
     gene_result: Path
     output_dir: Path
@@ -135,20 +142,30 @@ def run(config: PlotFiguresConfig) -> None:
         ylabel, title = DIMENSION_AXES.get(column, (column, f"Gene coverage by {column}"))
 
         render_composition_figure(
-            dimension_coverage_frame(gene_coverage, dimension_coverage[column], DIMENSION_LABELS[column]),
+            dimension_coverage_frame(
+                gene_coverage, dimension_coverage[column], DIMENSION_LABELS[column]
+            ),
             stems[f"composition_{column}"],
-            category_column="category", percentage_column="covered_pct",
-            part_column="covered", whole_column="not_covered",
-            part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
-            xlabel=PERCENT_AXIS, ylabel=ylabel, title=title,
+            category_column="category",
+            percentage_column="covered_pct",
+            part_column="covered",
+            whole_column="not_covered",
+            part_label=COVERED_LABEL,
+            whole_label=NOT_COVERED_LABEL,
+            xlabel=PERCENT_AXIS,
+            ylabel=ylabel,
+            title=title,
         )
 
         for feature, bins in HISTOGRAM_FEATURES:
             render_grouped_histogram_figure(
                 dr_dl_histogram_frame(gene_result, feature, column, DIMENSION_LABELS[column]),
                 stems[f"histogram_{feature.lower()}_{column}"],
-                value_column=feature, row_key="stratum", bins=bins,
-                xlabel=feature, ylabel="Number of genes",
+                value_column=feature,
+                row_key="stratum",
+                bins=bins,
+                xlabel=feature,
+                ylabel="Number of genes",
                 # Per-panel y, NOT shared: dimension values differ by an order of
                 # magnitude (characterisation_status runs 2,456 down to 11), and one
                 # shared top flattens everything but the biggest panel to nothing.
@@ -159,10 +176,14 @@ def run(config: PlotFiguresConfig) -> None:
     render_composition_figure(
         insertion_placement_frame(per_chromosome),
         stems["insertion_placement"],
-        category_column="category", percentage_column="covered_pct",
-        part_column="covered", whole_column="not_covered",
-        part_label=IN_GENE_LABEL, whole_label=INTERGENIC_LABEL,
-        xlabel="In-gene insertions (%)", ylabel="Chromosome",
+        category_column="category",
+        percentage_column="covered_pct",
+        part_column="covered",
+        whole_column="not_covered",
+        part_label=IN_GENE_LABEL,
+        whole_label=INTERGENIC_LABEL,
+        xlabel="In-gene insertions (%)",
+        ylabel="Chromosome",
         title="Insertion placement by chromosome",
     )
 
@@ -175,10 +196,24 @@ def run(config: PlotFiguresConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Plot gene insertion coverage figures")
-    parser.add_argument("--stats", type=Path, required=True, help="Input coverage_stats.tsv (composition figures read from here)")
-    parser.add_argument("--gene-result", type=Path, required=True, help="Input gene_result.parquet (histograms read from here)")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Directory the figures are written to")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--stats",
+        type=Path,
+        required=True,
+        help="Input coverage_stats.tsv (composition figures read from here)",
+    )
+    parser.add_argument(
+        "--gene-result",
+        type=Path,
+        required=True,
+        help="Input gene_result.parquet (histograms read from here)",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, required=True, help="Directory the figures are written to"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

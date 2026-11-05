@@ -12,8 +12,8 @@ these skip in an env without it rather than failing on the import. The cnsplots
 rule env ships pytest, so they do run there.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scripts" / "coherence"))
@@ -25,32 +25,39 @@ pytest.importorskip("cnsplots")
 
 
 def _long():
-    return pd.DataFrame({
-        "source": ["go_cc"] * 3,
-        "group_id": ["GO:1", "GO:1", "GO:2"],
-        "group_name": ["alpha", "alpha", "beta"],
-        "Systematic ID": ["gA", "gB", "gC"],
-        "Name": ["gA", "gB", "gC"],
-        "n_annotated_members": [2, 2, 1],
-    })
+    return pd.DataFrame(
+        {
+            "source": ["go_cc"] * 3,
+            "group_id": ["GO:1", "GO:1", "GO:2"],
+            "group_name": ["alpha", "alpha", "beta"],
+            "Systematic ID": ["gA", "gB", "gC"],
+            "Name": ["gA", "gB", "gC"],
+            "n_annotated_members": [2, 2, 1],
+        }
+    )
 
 
 def test_resolve_groups_by_name():
     from plot_group_scatter import resolve_groups
+
     out = resolve_groups(_long(), "go_cc", ["alpha"])
     assert len(out) == 1
     gid, gname, genes = out[0]
-    assert gid == "GO:1" and gname == "alpha" and set(genes) == {"gA", "gB"}
+    assert gid == "GO:1"
+    assert gname == "alpha"
+    assert set(genes) == {"gA", "gB"}
 
 
 def test_resolve_groups_by_id():
     from plot_group_scatter import resolve_groups
+
     out = resolve_groups(_long(), "go_cc", ["GO:2"])
     assert out[0][0] == "GO:2"
 
 
 def test_resolve_groups_skips_unknown():
     from plot_group_scatter import resolve_groups
+
     out = resolve_groups(_long(), "go_cc", ["nonexistent"])
     assert out == []
 
@@ -58,15 +65,19 @@ def test_resolve_groups_skips_unknown():
 def test_resolve_groups_same_name_multiple_ids():
     """When a name matches multiple group_ids, all are resolved."""
     import pandas as pd
-    long = pd.DataFrame({
-        "source": ["go_cc"] * 4,
-        "group_id": ["GO:1", "GO:1", "GO:3", "GO:3"],
-        "group_name": ["alpha", "alpha", "alpha", "alpha"],
-        "Systematic ID": ["gA", "gB", "gC", "gD"],
-        "Name": ["gA", "gB", "gC", "gD"],
-        "n_annotated_members": [2, 2, 2, 2],
-    })
+
+    long = pd.DataFrame(
+        {
+            "source": ["go_cc"] * 4,
+            "group_id": ["GO:1", "GO:1", "GO:3", "GO:3"],
+            "group_name": ["alpha", "alpha", "alpha", "alpha"],
+            "Systematic ID": ["gA", "gB", "gC", "gD"],
+            "Name": ["gA", "gB", "gC", "gD"],
+            "n_annotated_members": [2, 2, 2, 2],
+        }
+    )
     from plot_group_scatter import resolve_groups
+
     out = resolve_groups(long, "go_cc", ["alpha"])
     assert len(out) == 2  # GO:1 and GO:3
     assert {g[0] for g in out} == {"GO:1", "GO:3"}
@@ -76,14 +87,18 @@ def test_resolve_groups_drops_nan_ids():
     """Members with NaN Systematic ID are silently dropped."""
     import numpy as np
     import pandas as pd
-    long = pd.DataFrame({
-        "source": ["go_cc", "go_cc"],
-        "group_id": ["GO:1", "GO:1"],
-        "group_name": ["alpha", "alpha"],
-        "Systematic ID": ["gA", np.nan],
-        "Name": ["gA", "gB"],
-        "n_annotated_members": [2, 2],
-    })
+
+    long = pd.DataFrame(
+        {
+            "source": ["go_cc", "go_cc"],
+            "group_id": ["GO:1", "GO:1"],
+            "group_name": ["alpha", "alpha"],
+            "Systematic ID": ["gA", np.nan],
+            "Name": ["gA", "gB"],
+            "n_annotated_members": [2, 2],
+        }
+    )
     from plot_group_scatter import resolve_groups
+
     out = resolve_groups(long, "go_cc", ["alpha"])
     assert out[0][2] == ["gA"]  # only gA, gB (NaN id) dropped

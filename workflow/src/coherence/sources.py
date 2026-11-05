@@ -20,17 +20,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
 LONG_TABLE_COLUMNS = [
-    "source", "group_id", "group_name", "Systematic ID", "Name", "n_annotated_members",
+    "source",
+    "group_id",
+    "group_name",
+    "Systematic ID",
+    "Name",
+    "n_annotated_members",
 ]
 
 # PomBase macrocomplex annotation column -> canonical contract name.
@@ -48,9 +53,14 @@ _GENE_METADATA_REL = Path("Gene_metadata") / "gene_IDs_names_products.tsv"
 # goatools namespace string per short code; also the config source name.
 _NS_LONG = {"CC": "cellular_component", "BP": "biological_process"}
 _NS_SOURCE = {"CC": "go_cc", "BP": "go_bp"}
-# Match the canonical GO propagation exactly: workflow/src/enrichment/cluster_enrichment.py GO_LOAD_KWARGS.
-_GO_LOAD_KWARGS = {"relationships": {"is_a", "part_of"}, "propagate_counts": True,
-                   "load_obsolete": False, "prt": None}
+# Match the canonical GO propagation exactly:
+# workflow/src/enrichment/cluster_enrichment.py GO_LOAD_KWARGS.
+_GO_LOAD_KWARGS = {
+    "relationships": {"is_a", "part_of"},
+    "propagate_counts": True,
+    "load_obsolete": False,
+    "prt": None,
+}
 
 # --- KEGG derived tables (kegg_parser output under resources/external/kegg) ---
 # One flat file per KEGG product; see load_kegg_brite / load_kegg_pathway.
@@ -70,11 +80,12 @@ def load_gene_names(pombase_dir: Path) -> dict[str, str]:
     meta = pd.read_csv(path, sep="\t", usecols=["gene_systematic_id", "gene_name"])
     named = meta.dropna(subset=["gene_name"]).drop_duplicates(subset="gene_systematic_id")
     logger.info(f"gene names: {len(named):,} of {len(meta):,} genes in {path.name} have one")
-    return dict(zip(named["gene_systematic_id"], named["gene_name"]))
+    return dict(zip(named["gene_systematic_id"], named["gene_name"], strict=False))
 
 
 def _finalize(df: pd.DataFrame, source: str, gene_names: Mapping[str, str]) -> pd.DataFrame:
-    """Fill Name from `gene_names` then the systematic ID, add source + n_annotated_members, order columns."""
+    """Fill Name from `gene_names` then the systematic ID, add source + n_annotated_members, order
+    columns."""
     df = df.copy()
     df["source"] = source
     # Adapter's own symbol first, then PomBase's name table, then the systematic id.
@@ -97,14 +108,20 @@ def _finalize(df: pd.DataFrame, source: str, gene_names: Mapping[str, str]) -> p
 
 
 def load_macrocomplex(
-    pombase_dir: Path, gene_names: Mapping[str, str], kegg_dir: Path | None = None,
+    pombase_dir: Path,
+    gene_names: Mapping[str, str],
+    _kegg_dir: Path | None = None,
 ) -> pd.DataFrame:
     """Flat PomBase macromolecular_complex_annotation.tsv -> unified long-table."""
-    path = Path(pombase_dir) / "ontologies_and_associations" / "macromolecular_complex_annotation.tsv"
+    path = (
+        Path(pombase_dir) / "ontologies_and_associations" / "macromolecular_complex_annotation.tsv"
+    )
     raw = pd.read_csv(path, sep="\t").rename(columns=_MACRO_RENAME)
     for required in ["group_id", "group_name", "Systematic ID"]:
         if required not in raw.columns:
-            raise ValueError(f"macrocomplex annotation missing '{required}' (have: {list(raw.columns)})")
+            raise ValueError(
+                f"macrocomplex annotation missing '{required}' (have: {list(raw.columns)})"
+            )
     if "Name" not in raw.columns:
         raw["Name"] = pd.NA
     return _finalize(
@@ -113,7 +130,10 @@ def load_macrocomplex(
 
 
 def load_gaf_namespace(
-    pombase_dir: Path, namespace: str, gene_names: Mapping[str, str], kegg_dir: Path | None = None,
+    pombase_dir: Path,
+    namespace: str,
+    gene_names: Mapping[str, str],
+    _kegg_dir: Path | None = None,
 ) -> pd.DataFrame:
     """GO GAF for one namespace (CC/BP), goatools-propagated, -> unified long-table."""
     # Reuses enrichment/ontology.py's OBO+GAF loading (is_a/part_of propagation,
@@ -129,7 +149,7 @@ def load_gaf_namespace(
     # which only the prepare_annotation rule's env has. coherence.io imports
     # LONG_TABLE_COLUMNS from this module, and compute_coherence runs in an env
     # without goatools — a top-level import would take that whole stage down.
-    from enrichment.ontology import OntologyDataConfig, load_ontology_data
+    from enrichment.ontology import OntologyDataConfig, load_ontology_data  # noqa: PLC0415
 
     od = Path(pombase_dir) / "ontologies_and_associations"
     data = OntologyDataConfig(
@@ -137,7 +157,9 @@ def load_gaf_namespace(
         ontology_association_gaf=od / "gene_ontology_annotation.gaf.tsv",
         slim_terms_table=[],  # slim table not needed for raw term->gene expansion
     ).load_data()
-    dag, _objanno, _ns2assoc, _gene2go, go2genes, _slim = load_ontology_data(data, **_GO_LOAD_KWARGS)
+    dag, _objanno, _ns2assoc, _gene2go, go2genes, _slim = load_ontology_data(
+        data, **_GO_LOAD_KWARGS
+    )
 
     ns_long = _NS_LONG[namespace]
     rows = []
@@ -145,9 +167,10 @@ def load_gaf_namespace(
         rec = dag.get(term)
         if rec is None or rec.namespace != ns_long:
             continue
-        for gene in genes:
-            rows.append({"group_id": term, "group_name": rec.name,
-                         "Systematic ID": gene, "Name": pd.NA})
+        rows.extend(
+            {"group_id": term, "group_name": rec.name, "Systematic ID": gene, "Name": pd.NA}
+            for gene in genes
+        )
     df = pd.DataFrame(rows, columns=["group_id", "group_name", "Systematic ID", "Name"])
     return _finalize(df, _NS_SOURCE[namespace], gene_names)
 
@@ -166,11 +189,13 @@ def load_symbol_to_systematic(pombase_dir: Path) -> dict[str, str]:
         sep="\t",
         usecols=["gene_systematic_id", "gene_name"],
     )
-    mapping = dict(zip(meta["gene_systematic_id"], meta["gene_systematic_id"]))
+    mapping = dict(zip(meta["gene_systematic_id"], meta["gene_systematic_id"], strict=False))
     named = meta.dropna(subset=["gene_name"]).drop_duplicates(subset="gene_name")
-    mapping.update(dict(zip(named["gene_name"], named["gene_systematic_id"])))
-    logger.info(f"KEGG symbol map: {len(mapping):,} keys "
-                f"({len(named):,} gene names + {len(meta):,} systematic ids)")
+    mapping.update(dict(zip(named["gene_name"], named["gene_systematic_id"], strict=False)))
+    logger.info(
+        f"KEGG symbol map: {len(mapping):,} keys "
+        f"({len(named):,} gene names + {len(meta):,} systematic ids)"
+    )
     return mapping
 
 
@@ -178,17 +203,21 @@ def _kegg_frame(
     group_id: pd.Series, group_name: pd.Series, symbols: pd.Series, resolver: Mapping[str, str]
 ) -> pd.DataFrame:
     """Build the four pre-`_finalize` columns, dropping genes with no PomBase id."""
-    df = pd.DataFrame({
-        "group_id": group_id,
-        "group_name": group_name,
-        "Systematic ID": symbols.map(resolver),
-        "Name": symbols,
-    })
+    df = pd.DataFrame(
+        {
+            "group_id": group_id,
+            "group_name": group_name,
+            "Systematic ID": symbols.map(resolver),
+            "Name": symbols,
+        }
+    )
     n_raw = len(df)
     df = df.dropna(subset=["Systematic ID"])
     if len(df) < n_raw:
-        logger.info(f"KEGG: kept {len(df):,} of {n_raw:,} rows "
-                    f"(dropped {n_raw - len(df):,} with no PomBase systematic id)")
+        logger.info(
+            f"KEGG: kept {len(df):,} of {n_raw:,} rows "
+            f"(dropped {n_raw - len(df):,} with no PomBase systematic id)"
+        )
     return df
 
 
@@ -204,7 +233,9 @@ def load_kegg_pathway(
         usecols=["Gene_Symbol", "Pathway_ID", "Pathway_Name"],
     )
     df = _kegg_frame(
-        raw["Pathway_ID"], raw["Pathway_Name"], raw["Gene_Symbol"],
+        raw["Pathway_ID"],
+        raw["Pathway_Name"],
+        raw["Gene_Symbol"],
         load_symbol_to_systematic(pombase_dir),
     )
     return _finalize(df, "kegg_pathway", gene_names)
@@ -255,15 +286,26 @@ def load_kegg_brite(
     raw = pd.read_csv(
         Path(kegg_dir) / _KEGG_BRITE_FILE,
         sep="\t",
-        usecols=["BRITE_ID", "Level_A", "Level_B", "Level_C", "Level_D",
-                 "Level_D_ID", "Gene_Symbol"],
+        usecols=[
+            "BRITE_ID",
+            "Level_A",
+            "Level_B",
+            "Level_C",
+            "Level_D",
+            "Level_D_ID",
+            "Gene_Symbol",
+        ],
     )
     unclassified = raw["Level_D"].isna()
     if unclassified.any():
-        logger.warning(f"BRITE: dropping {int(unclassified.sum()):,} rows with no classification node")
+        logger.warning(
+            f"BRITE: dropping {int(unclassified.sum()):,} rows with no classification node"
+        )
         raw = raw[~unclassified]
     df = _kegg_frame(
-        _brite_group_ids(raw), raw["Level_D"], raw["Gene_Symbol"],
+        _brite_group_ids(raw),
+        raw["Level_D"],
+        raw["Gene_Symbol"],
         load_symbol_to_systematic(pombase_dir),
     )
     return _finalize(df, "kegg_brite", gene_names)
@@ -274,8 +316,8 @@ def load_kegg_brite(
 # GLOBAL CONSTANTS rather than an oversight.
 SOURCE_LOADERS = {
     "go_macrocomplex": load_macrocomplex,
-    "go_cc": lambda d, names, kegg=None: load_gaf_namespace(d, "CC", names),
-    "go_bp": lambda d, names, kegg=None: load_gaf_namespace(d, "BP", names),
+    "go_cc": lambda d, names, _kegg=None: load_gaf_namespace(d, "CC", names),
+    "go_bp": lambda d, names, _kegg=None: load_gaf_namespace(d, "BP", names),
     "kegg_pathway": lambda d, names, kegg: load_kegg_pathway(kegg, d, names),
     "kegg_brite": lambda d, names, kegg: load_kegg_brite(kegg, d, names),
 }

@@ -63,15 +63,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -98,9 +98,16 @@ _KEY_COLUMNS = ["source", "group_id"]
 # Column order of the two outputs. `moonlighting_cut_n_groups` rides on every term
 # row (like the metrics table's `*_cv_feature` columns): the fraction is only
 # readable against the cut it was taken with.
-_TERM_COLUMNS = ["source", "group_id", "group_name", "redundancy_cluster",
-                 "n_scored_members", "paralog_fraction", "moonlighting_fraction",
-                 "moonlighting_cut_n_groups"]
+_TERM_COLUMNS = [
+    "source",
+    "group_id",
+    "group_name",
+    "redundancy_cluster",
+    "n_scored_members",
+    "paralog_fraction",
+    "moonlighting_fraction",
+    "moonlighting_cut_n_groups",
+]
 _GENE_COLUMNS = ["gene", "n_groups", "is_moonlighting"]
 
 
@@ -110,6 +117,7 @@ _GENE_COLUMNS = ["gene", "n_groups", "is_moonlighting"]
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ViewFractionsConfig:
     """Inputs, the view to compute, and the two outputs."""
+
     metrics: Path
     dedup_terms: Path
     group_members: Path
@@ -131,7 +139,7 @@ class ViewFractionsConfig:
 # =============================================================================
 def view_terms(metrics: pd.DataFrame, dedup: pd.DataFrame, view: str) -> pd.DataFrame:
     """The view's terms from the metrics table, each with its de-duplication cluster."""
-    clusters = dedup[_KEY_COLUMNS + ["redundancy_cluster", "is_representative"]].drop_duplicates(
+    clusters = dedup[[*_KEY_COLUMNS, "redundancy_cluster", "is_representative"]].drop_duplicates(
         subset=_KEY_COLUMNS
     )
     if view == _COMBINED:
@@ -148,14 +156,20 @@ def view_terms(metrics: pd.DataFrame, dedup: pd.DataFrame, view: str) -> pd.Data
 
     if selected.empty:
         raise ValueError(f"no terms for view {view!r} in the metrics table")
-    merged = selected.merge(clusters[_KEY_COLUMNS + ["redundancy_cluster"]], on=_KEY_COLUMNS, how="left")
+    merged = selected.merge(
+        clusters[[*_KEY_COLUMNS, "redundancy_cluster"]], on=_KEY_COLUMNS, how="left"
+    )
     n_unclustered = int(merged["redundancy_cluster"].isna().sum())
     if n_unclustered:
-        logger.warning(f"{n_unclustered} term(s) of view {view!r} carry no cluster; they contribute no breadth")
+        logger.warning(
+            f"{n_unclustered} term(s) of view {view!r} carry no cluster; they contribute no breadth"
+        )
     return merged
 
 
-def fractions_for_view(terms: pd.DataFrame, group_members: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, float]:
+def fractions_for_view(
+    terms: pd.DataFrame, group_members: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """The view's per-term fractions and per-gene breadth, over the view's own clusters."""
     # The gene sets stay each cluster's own, and the cut is this view's own: two
     # views differ only in which groups they count, never in how a group is counted.
@@ -179,8 +193,11 @@ def run(config: ViewFractionsConfig) -> None:
     """Load -> slice the view -> per-term fractions + per-gene breadth -> two TSVs."""
     config.validate()
     metrics = read_file(config.metrics)
-    missing = [column for column in _KEY_COLUMNS + ["group_name", "n_scored_members", "scored_member_names"]
-               if column not in metrics.columns]
+    missing = [
+        column
+        for column in [*_KEY_COLUMNS, "group_name", "n_scored_members", "scored_member_names"]
+        if column not in metrics.columns
+    ]
     if missing:
         raise ValueError(f"metrics table missing required column(s) {missing}")
     if "paralog_fraction" not in metrics.columns:
@@ -209,14 +226,28 @@ def run(config: ViewFractionsConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Per-view paralog / moonlighting fractions and gene breadth")
-    parser.add_argument("--metrics", type=Path, required=True, help="combined/coherence_metrics.parquet")
-    parser.add_argument("--dedup-terms", type=Path, required=True, help="dedup/coherence_terms_deduplicated.tsv")
-    parser.add_argument("--group-members", type=Path, required=True, help="dedup/coherence_group_members_long.tsv")
+    parser = argparse.ArgumentParser(
+        description="Per-view paralog / moonlighting fractions and gene breadth"
+    )
+    parser.add_argument(
+        "--metrics", type=Path, required=True, help="combined/coherence_metrics.parquet"
+    )
+    parser.add_argument(
+        "--dedup-terms", type=Path, required=True, help="dedup/coherence_terms_deduplicated.tsv"
+    )
+    parser.add_argument(
+        "--group-members", type=Path, required=True, help="dedup/coherence_group_members_long.tsv"
+    )
     parser.add_argument("--view", required=True, help="A source name, 'combined', or 'dedup'")
-    parser.add_argument("--output-terms", type=Path, required=True, help="Output per-term fractions TSV")
-    parser.add_argument("--output-genes", type=Path, required=True, help="Output per-gene breadth TSV")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--output-terms", type=Path, required=True, help="Output per-term fractions TSV"
+    )
+    parser.add_argument(
+        "--output-genes", type=Path, required=True, help="Output per-gene breadth TSV"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

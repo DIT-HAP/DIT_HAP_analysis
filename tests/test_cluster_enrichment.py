@@ -1,13 +1,12 @@
 """Tests for the GO/FYPO/MONDO enrichment modules and their driver configs."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import pytest
-
 from workflow.scripts.enrichment.enrich_one_ontology import OntologyConfig
 from workflow.scripts.enrichment.finalize_enrichment import FinalizeConfig
 from workflow.scripts.enrichment.prepare_genesets import PrepareConfig

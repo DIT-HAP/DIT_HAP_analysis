@@ -30,9 +30,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 import cnsplots as cns
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.collections import PathCollection
+from matplotlib.colors import Normalize
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.stats import pearsonr
+
 from figures import (
     FURNITURE_COLOR,
     apply_house_style,
@@ -43,11 +49,6 @@ from figures import (
     panel_labels,
     save_dual,
 )
-from loguru import logger
-from matplotlib.axes import Axes
-from matplotlib.collections import PathCollection
-from matplotlib.colors import Normalize
-from scipy.stats import pearsonr
 
 from ._point_density import point_density
 from ._schema import require_columns
@@ -149,9 +150,8 @@ def _has_hue(df: pd.DataFrame, hue: str | None) -> bool:
     return hue is not None and hue in df.columns
 
 
-
 def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
-    """Annotate n, r, and P at regplot's own text position/style, so toggling show_stats doesn't reflow the panel."""
+    """Annotate n, r, and P at regplot's text position so show_stats never reflows."""
     valid = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
     if len(valid) < 2:
         logger.warning(f"Not enough finite pairs ({len(valid)}) to compute r/P for {x!r} vs {y!r}")
@@ -164,7 +164,7 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     else:
         # Format as mantissa E exponent
         exponent = int(np.floor(np.log10(p)))
-        mantissa = p / (10 ** exponent)
+        mantissa = p / (10**exponent)
         p_text = rf"$P={mantissa:.2f}\mathrm{{E}}{{{exponent:+03d}}}$"
 
     ax.text(
@@ -210,7 +210,12 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
 
 
 def _apply_shared_square_limits(
-    axes: Sequence[Axes], df: pd.DataFrame, *, x: str, y: str, scale: Literal["linear", "log", "symlog"] = "linear",
+    axes: Sequence[Axes],
+    df: pd.DataFrame,
+    *,
+    x: str,
+    y: str,
+    scale: Literal["linear", "log", "symlog"] = "linear",
 ) -> None:
     """Put every axes on one common x=y range spanning all finite data.
 
@@ -266,7 +271,7 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection, *, scale: float = 
     # Sits above the bar, sized and right-aligned to match the low/high ticks: the
     # bar is far narrower than the word, so a centred title would spill past the
     # panel's right edge, and an axis label would read as a full-size axis title.
-    title = colorbar.ax.set_title(
+    colorbar.ax.set_title(
         DENSITY_CBAR_LABEL,
         loc="center",
         # fontsize=plt.rcParams["ytick.labelsize"],
@@ -309,12 +314,103 @@ def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bo
 
     # Colormap comes from rcParams['image.cmap'], which apply_house_style() points
     # at the house sequential map.
-    mappable = ax.scatter(
-        x, y, c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
-    )
+    mappable = ax.scatter(x, y, c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS)
     _add_density_colorbar(ax, mappable, scale=panel.density_cbar_scale)
 
     return True
+
+
+def _set_panel_labels(ax: Axes, panel: ScatterPanel) -> None:
+    """Write the panel's axis labels and title onto ax."""
+    ax.set_xlabel(panel.xlabel)
+    ax.set_ylabel(panel.ylabel)
+    ax.set_title(panel.title)
+
+
+def _panel_plot_data(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> pd.DataFrame | None:
+    """Return the rows the panel can plot, or draw its placeholder and return None."""
+    if df.empty:
+        ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+        return None
+
+    if panel.scale == "log":
+        plot_df = df[(df[panel.x] > 0) & (df[panel.y] > 0)].copy()
+    else:
+        plot_df = df.copy()
+
+    if plot_df.empty:
+        ax.text(0.5, 0.5, "No positive data", ha="center", va="center", transform=ax.transAxes)
+        return None
+
+    return plot_df
+
+
+def _draw_hue_scatter(
+    ax: Axes,
+    plot_df: pd.DataFrame,
+    panel: ScatterPanel,
+    *,
+    hue: str,
+    hue_order: Sequence[str] | None,
+    scatter_kws: Mapping[str, object],
+    show_legend: bool,
+) -> None:
+    """Draw the cns.scatterplot hue path, dropping levels absent from the data."""
+    if panel.density:
+        logger.warning(
+            f"Panel '{panel.title}': hue {hue!r} and density both set; "
+            f"colouring by hue and skipping density"
+        )
+    # Levels absent from the data must be dropped, or a project lacking
+    # one of them raises inside seaborn.
+    observed = set(plot_df[hue].unique())
+    order = [level for level in (hue_order or sorted(observed)) if level in observed]
+    cns.scatterplot(
+        data=plot_df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **scatter_kws
+    )
+    # seaborn draws its own legend, so suppressing ours is not enough. Removing
+    # the drawn artist keeps get_legend_handles_labels() working for a shared
+    # legend, which passing legend=False to seaborn would leave empty.
+    if show_legend:
+        ax.legend(loc="best")
+    elif ax.get_legend() is not None:
+        ax.get_legend().remove()
+
+
+def _draw_flat_scatter(
+    ax: Axes,
+    plot_df: pd.DataFrame,
+    panel: ScatterPanel,
+    scatter_kws: Mapping[str, object],
+) -> None:
+    """Draw the flat cns.scatterplot path, preferring density colouring when requested."""
+    density_drawn = panel.density and _draw_density_scatter(ax, plot_df, panel)
+    if panel.density and not density_drawn:
+        logger.warning(f"Panel '{panel.title}': falling back to flat colour, no density estimate")
+    if not density_drawn:
+        cns.scatterplot(data=plot_df, x=panel.x, y=panel.y, ax=ax, **scatter_kws)
+
+
+def _annotate_panel_stats(ax: Axes, plot_df: pd.DataFrame, panel: ScatterPanel) -> None:
+    """Annotate n/r/P, computing r in log10 space when the axes are log-scaled."""
+    if not panel.show_stats:
+        return
+
+    if panel.scale == "log":
+        log_df = plot_df.copy()
+        log_df["_log10_x"] = np.log10(plot_df[panel.x])
+        log_df["_log10_y"] = np.log10(plot_df[panel.y])
+        _annotate_fit_stats(ax, log_df, x="_log10_x", y="_log10_y")
+    else:
+        _annotate_fit_stats(ax, plot_df, x=panel.x, y=panel.y)
+
+
+def _apply_panel_scale(ax: Axes, panel: ScatterPanel) -> None:
+    """Apply the panel's log or symlog axis scale, if it has one."""
+    if panel.scale == "log":
+        apply_log_scale(ax)
+    elif panel.scale == "symlog":
+        apply_symlog_scale(ax)
 
 
 def render_scatter_panel(
@@ -349,65 +445,34 @@ def render_scatter_panel(
     ``show_legend=False`` suppresses the per-panel legend; callers creating
     multi-panel grids should pass False and create a shared figure-level legend.
     """
-    ax.set_xlabel(panel.xlabel)
-    ax.set_ylabel(panel.ylabel)
-    ax.set_title(panel.title)
+    _set_panel_labels(ax, panel)
 
-    if df.empty:
-        ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
-        return
-
-    plot_df = df[(df[panel.x] > 0) & (df[panel.y] > 0)].copy() if panel.scale == "log" else df.copy()
-    if plot_df.empty:
-        ax.text(0.5, 0.5, "No positive data", ha="center", va="center", transform=ax.transAxes)
+    plot_df = _panel_plot_data(ax, df, panel)
+    if plot_df is None:
         return
 
     kws = dict(SCATTERPLOT_KWS if scatter_kws is None else scatter_kws)
 
     if hue is not None and hue in plot_df.columns:
-        if panel.density:
-            logger.warning(
-                f"Panel '{panel.title}': hue {hue!r} and density both set; "
-                f"colouring by hue and skipping density"
-            )
-        # Levels absent from the data must be dropped, or a project lacking
-        # one of them raises inside seaborn.
-        observed = set(plot_df[hue].unique())
-        order = [level for level in (hue_order or sorted(observed)) if level in observed]
-        cns.scatterplot(data=plot_df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
-        # seaborn draws its own legend, so suppressing ours is not enough. Removing
-        # the drawn artist keeps get_legend_handles_labels() working for a shared
-        # legend, which passing legend=False to seaborn would leave empty.
-        if show_legend:
-            ax.legend(loc="best")
-        elif ax.get_legend() is not None:
-            ax.get_legend().remove()
+        _draw_hue_scatter(
+            ax,
+            plot_df,
+            panel,
+            hue=hue,
+            hue_order=hue_order,
+            scatter_kws=kws,
+            show_legend=show_legend,
+        )
     else:
-        density_drawn = panel.density and _draw_density_scatter(ax, plot_df, panel)
-        if panel.density and not density_drawn:
-            logger.warning(f"Panel '{panel.title}': falling back to flat colour, no density estimate")
-        if not density_drawn:
-            cns.scatterplot(data=plot_df, x=panel.x, y=panel.y, ax=ax, **kws)
+        _draw_flat_scatter(ax, plot_df, panel, kws)
 
-    ax.set_xlabel(panel.xlabel)
-    ax.set_ylabel(panel.ylabel)
-    ax.set_title(panel.title)
+    _set_panel_labels(ax, panel)
 
     _draw_reference_line(ax, plot_df, panel)
 
-    if panel.show_stats:
-        if panel.scale == "log":
-            log_df = plot_df.copy()
-            log_df["_log10_x"] = np.log10(plot_df[panel.x])
-            log_df["_log10_y"] = np.log10(plot_df[panel.y])
-            _annotate_fit_stats(ax, log_df, x="_log10_x", y="_log10_y")
-        else:
-            _annotate_fit_stats(ax, plot_df, x=panel.x, y=panel.y)
+    _annotate_panel_stats(ax, plot_df, panel)
 
-    if panel.scale == "log":
-        apply_log_scale(ax)
-    elif panel.scale == "symlog":
-        apply_symlog_scale(ax)
+    _apply_panel_scale(ax, panel)
 
 
 @logger.catch(reraise=True)
@@ -494,11 +559,20 @@ def render_grouped_regression_figure(
                 logger.info(f"  Panel {label}: {row_value} {col_value} (n={len(group_df)})")
 
             panel = ScatterPanel(
-                x=x, y=y, xlabel=xlabel, ylabel=panel_ylabel, title=str(col_value),
-                reference="identity", show_stats=show_stats, density=density, scale=scale,
+                x=x,
+                y=y,
+                xlabel=xlabel,
+                ylabel=panel_ylabel,
+                title=str(col_value),
+                reference="identity",
+                show_stats=show_stats,
+                density=density,
+                scale=scale,
             )
             render_scatter_panel(
-                ax, group_df, panel,
+                ax,
+                group_df,
+                panel,
                 scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
             )
 
@@ -510,6 +584,92 @@ def render_grouped_regression_figure(
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
+
+
+def _share_matrix_scales(grid: Sequence[Sequence[Axes]], n_cols: int) -> None:
+    """Give every matrix column one x scale and every row one y scale.
+
+    Every panel in a column shares the column's x, every panel in a row its y.
+    Sharing after the grid exists (not via fig.subplots' sharex) is what lets
+    the reference be the bottom/left cell of that line.
+    """
+    for column_index in range(n_cols):
+        reference = grid[n_cols - 1][column_index]
+        for row_index in range(column_index, n_cols):
+            grid[row_index][column_index].sharex(reference)
+    for row_index in range(1, n_cols):
+        for column_index in range(row_index):
+            grid[row_index][column_index].sharey(grid[row_index][0])
+
+
+def _render_matrix_triangle(
+    df: pd.DataFrame,
+    grid: Sequence[Sequence[Axes]],
+    ordered: Sequence[str],
+    *,
+    scatter_kws: Mapping[str, object] | None,
+) -> None:
+    """Draw the lower triangle, blanking the diagonal cells and hiding the upper ones."""
+    n_cols = len(ordered)
+    for row_index in range(n_cols):
+        for column_index in range(row_index + 1):
+            ax = grid[row_index][column_index]
+            if row_index == column_index:
+                # Without data the cell would otherwise show its own meaningless
+                # 0-1 scale. The variable's scale is read off the panels that
+                # share its row and column.
+                ax.set_axis_off()
+                continue
+            panel = ScatterPanel(
+                x=ordered[column_index],
+                y=ordered[row_index],
+                # The diagonal names the variables, so per-panel axis labels would
+                # only repeat them 45 times.
+                xlabel="",
+                ylabel="",
+                title="",
+                # Overplotting is the norm in these pairs (tens of thousands of
+                # genes in a 100 px panel), so density is the reading that shows
+                # where the cloud actually is.
+                density=True,
+                density_cbar_scale=MATRIX_DENSITY_CBAR_SCALE,
+            )
+            logger.info(f"  Panel ({ordered[row_index]}, {ordered[column_index]})")
+            render_scatter_panel(
+                ax,
+                df,
+                panel,
+                scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
+                show_legend=False,
+            )
+            _annotate_compact_r(ax, df, x=panel.x, y=panel.y)
+            ax.label_outer()
+        for column_index in range(row_index + 1, n_cols):
+            grid[row_index][column_index].set_visible(False)
+
+
+def _label_matrix_edges(
+    grid: Sequence[Sequence[Axes]],
+    ordered: Sequence[str],
+    labels: Mapping[str, str],
+    n_cols: int,
+) -> None:
+    """Write each variable's name once, on its own row and column outer edge.
+
+    Names on the outer edges, not on the diagonal. Writing each variable once,
+    on its own row and column, is what says which pair a panel is: with names
+    only on the diagonal a reader has to trace left and up across a 9 x 9 grid
+    to identify the panel in front of them. The lower triangle gives every
+    variable both edges -- column j has a cell in the bottom row for every
+    j < n-1, and row i a cell in the left column for every i > 0, so the two
+    ends (the first column and the last row) are named by the other axis.
+    """
+    for index in range(n_cols):
+        name = labels.get(ordered[index], ordered[index])
+        if index < n_cols - 1:
+            grid[n_cols - 1][index].set_xlabel(name)
+        if index > 0:
+            grid[index][0].set_ylabel(name)
 
 
 @logger.catch(reraise=True)
@@ -555,72 +715,77 @@ def render_pairwise_matrix_figure(
     # No A/B/... letters: the matrix is read by row and column, and the diagonal
     # cells already carry the variable names.
     axes = grid_axes(n_cols, n_cols, labels=[])
-    grid = [axes[row * n_cols:(row + 1) * n_cols] for row in range(n_cols)]
+    grid = [axes[row * n_cols : (row + 1) * n_cols] for row in range(n_cols)]
 
-    # One scale per variable: every panel in a column shares the column's x, every
-    # panel in a row its y. Sharing after the grid exists (not via fig.subplots'
-    # sharex) is what lets the reference be the bottom/left cell of that line.
-    for column_index in range(n_cols):
-        reference = grid[n_cols - 1][column_index]
-        for row_index in range(column_index, n_cols):
-            grid[row_index][column_index].sharex(reference)
-    for row_index in range(1, n_cols):
-        for column_index in range(row_index):
-            grid[row_index][column_index].sharey(grid[row_index][0])
-
-    for row_index in range(n_cols):
-        for column_index in range(row_index + 1):
-            ax = grid[row_index][column_index]
-            if row_index == column_index:
-                # Without data the cell would otherwise show its own meaningless
-                # 0-1 scale. The variable's scale is read off the panels that
-                # share its row and column.
-                ax.set_axis_off()
-                continue
-            panel = ScatterPanel(
-                x=ordered[column_index],
-                y=ordered[row_index],
-                # The diagonal names the variables, so per-panel axis labels would
-                # only repeat them 45 times.
-                xlabel="",
-                ylabel="",
-                title="",
-                # Overplotting is the norm in these pairs (tens of thousands of
-                # genes in a 100 px panel), so density is the reading that shows
-                # where the cloud actually is.
-                density=True,
-                density_cbar_scale=MATRIX_DENSITY_CBAR_SCALE,
-            )
-            logger.info(f"  Panel ({ordered[row_index]}, {ordered[column_index]})")
-            render_scatter_panel(
-                ax, df, panel,
-                scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
-                show_legend=False,
-            )
-            _annotate_compact_r(ax, df, x=panel.x, y=panel.y)
-            ax.label_outer()
-        for column_index in range(row_index + 1, n_cols):
-            grid[row_index][column_index].set_visible(False)
-
-    # Names on the outer edges, not on the diagonal. Writing each variable once,
-    # on its own row and column, is what says which pair a panel is: with names
-    # only on the diagonal a reader has to trace left and up across a 9 x 9 grid
-    # to identify the panel in front of them. The lower triangle gives every
-    # variable both edges -- column j has a cell in the bottom row for every
-    # j < n-1, and row i a cell in the left column for every i > 0, so the two
-    # ends (the first column and the last row) are named by the other axis.
-    for index in range(n_cols):
-        name = labels.get(ordered[index], ordered[index])
-        if index < n_cols - 1:
-            grid[n_cols - 1][index].set_xlabel(name)
-        if index > 0:
-            grid[index][0].set_ylabel(name)
+    _share_matrix_scales(grid, n_cols)
+    _render_matrix_triangle(df, grid, ordered, scatter_kws=scatter_kws)
+    _label_matrix_edges(grid, ordered, labels, n_cols)
 
     fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
+
+
+def _draw_grid_panels(
+    axes: Sequence[Axes],
+    labels: Sequence[str],
+    panels: Sequence[ScatterPanel],
+    df: pd.DataFrame,
+    *,
+    hue: str | None,
+    hue_order: Sequence[str] | None,
+    scatter_kws: Mapping[str, object] | None,
+) -> None:
+    """Render each panel into its grid cell and hide the unused trailing cells."""
+    for label, panel, ax in zip(labels, panels, axes[: len(panels)], strict=True):
+        if df.empty:
+            logger.warning(f"  Panel {label}: {panel.title} has no valid data")
+        else:
+            logger.info(f"  Panel {label}: {panel.title} (n={len(df)})")
+
+        render_scatter_panel(
+            ax, df, panel, hue=hue, hue_order=hue_order, scatter_kws=scatter_kws, show_legend=False
+        )
+
+    for ax in axes[len(panels) :]:
+        ax.set_visible(False)
+
+
+def _add_shared_hue_legend(
+    fig: plt.Figure, axes: Sequence[Axes], df: pd.DataFrame, hue: str | None
+) -> None:
+    """Move the hue legend out of the first panel to one figure-level legend.
+
+    Per-panel legends repeat the same hue levels in every cell and, at
+    loc="best", land on the data or the stats annotation, since "best" only
+    searches within one axes.
+    """
+    if not _has_hue(df, hue):
+        return
+
+    handles, legend_labels = axes[0].get_legend_handles_labels()
+    if not handles:
+        return
+
+    legend = fig.legend(
+        handles,
+        legend_labels,
+        loc="center left",
+        bbox_to_anchor=LEGEND_ANCHOR,
+        frameon=False,
+        title=hue,
+        markerscale=LEGEND_MARKER_SCALE,
+        alignment="left",
+    )
+    # Left-align and position the title over the entry labels rather than
+    # centred over the whole box, so it reads as their heading.
+    # title = legend.get_title()
+    # title.set_horizontalalignment("left")
+    # title.set_position((0, 0))  # Align with legend entries
+    for handle in legend.legend_handles:
+        handle.set_alpha(1.0)
 
 
 @logger.catch(reraise=True)
@@ -661,16 +826,9 @@ def render_scatter_grid_figure(
     labels = panel_labels(len(panels))
     axes = grid_axes(n_rows, n_cols, labels=labels)
 
-    for label, panel, ax in zip(labels, panels, axes[: len(panels)], strict=True):
-        if df.empty:
-            logger.warning(f"  Panel {label}: {panel.title} has no valid data")
-        else:
-            logger.info(f"  Panel {label}: {panel.title} (n={len(df)})")
-
-        render_scatter_panel(ax, df, panel, hue=hue, hue_order=hue_order, scatter_kws=scatter_kws, show_legend=False)
-
-    for ax in axes[len(panels):]:
-        ax.set_visible(False)
+    _draw_grid_panels(
+        axes, labels, panels, df, hue=hue, hue_order=hue_order, scatter_kws=scatter_kws
+    )
 
     fig = plt.gcf()
 
@@ -679,25 +837,7 @@ def render_scatter_grid_figure(
     # measurements.
     fit_panels(rect=LEGEND_LAYOUT_RECT if _has_hue(df, hue) else None)
 
-    # One figure-level legend outside the axes. Per-panel legends repeat the same
-    # hue levels in every cell and, at loc="best", land on the data or the stats
-    # annotation, since "best" only searches within one axes.
-    if _has_hue(df, hue):
-        handles, legend_labels = axes[0].get_legend_handles_labels()
-        if handles:
-            legend = fig.legend(
-                handles, legend_labels,
-                loc="center left", bbox_to_anchor=LEGEND_ANCHOR,
-                frameon=False, title=hue, markerscale=LEGEND_MARKER_SCALE,
-                alignment = "left"
-            )
-            # Left-align and position the title over the entry labels rather than
-            # centred over the whole box, so it reads as their heading.
-            # title = legend.get_title()
-            # title.set_horizontalalignment("left")
-            # title.set_position((0, 0))  # Align with legend entries
-            for handle in legend.legend_handles:
-                handle.set_alpha(1.0)
+    _add_shared_hue_legend(fig, axes, df, hue)
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

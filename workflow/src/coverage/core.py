@@ -56,12 +56,12 @@ Version:  1.0.0
 from collections.abc import Mapping
 from pathlib import Path
 
+# 3. Third-party Imports
+from loguru import logger
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-from loguru import logger
 
 # 4. Local Imports
 from release_schema import IN_GENE_FILTER
@@ -130,20 +130,45 @@ INTERGENIC_LABEL = "Intergenic"
 # from this dataset's own release rather than from the reference. Both tables carry
 # exactly this list, so nothing is shown by one and hidden by the other.
 DETAIL_COLUMNS = [
-    "Systematic ID", "Name", "product", "feature_type",
-    "characterisation_status", "FYPOviability",
-    "DR", "DL", "HD_DIT_HAP_DR", "HD_DIT_HAP_DL", "gRNA_DR", "gRNA_DL",
+    "Systematic ID",
+    "Name",
+    "product",
+    "feature_type",
+    "characterisation_status",
+    "FYPOviability",
+    "DR",
+    "DL",
+    "HD_DIT_HAP_DR",
+    "HD_DIT_HAP_DL",
+    "gRNA_DR",
+    "gRNA_DL",
     "deletion_essentiality",
-    "taxonomic_distribution", "Category", "Sub_category", "verification_phenotype",
-    "Sc_ortholog_id", "Sc_ortholog_name", "Sc_essentiality", "Sc_description", "Sc_ortholog_count",
-    "Hs_ortholog_symbol", "Hs_ortholog_count",
-    "GO_slim_BP", "GO_slim_CC", "GO_slim_MF", "complex", "gene_status",
+    "taxonomic_distribution",
+    "Category",
+    "Sub_category",
+    "verification_phenotype",
+    "Sc_ortholog_id",
+    "Sc_ortholog_name",
+    "Sc_essentiality",
+    "Sc_description",
+    "Sc_ortholog_count",
+    "Hs_ortholog_symbol",
+    "Hs_ortholog_count",
+    "GO_slim_BP",
+    "GO_slim_CC",
+    "GO_slim_MF",
+    "complex",
+    "gene_status",
 ]
 
 # deletion_essentiality's raw E/V/Not_determined values aren't self-descriptive as sheet
 # tabs, so map them to the same essential/non_essential naming already used by
 # essentiality_coverage's bucket names (FYPOviability's values are used as-is).
-_ESSENTIALITY_SHEET_NAMES = {"E": "essential", "V": "non_essential", "Not_determined": "essentiality_not_determined"}
+_ESSENTIALITY_SHEET_NAMES = {
+    "E": "essential",
+    "V": "non_essential",
+    "Not_determined": "essentiality_not_determined",
+}
 
 
 # =============================================================================
@@ -177,8 +202,11 @@ def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def load_insertion_level(fitting_results_path: Path, annotations_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate, Strand, Target].
+def load_insertion_level(
+    fitting_results_path: Path, annotations_path: Path
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load insertion-level fitting results + annotations, both indexed by [Chr, Coordinate,
+    Strand, Target].
 
     Annotation duplicates (see resolve_duplicate_annotations) are collapsed
     before reindexing onto fitting_results' index, so counts are byte-faithful
@@ -212,31 +240,45 @@ def coverage_dicts_from_stats_table(
     figures need; dimension_coverage maps each column in DIMENSION_LABELS to its
     {value: counts} breakdown, recovered from the `<column>_` row prefix.
     """
+
     def _row(metric: str, category: str) -> pd.Series:
         hit = stats[(stats["metric"] == metric) & (stats["category"] == category)]
         if hit.empty:
-            raise ValueError(f"coverage_stats table missing required row: metric={metric!r}, category={category!r}")
+            raise ValueError(
+                f"coverage_stats table missing required row: "
+                f"metric={metric!r}, category={category!r}"
+            )
         return hit.iloc[0]
 
     gene = _row("gene", "all")
-    gene_coverage = {"total": int(gene["total"]), "covered": int(gene["covered"]), "not_covered": int(gene["not_covered"])}
+    gene_coverage = {
+        "total": int(gene["total"]),
+        "covered": int(gene["covered"]),
+        "not_covered": int(gene["not_covered"]),
+    }
 
     # Per-chromosome insertion rows: any insertion row that isn't the "all" summary.
     per_chr_rows = stats[(stats["metric"] == "insertion") & (stats["category"] != "all")]
-    per_chromosome = pd.DataFrame({
-        "Chr": per_chr_rows["category"].str.replace(r"^chr_", "", regex=True),
-        "total": per_chr_rows["total"].astype(int),
-        "in_gene": per_chr_rows["covered"].astype(int),
-        "intergenic": per_chr_rows["not_covered"].astype(int),
-    }).reset_index(drop=True)
+    per_chromosome = pd.DataFrame(
+        {
+            "Chr": per_chr_rows["category"].str.replace(r"^chr_", "", regex=True),
+            "total": per_chr_rows["total"].astype(int),
+            "in_gene": per_chr_rows["covered"].astype(int),
+            "intergenic": per_chr_rows["not_covered"].astype(int),
+        }
+    ).reset_index(drop=True)
 
     def _dimension_coverage(column: str) -> dict[str, dict[str, int]]:
         prefix = f"{column}_"
         result: dict[str, dict[str, int]] = {}
         rows = stats[(stats["metric"] == "gene") & (stats["category"].str.startswith(prefix))]
         for _, r in rows.iterrows():
-            value = r["category"][len(prefix):]
-            result[value] = {"total": int(r["total"]), "covered": int(r["covered"]), "not_covered": int(r["not_covered"])}
+            value = r["category"][len(prefix) :]
+            result[value] = {
+                "total": int(r["total"]),
+                "covered": int(r["covered"]),
+                "not_covered": int(r["not_covered"]),
+            }
         return result
 
     dimension_coverage = {column: _dimension_coverage(column) for column in DIMENSION_LABELS}
@@ -301,7 +343,8 @@ def compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[st
 
 
 def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
-    """Build a detailed gene-level table with DIT-HAP data + annotation for all protein-coding genes.
+    """Build a detailed gene-level table with DIT-HAP data + annotation for every protein-coding
+    gene.
 
     `gene_result` is already the full protein-coding gene universe, carrying its annotation
     columns from the gene annotation reference — see prepare_coverage_data.
@@ -316,7 +359,9 @@ def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
     detailed_table = gene_result[[c for c in DETAIL_COLUMNS if c in gene_result.columns]].copy()
 
     # Add coverage status
-    detailed_table["coverage_status"] = detailed_table["DR"].notna().map({True: "covered", False: "not_covered"})
+    detailed_table["coverage_status"] = (
+        detailed_table["DR"].notna().map({True: "covered", False: "not_covered"})
+    )
 
     # Sort: by characterisation_status frequency (most common first), then coverage, then DR
     # ascending (most depleted first — negative DR is the depleted end).
@@ -328,13 +373,11 @@ def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:
         detailed_table = detailed_table.sort_values(
             ["_status_rank", "coverage_status", "DR"],
             ascending=[True, True, True],
-            na_position="last"
+            na_position="last",
         ).drop(columns=["_status_rank"])
     else:
         detailed_table = detailed_table.sort_values(
-            ["coverage_status", "DR"],
-            ascending=[True, True],
-            na_position="last"
+            ["coverage_status", "DR"], ascending=[True, True], na_position="last"
         )
 
     return detailed_table.reset_index(drop=True)
@@ -368,49 +411,52 @@ def write_unknown_annotation_excel(tables: Mapping[str, pd.DataFrame], output_pa
             logger.info(f"Wrote sheet '{sheet_name}': {len(table):,} genes")
 
 
+def _category_sheets(table: pd.DataFrame, column: str) -> list[tuple[str, pd.DataFrame]]:
+    """One sheet per non-null `column` value, most common first (Excel caps names at 31 chars)."""
+    if column not in table.columns:
+        return []
+    sheets = []
+    for value in table[column].value_counts().index:
+        if pd.isna(value):
+            continue
+        subset = table[table[column] == value]
+        sheets.append((str(value)[:31], subset))
+    return sheets
+
+
+def _essentiality_sheets(table: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
+    """One sheet per populated deletion_essentiality bucket, in the display-name map's order."""
+    if "deletion_essentiality" not in table.columns:
+        return []
+    sheets = []
+    for value, sheet_name in _ESSENTIALITY_SHEET_NAMES.items():
+        subset = table[table["deletion_essentiality"] == value]
+        if not subset.empty:
+            sheets.append((sheet_name[:31], subset))
+    return sheets
+
+
 def write_detailed_gene_excel(detailed_table: pd.DataFrame, output_path: Path) -> None:
     """Write detailed gene table to Excel with multiple sheets.
 
     Sheets:
     - "All genes": the complete table
     - one sheet per characterisation_status category (e.g. "biological role published")
-    - one sheet per deletion_essentiality category ("essential" / "non_essential" / "essentiality_not_determined")
-    - one sheet per FYPOviability category ("viable" / "inviable" / "depends_on_conditions" / "unknown")
+    - one sheet per deletion_essentiality category ("essential" / "non_essential" /
+      "essentiality_not_determined")
+    - one sheet per FYPOviability category ("viable" / "inviable" / "depends_on_conditions" /
+      "unknown")
     """
-    sheet_count = 1
+    sheets = [
+        ("All genes", detailed_table),
+        *_category_sheets(detailed_table, "characterisation_status"),
+        *_essentiality_sheets(detailed_table),
+        *_category_sheets(detailed_table, "FYPOviability"),
+    ]
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        # Sheet 1: All genes
-        detailed_table.to_excel(writer, sheet_name="All genes", index=False)
-
-        # One sheet per characterisation_status category
-        if "characterisation_status" in detailed_table.columns:
-            for status in detailed_table["characterisation_status"].value_counts().index:
-                if pd.isna(status):
-                    continue
-                subset = detailed_table[detailed_table["characterisation_status"] == status]
-                # Excel sheet names are limited to 31 characters
-                subset.to_excel(writer, sheet_name=str(status)[:31], index=False)
-                sheet_count += 1
-
-        # One sheet per deletion_essentiality category
-        if "deletion_essentiality" in detailed_table.columns:
-            for value, sheet_name in _ESSENTIALITY_SHEET_NAMES.items():
-                subset = detailed_table[detailed_table["deletion_essentiality"] == value]
-                if subset.empty:
-                    continue
-                subset.to_excel(writer, sheet_name=sheet_name[:31], index=False)
-                sheet_count += 1
-
-        # One sheet per FYPOviability category
-        if "FYPOviability" in detailed_table.columns:
-            for viability in detailed_table["FYPOviability"].value_counts().index:
-                if pd.isna(viability):
-                    continue
-                subset = detailed_table[detailed_table["FYPOviability"] == viability]
-                subset.to_excel(writer, sheet_name=str(viability)[:31], index=False)
-                sheet_count += 1
-
-    logger.info(f"Wrote detailed gene Excel: {len(detailed_table):,} genes, {sheet_count} sheets")
+        for sheet_name, subset in sheets:
+            subset.to_excel(writer, sheet_name=sheet_name, index=False)
+    logger.info(f"Wrote detailed gene Excel: {len(detailed_table):,} genes, {len(sheets)} sheets")
 
 
 # =============================================================================
@@ -431,33 +477,50 @@ def build_stats_table(
     as `deletion_essentiality_E` / `_V`, so it is not repeated as its own rows.
     """
     rows = [
-        {"metric": "insertion", "category": "all", "total": insertion_coverage["total"],
-         "covered": insertion_coverage["in_gene"], "not_covered": insertion_coverage["intergenic"]},
-        {"metric": "gene", "category": "all", "total": gene_coverage["total"],
-         "covered": gene_coverage["covered"], "not_covered": gene_coverage["not_covered"]},
+        {
+            "metric": "insertion",
+            "category": "all",
+            "total": insertion_coverage["total"],
+            "covered": insertion_coverage["in_gene"],
+            "not_covered": insertion_coverage["intergenic"],
+        },
+        {
+            "metric": "gene",
+            "category": "all",
+            "total": gene_coverage["total"],
+            "covered": gene_coverage["covered"],
+            "not_covered": gene_coverage["not_covered"],
+        },
     ]
     for _, row in per_chromosome.iterrows():
         # Some chromosome names already start with "chr_" (e.g.
         # "chr_II_telomeric_gap") — avoid doubling the prefix into
         # "chr_chr_II_telomeric_gap".
         chr_label = row["Chr"] if str(row["Chr"]).startswith("chr_") else f"chr_{row['Chr']}"
-        rows.append({
-            "metric": "insertion", "category": chr_label, "total": row["total"],
-            "covered": row["in_gene"], "not_covered": row["intergenic"],
-        })
+        rows.append(
+            {
+                "metric": "insertion",
+                "category": chr_label,
+                "total": row["total"],
+                "covered": row["in_gene"],
+                "not_covered": row["intergenic"],
+            }
+        )
 
     # Per-category coverage rows, one per value of each annotation dimension
     # (characterisation_status's categories, FYPOviability's 4, deletion_essentiality's
     # 3 — the full breakdown, Not_determined included).
     for column, coverage in (dimension_coverage or {}).items():
         for category, counts in coverage.items():
-            rows.append({
-                "metric": "gene",
-                "category": f"{column}_{category}",
-                "total": counts["total"],
-                "covered": counts["covered"],
-                "not_covered": counts["not_covered"],
-            })
+            rows.append(
+                {
+                    "metric": "gene",
+                    "category": f"{column}_{category}",
+                    "total": counts["total"],
+                    "covered": counts["covered"],
+                    "not_covered": counts["not_covered"],
+                }
+            )
 
     stats = pd.DataFrame(rows)
 
@@ -471,14 +534,12 @@ def build_stats_table(
     # sort by total descending within each group. Stable mergesort keeps the metric
     # grouping intact while ordering each group's rows biggest-first.
     metric_rank = {m: i for i, m in enumerate(stats["metric"].drop_duplicates())}
-    stats = (
+    return (
         stats.assign(_metric_rank=stats["metric"].map(metric_rank))
         .sort_values(["_metric_rank", "total"], ascending=[True, False], kind="stable")
         .drop(columns="_metric_rank")
         .reset_index(drop=True)
     )
-
-    return stats
 
 
 # =============================================================================
@@ -490,6 +551,7 @@ def build_stats_table(
 # These builders only reshape numbers into the frames those renderers take —
 # every value still comes from coverage_dicts_from_stats_table, so a figure can
 # never disagree with the stats table it was drawn from.
+
 
 def composition_frame(
     category_coverage: Mapping[str, Mapping[str, int]],
@@ -508,12 +570,14 @@ def composition_frame(
     for category, counts in category_coverage.items():
         total = int(counts["total"])
         covered = int(counts["covered"])
-        rows.append({
-            "category": labels.get(category, category),
-            "covered": covered,
-            "not_covered": int(counts["not_covered"]),
-            "covered_pct": round(covered / total * 100, 1) if total else float("nan"),
-        })
+        rows.append(
+            {
+                "category": labels.get(category, category),
+                "covered": covered,
+                "not_covered": int(counts["not_covered"]),
+                "covered_pct": round(covered / total * 100, 1) if total else float("nan"),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -574,10 +638,22 @@ def dr_dl_histogram_frame(
     labels = labels or {}
     values = [v for v in gene_result[column].value_counts().index if not pd.isna(v)]
 
-    parts = [pd.DataFrame({"stratum": "All genes", feature: gene_result.loc[gene_result[column].notna(), feature].to_numpy()})]
+    parts = [
+        pd.DataFrame(
+            {
+                "stratum": "All genes",
+                feature: gene_result.loc[gene_result[column].notna(), feature].to_numpy(),
+            }
+        )
+    ]
     for value in values:
         mask = gene_result[column] == value
         parts.append(
-            pd.DataFrame({"stratum": labels.get(value, str(value)), feature: gene_result.loc[mask, feature].to_numpy()})
+            pd.DataFrame(
+                {
+                    "stratum": labels.get(value, str(value)),
+                    feature: gene_result.loc[mask, feature].to_numpy(),
+                }
+            )
         )
     return pd.concat(parts, ignore_index=True)

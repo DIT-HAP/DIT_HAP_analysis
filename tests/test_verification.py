@@ -1,18 +1,17 @@
 """Tests for deletion library verification logic."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
-
 from workflow.src.figure_render.verification import render_gene_depletion_curve_panel
 from workflow.src.verification.core import (
     CATEGORY_FAMILIES,
@@ -38,19 +37,23 @@ from workflow.src.verification.core import (
 
 
 def _make_gene_results():
-    return pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "DR": [0.9, 0.1, 0.5, 0.8, 0.2],
-        "DL": [5.0, 1.0, 3.0, 4.0, 2.0],
-        "DeletionLibrary_essentiality": ["E", "V", "E", "V", "E"],
-    })
+    return pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
+            "DR": [0.9, 0.1, 0.5, 0.8, 0.2],
+            "DL": [5.0, 1.0, 3.0, 4.0, 2.0],
+            "DeletionLibrary_essentiality": ["E", "V", "E", "V", "E"],
+        }
+    )
 
 
 def _make_deletion_library():
-    return pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "Category": ["spores", "WT", "germinated", "small colonies", "E"],
-    })
+    return pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
+            "Category": ["spores", "WT", "germinated", "small colonies", "E"],
+        }
+    )
 
 
 # =============================================================================
@@ -59,7 +62,11 @@ def _make_deletion_library():
 def test_every_palette_label_resolves_to_a_family():
     """Every raw curated label and verification bucket maps into CATEGORY_FAMILIES."""
     labels = set(CATEGORY_FAMILY) | {"Not verified"}
-    unresolved = {label for label in labels if category_family(label) not in (*CATEGORY_FAMILIES, UNVERIFIED_FAMILY)}
+    unresolved = {
+        label
+        for label in labels
+        if category_family(label) not in (*CATEGORY_FAMILIES, UNVERIFIED_FAMILY)
+    }
     assert not unresolved
 
 
@@ -92,15 +99,17 @@ def test_order_verification_buckets_excludes_absent_labels():
 def _write_grna_table(tmp_path: Path) -> Path:
     path = tmp_path / "grna.tsv"
     points = "0.0,3.7,6.8,10.3,13.6,16.7"
-    pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
-        "time_points": [points, points],
-        "A": [2.0, 3.0],
-        "um": [0.5, 0.6],
-        "lam": [1.0, 1.5],
-        **{col: [1.0, 2.0] for col in GRNA_VALUE_COLS},
-        **{col: [1.5, 2.5] for col in GRNA_FITTED_COLS},
-    }).to_csv(path, sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2"],
+            "time_points": [points, points],
+            "A": [2.0, 3.0],
+            "um": [0.5, 0.6],
+            "lam": [1.0, 1.5],
+            **{col: [1.0, 2.0] for col in GRNA_VALUE_COLS},
+            **{col: [1.5, 2.5] for col in GRNA_FITTED_COLS},
+        }
+    ).to_csv(path, sep="\t", index=False)
     return path
 
 
@@ -146,10 +155,12 @@ def test_load_deletion_library_normalizes_the_legacy_id_column(tmp_path):
     # which has no openpyxl — hence the guard around the xlsx fixture.
     pytest.importorskip("openpyxl")
     path = tmp_path / "deletion_library_categories.xlsx"
-    pd.DataFrame({
-        "Updated_Systematic_ID": ["g1", "g2"],
-        "Category": ["spores", "WT"],
-    }).to_excel(path, index=False)
+    pd.DataFrame(
+        {
+            "Updated_Systematic_ID": ["g1", "g2"],
+            "Category": ["spores", "WT"],
+        }
+    ).to_excel(path, index=False)
 
     loaded = load_deletion_library(path)
 
@@ -183,6 +194,7 @@ def test_count_by_returns_counts():
 def test_category_with_essentiality_flag():
     """small colonies + E essentiality → 'small colonies (E)' label."""
     from workflow.src.verification.core import apply_category_with_essentiality
+
     row_sc_e = pd.Series({"Category": "small colonies", "DeletionLibrary_essentiality": "E"})
     row_sc_v = pd.Series({"Category": "small colonies", "DeletionLibrary_essentiality": "V"})
     assert apply_category_with_essentiality(row_sc_e) == "small colonies (E)"
@@ -199,12 +211,15 @@ def test_critical_filters_match_raw_labels():
     germinated' are NOT folded into 'spores', so they never enter the E2V group.
     """
     from workflow.src.verification.core import CRITICAL_GROUPS
-    merged = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4"],
-        "DR": [-0.9, -0.1, -0.1, -0.1],
-        "DeletionLibrary_essentiality": ["V", "V", "V", "V"],
-        "Category": ["WT-like", "spores", "spores, germinated", "germinated"],
-    })
+
+    merged = pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2", "g3", "g4"],
+            "DR": [-0.9, -0.1, -0.1, -0.1],
+            "DeletionLibrary_essentiality": ["V", "V", "V", "V"],
+            "Category": ["WT-like", "spores", "spores, germinated", "germinated"],
+        }
+    )
     wt = merged.query(CRITICAL_GROUPS["WT2nonWT"]["filter"], engine="python")
     assert wt["Systematic ID"].tolist() == ["g1"]
     # E2V matches literal 'spores'/'germinated'/'microcolonies' only — the
@@ -215,21 +230,25 @@ def test_critical_filters_match_raw_labels():
 
 def _make_critical_fixtures():
     """merged (raw Category), full verification, and simplified verification for bucket tests."""
-    merged = pd.DataFrame({
-        "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
-        "Name": ["a", "b", "c", "d", "e"],
-        "DR": [-0.9, -0.8, -0.7, -0.5, -0.4],
-        "DL": [5.0, 4.0, 3.0, 2.0, 1.0],
-        "DeletionLibrary_essentiality": ["V", "V", "V", "V", "V"],
-        "Category": ["WT-like", "WT-like", "WT-like", "WT-like", "small colonies"],
-    })
-    verification_full = pd.DataFrame({
-        "Systematic ID": ["g1", "g2"],
-        "verification_phenotype": ["E", "small colonies"],
-        "Verification result": ["E", "small colonies"],
-        "verification_essentiality": ["E", "V"],
-        "median_area_day3": [0.1, 0.5],
-    })
+    merged = pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2", "g3", "g4", "g5"],
+            "Name": ["a", "b", "c", "d", "e"],
+            "DR": [-0.9, -0.8, -0.7, -0.5, -0.4],
+            "DL": [5.0, 4.0, 3.0, 2.0, 1.0],
+            "DeletionLibrary_essentiality": ["V", "V", "V", "V", "V"],
+            "Category": ["WT-like", "WT-like", "WT-like", "WT-like", "small colonies"],
+        }
+    )
+    verification_full = pd.DataFrame(
+        {
+            "Systematic ID": ["g1", "g2"],
+            "verification_phenotype": ["E", "small colonies"],
+            "Verification result": ["E", "small colonies"],
+            "verification_essentiality": ["E", "V"],
+            "median_area_day3": [0.1, 0.5],
+        }
+    )
     return merged, verification_full
 
 
@@ -238,7 +257,9 @@ def test_prepare_verification_data_buckets():
     merged, verification_full = _make_critical_fixtures()
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
-        merged, final_merged, verification_full,
+        merged,
+        final_merged,
+        verification_full,
         outlier_filter="Category == 'WT-like' and DR < -0.35",
     )
     # g1..g4 are WT-like outliers (DR<-0.35); g1 verified E, g2 verified small colonies,
@@ -258,7 +279,9 @@ def test_prepare_verification_data_empty_group():
     merged, verification_full = _make_critical_fixtures()
     final_merged = build_final_merged(merged, verification_full)
     dr_dict, detail = prepare_verification_data(
-        merged, final_merged, verification_full,
+        merged,
+        final_merged,
+        verification_full,
         outlier_filter="Category == 'WT-like' and DR < -100",
     )
     assert dr_dict == {}
@@ -275,19 +298,24 @@ def test_select_group_outliers_matches_filter_and_sort():
 
 def test_build_final_merged_zero_fills_essential_missing_area():
     """An E-verified gene missing day-3 area is zero-filled across area columns."""
-    merged = pd.DataFrame({
-        "Systematic ID": ["g1"],
-        "Name": ["a"],
-        "DR": [0.9], "DL": [5.0],
-        "DeletionLibrary_essentiality": ["E"],
-        "Category": ["spores"],
-    })
-    verification_full = pd.DataFrame({
-        "Systematic ID": ["g1"],
-        "verification_essentiality": ["E"],
-        "median_area_day3": [None],
-        "median_area_day6": [None],
-    })
+    merged = pd.DataFrame(
+        {
+            "Systematic ID": ["g1"],
+            "Name": ["a"],
+            "DR": [0.9],
+            "DL": [5.0],
+            "DeletionLibrary_essentiality": ["E"],
+            "Category": ["spores"],
+        }
+    )
+    verification_full = pd.DataFrame(
+        {
+            "Systematic ID": ["g1"],
+            "verification_essentiality": ["E"],
+            "median_area_day3": [None],
+            "median_area_day6": [None],
+        }
+    )
     final = build_final_merged(merged, verification_full)
     assert final.loc[0, "median_area_day3"] == 0
     assert final.loc[0, "median_area_day6"] == 0
@@ -298,10 +326,20 @@ def test_build_final_merged_zero_fills_essential_missing_area():
 # =============================================================================
 def _dit_row(**overrides) -> pd.Series:
     row = {
-        "A": -6.0, "DR": -0.5, "DL": 2.0, "time_points": "0.0,2.352,5.588,9.104,12.48",
-        "YES0": 0.0, "YES1": -1.0, "YES2": -3.0, "YES3": -5.0, "YES4": -6.0,
-        "YES0_fitted": 0.0, "YES1_fitted": -1.2, "YES2_fitted": -3.1,
-        "YES3_fitted": -5.2, "YES4_fitted": -6.0,
+        "A": -6.0,
+        "DR": -0.5,
+        "DL": 2.0,
+        "time_points": "0.0,2.352,5.588,9.104,12.48",
+        "YES0": 0.0,
+        "YES1": -1.0,
+        "YES2": -3.0,
+        "YES3": -5.0,
+        "YES4": -6.0,
+        "YES0_fitted": 0.0,
+        "YES1_fitted": -1.2,
+        "YES2_fitted": -3.1,
+        "YES3_fitted": -5.2,
+        "YES4_fitted": -6.0,
     }
     row.update(overrides)
     return pd.Series(row)
@@ -319,15 +357,22 @@ def test_render_gene_depletion_curve_panel_dit_only():
 
 def test_render_gene_depletion_curve_panel_with_grna_overlay():
     """A gRNA row adds its own points and its own fitted curve, each labelled with its DR."""
-    grna_row = pd.Series({
-        "A": -4.0, "um": -0.7, "lam": 1.5,
-        **{c: float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
-        **{f"{c}_fitted": float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
-    })
+    grna_row = pd.Series(
+        {
+            "A": -4.0,
+            "um": -0.7,
+            "lam": 1.5,
+            **{c: float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
+            **{f"{c}_fitted": float(i) for i, c in enumerate(GRNA_VALUE_COLS)},
+        }
+    )
     fig, ax = plt.subplots()
-    render_gene_depletion_curve_panel(ax, _dit_row(), grna_row, [0.0, 3.7, 6.8, 10.3, 13.6, 16.7], "myGene")
+    render_gene_depletion_curve_panel(
+        ax, _dit_row(), grna_row, [0.0, 3.7, 6.8, 10.3, 13.6, 16.7], "myGene"
+    )
     assert [line.get_label() for line in ax.get_lines()] == [
-        "DIT-HAP fit (DR=-0.5)", "gRNA fit (DR=-0.7)",
+        "DIT-HAP fit (DR=-0.5)",
+        "gRNA fit (DR=-0.7)",
     ]
     assert len(ax.collections) == 2  # one point set per assay
     plt.close(fig)

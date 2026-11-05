@@ -17,6 +17,7 @@ descriptive statistics: `compute_distance_zscores` handles every dispersion
 method in one permutation pass, and `coherence_metrics` returns the per-group
 statistic block the workflow's metrics tables are built from.
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
@@ -118,7 +119,9 @@ def pairwise_distance(
         "max": lambda: float(np.max(pw)),
         "knn": lambda: average_knn_distance(X, k=k_nn, method="mean"),
         "both": lambda: np.array([np.mean(pw), np.median(pw)]),
-        "all": lambda: np.array([np.mean(pw), np.median(pw), np.max(pw), average_knn_distance(X, k=k_nn)]),
+        "all": lambda: np.array(
+            [np.mean(pw), np.median(pw), np.max(pw), average_knn_distance(X, k=k_nn)]
+        ),
     }
     if method not in reducers:
         raise ValueError(f"Invalid method {method!r}")
@@ -180,8 +183,7 @@ def _permutation_nulls(
     rng = np.random.default_rng(random_state)
     idx = np.arange(bg.shape[0])
     observed = {
-        method: _observed_distance(X, method, pdist(X) if shares_pw else None)
-        for method in methods
+        method: _observed_distance(X, method, pdist(X) if shares_pw else None) for method in methods
     }
     nulls = {method: np.empty(n_permutations) for method in methods}
     for i in range(n_permutations):
@@ -203,7 +205,7 @@ def compute_distance_stats(
     """(z, p_coherent, p_incoherent) for SEVERAL methods in one permutation pass."""
     methods, observed, nulls = _permutation_nulls(X, bg, methods, n_permutations, random_state)
     if observed is None:
-        return {method: (0.0, 1.0, 1.0) for method in methods}
+        return dict.fromkeys(methods, (0.0, 1.0, 1.0))
     return {
         method: permutation_statistics(observed[method], nulls[method], n_permutations)
         for method in methods
