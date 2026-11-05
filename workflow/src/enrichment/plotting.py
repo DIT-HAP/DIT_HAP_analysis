@@ -9,11 +9,19 @@ Data preparation and rendering for the enrichment stage's two figure families:
   significant terms per cluster for each variant)
 
 Preparation functions are pure (frame in, frame out) and unit-tested; the draw
-functions own the matplotlib axes. cnsplots supplies the house style and the
-saving path (``figures.apply_house_style`` + ``figures.save_dual``), while the
-bubble and heatmap marks themselves are raw Axes calls — cnsplots 0.7.0 has no
-bubble chart, and its heatmap wrapper needs an AnnData plus a clustering tree
-this figure does not have.
+functions own the matplotlib axes. The dotplot matrix is drawn by ``cns.dotplot``
+(the house enrichment-by-size-and-colour API). The cross-variant heatmap and
+counts stay raw Axes calls: ``cns.heatmapplot`` accepts a plain DataFrame, but it
+puts its colour legend outside the axes where it collides with the title at this
+page budget, and ``cns.barplot`` draws its key inside the axes, over the bars.
+An ``imshow`` + colourbar and a grouped ``bar`` keep both keys inside the space
+the canvas reserves for them.
+
+Every canvas is budgeted in points against the house 100 pt panel contract:
+``cns.figure``'s "pixel" is 1/72 inch, so its numbers are points, and the page
+grows around a fixed-size matrix rather than the matrix shrinking to fit a
+guessed page. Panel boxes come from the house shapes and tick sizes from the
+resolved cnsplots style, so no font or marker size is set here.
 
 Input
 -----
@@ -28,39 +36,85 @@ Output
 # IMPORTS
 # =============================================================================
 # Standard library
+from collections.abc import Iterable
 from pathlib import Path
 
 # Local project
 import cnsplots as cns
 from loguru import logger
-from matplotlib.axes import Axes
+from matplotlib.font_manager import FontProperties
 
 # Data processing / plotting
 import matplotlib.pyplot as plt
+from matplotlib.textpath import TextToPath
 import numpy as np
 import pandas as pd
 
 from enrichment.schema import EnrichmentCol
-from figures import DENSITY_CMAP, FURNITURE_COLOR, apply_house_style, house_colors, save_dual
+from figures import (
+    DENSITY_CMAP,
+    PANEL_SIZES_PX,
+    PanelShape,
+    apply_house_style,
+    house_colors,
+    save_dual,
+)
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 # Below this, -log10(FDR) saturates instead of returning inf for a p of exactly 0.
 FDR_FLOOR = 1e-50
-# Marker area in points^2, mapped linearly from the gene ratio.
-MARKER_MIN_AREA = 12.0
-MARKER_AREA_PER_RATIO = 260.0
-# Row pitch of one term in the dotplot, in layout pixels (1 px = 1 pt).
-DOTPLOT_ROW_PX = 11
-DOTPLOT_WIDTH_PX = 320
-DOTPLOT_MARGIN_PX = 96
+# Every canvas measurement is in points, the unit cnsplots sizes pages in
+# (cns.figure divides by 72 to get inches) and the unit the 100 pt panel contract
+# is written in. Panel boxes come from the house shapes; tick sizes are read back
+# from the resolved cnsplots style at draw time rather than restated here.
+MATRIX_PT = PANEL_SIZES_PX[PanelShape.SQUARE][0]  # the dot matrix or heatmap block
+ROW_GUTTER_PT = 3  # air between one categorical row's tick label and the next
+# cns.dotplot measures its legend area in millimetres, not points; 20 mm is the
+# API default and the width this canvas reserves for it.
+LEGEND_MM = 20
+LABEL_PAD_PT = 4  # gutter left of the longest row label
+TICK_PAD_PT = 2
+RIGHT_PAD_PT = 8  # the size legend overruns its own axes by ~6 pt
+TITLE_PT = 18  # title band above the matrix
+FOOTER_PT = 40  # x tick labels, their 15 pt labelpad and the xlabel
+HEATMAP_TICK_ANGLE_DEG = 45  # variant names do not fit on a 12 pt column unrotated
+# Hand-placed colorbar column: gap, bar, then its tick labels and axis label.
+COLORBAR_GAP_PT = 6
+COLORBAR_BAR_PT = 8
+COLORBAR_TEXT_PT = 26
+# Grouped bars need a wide panel: nine cluster groups of one bar per variant.
+COUNTS_LEFT_PT = 40  # y tick labels plus the rotated ylabel
+COUNTS_MATRIX_WIDTH_PT, COUNTS_MIN_HEIGHT_PT = PANEL_SIZES_PX[PanelShape.WIDE]
+COUNTS_LEGEND_PAD_PT = 30  # key marker, its handletext pad, and the key title
+COUNTS_FOOTER_PT = 30  # x tick labels plus the xlabel
+COUNTS_TOP_PT = 8
+PT_PER_MM = 72 / 25.4
+# Column names double as the cns.dotplot legend titles, so they are written for
+# display rather than as the tidy frame's identifiers.
+DOTPLOT_COLOR_COLUMN = "-log10(FDR)"
+DOTPLOT_SIZE_COLUMN = "Gene ratio"
 DOTPLOT_COLUMNS = [
     EnrichmentCol.CLUSTER,
     EnrichmentCol.TERM_ID,
     EnrichmentCol.P_FDR,
     EnrichmentCol.GENE_RATIO,
 ]
+
+
+# =============================================================================
+# SHARED MEASUREMENT
+# =============================================================================
+def _tick_font_pt() -> float:
+    """The tick size the cnsplots style resolved, which the canvas must budget."""
+    resolved = FontProperties(size=plt.rcParams["xtick.labelsize"])
+    return float(resolved.get_size_in_points())
+
+
+def _row_pitch_pt() -> float:
+    """Vertical pitch of one categorical row: its tick label plus the gutter."""
+    return _tick_font_pt() + ROW_GUTTER_PT
 
 
 # =============================================================================
@@ -104,6 +158,60 @@ def dotplot_matrix(
 # =============================================================================
 # DOTPLOT — RENDER
 # =============================================================================
+def dotplot_plot_frame(
+    enrichment: pd.DataFrame, terms: pd.DataFrame, fdr_floor: float = FDR_FLOOR
+) -> pd.DataFrame:
+    """Shape the selected cells into the x / y-category / colour / size frame cns.dotplot reads."""
+    matrix = dotplot_matrix(enrichment, terms, fdr_floor)
+    clusters = matrix[EnrichmentCol.CLUSTER].astype(int)
+    names = terms.set_index(EnrichmentCol.TERM_ID)[EnrichmentCol.TERM]
+    return pd.DataFrame(
+        {
+            # An ordered categorical keeps cluster 10 after cluster 9; the plotter
+            # pivots lexicographically on a plain string column.
+            EnrichmentCol.CLUSTER: pd.Categorical(
+                clusters.astype(str),
+                categories=[str(cluster) for cluster in sorted(clusters.unique())],
+                ordered=True,
+            ),
+            "term": pd.Categorical(
+                matrix[EnrichmentCol.TERM_ID].map(names),
+                categories=list(terms[EnrichmentCol.TERM]),
+                ordered=True,
+            ),
+            DOTPLOT_COLOR_COLUMN: matrix["neg_log10_fdr"],
+            DOTPLOT_SIZE_COLUMN: matrix[EnrichmentCol.GENE_RATIO],
+        }
+    )
+
+
+def label_width_pt(names: Iterable[str]) -> float:
+    """Width the longest label needs at the house tick size, in points."""
+    font = FontProperties(family=plt.rcParams["font.sans-serif"], size=_tick_font_pt())
+    engine = TextToPath()
+    widths = [engine.get_text_width_height_descent(str(name), font, False)[0] for name in names]
+    return max(widths)
+
+
+def rotated_label_height_pt(names: Iterable[str], angle_deg: float) -> float:
+    """Height a band of tick labels rotated by ``angle_deg`` needs, in points."""
+    angle = np.radians(angle_deg)
+    width_pt = label_width_pt(names)
+    return float(width_pt * np.sin(angle) + _tick_font_pt() * np.cos(angle))
+
+
+def _save_at_canvas_size(output_stem: Path) -> None:
+    """Save at the size cns.figure declared, not a box cropped around the artists."""
+    # Two separate crops have to be switched off: cns.setup_matplotlib() sets
+    # rcParams["savefig.bbox"]="tight", and cns.savefig() then adds its own tight bbox
+    # on top. Either one trims the row labels or the size legend off the page.
+    with (
+        plt.rc_context({"savefig.bbox": "standard"}),
+        cns.settings.context(savefig_bbox="standard"),
+    ):
+        save_dual(output_stem)
+
+
 def plot_dotplot(
     enrichment: pd.DataFrame,
     terms: pd.DataFrame,
@@ -112,37 +220,77 @@ def plot_dotplot(
     fdr_floor: float = FDR_FLOOR,
 ) -> None:
     """Render the cluster x term dotplot to ``output_stem``.pdf and .review.png."""
-    matrix = dotplot_matrix(enrichment, terms, fdr_floor)
-    n_rows = len(terms)
-    marker_area = MARKER_MIN_AREA + MARKER_AREA_PER_RATIO * matrix[EnrichmentCol.GENE_RATIO]
-
     apply_house_style()
-    cns.figure(width=DOTPLOT_WIDTH_PX, height=DOTPLOT_MARGIN_PX + DOTPLOT_ROW_PX * n_rows)
-    figure = plt.gcf()
-    ax = figure.subplots()
 
-    scatter = ax.scatter(
-        matrix[EnrichmentCol.CLUSTER].astype(int),
-        matrix["row"],
-        s=marker_area,
-        c=matrix["neg_log10_fdr"],
-        cmap=DENSITY_CMAP,
-        linewidths=0.3,
-        edgecolors=FURNITURE_COLOR,
+    if terms.empty:
+        _plot_empty_dotplot(output_stem, title)
+        return
+
+    frame = dotplot_plot_frame(enrichment, terms, fdr_floor)
+    legend_pt = LEGEND_MM * PT_PER_MM
+    label_col_pt = LABEL_PAD_PT + TICK_PAD_PT + label_width_pt(terms[EnrichmentCol.TERM])
+    # The canvas grows around a fixed 100 pt matrix: the plotter reserves the legend
+    # area inside the host axes, so the matrix keeps its size whatever the labels cost.
+    width = round(label_col_pt + MATRIX_PT + legend_pt + RIGHT_PAD_PT)
+    height = round(TITLE_PT + _row_pitch_pt() * len(terms) + FOOTER_PT)
+
+    cns.figure(width=width, height=height)
+    figure = plt.gcf()
+    # add_axes, not subplots: pycomplexheatmap's colorbar calls subplots_adjust(bottom=0),
+    # which would wipe out the footer this canvas budgets for.
+    host = figure.add_axes(
+        (
+            label_col_pt / width,
+            FOOTER_PT / height,
+            (MATRIX_PT + legend_pt) / width,
+            1 - (TITLE_PT + FOOTER_PT) / height,
+        )
     )
 
-    ax.set_yticks(range(n_rows))
-    ax.set_yticklabels(terms[EnrichmentCol.TERM])
-    ax.set_xticks(sorted(matrix[EnrichmentCol.CLUSTER].astype(int).unique()))
-    ax.set_xlabel("Cluster  (dot size = gene ratio)")
-    ax.set_ylabel("")
-    ax.set_title(title, loc="left")
-    ax.invert_yaxis()
+    # value= collapses the pivot to a single numeric column: without it the
+    # plotter aggregates every numeric column and pycomplexheatmap's stack()
+    # yields four. The *_na=NaN fills keep the matrix sparse, so an untested
+    # cluster-by-term cell is blank instead of a dot at the zero end of the scale.
+    plotter = cns.dotplot(
+        data=frame,
+        x=EnrichmentCol.CLUSTER,
+        y="term",
+        color=DOTPLOT_COLOR_COLUMN,
+        size=DOTPLOT_SIZE_COLUMN,
+        value=DOTPLOT_COLOR_COLUMN,
+        value_na=np.nan,
+        s_na=np.nan,
+        c_na=np.nan,
+        ax=host,
+        xticklabels_rotation=0,
+        # extend="neither" squares off the colorbar ends the plotter rounds by default;
+        # %.0f drops the three decimals its auto ticks carry at this data range.
+        cmap_legend_kws={"extend": "neither", "format": "%.0f"},
+        xlabel="Cluster  (dot size = gene ratio)",
+        ylabel="",
+        cmap=DENSITY_CMAP,
+    )
+    plotter.hm_ax.set_title(title, loc="left")
 
-    figure.colorbar(scatter, ax=ax, label=r"$-\log_{10}$(FDR)", pad=0.02, fraction=0.04)
-    save_dual(output_stem)
+    _save_at_canvas_size(output_stem)
     plt.close(figure)
     logger.success(f"Wrote dotplot -> {output_stem}.pdf")
+
+
+def _plot_empty_dotplot(output_stem: Path, title: str) -> None:
+    """Write a one-line note figure when a variant has no significant term to plot."""
+    width = LABEL_PAD_PT + MATRIX_PT + RIGHT_PAD_PT
+    height = round(TITLE_PT + _row_pitch_pt() + FOOTER_PT)
+    cns.figure(width=width, height=height)
+    figure = plt.gcf()
+    ax = figure.add_axes((0, 0, 1, 1))
+    ax.axis("off")
+    ax.set_title(title, loc="left")
+    ax.text(0.5, 0.5, "no significant terms", ha="center", va="center")
+
+    _save_at_canvas_size(output_stem)
+    plt.close(figure)
+    logger.warning(f"No significant terms; wrote a placeholder dotplot -> {output_stem}.pdf")
 
 
 # =============================================================================
@@ -221,23 +369,33 @@ def term_display_names(per_variant: dict[str, pd.DataFrame]) -> pd.Series:
 # =============================================================================
 def plot_variant_heatmap(matrix: pd.DataFrame, term_names: pd.Series, output_stem: Path) -> None:
     """Render the term x variant significance heatmap to ``output_stem``.pdf and .review.png."""
-    labels = [term_names.get(term_id, term_id) for term_id in matrix.index]
-    n_rows = len(matrix)
-
     apply_house_style()
-    cns.figure(width=DOTPLOT_WIDTH_PX, height=DOTPLOT_MARGIN_PX + DOTPLOT_ROW_PX * n_rows)
+
+    labels = term_names.loc[matrix.index].tolist()
+    footer_pt = rotated_label_height_pt(matrix.columns, HEATMAP_TICK_ANGLE_DEG) + TICK_PAD_PT
+    label_col_pt = LABEL_PAD_PT + TICK_PAD_PT + label_width_pt(labels)
+    width = round(label_col_pt + MATRIX_PT + COLORBAR_GAP_PT + COLORBAR_BAR_PT + COLORBAR_TEXT_PT)
+    height = round(TITLE_PT + _row_pitch_pt() * len(matrix) + footer_pt)
+
+    cns.figure(width=width, height=height)
     figure = plt.gcf()
-    ax = figure.subplots()
+    matrix_left = label_col_pt / width
+    matrix_bottom = footer_pt / height
+    matrix_height_frac = 1 - (TITLE_PT + footer_pt) / height
+    ax = figure.add_axes((matrix_left, matrix_bottom, MATRIX_PT / width, matrix_height_frac))
 
     image = ax.imshow(matrix.to_numpy(dtype=float), aspect="auto", cmap=DENSITY_CMAP)
     ax.set_xticks(range(matrix.shape[1]))
-    ax.set_xticklabels(matrix.columns, rotation=45, ha="right")
-    ax.set_yticks(range(n_rows))
+    ax.set_xticklabels(matrix.columns, rotation=HEATMAP_TICK_ANGLE_DEG, ha="right")
+    ax.set_yticks(range(len(matrix)))
     ax.set_yticklabels(labels)
     ax.set_title("Strongest enrichment per term", loc="left")
-    figure.colorbar(image, ax=ax, label=r"$-\log_{10}$(FDR)", pad=0.02, fraction=0.04)
 
-    save_dual(output_stem)
+    cbar_left = matrix_left + (MATRIX_PT + COLORBAR_GAP_PT) / width
+    cax = figure.add_axes((cbar_left, matrix_bottom, COLORBAR_BAR_PT / width, matrix_height_frac))
+    figure.colorbar(image, cax=cax, label=r"$-\log_{10}$(FDR)", extend="neither")
+
+    _save_at_canvas_size(output_stem)
     plt.close(figure)
     logger.success(f"Wrote variant heatmap -> {output_stem}.pdf")
 
@@ -245,37 +403,40 @@ def plot_variant_heatmap(matrix: pd.DataFrame, term_names: pd.Series, output_ste
 def plot_variant_counts(counts: pd.DataFrame, output_stem: Path, fdr_threshold: float) -> None:
     """Render grouped bars of significant-term counts per cluster, one bar per variant."""
     apply_house_style()
-    cns.figure(width=DOTPLOT_WIDTH_PX, height=220)
-    figure = plt.gcf()
-    ax = figure.subplots()
 
     labels = list(counts.columns)
+    ylabel = f"Significant terms (FDR < {fdr_threshold})"
+    # The key sits outside the axes and the ylabel is rotated, so both can outgrow
+    # the panel when a variant name is long: measure them instead of guessing.
+    legend_pt = label_width_pt(labels) + COUNTS_LEGEND_PAD_PT
+    axes_height_pt = max(COUNTS_MIN_HEIGHT_PT, label_width_pt([ylabel]) + TICK_PAD_PT)
+    width = round(COUNTS_LEFT_PT + COUNTS_MATRIX_WIDTH_PT + legend_pt)
+    height = round(COUNTS_TOP_PT + axes_height_pt + COUNTS_FOOTER_PT)
+
+    cns.figure(width=width, height=height)
+    figure = plt.gcf()
+    ax = figure.add_axes(
+        (
+            COUNTS_LEFT_PT / width,
+            COUNTS_FOOTER_PT / height,
+            COUNTS_MATRIX_WIDTH_PT / width,
+            axes_height_pt / height,
+        )
+    )
+
     colors = house_colors(range(len(labels)))
     clusters = np.arange(len(counts.index))
-    width = 0.8 / len(labels)
-
-    _draw_variant_bars(ax, counts, labels, colors, clusters, width)
+    width_per_bar = 0.8 / len(labels)
+    for offset, (label, color) in enumerate(zip(labels, colors, strict=True)):
+        positions = clusters + (offset - (len(labels) - 1) / 2) * width_per_bar
+        ax.bar(positions, counts[label].to_numpy(), width=width_per_bar, color=color, label=label)
 
     ax.set_xticks(clusters)
     ax.set_xticklabels(counts.index)
     ax.set_xlabel("Cluster")
-    ax.set_ylabel(f"Significant terms (FDR < {fdr_threshold})")
-    ax.legend(title="Variant", frameon=False, loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    ax.set_ylabel(ylabel)
+    ax.legend(title="Variant", loc="upper left", bbox_to_anchor=(1.02, 1.0))
 
-    save_dual(output_stem)
+    _save_at_canvas_size(output_stem)
     plt.close(figure)
     logger.success(f"Wrote variant counts -> {output_stem}.pdf")
-
-
-def _draw_variant_bars(
-    ax: Axes,
-    counts: pd.DataFrame,
-    labels: list[str],
-    colors: list[str],
-    clusters: np.ndarray,
-    width: float,
-) -> None:
-    """Draw one bar series per variant around each cluster position."""
-    for offset, (label, color) in enumerate(zip(labels, colors, strict=True)):
-        positions = clusters + (offset - (len(labels) - 1) / 2) * width
-        ax.bar(positions, counts[label].to_numpy(), width=width, color=color, label=label)

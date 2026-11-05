@@ -9,8 +9,13 @@ import pandas as pd
 import pytest
 
 from workflow.src.enrichment.plotting import (
+    DOTPLOT_COLOR_COLUMN,
+    DOTPLOT_SIZE_COLUMN,
     dotplot_matrix,
+    dotplot_plot_frame,
     dotplot_terms,
+    label_width_pt,
+    rotated_label_height_pt,
     significant_term_counts,
     term_display_names,
     variant_heatmap_matrix,
@@ -61,6 +66,43 @@ def test_dotplot_matrix_maps_rows_and_colours():
     assert strongest == pytest.approx(6.0)
 
 
+def test_dotplot_plot_frame_is_sparse_and_keeps_term_order():
+    """cns.dotplot gets one row per tested cell, with the term axis in home-cluster order."""
+    enrichment = _two_cluster_frame()
+    terms = dotplot_terms(enrichment, top_terms_per_cluster=2)
+    frame = dotplot_plot_frame(enrichment, terms)
+
+    assert list(frame.columns) == [
+        "Cluster",
+        "term",
+        DOTPLOT_COLOR_COLUMN,
+        DOTPLOT_SIZE_COLUMN,
+    ]
+    assert len(frame) == 4  # 3 terms x 2 clusters = 6 cells, only the 4 tested ones
+    assert list(frame["term"].cat.categories) == [
+        "process A",
+        "process B",
+        "component D",
+    ]
+    assert set(frame["Cluster"]) == {"1", "2"}
+
+
+def test_dotplot_plot_frame_orders_clusters_numerically():
+    """Cluster order is numeric, so cluster 10 follows cluster 9 instead of cluster 1."""
+    enrichment = _enrichment(
+        [
+            [cluster, "BP", f"GO:{cluster}", f"process {cluster}", 1e-3, 0.1]
+            for cluster in range(1, 11)
+        ]
+    )
+    terms = dotplot_terms(enrichment, top_terms_per_cluster=1)
+    frame = dotplot_plot_frame(enrichment, terms)
+
+    assert list(frame["Cluster"].cat.categories) == [
+        str(cluster) for cluster in range(1, 11)
+    ]
+
+
 def test_variant_heatmap_leaves_unseen_cells_empty():
     """A term absent from a variant stays NaN rather than becoming a zero."""
     first = _two_cluster_frame()
@@ -74,7 +116,10 @@ def test_variant_heatmap_leaves_unseen_cells_empty():
 def test_significant_term_counts_counts_per_cluster_and_variant():
     """Counts are per (variant, cluster) and zero-filled where a cluster has none."""
     counts = significant_term_counts(
-        {"first": _two_cluster_frame(), "second": _enrichment([[1, "BP", "GO:1", "a", 0.5, 0.1]])},
+        {
+            "first": _two_cluster_frame(),
+            "second": _enrichment([[1, "BP", "GO:1", "a", 0.5, 0.1]]),
+        },
         fdr_threshold=1e-2,
     )
     assert counts.loc[1, "first"] == 2
@@ -84,5 +129,25 @@ def test_significant_term_counts_counts_per_cluster_and_variant():
 
 def test_term_display_names_maps_every_seen_term():
     """The name map covers terms from both variants."""
-    names = term_display_names({"first": _two_cluster_frame(), "second": _two_cluster_frame()})
+    names = term_display_names(
+        {"first": _two_cluster_frame(), "second": _two_cluster_frame()}
+    )
     assert names["GO:4"] == "component D"
+
+
+def test_label_width_pt_measures_the_longest_name():
+    """The canvas reserves room for the widest label, so the longest name must win."""
+    short = label_width_pt(pd.Series(["protein transport", "ribosome"]))
+    long = label_width_pt(
+        pd.Series(["protein transport", "positive regulation of gene expression"])
+    )
+    assert long > short > 0
+
+
+def test_rotated_label_height_pt_collapses_to_one_line_at_zero_degrees():
+    """Unrotated, a label band is one tick line tall; the sine/cosine terms must not swap."""
+    names = pd.Series(["kmeans_merge9_manual"])
+    assert rotated_label_height_pt(names, 0) == pytest.approx(
+        rotated_label_height_pt(pd.Series(["x"]), 0)
+    )
+    assert rotated_label_height_pt(names, 90) == pytest.approx(label_width_pt(names))
