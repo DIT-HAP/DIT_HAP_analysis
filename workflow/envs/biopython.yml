@@ -8,7 +8,10 @@ dependencies:
   - numpy>=2.5.0
   - biopython>=1.87
   - gffutils>=0.13
-  - goatools
+  # Floor = the version the enrichment stage was validated against (1.6.8);
+  # 1.2.x imported statsmodels' removed sandbox module, so a stale env breaks
+  # every FDR-BH run with ImportError.
+  - goatools>=1.6.8
   - openpyxl
   - xlrd
   - loguru
@@ -21,9 +24,5 @@ dependencies:
   # goatools drags scipy in transitively, but that is an accident of goatools'
   # deps, not a contract — declare it directly.
   - scipy
-  # goatools' FDR-BH path imports multipletests from
-  # statsmodels.sandbox.stats.multicomp, which statsmodels removed in 0.15.
-  # Unpinned, the solver picks 0.15 and every enrichment run dies on ImportError.
-  - statsmodels<0.15
   - pip:
     - codon-bias>=0.3.5
