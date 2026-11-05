@@ -1,0 +1,5 @@
+extend = "../../../ruff-enrichment.toml"
+
+[lint.per-file-ignores]
+# CLI entry points catch Exception in main() to log and exit non-zero.
+"*.py" = ["BLE001"]

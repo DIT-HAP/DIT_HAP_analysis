@@ -70,15 +70,23 @@ clustering:
     method: kmeans       # selected from QC + clusters_grid review
     k: 9                 # selected cluster count (WT = enrichment.wt_cluster = 9)
 
-# --- Ontology enrichment (enrichment.smk) ---
+# --- Cluster enrichment (3c_enrichment.smk) ---
+# One stage, two halves: deterministic GO/FYPO/MONDO over-representation first,
+# then the optional STRING/REVIGO network pass. Every numeric knob is read from
+# here and nowhere else — the library modules carry no defaults, so a missing
+# key fails the run instead of silently falling back to a stale constant.
 enrichment:
   fdr_threshold: 0.05   # alpha for goatools FDR-BH
   wt_cluster: 9         # WT/background cluster id; clusters < this get nonWT comparison
-  pop_count_max: 400    # max pop_count for the filtered GO output
-
-# --- Network enrichment: STRING + REVIGO (enrichment_network.smk) ---
-enrichment_network:
-  revigo_cutoffs: [0.7, 0.5]   # REVIGO semantic-similarity cutoffs, run in order (loose then tight)
+  pop_count_max: 400    # max pop_count for the filtered GO table
+  # Figures read only the finalized TSVs. Dotplot rows = the union of each
+  # cluster's top N terms; heatmap rows = the union of each variant's top N.
+  dotplot_top_terms: 5
+  variant_heatmap_top_terms: 15
+  # Network half (STRING + REVIGO): non-deterministic, never in `rule all`.
+  # Responses cache under resources/external/enrichment_cache/{dataset}.
+  network:
+    revigo_cutoffs: [0.7, 0.5]   # REVIGO semantic-similarity cutoffs, run in order (loose then tight)
 
 # --- PCR / library-prep quality control (1a_pcr_qc.smk) ---
 # Which specific libraries to compare in the 2x2 QC figure. These read upstream

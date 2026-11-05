@@ -7,11 +7,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
-from workflow.src.enrichment.network import NetworkConfig, annotate_go_with_revigo
-from workflow.src.enrichment.pipeline import (
+from workflow.src.enrichment.network import (
+    RevigoNetworkConfig,
     _cache_key,
     _cache_load,
     _cache_store,
+    annotate_go_with_revigo,
     format_string_enrichment_results,
     revigo_analysis,
     stringdb_enrichment,
@@ -63,7 +64,7 @@ def test_revigo_analysis_uses_cache_without_network(tmp_path):
 
 
 def test_annotate_go_with_revigo_uses_configured_cutoffs(tmp_path):
-    """annotate_go_with_revigo runs one REVIGO round per configured cutoff, not the hardcoded [0.7, 0.5]."""
+    """annotate_go_with_revigo runs one REVIGO round per configured cutoff."""
     enrichment_dir = tmp_path / "enrichment"
     enrichment_dir.mkdir()
     go_df = pd.DataFrame(
@@ -74,12 +75,19 @@ def test_annotate_go_with_revigo_uses_configured_cutoffs(tmp_path):
     cache_dir = tmp_path / "cache"
     key = _cache_key("revigo", "0.9", "GO:0001:0.01")
     seeded = pd.DataFrame(
-        {"Term ID": ["GO:0001"], "Dispensability": [0.1], "Eliminated": [False], "Representative": ["mitosis"]}
+        {
+            "Term ID": ["GO:0001"],
+            "Dispensability": [0.1],
+            "Eliminated": [False],
+            "Representative": ["mitosis"],
+        }
     )
     _cache_store(cache_dir, key, seeded)
 
-    config = NetworkConfig(
-        enrichment_dir=enrichment_dir, output_dir=tmp_path / "out", cache_dir=cache_dir,
+    config = RevigoNetworkConfig(
+        enrichment_dir=enrichment_dir,
+        output_dir=tmp_path / "out",
+        cache_dir=cache_dir,
         revigo_cutoffs=[0.9],
     )
     result = annotate_go_with_revigo(config)
@@ -106,7 +114,8 @@ def test_format_string_enrichment_maps_namespaces_and_schema():
         }
     )
     out = format_string_enrichment_results(raw, ["a", "b"], ["a", "b", "c"])
-    assert "term_id" in out.columns and "p_fdr" in out.columns
+    assert "term_id" in out.columns
+    assert "p_fdr" in out.columns
     assert out["namespace"].iloc[0] == "KEGG Pathways"
     assert out["study_n"].iloc[0] == 2
     assert out["pop_n"].iloc[0] == 3

@@ -35,7 +35,7 @@ wildcard_constraints:
 #   1  data plausibility + reference layer          (1a pcr_qc, 1b features, 1c annotate)
 #   2  characterisation that does not need clusters (2a coverage, 2b verification)
 #   3  group-level analysis in fitness space        (3a coherence, 3b clustering,
-#                                                    3c enrichment, 3d enrichment_network)
+#                                                    3c enrichment)
 #   4  structure inside the gene                    (4a domain_differences, 4b utr, 4c noncoding_rna)
 #   5  prediction                                   (5a ml)
 #   6  comparison against external studies          (6a comparison)
@@ -44,7 +44,7 @@ wildcard_constraints:
 # reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
 # results/1b_features/, results/1c_annotation/ (the stage noun — the rule file is
 # the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/,
-# results/3b_clustering/, results/3c_enrichment/, results/3d_enrichment_network/,
+# results/3b_clustering/, results/3c_enrichment/,
 # results/4a_domain_differences/, results/4b_utr/, results/4c_noncoding_rna/,
 # results/5a_ml/, results/6a_comparison/.
 # The prefix stops at the rule file and the results/logs directories: the script
@@ -62,7 +62,6 @@ include: "workflow/rules/2b_verification.smk"
 include: "workflow/rules/3a_coherence.smk"
 include: "workflow/rules/3b_clustering.smk"
 include: "workflow/rules/3c_enrichment.smk"
-include: "workflow/rules/3d_enrichment_network.smk"
 include: "workflow/rules/4a_domain_differences.smk"
 include: "workflow/rules/4b_utr.smk"
 include: "workflow/rules/4c_noncoding_rna.smk"
@@ -96,10 +95,13 @@ rule all:
         # Compare ALL buildable variants (builds every variant + a metrics table):
         # f"results/clustering/{_DATASET}/variant_metrics_comparison.tsv",
         # f"results/clustering/{_DATASET}/all_variants_cluster_scatter.pdf",
-        # Enrichment (per variant):
-        # f"results/3c_enrichment/raw/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
-        # Network enrichment (optional, hits STRING/REVIGO — run explicitly):
-        # f"results/3d_enrichment_network/network/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_revigo.tsv",
+        # Enrichment (per variant), its dotplot, and the cross-variant pair.
+        # The network rules (STRING / REVIGO) stay out of `rule all` on purpose:
+        # they hit external APIs, so they are only built when named explicitly.
+        # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
+        # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_dotplot.pdf",
+        # f"results/3c_enrichment/{_DATASET}/variant_enrichment_heatmap.pdf",
+        # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/network/go_enrichment_full_revigo.tsv",
         # ML AutoML (target x mode; uses selected_variant):
         # f"results/5a_ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",
         # f"results/5a_ml/models/{_DATASET}/{_REF}/DL_Explain/metrics.tsv",

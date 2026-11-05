@@ -88,14 +88,15 @@ from annotation.core import (
     read_sgd_phenotype_data,
     report_gene_status_summary,
 )
+from enrichment.cluster_enrichment import get_slim_ns2assoc
 from enrichment.ontology import OntologyDataConfig, load_ontology_data
-from enrichment.pipeline import get_slim_ns2assoc
 from io_table import read_file, write_parquet
 from logging_setup import setup_logger
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
+
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class AnnotationReferenceConfig:
@@ -159,6 +160,7 @@ class AnnotationReferenceConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+
 
 @logger.catch(reraise=True)
 def build_ortholog_blocks(config: AnnotationReferenceConfig) -> list[pd.DataFrame]:
@@ -243,11 +245,15 @@ def run(config: AnnotationReferenceConfig) -> None:
     experimental_blocks = [deletion_block, verification_block, gene_depletion_block, grna_block]
     annotation_blocks = ortholog_blocks + functional_blocks
 
-    reference = assemble_annotation_reference_split(pombe_block, experimental_blocks, annotation_blocks)
+    reference = assemble_annotation_reference_split(
+        pombe_block, experimental_blocks, annotation_blocks
+    )
 
     # Fill missing deletion_essentiality with "Not_determined" after assembly (outer join)
     if "deletion_essentiality" in reference.columns:
-        reference["deletion_essentiality"] = reference["deletion_essentiality"].fillna("Not_determined")
+        reference["deletion_essentiality"] = reference["deletion_essentiality"].fillna(
+            "Not_determined"
+        )
 
     # Add gene_status column to track gene presence and type in current PomBase
     reference["gene_status"] = add_gene_status_column(reference.index, config.gene_ids_parquet)
@@ -272,7 +278,10 @@ def parse_args() -> argparse.Namespace:
         "--sgd-dir", type=Path, required=True, help="SGD version directory (see fetch_sgd_data.sh)"
     )
     parser.add_argument(
-        "--deletion-library-xlsx", type=Path, required=True, help="Curated deletion-library categories xlsx"
+        "--deletion-library-xlsx",
+        type=Path,
+        required=True,
+        help="Curated deletion-library categories xlsx",
     )
     parser.add_argument(
         "--verification-csv", type=Path, required=True, help="Curated essentiality verification CSV"
@@ -296,8 +305,12 @@ def parse_args() -> argparse.Namespace:
         choices=list(VALID_GENE_TYPES.keys()),
         help=f"Gene type filter: {', '.join(VALID_GENE_TYPES.keys())} (default: all)",
     )
-    parser.add_argument("--output", type=Path, required=True, help="Output annotation reference parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output annotation reference parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

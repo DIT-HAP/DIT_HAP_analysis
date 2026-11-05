@@ -2,87 +2,90 @@
 
 """
 Enrichment Preprocessing (the spine)
-======================================
+====================================
 
-First stage of the split GO/FYPO/MONDO enrichment pipeline: reads
-final_clusters.tsv into background / nonWT / per-cluster gene sets, builds the
-id->name map, and writes the gene-list txt files. Emits pickles for the three
-per-ontology enrichment jobs (design doc §5).
+First step of the GO/FYPO/MONDO enrichment stage: turn the curated
+``final_clusters.tsv`` into background / nonWT / per-cluster gene sets, build
+the id->name map, and write the gene-list text files. Emits the two pickles the
+per-ontology jobs read, so the ontology fan-out needs no clustering knowledge.
 
-final_clusters.tsv is sourced via final_clusters_path(dataset, variant)
-(clustering.smk). Every finalize variant BUILDS it under
-results/3b_clustering/{dataset}/{variant}/final_clusters.tsv: direct/auto_merge/grid via
-deterministic finalize scripts, manual_merge via the finalize_manual_merge rule
-(executes finalize_gene_clusters.ipynb headlessly) (design doc §8).
+``final_clusters.tsv`` is sourced through ``final_clusters_path(dataset,
+variant)`` in the clustering stage; every finalize variant builds one.
 
 Input
 -----
-- final_clusters.tsv (Systematic ID, cluster, ...) from the selected finalize variant
-- PomBase gene metadata + curated deletion-library table (for id->name mapping)
+- final_clusters.tsv (Systematic ID, cluster, ...) from a finalize variant
+- PomBase gene metadata + the curated deletion-library workbook
 
 Output
 ------
-- gene-list txt files (DIT_HAP_all_genes.txt, per-cluster, matrix) in the raw dir
+- DIT_HAP_all_genes.txt, DIT_HAP_cluster_{n}_genes.txt, DIT_HAP_cluster_genes_matrix.txt
 - _work/genesets.pkl (ClusterGeneSets), _work/id2name.pkl (dict)
 
 Usage
 -----
     python prepare_genesets.py \\
-        --final-clusters results/3b_clustering/{dataset}/{variant}/final_clusters.tsv \\
-        --pombase-dir resources/external/pombase/2025-10-01 \\
+        --final-clusters results/3b_clustering/HD_DIT_HAP/kmeans_direct9/final_clusters.tsv \\
+        --pombase-dir resources/external/pombase/2026-06-01 \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
-        --output-dir results/3c_enrichment/raw/{dataset}/{version} \\
-        --work-dir results/3c_enrichment/raw/{dataset}/{version}/_work
+        --output-dir results/3c_enrichment/HD_DIT_HAP/kmeans_direct9/2026-06-01 \\
+        --work-dir results/3c_enrichment/HD_DIT_HAP/kmeans_direct9/2026-06-01/_work \\
+        --wt-cluster 9
 
-Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
-Date:     2026-07-17
-Version:  1.0.0
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-11-05
+Version:  2.0.0
 """
 
 # =============================================================================
-# IMPORTS
+# 1. IMPORTS
 # =============================================================================
-# 1. Standard Library Imports
+# Standard library
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
-# 2. Data Processing Imports
-import pandas as pd
-
-# 3. Third-party Imports
 from loguru import logger
 
-# 4. Local Imports
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from enrichment.cluster_enrichment import (
+# Third-party
+import pandas as pd
+
+# Local project (resolved relative to this script, never the current directory)
+SCRIPT_DIR = Path(__file__).resolve().parent
+SRC_DIR = SCRIPT_DIR.parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from enrichment.cluster_enrichment import (  # noqa: E402
     CLUSTER_COLUMN,
-    WT_CLUSTER,
     load_cluster_genesets,
     write_gene_lists,
 )
-from enrichment.ontology import GeneMetaConfig
-from logging_setup import setup_logger
-
+from enrichment.ontology import GeneMetaConfig  # noqa: E402
+from enrichment.schema import FINAL_CLUSTER_COLUMNS  # noqa: E402
+from io_table import read_file  # noqa: E402
+from logging_setup import setup_logger  # noqa: E402
 
 # =============================================================================
-# CONFIGURATION & DATACLASSES
+# 2. CONFIGURATION
 # =============================================================================
+
+
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs, output/work dirs, and gene-set parameters for enrichment preprocessing."""
+
     final_clusters: Path
     pombase_dir: Path
     deletion_library_xlsx: Path
     output_dir: Path
     work_dir: Path
+    wt_cluster: int
     cluster_column: str = CLUSTER_COLUMN
-    wt_cluster: int = WT_CLUSTER
 
     def validate(self) -> None:
-        """Raise ValueError if any required input is missing, then ensure output/work dirs exist."""
+        """Raise if a required input is missing, then create the output directories."""
         for path in [self.final_clusters, self.pombase_dir, self.deletion_library_xlsx]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
@@ -91,24 +94,22 @@ class PrepareConfig:
 
 
 # =============================================================================
-# HELPERS
+# 3. CORE LOGIC
 # =============================================================================
-# =============================================================================
-# CORE LOGIC
-# =============================================================================
-@logger.catch(reraise=True)
-def run(config: PrepareConfig) -> None:
-    """Load gene sets + id->name map, write gene lists, and pickle both for the ontology jobs."""
-    config.validate()
-
+def run(config: PrepareConfig, clusters: pd.DataFrame) -> None:
+    """Build gene sets + id2name, write the gene lists, and pickle both for the ontology jobs."""
     gene_meta = GeneMetaConfig(
-        gene_IDs_names_products=config.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv",
+        gene_ids_names_products=config.pombase_dir
+        / "Gene_metadata"
+        / "gene_IDs_names_products.tsv",
         deletion_library_essentiality=config.deletion_library_xlsx,
     ).load_data()
 
-    genesets = load_cluster_genesets(config.final_clusters, config.cluster_column, config.wt_cluster)
+    genesets = load_cluster_genesets(clusters, config.cluster_column, config.wt_cluster)
     write_gene_lists(genesets.cluster_genes, genesets.bg_genes, config.output_dir)
-    logger.info(f"{len(genesets.cluster_genes)} clusters, {len(genesets.bg_genes)} background genes")
+    logger.info(
+        f"{len(genesets.cluster_genes)} clusters, {len(genesets.bg_genes)} background genes"
+    )
 
     pd.to_pickle(genesets, config.work_dir / "genesets.pkl")
     pd.to_pickle(gene_meta.id2name, config.work_dir / "id2name.pkl")
@@ -116,41 +117,58 @@ def run(config: PrepareConfig) -> None:
 
 
 # =============================================================================
-# MAIN EXECUTION
+# 4. IMPERATIVE SHELL
 # =============================================================================
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments and return the populated namespace."""
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Prepare enrichment gene sets (spine)")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
+    parser.add_argument(
+        "--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv"
+    )
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion library categories xlsx")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Raw results dir (gene lists)")
-    parser.add_argument("--work-dir", type=Path, required=True, help="Work dir for pickled genesets/id2name")
-    parser.add_argument("--wt-cluster", type=int, default=WT_CLUSTER, help="WT/background cluster id (default 9)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--deletion-library-xlsx",
+        type=Path,
+        required=True,
+        help="Curated deletion library workbook",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, required=True, help="Results dir for the gene lists"
+    )
+    parser.add_argument("--work-dir", type=Path, required=True, help="Work dir for the pickles")
+    parser.add_argument("--wt-cluster", type=int, required=True, help="WT/background cluster id")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable DEBUG logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: build config, run preprocessing, report results."""
+    """Validate the boundary once, then hand the trusted frame to the core."""
     args = parse_args()
-    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
+    setup_logger("DEBUG" if args.verbose else "INFO")
+    config = PrepareConfig(
+        final_clusters=args.final_clusters,
+        pombase_dir=args.pombase_dir,
+        deletion_library_xlsx=args.deletion_library_xlsx,
+        output_dir=args.output_dir,
+        work_dir=args.work_dir,
+        wt_cluster=args.wt_cluster,
+    )
+
     try:
-        config = PrepareConfig(
-            final_clusters=args.final_clusters,
-            pombase_dir=args.pombase_dir,
-            deletion_library_xlsx=args.deletion_library_xlsx,
-            output_dir=args.output_dir,
-            work_dir=args.work_dir,
-            wt_cluster=args.wt_cluster,
-        )
-        run(config)
-    except ValueError as e:
-        logger.error(f"Error: {e}")
+        config.validate()
+        clusters = read_file(config.final_clusters)
+        missing_columns = set(FINAL_CLUSTER_COLUMNS) - set(clusters.columns)
+        if missing_columns:
+            logger.error(
+                f"Missing required columns in {config.final_clusters}: {sorted(missing_columns)}"
+            )
+            return 1
+        run(config, clusters)
+    except Exception as error:
+        logger.exception(f"Enrichment preprocessing failed: {error}")
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    setup_logger()
     sys.exit(main())

@@ -1,0 +1,82 @@
+# =============================================================================
+# 0. Project Metadata & Dependency Declarations
+# =============================================================================
+[project]
+# Workspace identifier following PEP 621 standards (does not affect standalone script execution)
+name = "bioinfo-analysis-workspace"
+# Semantic version string (Major.Minor.Patch)
+version = "0.1.0"
+# Concise summary of workspace scope and engineering philosophy
+description = "Bioinformatics and data science workflows with strict reviewability gates"
+# Path to the workspace README file
+readme = "README.md"
+# Require Python 3.12+ to guarantee native X | Y union syntax, StrEnum, and modern typing
+requires-python = ">=3.12"
+# Core runtime dependencies pinned to modern 2.2+ standards
+dependencies = [
+    "loguru>=0.7.2",  # Exclusive logging library across all scripts (bans print and stdlib logging)
+    "numpy>=2.2.0",   # Core numerical operations, arrays, and vectorized np.where / np.select
+    "pandas>=2.2.0",  # Tabular data processing engine with modern Copy-on-Write and type support
+]
+
+[dependency-groups]
+# Development and linting toolchain dependencies (PEP 735 standard; separated from runtime)
+dev = [
+    "pytest>=8.4.0",  # Unit testing framework
+    "ruff>=0.10.0",   # High-performance Rust-based linter and code formatter
+    "ty>=0.0.90",     # Astral's static type checker for rapid signature and assignment validation
+]
+
+# =============================================================================
+# 1. UV Environment Restrictions (Prioritize Conda/Mamba, Prevent .venv Creation)
+# =============================================================================
+[tool.uv]
+# Disable automatic project virtual environment management: stops uv from creating a .venv folder
+managed = false
+# Declare that this workspace is a script collection rather than a buildable wheel package
+package = false
+# Force uv to ONLY use system/Conda Python interpreters on PATH (Conda envs register as "system" in uv);
+# prevents uv from ignoring your active Conda/Mamba environment
+python-preference = "only-system"
+# Strictly forbid uv from downloading standalone Python interpreters in the background
+python-downloads = "never"
+
+# =============================================================================
+# 2. RUFF Global Linter & Formatter Settings
+# =============================================================================
+[tool.ty.environment]
+# Target Python version used by ty to resolve standard library types and syntax features
+python-version = "3.12"
+# Workflow scripts put workflow/src on sys.path at runtime so they can import the
+# shared library modules by bare name; mirror that here so ty resolves them too.
+extra-paths = ["workflow/src"]
+
+[tool.ty.src]
+# Directories included in static type analysis
+include = ["workflow/src", "workflow/scripts"]
+# Directories excluded from type checking
+exclude = ["tests/fixtures", "**/__pycache__"]
+
+[tool.ty.analysis]
+# Do not implicitly infer return types for unannotated functions; works alongside Ruff ANN rules
+# to guarantee explicit return type contracts on every function signature
+return-type-inference = "never"
+
+[tool.ty.rules]
+# [Diagnostic Rule Severities: "error" (non-zero exit), "warn", or "ignore"]
+# Fail immediately if an imported package or symbol cannot be resolved (catches hallucinated imports)
+possibly-missing-import = "error"
+# Fail immediately on undefined variable, function, or attribute references
+unresolved-reference = "error"
+# Fail when assigning a value whose type conflicts with the variable or dataclass field annotation
+invalid-assignment = "error"
+# Fail when passing an argument whose type violates the target function's parameter annotation
+invalid-argument-type = "error"
+# Fail when a function's returned expression does not match its declared return type annotation
+invalid-return-type = "error"
+# Warn when an AI agent adds an unnecessary typing.cast() around an already-typed expression
+redundant-cast = "warn"
+# Warn on stale # ty: ignore[...] comments that no longer suppress any active diagnostic
+unused-ignore-comment = "warn"
+# Warn when accessing an attribute or variable that might be uninitialized on some control-flow paths
+possibly-missing-attribute = "warn"

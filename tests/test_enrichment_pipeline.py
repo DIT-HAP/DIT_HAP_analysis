@@ -1,4 +1,4 @@
-"""Tests for workflow/src/enrichment/pipeline.py and the new ontology.py helpers."""
+"""Tests for the deterministic enrichment core and the ontology.py helpers."""
 
 import sys
 import tempfile
@@ -9,13 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 import pytest
 
+from workflow.src.enrichment.cluster_enrichment import ontology_enrichment_pipeline
 from workflow.src.enrichment.ontology import (
     GeneMetaConfig,
+    OntologyDataConfig,
     assign_term_name,
     format_phaf_file,
-)
-from workflow.src.enrichment.pipeline import (
-    ontology_enrichment_pipeline,
 )
 
 POMBASE_DIR = Path("resources/external/pombase/2025-10-01")
@@ -50,17 +49,22 @@ def test_assign_term_name_hits_and_misses():
 def test_gene_meta_config_validate_rejects_missing(tmp_path):
     """GeneMetaConfig.validate_paths raises FileNotFoundError on a missing file."""
     cfg = GeneMetaConfig(
-        gene_IDs_names_products=tmp_path / "nope.tsv",
+        gene_ids_names_products=tmp_path / "nope.tsv",
         deletion_library_essentiality=tmp_path / "nope.xlsx",
     )
     with pytest.raises(FileNotFoundError, match="Gene metadata file not found"):
         cfg.validate_paths()
 
 
-@pytest.mark.skipif(not (GENE_META.exists() and DELETION_XLSX.exists()), reason="requires PomBase metadata + curated xlsx")
+@pytest.mark.skipif(
+    not (GENE_META.exists() and DELETION_XLSX.exists()),
+    reason="requires PomBase metadata + curated xlsx",
+)
 def test_gene_meta_loads_and_joins_essentiality():
     """GeneMetaData joins deletion-library essentiality and fills gene_name from id."""
-    cfg = GeneMetaConfig(gene_IDs_names_products=GENE_META, deletion_library_essentiality=DELETION_XLSX)
+    cfg = GeneMetaConfig(
+        gene_ids_names_products=GENE_META, deletion_library_essentiality=DELETION_XLSX
+    )
     meta = cfg.load_data()
     assert "Gene dispensability. This study" in meta.gene_info_with_essentiality.columns
     assert len(meta.id2name) > 0
@@ -88,9 +92,7 @@ def test_format_phaf_file_uses_fixed_date_no_today_stamp():
 
 @pytest.mark.skipif(not ONTOLOGY_DIR.exists(), reason="requires PomBase ontology files")
 def test_pipeline_runs_and_returns_formatted_tables():
-    """ontology_enrichment_pipeline returns full+slim DataFrames and computes slim assoc without error."""
-    from workflow.src.enrichment.ontology import OntologyDataConfig
-
+    """ontology_enrichment_pipeline returns full + slim frames without error."""
     go_cfg = OntologyDataConfig(
         ontology_obo=ONTOLOGY_DIR / "go-basic.obo",
         ontology_association_gaf=ONTOLOGY_DIR / "gene_ontology_annotation.gaf.tsv",
@@ -103,17 +105,28 @@ def test_pipeline_runs_and_returns_formatted_tables():
     data = go_cfg.load_data()
     gaf = pd.read_csv(
         ONTOLOGY_DIR / "gene_ontology_annotation.gaf.tsv",
-        sep="\t", comment="!", header=None, usecols=[1], names=["gene"],
+        sep="\t",
+        comment="!",
+        header=None,
+        usecols=[1],
+        names=["gene"],
     )
     all_genes = gaf["gene"].dropna().unique().tolist()
     bg = all_genes[:600]
     query = all_genes[:30]
 
-    full_df, slim_df, dag, objanno = ontology_enrichment_pipeline(
-        data, query, bg,
-        enrichment_kwargs={"alpha": 0.05, "methods": ["fdr_bh"], "propagate_counts": True, "relationships": {"is_a", "part_of"}},
+    full_df, slim_df = ontology_enrichment_pipeline(
+        data,
+        query,
+        bg,
+        enrichment_kwargs={
+            "alpha": 0.05,
+            "methods": ["fdr_bh"],
+            "propagate_counts": True,
+            "relationships": {"is_a", "part_of"},
+        },
         format_kwargs={"itemid2name": None},
     )
-    # Both are DataFrames (possibly empty for a small arbitrary gene set); no exception is the key check.
+    # Possibly empty for an arbitrary gene set; completing without an exception is the check.
     assert isinstance(full_df, pd.DataFrame)
     assert isinstance(slim_df, pd.DataFrame)
