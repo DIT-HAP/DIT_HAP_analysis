@@ -16,6 +16,7 @@ from workflow.src.enrichment.cluster_enrichment import (
     ONTOLOGIES,
     _concat_by_cluster,
     filter_go_full,
+    format_ontology_enrichment_results,
     load_cluster_genesets,
     resolve_ontology,
     write_gene_lists,
@@ -66,8 +67,17 @@ def test_concat_by_cluster_adds_cluster_column():
 
 
 def test_concat_by_cluster_empty_safe():
-    """_concat_by_cluster returns an empty frame when every cluster result is empty."""
-    assert _concat_by_cluster({1: pd.DataFrame(), 2: None}).empty
+    """An all-empty concat keeps the output schema so downstream groupby still works."""
+    out = _concat_by_cluster({1: pd.DataFrame(), 2: None})
+    assert out.empty
+    assert {"Cluster", "namespace", "term_id"} <= set(out.columns)
+
+
+def test_format_ontology_enrichment_results_keeps_schema_when_empty():
+    """No significant terms -> zero rows but the full column set (a MONDO-realistic case)."""
+    out = format_ontology_enrichment_results([])
+    assert out.empty
+    assert {"namespace", "term_id", "p_fdr", "study_items"} <= set(out.columns)
 
 
 def test_filter_go_full_drops_mf_and_high_popcount():

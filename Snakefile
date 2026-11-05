@@ -100,7 +100,9 @@ rule all:
         # they hit external APIs, so they are only built when named explicitly.
         # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_full_filtered.tsv",
         # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_dotplot.pdf",
-        # f"results/3c_enrichment/{_DATASET}/variant_enrichment_heatmap.pdf",
+        # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/go_enrichment_dotplot.html",
+        # f"results/3c_enrichment/{_DATASET}/{_REF}/variant_enrichment_heatmap.pdf",
+        # f"results/3c_enrichment/{_DATASET}/{_REF}/variant_enrichment_counts.pdf",
         # f"results/3c_enrichment/{_DATASET}/{_SELECTED_VARIANT}/{_REF}/network/go_enrichment_full_revigo.tsv",
         # ML AutoML (target x mode; uses selected_variant):
         # f"results/5a_ml/models/{_DATASET}/{_REF}/DR_Explain/metrics.tsv",

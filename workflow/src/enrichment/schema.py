@@ -38,6 +38,8 @@ class EnrichmentCol(StrEnum):
     TERM = "term"
     P_FDR = "p_fdr"
     GENE_RATIO = "gene_ratio"
+    STUDY_COUNT = "study_count"
+    STUDY_ITEMS = "study_items"
     POP_COUNT = "pop_count"
 
 

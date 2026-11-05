@@ -67,15 +67,25 @@ DOTPLOT_COLUMNS = [
 # DOTPLOT — DATA
 # =============================================================================
 def dotplot_terms(enrichment: pd.DataFrame, top_terms_per_cluster: int) -> pd.DataFrame:
-    """Return the union of each cluster's most significant terms, ordered for display."""
+    """Return the union of each cluster's most significant terms, grouped by home cluster.
+
+    A term's home cluster is the one where it reaches its smallest p-value. Ordering
+    rows by home cluster keeps each block's dots in one column, so the panel reads as
+    blocks (``cluster`` then ``namespace`` then significance) instead of a scatter.
+    """
     ranked = enrichment.sort_values([EnrichmentCol.CLUSTER, EnrichmentCol.P_FDR])
     top = ranked.groupby(EnrichmentCol.CLUSTER, sort=True).head(top_terms_per_cluster)
 
     columns = [EnrichmentCol.NAMESPACE, EnrichmentCol.TERM_ID, EnrichmentCol.TERM]
     terms = top[columns].drop_duplicates(EnrichmentCol.TERM_ID).copy()
-    best_p = top.groupby(EnrichmentCol.TERM_ID)[EnrichmentCol.P_FDR].min()
-    terms["best_p"] = terms[EnrichmentCol.TERM_ID].map(best_p)
-    return terms.sort_values([EnrichmentCol.NAMESPACE, "best_p", EnrichmentCol.TERM_ID])
+
+    strongest = top.loc[top.groupby(EnrichmentCol.TERM_ID)[EnrichmentCol.P_FDR].idxmin()]
+    strongest = strongest.set_index(EnrichmentCol.TERM_ID)
+    terms["home_cluster"] = terms[EnrichmentCol.TERM_ID].map(strongest[EnrichmentCol.CLUSTER])
+    terms["best_p"] = terms[EnrichmentCol.TERM_ID].map(strongest[EnrichmentCol.P_FDR])
+    return terms.sort_values(
+        ["home_cluster", EnrichmentCol.NAMESPACE, "best_p", EnrichmentCol.TERM_ID]
+    )
 
 
 def dotplot_matrix(
@@ -145,6 +155,8 @@ def variant_heatmap_matrix(
 
     Missing cells stay NaN: a term that is not significant in a variant is a real
     absence, not a zero, so the cell is left blank rather than painted as a miss.
+    Rows are ordered by namespace, then by the strongest value reached in any
+    variant, so the heatmap reads as blocks instead of an alphabetical run.
     """
     best_p = {
         label: frame.groupby(EnrichmentCol.TERM_ID)[EnrichmentCol.P_FDR].min()
@@ -162,9 +174,27 @@ def variant_heatmap_matrix(
         index=selected_terms,
     )
     clipped = matrix.clip(lower=fdr_floor)
-    return pd.DataFrame(
+    scores = pd.DataFrame(
         -np.log10(clipped.to_numpy(dtype=float)), index=clipped.index, columns=clipped.columns
     )
+    return scores.loc[_heatmap_row_order(scores, per_variant)]
+
+
+def _heatmap_row_order(scores: pd.DataFrame, per_variant: dict[str, pd.DataFrame]) -> pd.Index:
+    """Order terms by namespace, then by their strongest value across variants."""
+    namespaces = pd.concat(
+        [frame[[EnrichmentCol.TERM_ID, EnrichmentCol.NAMESPACE]] for frame in per_variant.values()]
+    ).drop_duplicates(EnrichmentCol.TERM_ID)
+    namespaces = namespaces.set_index(EnrichmentCol.TERM_ID)[EnrichmentCol.NAMESPACE]
+
+    ranked = pd.DataFrame(
+        {
+            EnrichmentCol.NAMESPACE: namespaces.reindex(scores.index),
+            "best": scores.max(axis=1),
+        },
+        index=scores.index,
+    )
+    return ranked.sort_values([EnrichmentCol.NAMESPACE, "best"], ascending=[True, False]).index
 
 
 def significant_term_counts(

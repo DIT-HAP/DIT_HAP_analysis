@@ -42,10 +42,11 @@ def test_dotplot_terms_takes_the_union_of_per_cluster_tops():
     assert set(terms["term_id"]) == {"GO:1", "GO:2", "GO:4"}
 
 
-def test_dotplot_terms_orders_by_namespace_then_significance():
-    """BP rows come before CC rows; within a namespace the strongest term leads."""
+def test_dotplot_terms_orders_by_home_cluster_then_namespace():
+    """Rows group by the cluster where each term is strongest; namespace breaks ties."""
     terms = dotplot_terms(_two_cluster_frame(), top_terms_per_cluster=2)
-    assert list(terms["term_id"]) == ["GO:2", "GO:1", "GO:4"]
+    assert list(terms["term_id"]) == ["GO:1", "GO:2", "GO:4"]
+    assert list(terms["home_cluster"]) == [1, 2, 2]
 
 
 def test_dotplot_matrix_maps_rows_and_colours():

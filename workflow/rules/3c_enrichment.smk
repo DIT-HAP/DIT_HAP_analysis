@@ -23,6 +23,7 @@
 #
 # Figure rules live here too and read only the finalized TSVs, never the core:
 #   plot_enrichment                      one dotplot per variant (opt-in)
+#   plot_enrichment_interactive          the same matrix as an Altair page (opt-in)
 #   plot_variant_enrichment_comparison   heatmap + counts across every variant
 
 _ENRICH = config["enrichment"]
@@ -32,9 +33,11 @@ _ENRICH_ONTOLOGIES = ["GO", "FYPO", "MONDO"]
 _ERAW = "results/3c_enrichment/{dataset}/{variant}/{pombase_version}"
 _EWORK = f"{_ERAW}/_work"
 _ENETWORK = f"{_ERAW}/network"
-# Same path with the non-expanded wildcards escaped, for expand() calls that
-# enumerate variants and leave dataset/pombase_version for Snakemake to fill.
-_ERAW_PARTIAL = "results/3c_enrichment/{{dataset}}/{{variant}}/{{pombase_version}}"
+# The same path with dataset/pombase_version escaped, so one expand() can pin the
+# variant list while Snakemake still fills dataset and pombase_version from the rule's
+# output (the cross-variant figures sit above the variant level, else {variant} is
+# unbound and the DAG cannot resolve the input).
+_ERAW_PARTIAL = "results/3c_enrichment/{{dataset}}/{variant}/{{pombase_version}}"
 
 wildcard_constraints:
     ontology="|".join(_ENRICH_ONTOLOGIES),
@@ -156,6 +159,30 @@ rule plot_enrichment:
         """
 
 
+# --- Interactive counterpart of the dotplot (one page per variant; opt-in) ---
+rule plot_enrichment_interactive:
+    input:
+        enrichment=f"{_ERAW}/go_enrichment_full_filtered.tsv",
+    output:
+        page=f"{_ERAW}/go_enrichment_dotplot.html",
+    params:
+        top_terms_per_cluster=_ENRICH["dotplot_top_terms"],
+    log:
+        "logs/3c_enrichment/plot_enrichment_interactive_{dataset}_{variant}_{pombase_version}.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [enrichment] Writing the interactive page for {wildcards.dataset}/{wildcards.variant}..."
+    shell:
+        """
+        python workflow/scripts/enrichment/plot_enrichment_interactive.py \
+            --enrichment {input.enrichment} \
+            --output {output.page} \
+            --variant-label {wildcards.variant} \
+            --top-terms-per-cluster {params.top_terms_per_cluster} &> {log}
+        """
+
+
 # --- Cross-variant comparison (heatmap + counts; opt-in) ---
 # Depends on EVERY configured variant, so building it also builds the enrichment
 # for variants that were never run on their own.
@@ -166,17 +193,17 @@ rule plot_variant_enrichment_comparison:
             variant=_ENRICH_VARIANTS,
         ),
     output:
-        heatmap="results/3c_enrichment/{dataset}/variant_enrichment_heatmap.pdf",
-        heatmap_preview="results/3c_enrichment/{dataset}/variant_enrichment_heatmap.review.png",
-        counts="results/3c_enrichment/{dataset}/variant_enrichment_counts.pdf",
-        counts_preview="results/3c_enrichment/{dataset}/variant_enrichment_counts.review.png",
+        heatmap="results/3c_enrichment/{dataset}/{pombase_version}/variant_enrichment_heatmap.pdf",
+        heatmap_preview="results/3c_enrichment/{dataset}/{pombase_version}/variant_enrichment_heatmap.review.png",
+        counts="results/3c_enrichment/{dataset}/{pombase_version}/variant_enrichment_counts.pdf",
+        counts_preview="results/3c_enrichment/{dataset}/{pombase_version}/variant_enrichment_counts.review.png",
     params:
-        output_dir="results/3c_enrichment/{dataset}",
+        output_dir="results/3c_enrichment/{dataset}/{pombase_version}",
         labels=" ".join(_ENRICH_VARIANTS),
         top_terms=_ENRICH["variant_heatmap_top_terms"],
         fdr_threshold=_ENRICH["fdr_threshold"],
     log:
-        "logs/3c_enrichment/plot_variant_enrichment_comparison_{dataset}.log",
+        "logs/3c_enrichment/plot_variant_enrichment_comparison_{dataset}_{pombase_version}.log",
     conda:
         "../envs/cnsplots.yml"
     message:

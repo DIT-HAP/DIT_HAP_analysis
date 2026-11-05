@@ -70,6 +70,32 @@ CLUSTER_COLUMN = ClusterCol.CLUSTER
 # The three ontologies, in the order the original driver processed them.
 ONTOLOGIES = ["GO", "FYPO", "MONDO"]
 
+# goatools' record field names, then the tidy names the enrichment tables carry.
+# An ontology with no significant terms still returns a frame with these columns
+# (zero rows), so every downstream groupby/concat sees the same schema.
+GOATOOLS_COLUMNS = [
+    "NS",
+    "GO",
+    "name",
+    "level",
+    "depth",
+    "p_uncorrected",
+    "p_fdr_bh",
+    "gene_ratio",
+    "term_coverage",
+    "study_count",
+    "study_n",
+    "pop_count",
+    "pop_n",
+    "ratio_in_study",
+    "ratio_in_pop",
+    "study_items",
+    "pop_items",
+    "defn",
+]
+RENAMED_COLUMNS = {"NS": "namespace", "GO": "term_id", "name": "term", "p_fdr_bh": "p_fdr"}
+FORMATTED_COLUMNS = [RENAMED_COLUMNS.get(column, column) for column in GOATOOLS_COLUMNS]
+
 GO_LOAD_KWARGS = {
     "relationships": {"is_a", "part_of"},
     "propagate_counts": True,
@@ -347,7 +373,7 @@ def format_ontology_enrichment_results(
     """Format significant enrichment records into a tidy frame with gene_ratio and term_coverage."""
     formatted = create_enrichment_dataframe(oea_results_sig, kwargs.get("itemid2name"))
     if formatted.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=FORMATTED_COLUMNS)
 
     formatted["gene_ratio"] = round(formatted["study_count"] / formatted["study_n"], 2)
     formatted["term_coverage"] = round(formatted["study_count"] / formatted["pop_count"], 2)
@@ -358,29 +384,8 @@ def format_ontology_enrichment_results(
         formatted["pop_items"].astype(str).str.split(", ").map(sorted).str.join(",")
     )
 
-    kept_columns = [
-        "NS",
-        "GO",
-        "name",
-        "level",
-        "depth",
-        "p_uncorrected",
-        "p_fdr_bh",
-        "gene_ratio",
-        "term_coverage",
-        "study_count",
-        "study_n",
-        "pop_count",
-        "pop_n",
-        "ratio_in_study",
-        "ratio_in_pop",
-        "study_items",
-        "pop_items",
-        "defn",
-    ]
-    present_columns = [column for column in kept_columns if column in formatted.columns]
-    renamed = {"NS": "namespace", "GO": "term_id", "name": "term", "p_fdr_bh": "p_fdr"}
-    return formatted[present_columns].copy().rename(columns=renamed)
+    present_columns = [column for column in GOATOOLS_COLUMNS if column in formatted.columns]
+    return formatted[present_columns].copy().rename(columns=RENAMED_COLUMNS)
 
 
 def enrich_all_clusters(
@@ -478,7 +483,7 @@ def _concat_by_cluster(by_cluster: dict[int, pd.DataFrame]) -> pd.DataFrame:
         if frame is not None and not frame.empty
     }
     if not non_empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=[EnrichmentCol.CLUSTER, *FORMATTED_COLUMNS])
     return pd.concat(non_empty, axis=0).droplevel(1).rename_axis("Cluster").reset_index()
 
 
@@ -512,7 +517,7 @@ def _write_sheet(writer: pd.ExcelWriter, frame: pd.DataFrame, sheet_name: str) -
 def filter_go_full(go_full: pd.DataFrame, pop_count_max: int) -> pd.DataFrame:
     """Design-doc GO target: pop_count below the cap, MF dropped, deterministically sorted."""
     if go_full.empty:
-        return pd.DataFrame()
+        return go_full.head(0)
     kept = go_full.query(
         f"{EnrichmentCol.POP_COUNT} < {pop_count_max} and {EnrichmentCol.NAMESPACE} != 'MF'"
     )
