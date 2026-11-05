@@ -116,12 +116,12 @@ def load_ontology_data(
     try:
         dag = GODag(
             str(ontology_data.ontology_obo_path),
-            optional_attrs=["def", "relationship"],
+            optional_attrs={"def", "relationship"},
             load_obsolete=False,
         )
     except KeyError:
         dag = GODag(
-            str(ontology_data.ontology_obo_path), optional_attrs=["def"], load_obsolete=False
+            str(ontology_data.ontology_obo_path), optional_attrs={"def"}, load_obsolete=False
         )
 
     objanno = GafReader(str(ontology_data.ontology_association_file), godag=dag)
