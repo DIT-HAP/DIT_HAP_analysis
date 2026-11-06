@@ -69,6 +69,7 @@ from figures import (
     apply_house_style,
     house_colors,
     panel_labels,
+    save_dual,
 )
 
 # =============================================================================
@@ -231,6 +232,10 @@ HEATMAP_CMAP = "RdBu_r"
 # Squaring the cells means moving the bar alongside the key instead of under it.
 # Change the column count, the rect, or the row names and this has to be
 # re-measured.
+#
+# Registered layout exception: 540, not the 493 pt journal cap. At 493 the
+# matrix body falls to ~62 pt, below the house 80 pt panel floor; the page is
+# scaled down at typesetting instead of reflowed.
 HEATMAP_PAGE_PX = (540, 124)
 
 # A white annotation track padded between the Study band and the matrix: the
@@ -261,10 +266,6 @@ HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 # its bottom stays inside the matrices' own vertical extent; the two constraints
 # meet at this y0 and they are what stops the page getting any shorter.
 HEATMAP_CBAR_BOUNDS = (0.485, 0.11, 0.03, 0.22)
-
-# The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
-# next to the 8 pt type it sits beside.
-HEATMAP_TREE_LINEWIDTH = 1.0
 
 # The distribution QC figure: every analysed column gets a panel of its own
 # distribution and a panel of the same values log10-transformed, so a row of the
@@ -626,7 +627,6 @@ def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
         letter,
         ha="left",
         va="bottom",
-        fontsize=cns.settings.title_fontsize,
         fontweight=cns.settings.panel_label_fontweight,
     )
     figure.text(
@@ -635,7 +635,6 @@ def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
         name,
         ha="center",
         va="bottom",
-        fontsize=cns.settings.title_fontsize,
         fontweight=plt.rcParams["axes.titleweight"],
     )
 
@@ -653,8 +652,8 @@ def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figur
         ),
         cax=colorbar_axes,
         ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
+        extend="neither",
     )
-    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
     # Ticks right, label left, so the bar is the middle of its own block and can be
     # centred on the same line as the key.
     colorbar.ax.yaxis.set_label_position("left")
@@ -725,7 +724,7 @@ def plot_correlation_heatmap(
     spacer = pd.Categorical([SPACER_VALUE] * len(columns), categories=[SPACER_VALUE])
     annotation_colors = {"Study": study_colors, SPACER_COLUMN: {SPACER_VALUE: BACKGROUND_COLOR}}
 
-    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1])
+    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1], unit="pt")
     figure = plt.gcf()
     panel_axes = figure.subplots(1, len(HEATMAP_PANELS), squeeze=False)[0]
     plotters = []
@@ -764,9 +763,6 @@ def plot_correlation_heatmap(
                 # the column names are dropped, so the permutation is all that is used.
                 col_dendrogram=False,
                 col_dendrogram_kws={"linkage": tree},
-                # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
-                # which reads as a hairline beside 8 pt type.
-                tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
                 cmap=HEATMAP_CMAP,
                 vmin=CORRELATION_MIN,
                 vmax=CORRELATION_MAX,
@@ -797,11 +793,9 @@ def plot_correlation_heatmap(
         _frame_heatmap_panel(plotter, name, label)
 
     _draw_heatmap_legend(figure.add_axes(HEATMAP_LEGEND_BOUNDS), study_colors, fig=figure)
-    # The legends are their own axes, which the default tight export bbox drops --
-    # saving the full canvas is what keeps them in the figure.
-    with cns.settings.context(savefig_bbox="standard"):
-        cns.savefig(str(output_path))
-    plt.close(plt.gcf())
+    # save_dual keeps the full canvas, so the legend axes are not cropped away.
+    save_dual(Path(output_path).with_suffix(""))
+    plt.close(figure)
 
 
 def plot_comparison_figures(

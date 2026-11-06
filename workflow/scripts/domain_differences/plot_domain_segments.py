@@ -65,6 +65,7 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 import sys
@@ -77,7 +78,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 import cnsplots as cns
 from matplotlib.axes import Axes
-from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -90,11 +91,14 @@ from domain_differences.core import (
     read_gene_context,
 )
 from figures import (
+    FIT_CAPTION_FONT_OFFSET_PT,
     FURNITURE_COLOR,
+    HOUSE_SCATTER_S,
     PanelShape,
     apply_house_style,
     fit_panels,
     grid_axes,
+    save_pdf_pages,
 )
 from io_table import read_parquet
 from logging_setup import setup_logger
@@ -181,7 +185,10 @@ def load_gallery(config: PlotConfig) -> Gallery:
     hand = hand_region_map(hand_table)
 
     insertions = read_parquet(config.insertions)
-    raw = dict(insertions.groupby("Systematic ID", sort=False))
+    # list() before dict(): pandas 2.3 exposes GroupBy.keys as the grouping
+    # column name, so dict() mistakes the groupby for a mapping and calls that
+    # string.
+    raw = dict(list(insertions.groupby("Systematic ID", sort=False)))
     sites = {sid: collapse_sites(frame) for sid, frame in raw.items()}
     viability, grna_dr = read_gene_context(config.annotation)
 
@@ -202,7 +209,7 @@ def load_gallery(config: PlotConfig) -> Gallery:
 
     return Gallery(
         genes=genes,
-        segments=dict(segments.groupby("Systematic ID", sort=False)),
+        segments=dict(list(segments.groupby("Systematic ID", sort=False))),
         sites=sites,
         raw=raw,
         hand=hand,
@@ -229,23 +236,29 @@ def draw_insertions(ax: Axes, raw: pd.DataFrame, sites: pd.DataFrame) -> None:
         sites["DR_rev"].fillna(sites["DR"]),
         sites["DR_fwd"].fillna(sites["DR"]),
         color="0.6",
-        lw=0.7,
         zorder=3,
     )
     ax.scatter(
-        residues[forward], raw["DR"].to_numpy()[forward], s=9, color=FWD_COLOR, lw=0, zorder=4
+        residues[forward],
+        raw["DR"].to_numpy()[forward],
+        s=HOUSE_SCATTER_S,
+        color=FWD_COLOR,
+        zorder=4,
     )
     ax.scatter(
-        residues[~forward], raw["DR"].to_numpy()[~forward], s=9, color=REV_COLOR, lw=0, zorder=4
+        residues[~forward],
+        raw["DR"].to_numpy()[~forward],
+        s=HOUSE_SCATTER_S,
+        color=REV_COLOR,
+        zorder=4,
     )
     ax.scatter(
         sites["Residue_affected"].astype(int),
         sites["DR"],
-        s=16,
+        s=HOUSE_SCATTER_S,
         marker="D",
         facecolors="none",
         edgecolors=SITE_MEAN_COLOR,
-        linewidths=0.8,
         zorder=5,
     )
 
@@ -282,21 +295,18 @@ def draw_panel(
 ) -> None:
     """One gene: heading, threshold band, hand shading, the two channels, segment levels,
     caption."""
-    # Sized so the gallery's widest caption still fits its panel: at 6.5 pt the
-    # longest line (a systematic-ID name plus the three cap fields) runs 149 pt
-    # into a 150 pt panel and crosses the spine, and 6.0 leaves 9 pt of margin.
-    caption_size = plt.rcParams["font.size"] - 2.0
-    ax.set_title(
-        panel_title(str(row["name"]), viability, grna_dr), fontsize=plt.rcParams["font.size"] - 1.0
-    )
-    ax.axhline(0, color=LAMBDA_COLOR, lw=0.6, zorder=0)
+    # Registered fit-critical size: the gallery's widest caption runs 149 pt at
+    # 6.5 pt into a 150 pt panel and crosses the spine; 6.0 leaves 9 pt of margin.
+    caption_size = plt.rcParams["font.size"] + FIT_CAPTION_FONT_OFFSET_PT
+    ax.set_title(panel_title(str(row["name"]), viability, grna_dr))
+    ax.axhline(0, color=LAMBDA_COLOR, zorder=0)
 
     lam = float(row["lambda_dr"])
     level = float(sites["DR"].mean())
     if lam > 0:
-        ax.axhspan(level - lam / 2, level + lam / 2, color=LAMBDA_COLOR, alpha=0.13, lw=0, zorder=1)
+        ax.axhspan(level - lam / 2, level + lam / 2, color=LAMBDA_COLOR, alpha=0.13, zorder=1)
         for edge in (level - lam / 2, level + lam / 2):
-            ax.axhline(edge, color=LAMBDA_COLOR, lw=0.8, ls=":", zorder=2)
+            ax.axhline(edge, color=LAMBDA_COLOR, ls=":", zorder=2)
         ax.text(
             0.98,
             level + lam / 2,
@@ -309,7 +319,7 @@ def draw_panel(
         )
 
     for start, end in hand:
-        ax.axvspan(start, end, color=HAND_COLOR, alpha=0.18, lw=0, zorder=1)
+        ax.axvspan(start, end, color=HAND_COLOR, alpha=0.18, zorder=1)
 
     draw_insertions(ax, raw, sites)
     for _, segment in segments.iterrows():
@@ -318,11 +328,10 @@ def draw_panel(
             int(segment["start_residue"]),
             int(segment["end_residue"]),
             color=SEGMENT_COLOR,
-            lw=1.6,
             zorder=6,
         )
     for _, segment in segments.iloc[1:].iterrows():
-        ax.axvline(int(segment["start_residue"]), color="0.55", lw=0.8, ls="--", zorder=5)
+        ax.axvline(int(segment["start_residue"]), color="0.55", ls="--", zorder=5)
 
     # x range covers the hand region as well as the insertions: an annotated terminus
     # no insertion reached is exactly the case a reader must be able to see
@@ -426,7 +435,6 @@ def draw_page(page: pd.DataFrame, gallery: Gallery) -> None:
         f"{GENE_GROUP_LABELS[term]}  —  {len(page)} genes",
         y=1 - SUPTITLE_STRIP / 2,
         va="center",
-        fontsize=plt.rcParams["font.size"] + 2.0,
         fontweight="bold",
     )
     # hand fit_panels the legend column up front rather than letting it discover
@@ -443,26 +451,21 @@ def run(config: PlotConfig) -> int:
     gallery = load_gallery(config)
     genes = gallery.genes
     pages = [genes.iloc[i : i + ROWS_PER_PAGE] for i in range(0, len(genes), ROWS_PER_PAGE)]
-    review = config.output.with_suffix(".review.png")
 
-    with PdfPages(config.output) as pdf:
-        for number, page in enumerate(pages, start=1):
+    def page_figures() -> Iterator[Figure]:
+        for page in pages:
             draw_page(page, gallery)
-            figure = plt.gcf()
-            pdf.savefig(figure, dpi=300, bbox_inches="tight")
-            if number == 1:
-                # cns.savefig writes only the current figure, so the page-1 preview
-                # is saved here rather than through save_dual(), whose PDF half
-                # would clobber the gallery PdfPages is still writing
-                cns.savefig(review)
-            plt.close(figure)
+            yield plt.gcf()
+            plt.close()
+
+    save_pdf_pages(config.output.with_suffix(""), page_figures())
 
     counts = genes["term"].value_counts()
     logger.info(
         f"{len(genes):,} reported genes over {len(pages)} pages: "
         + ", ".join(f"{term} {count}" for term, count in counts.items())
     )
-    logger.info(f"wrote {config.output.name} and {review.name}")
+    logger.info(f"wrote {config.output.name} and its review PNG")
     return 0
 
 

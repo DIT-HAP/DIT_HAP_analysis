@@ -80,6 +80,7 @@ rule plot_comparison_figures:
     output:
         figures="results/6a_comparison/{dataset}/pairwise_fitness_comparison.pdf",
         heatmap="results/6a_comparison/{dataset}/correlation_heatmap.pdf",
+        heatmap_preview="results/6a_comparison/{dataset}/correlation_heatmap.review.png",
     log:
         "logs/6a_comparison/plot_comparison_figures_{dataset}.log",
     conda:
