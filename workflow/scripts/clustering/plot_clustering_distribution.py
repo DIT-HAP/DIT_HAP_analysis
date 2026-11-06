@@ -198,7 +198,7 @@ def render_axis_histogram_panel(
 ) -> None:
     """One coordinate's histogram, median marked."""
     finite = pd.Series(values).dropna()
-    cns.histplot(data=finite.to_frame("value"), x="value", bins=bins, ax=ax, shrink=0.9)
+    cns.histplot(data=finite.to_frame("value"), x="value", bins=bins, ax=ax)
     median = float(finite.median())
     ax.axvline(median, color=FURNITURE_COLOR, linestyle="--")
     ax.text(
@@ -235,11 +235,10 @@ def render_coordinate_scatter_panel(ax: Axes, frame: pd.DataFrame, *, title: str
         # THIS panel the bar belongs in the empty upper-right margin instead
         # (bounds per DENSITY_CBAR_BOUNDS), so draw it here directly.
         cax = ax.inset_axes(DENSITY_CBAR_BOUNDS)
-        colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
+        colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1], extend="neither")
         labels = colorbar.ax.set_yticklabels(["low", "high"])
         labels[0].set_verticalalignment("bottom")
         labels[-1].set_verticalalignment("top")
-        colorbar.ax.tick_params(length=0)
         colorbar.ax.set_title(DENSITY_CBAR_LABEL, loc="center")
     ax.set(xlabel=DR_COLUMN, ylabel=DL_COLUMN, title=title)
 

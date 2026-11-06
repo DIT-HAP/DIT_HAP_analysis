@@ -93,7 +93,14 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from coherence.palette import SOURCE_ORDER, source_colors
 from figure_render.histogram import draw_histogram_panel
-from figures import apply_house_style, apply_log_scale, house_colors, save_dual
+from figures import (
+    FIT_ANNOTATION_FONT_PT,
+    JOURNAL_WIDTH_PX,
+    apply_house_style,
+    apply_log_scale,
+    house_colors,
+    save_dual,
+)
 from io_table import read_file
 from logging_setup import setup_logger
 
@@ -201,25 +208,20 @@ _FDR_PANELS = (
 _FDR_Q_FLOOR = 1e-12
 
 # The two FDR panels sit side by side and are sized so row 3 lines up with row 2:
-# same left edge and same total width as the three SQUARE panels above. Those
-# 3-column rows are what set the page's visual frame, and a row 3 that starts
-# further right or runs wider reads as belonging to a different figure. Measured
-# (go_macrocomplex, and identical for go_cc / go_bp): at width 159 with no left
-# margin, G's axes left edge is 25.0 px — exactly D's — and the row spans 734.6 px
-# against the SQUARE row's 735.6 px. The starting point was 200 px wide with a 14 px
-# left margin, which put G 28 px right of D and made the row 191 px too wide.
+# same left edge as the three SQUARE panels above. Those 3-column rows are what
+# set the page's visual frame, and a row 3 that starts further right reads as
+# belonging to a different figure. The left margin is 0 on purpose: multipanel
+# starts every row at the same x and each panel then adds its own margin_left, so
+# a nonzero one is exactly what pushed row 3 to the right. The right margin only
+# sets the G-to-H gap.
 #
-# Width is a measured constant rather than a derived one because a panel's footprint
+# Width and height are 150 pt, the top of the house panel band. The measured
+# alignment value was 159, but that exceeds the band; the row now ends slightly
+# before the SQUARE row above, which is the accepted trade-off.
+#
+# Width is a constant rather than a derivation because a panel's footprint
 # includes the label and axis reserves multipanel only knows after it has drawn.
-#
-# The left margin is 0 on purpose: multipanel starts every row at the same x and each
-# panel then adds its own margin_left, so a nonzero one is exactly what pushed row 3
-# to the right. The right margin only sets the G-to-H gap.
-#
-# Height equals width: a 159 px-tall panel holds the name-label stacks without
-# crowding (tightest inter-label gap 3.8 px, measured), and square matches the SQUARE
-# panels' own aspect instead of making row 3 the one row of letterbox panels.
-_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 159, 159
+_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 150, 150
 _FDR_MARGIN_RIGHT = 14
 
 # --- Marginal distributions on the q-encoded FDR panel -----------------------
@@ -267,7 +269,7 @@ _JOINT_HEADROOM = 1.08
 # px / 72 inches), so a line of text is _LABEL_FONT_SIZE / height in axes fraction and
 # the multipliers below are just line spacing and clearance in units of the font size
 # (1.6 and 1.2 reproduce the values that were hand-tuned at height 240).
-_LABEL_FONT_SIZE = 5
+_LABEL_FONT_SIZE = FIT_ANNOTATION_FONT_PT
 _LABEL_WRAP_WIDTH = 35  # characters per line before wrapping
 _LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT  # one rendered line
 _LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT  # between two blocks
@@ -311,11 +313,10 @@ DEFAULT_LABEL_MAX = 5
 DEFAULT_COHERENT_Z = -2.0
 DEFAULT_INCOHERENT_Z = 1.0
 
-# Page width, in layout pixels. 500 is measured, not derived: the widest row (the two
-# FDR panels plus their margins) needs 481, and a fourth SQUARE panel on row 1 would
-# need 568. Anything in between keeps the 3 x 2 layout intact; anything larger and
-# multipanel silently packs that fourth panel onto row 1.
-_MAX_WIDTH = 500
+# Page width, in layout pixels: the Cell two-column cap. The widest row needs 481,
+# and a fourth SQUARE panel on row 1 would need 568; 493 sits between them and
+# keeps the 3 x 2 layout intact.
+_MAX_WIDTH = JOURNAL_WIDTH_PX
 
 
 # =============================================================================
@@ -626,7 +627,6 @@ def annotate_extremes(
             arrowprops={
                 "arrowstyle": "-",
                 "color": cns.GRAY,
-                "linewidth": 0.6,
                 "shrinkA": 2,
                 "shrinkB": 3,
             },
@@ -713,7 +713,6 @@ def draw_source_histogram(
             source_values,
             bins=edges,
             histtype="step",
-            linewidth=1.0,
             color=colors[source],
             label=source,
         )
@@ -723,7 +722,7 @@ def draw_source_histogram(
         # afterwards rather than by a log flag that would re-bin them.
         apply_log_scale(ax, x=True, y=False)
     if legend:
-        ax.legend(frameon=False, fontsize=5, loc="upper right")
+        ax.legend(frameon=False, loc="upper right")
 
 
 def draw_source_scatter(
@@ -849,7 +848,9 @@ def draw_joint_marginals(
 
 def _draw_empty_page() -> None:
     """The placeholder page drawn when no group passed the size filter."""
-    ax = cns.multipanel().panel(width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT)
+    ax = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt").panel(
+        width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT
+    )
     ax.text(0.5, 0.5, "No groups passed the size filter", ha="center", va="center")
     ax.set_axis_off()
 
@@ -927,7 +928,7 @@ def _draw_z_panel(
         )
     # z = 0 is the null: at or above it the group is no tighter than a random
     # draw of the same size. Drawn after the histogram so it reads on top.
-    ax.axvline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
+    ax.axvline(0.0, color=cns.GRAY, linestyle="--")
 
 
 def _draw_source_centroids(
@@ -945,7 +946,6 @@ def _draw_source_centroids(
             color=colors[source],
             alpha=1.0,
             edgecolors=cns.GRAY,
-            linewidths=0.3,
         )
 
 
@@ -959,7 +959,8 @@ def _draw_z_centroids(ax: Axes, table: pd.DataFrame) -> None:
     # package's own scale.
     #
     # The limits are a percentile, not max|z| — see _PANEL_C_PERCENTILE. The
-    # colourbar gets `extend="both"` so the clipped tails are visible as such.
+    # house colourbar contract keeps square ends, so the clipped tails are not
+    # marked by triangular caps; the clipping is stated in the figure caption.
     #
     # The edge is not decoration: a diverging map spends its midpoint on white, and
     # most groups sit at z ~ 0, so without a hairline outline they vanish into the
@@ -976,14 +977,11 @@ def _draw_z_centroids(ax: Axes, table: pd.DataFrame) -> None:
         cmap=cns.palettes(_DIVERGING_CMAP),
         vmin=-z_limits,
         vmax=z_limits,
-        alpha=1.0,
         edgecolors=cns.GRAY,
-        linewidths=0.3,
     )
     colorbar_ax = ax.inset_axes(_CBAR_BOUNDS)
-    colorbar = ax.figure.colorbar(scatter, cax=colorbar_ax, extend="both")
-    colorbar.ax.tick_params(length=0, pad=1)
-    colorbar.set_label("z-score", labelpad=1)
+    colorbar = ax.figure.colorbar(scatter, cax=colorbar_ax, extend="neither")
+    colorbar.set_label("z-score")
 
 
 def _draw_size_legend(ax: Axes) -> None:
@@ -1063,7 +1061,7 @@ def _draw_biology_panels(
         )
         ax.set(xlabel=xlabel, ylabel="z-score", title=title)
         ax.set_ylim(*shared_z_limits)
-        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--")
     return len(biology)
 
 
@@ -1099,7 +1097,7 @@ def plot_coherence(
     # row 1 (A, B, C plus C's legend margin) is 413 layout px, and a fourth SQUARE
     # panel would need ~122 more, so 500 wraps it. Raise max_width past ~535 and
     # multipanel silently packs four panels onto row 1 and the grid becomes 4 x 2.
-    multipanel = cns.multipanel(max_width=_MAX_WIDTH)
+    multipanel = cns.multipanel(max_width=_MAX_WIDTH, unit="pt")
 
     _draw_size_panel(multipanel, table, by_source, colors, series)
     _draw_z_panel(multipanel, table, by_source, colors, series)
@@ -1180,8 +1178,8 @@ def draw_fdr_panels(
             joint_table = plotted
         else:
             ax.set_title("Coherence vs significance")
-        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
-        ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--")
+        ax.axvline(cutoff, color=cns.GRAY, linestyle=":")
 
         # Each end is named beside its own points: the incoherent ones sit in the
         # upper band and the coherent ones in the lower, because the coherence

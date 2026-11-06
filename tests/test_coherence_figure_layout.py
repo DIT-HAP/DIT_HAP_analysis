@@ -39,22 +39,24 @@ import matplotlib.pyplot as plt
 
 # Overlaps shallower than this on both axes are grid-abutting artefacts, not defects.
 # Measured on the real figure: neighbouring panels D and E show an 8 px tightbbox
-# overlap (D's axes frame ends 8 px into E's decoration reserve) while the visible text
-# there is 41 px apart, so a 2 px tolerance reports a collision a reader cannot see.
+# overlap at 144 dpi (D's axes frame ends 8 px into E's decoration reserve) while the
+# visible text there is 41 px apart, so a 2 px tolerance reports a collision a reader
+# cannot see. Fixed in points, not display pixels, so the threshold tracks the house
+# 360 dpi instead of getting 2.5x stricter when the export resolution changes.
 # The defects worth failing on are the ones that are visible — the row collision this
 # file was written for was hundreds of pixels deep.
-_TOLERANCE_PX = 12.0
+_TOLERANCE_PT = 6.0
 
 
-def _overlaps(a, b, tolerance: float = _TOLERANCE_PX) -> bool:
-    """Whether two bboxes overlap by more than `tolerance` px on BOTH axes."""
+def _overlaps(a, b, *, tolerance_px: float) -> bool:
+    """Whether two bboxes overlap by more than `tolerance_px` on BOTH axes."""
     # Neighbouring panels in a grid routinely abut, and multipanel's measured
     # decorations can land a fraction of a pixel inside the next panel's column.
     # The defects worth failing on are the ones a reader can see, which are tens
-    # to hundreds of pixels deep, so anything under a couple of pixels is noise.
+    # to hundreds of pixels deep, so anything under a couple of points is noise.
     dx = min(a.x1, b.x1) - max(a.x0, b.x0)
     dy = min(a.y1, b.y1) - max(a.y0, b.y0)
-    return dx > tolerance and dy > tolerance
+    return dx > tolerance_px and dy > tolerance_px
 
 
 def _is_joint_marginal(ax) -> bool:
@@ -71,6 +73,7 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
     """Assert no panel overflows its own axes and no two panels' decorations collide."""
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
+    tolerance_px = _TOLERANCE_PT * fig.dpi / 72.0
     axes = [ax for ax in fig.axes if ax.get_visible() and not ax.get_label().startswith("<")]
 
     for ax in axes:
@@ -87,9 +90,11 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
         # test_q_fdr_panel_marginals_are_attached).
         if _is_joint_marginal(left) or _is_joint_marginal(right):
             continue
-        assert not _overlaps(left.get_tightbbox(renderer), right.get_tightbbox(renderer)), (
-            f"panel decorations collide: {left.get_title()!r} vs {right.get_title()!r}"
-        )
+        assert not _overlaps(
+            left.get_tightbbox(renderer),
+            right.get_tightbbox(renderer),
+            tolerance_px=tolerance_px,
+        ), f"panel decorations collide: {left.get_title()!r} vs {right.get_title()!r}"
 
     if not check_labels:
         return
@@ -98,7 +103,9 @@ def assert_layout_is_clean(fig, *, check_labels: bool = True) -> None:
         for text in ax.texts:
             if not text.get_text().strip():
                 continue
-            assert not _overlaps(text.get_window_extent(renderer=renderer), title), (
+            assert not _overlaps(
+                text.get_window_extent(renderer=renderer), title, tolerance_px=tolerance_px
+            ), (
                 f"panel label {text.get_text()!r} collides with title "
                 f"{ax.get_title().splitlines()[0]!r}"
             )
@@ -409,7 +416,7 @@ def test_fdr_label_text_does_not_overlap():
         )
         boxes = [Text.get_window_extent(text, renderer) for text in labels]
         for i, j in itertools.combinations(range(len(boxes)), 2):
-            assert not _overlaps(boxes[i], boxes[j], tolerance=0.0), (
+            assert not _overlaps(boxes[i], boxes[j], tolerance_px=0.0), (
                 f"label text overlaps in {ax.get_xlabel()!r}: "
                 f"{labels[i].get_text().splitlines()[0]!r} vs "
                 f"{labels[j].get_text().splitlines()[0]!r}"

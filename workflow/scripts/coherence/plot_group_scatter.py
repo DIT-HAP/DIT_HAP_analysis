@@ -223,7 +223,6 @@ def draw_split_cloud(fitting_df: pd.DataFrame, dr_threshold: float) -> None:
         dr_threshold,
         color=FURNITURE_COLOR,
         linestyle="--",
-        linewidth=plt.rcParams["lines.linewidth"] * 0.8,
         zorder=0.5,
     )
 
@@ -287,7 +286,8 @@ def plot_group_scatter_figure(
             cns.scatterplot(
                 unscored_members, "DR", "DL", ax=ax, color=_UNSCORED_MEMBER_COLOR, legend=False
             )
-        cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
+        if not scored_members.empty:
+            cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
 
         metrics_row = scored.loc[group_id] if group_id in scored.index else None
         ax.set(

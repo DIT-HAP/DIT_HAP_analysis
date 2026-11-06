@@ -48,7 +48,14 @@ import pandas as pd
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual
+from figures import (
+    FURNITURE_COLOR,
+    PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    save_dual,
+)
 from logging_setup import setup_logger
 
 # =============================================================================
@@ -117,7 +124,7 @@ def run(config: KSelConfig) -> None:
     for (column, title), ax in zip(PANELS, axes, strict=False):
         if column in SINGLE_LINE_PANELS:
             subset = metrics[metrics["method"] == methods[0]].sort_values("k")
-            ax.plot(subset["k"], subset[column], marker="o", color="grey")
+            ax.plot(subset["k"], subset[column], marker="o")
             ax.set_title(title)
         else:
             for method in methods:
@@ -134,7 +141,7 @@ def run(config: KSelConfig) -> None:
         ax.set_xlabel("k")
         ax.set_ylabel("")
         if config.k_reference is not None:
-            ax.axvline(config.k_reference, color="grey", linestyle=":")
+            ax.axvline(config.k_reference, color=FURNITURE_COLOR, linestyle=":")
 
     for ax in axes[n_panels:]:  # hide the unused grid cells
         ax.set_visible(False)

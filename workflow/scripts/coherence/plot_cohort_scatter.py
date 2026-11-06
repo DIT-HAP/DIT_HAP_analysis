@@ -182,7 +182,6 @@ def draw_split_cloud(fitting: pd.DataFrame, dr_threshold: float) -> None:
         dr_threshold,
         color=FURNITURE_COLOR,
         linestyle="--",
-        linewidth=plt.rcParams["lines.linewidth"] * 0.8,
         zorder=0.5,
     )
 

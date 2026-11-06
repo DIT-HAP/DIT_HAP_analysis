@@ -60,7 +60,13 @@ import pandas as pd
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, cluster_color, grid_axes, save_dual
+from figures import (
+    CLUSTER_GRID_SCATTER_S,
+    apply_house_style,
+    cluster_color,
+    grid_axes,
+    save_dual,
+)
 from io_table import read_parquet
 from logging_setup import setup_logger
 
@@ -99,7 +105,13 @@ class PlotGridConfig:
 def scatter_clusters(ax: plt.Axes, df: pd.DataFrame, colors: dict[int, str]) -> None:
     """One method's DR/DL scatter on one axes: per-cluster color + centroid id chip."""
     for cluster, cluster_df in df.groupby("cluster"):
-        ax.scatter(cluster_df["DR"], cluster_df["DL"], c=colors[int(cluster)], s=3, rasterized=True)
+        ax.scatter(
+            cluster_df["DR"],
+            cluster_df["DL"],
+            c=colors[int(cluster)],
+            s=CLUSTER_GRID_SCATTER_S,
+            rasterized=True,
+        )
         ax.annotate(
             f"{cluster}",
             (cluster_df["DR"].mean(), cluster_df["DL"].mean()),

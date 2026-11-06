@@ -83,8 +83,6 @@ from logging_setup import setup_logger
 _FRACTION_BINS = 20
 _BREADTH_BINS = 30
 
-_CUT_LINEWIDTH = 1.0
-
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -137,7 +135,6 @@ def plot_distributions(terms: pd.DataFrame, genes: pd.DataFrame) -> None:
         cut,
         color=FURNITURE_COLOR,
         linestyle="--",
-        linewidth=_CUT_LINEWIDTH,
         label=f"P{MOONLIGHTING_QUANTILE * 100:g} = {cut:g}",
     )
     axes[1].legend(loc="upper right")
