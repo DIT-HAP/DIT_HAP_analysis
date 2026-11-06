@@ -26,12 +26,17 @@ def test_apply_house_style_sets_cnsplots_palette():
     assert cns.settings.palette_seq == figures.DENSITY_CMAP
 
     # 验证字体设置
-    assert "Arial" in cns.settings.font_sans_serif
-    assert cns.settings.panel_label_fontname == "Arial"
+    assert cns.settings.font_sans_serif == figures.FONT_SANS_SERIF
+    assert cns.settings.panel_label_fontname is None
 
-    # 验证面板标签偏移
+    # 验证面板标签偏移 (display px, 随 figure_dpi 换算)
     assert cns.settings.panel_pad_left == figures.PANEL_LABEL_PAD_LEFT_PX
     assert cns.settings.panel_pad_top == figures.PANEL_LABEL_PAD_TOP_PX
+
+    # 验证导出契约
+    assert cns.settings.figure_dpi == figures.HOUSE_FIGURE_DPI
+    assert cns.settings.savefig_dpi == figures.HOUSE_FIGURE_DPI
+    assert cns.settings.savefig_transparent is False
 
 
 def test_save_dual_creates_pdf_and_png(tmp_path):

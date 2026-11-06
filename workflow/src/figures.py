@@ -25,24 +25,31 @@ Version:  3.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import cnsplots as cns
 from loguru import logger
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Page width in cnsplots layout pixels (72 per inch). Taken from cnsplots' own
-# multipanel default. No longer sizes grids -- it is the journal's one-page cap
-# that derived widths are checked against.
-JOURNAL_WIDTH_PX = int(cns.settings.multipanel_max_width)
+# Cell Press two-column width, in points (1/72 inch). Used only as the cap that
+# derived page widths are checked against; grids are still sized from panels.
+JOURNAL_WIDTH_PX = 493
 JOURNAL_HEIGHT_PX = 425  # ~150 mm, 4:3 aspect
+
+# Display and export resolution, matching the cnsplots house style. Both are
+# the same so a save never triggers the multipanel relayout that a dpi change
+# would.
+HOUSE_FIGURE_DPI = 360
 
 
 class PanelShape(StrEnum):
@@ -96,13 +103,14 @@ class _GridSpecification:
     axes: tuple[Axes, ...]
 
 
-# Panel-label offsets from the axes corner, in layout pixels. cnsplots defaults
-# both to 0, which puts the letter on top of the y tick labels; measured over a
-# 2x6 log grid, this is the smallest pair with no overlap against either the
-# tick labels or the axes title. Increased pad_top from 6 to 10 to prevent
-# overlap with longer panel titles.
-PANEL_LABEL_PAD_LEFT_PX = 25
-PANEL_LABEL_PAD_TOP_PX = 25
+# Panel-label offsets from the axes corner. cnsplots defaults both to 0, which
+# puts the letter on top of the y tick labels; measured over a 2x6 log grid,
+# 12.5 pt is the smallest offset with no overlap against either the tick labels
+# or the axes title. cnsplots stores these pads in display pixels, so the value
+# must be rescaled whenever HOUSE_FIGURE_DPI changes.
+PANEL_LABEL_PAD_PT = 12.5
+PANEL_LABEL_PAD_LEFT_PX = PANEL_LABEL_PAD_PT * HOUSE_FIGURE_DPI / 72
+PANEL_LABEL_PAD_TOP_PX = PANEL_LABEL_PAD_PT * HOUSE_FIGURE_DPI / 72
 
 # Uppercase A-Z, then A1, A2, ... A bare chr(65 + i) emits '[', '\\', ']' past Z.
 _ALPHABET_SIZE = 26
@@ -111,6 +119,16 @@ _ALPHABET_SIZE = 26
 # consistent colour means the same thing, so the palette name lives here alone
 # and no module may name a colour of its own.
 HOUSE_PALETTE = "Cell"
+
+# Arial-first stack from the cnsplots house style. Arial is installed on the
+# target machines; the metric-compatible Linux faces are fallbacks only.
+FONT_SANS_SERIF = (
+    "Arial",
+    "Helvetica",
+    "Nimbus Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+)
 
 # Semantic colour roles, resolved from HOUSE_PALETTE on demand rather than
 # written as literals, so re-pointing HOUSE_PALETTE re-colours every figure.
@@ -132,6 +150,39 @@ FURNITURE_COLOR = cns.GRAY
 # Overrides cnsplots' 'gnuplot', which is non-monotonic in perceptual lightness:
 # equal density steps must read as equal colour steps.
 DENSITY_CMAP = "viridis"
+
+# =============================================================================
+# STYLE EXCEPTIONS (defaults-first; every entry carries its reason)
+# =============================================================================
+# Dense point clouds. cnsplots' s=7 fills in once thousands of points overlap,
+# so these are reductions, never the enlargements the house style forbids.
+REGRESSION_PANEL_SCATTER_KWS: dict[str, Any] = {
+    "s": 3,
+    "color": FURNITURE_COLOR,
+    "alpha": 0.15,
+    "rasterized": True,
+}
+SCATTERPLOT_KWS: dict[str, Any] = {
+    "s": 6,
+    "alpha": 0.4,
+    "rasterized": True,
+}
+DENSITY_SCATTER_KWS: dict[str, Any] = {
+    "s": 1.5,
+    "alpha": 0.6,
+    "linewidths": 0,
+    "rasterized": True,
+}
+CLUSTER_GRID_SCATTER_S = 3
+
+# Bare ax.scatter does not inherit cnsplots' s=7 (matplotlib's rcParam default
+# is s=36), so callers that cannot use cns.scatterplot pass this explicitly.
+HOUSE_SCATTER_S = 7
+
+# Fit-critical text. Both sizes exist so text fits a measured panel; they are
+# the only typography overrides the house style permits.
+FIT_ANNOTATION_FONT_PT = 5
+FIT_CAPTION_FONT_OFFSET_PT = -2.0
 
 # cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
 # minor.size back gives ticks indistinguishable from major ones. Derive the
@@ -221,23 +272,27 @@ def apply_symlog_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
 
 
 def apply_house_style() -> None:
-    """Configure cnsplots with project house style: Cell palette, viridis density, Arial font."""
-    # Remove Helvetica to prevent findfont warnings; Arial is installed
-    cns.settings.font_sans_serif = ("Arial", "DejaVu Sans")
-    cns.settings.panel_label_fontname = "Arial"
+    """Configure cnsplots with the project house style: Cell palette, viridis, Arial-first fonts."""
+    cns.settings.font_sans_serif = FONT_SANS_SERIF
+    cns.settings.panel_label_fontname = None  # inherit the resolved font stack
 
     # Fonttype 42 embeds TrueType, editable in Illustrator
     cns.settings.pdf_fonttype = 42
+    cns.settings.svg_fonttype = "none"  # keep SVG text editable
 
     cns.settings.panel_pad_left = PANEL_LABEL_PAD_LEFT_PX
     cns.settings.panel_pad_top = PANEL_LABEL_PAD_TOP_PX
+
+    cns.settings.figure_dpi = HOUSE_FIGURE_DPI
+    cns.settings.savefig_dpi = HOUSE_FIGURE_DPI
+    cns.settings.savefig_transparent = False  # white background for print/preview
 
     # Both are needed: setup_matplotlib sets the rcParams cycle for bare
     # matplotlib calls, palette_qual is what cns.* plot functions and
     # multipanel.panel() read when no explicit color_cycle is passed.
     cns.settings.palette_qual = HOUSE_PALETTE
     cns.settings.palette_seq = DENSITY_CMAP
-    cns.setup_matplotlib(color_cycle=HOUSE_PALETTE)
+    cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=DENSITY_CMAP)
 
 
 def panel_labels(n: int) -> list[str]:
@@ -349,7 +404,7 @@ def grid_axes(
     width_px, height_px = figure_size_for_grid(n_rows, n_cols, shape)
     panel_width, panel_height = PANEL_SIZES_PX[shape]
 
-    cns.figure(width=width_px, height=height_px)
+    cns.figure(width=width_px, height=height_px, unit="pt")
     fig = plt.gcf()
     grid = fig.subplots(n_rows, n_cols, squeeze=False, sharex=share_x, sharey=share_y)
 
@@ -411,13 +466,44 @@ def series_colors(n: int) -> list[str]:
 
 
 def save_dual(stem: Path | str) -> None:
-    """Save the current figure as a journal PDF plus a review PNG, given a stem with no
-    extension."""
+    """Save the current figure as a full-canvas PDF plus a tight review PNG."""
     # Append rather than replace suffixes: Path.with_suffix()/.stem would truncate
     # at the first dot, so a stem like "HD1328-4.YES0_corr" would silently collapse
     # to "HD1328-4" and two samples would overwrite each other's figures.
     stem = Path(stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
 
-    cns.savefig(stem.parent / f"{stem.name}.pdf")
-    cns.savefig(stem.parent / f"{stem.name}.review.png")
+    # The PDF keeps the designed canvas so the page width is the journal width,
+    # not whatever the artists happen to span.
+    cns.savefig(stem.parent / f"{stem.name}.pdf", bbox_inches=None, transparent=False)
+    cns.savefig(
+        stem.parent / f"{stem.name}.review.png",
+        dpi=HOUSE_FIGURE_DPI,
+        bbox_inches="tight",
+        transparent=False,
+    )
+
+
+def save_pdf_pages(stem: Path | str, pages: Iterable[Figure]) -> None:
+    """Save an iterable of figures as one multi-page PDF plus a page-1 review PNG."""
+    # Same append rule as save_dual: never Path.with_suffix() a dotted stem.
+    stem = Path(stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    review_path = stem.parent / f"{stem.name}.review.png"
+
+    with PdfPages(stem.parent / f"{stem.name}.pdf") as pdf:
+        for number, figure in enumerate(pages):
+            pdf.savefig(
+                figure,
+                dpi=HOUSE_FIGURE_DPI,
+                bbox_inches=None,
+                transparent=False,
+            )
+            if number == 0:
+                cns.savefig(
+                    review_path,
+                    fig=figure,
+                    dpi=HOUSE_FIGURE_DPI,
+                    bbox_inches="tight",
+                    transparent=False,
+                )
