@@ -103,9 +103,7 @@ def draw_histogram_panel(
     # internal column. The scale is set afterwards rather than through
     # log_scale=: the edges are already laid out in log10 space above, and
     # passing both would have seaborn re-bin them.
-    cns.histplot(
-        data=values.to_frame(_VALUE_COLUMN), x=_VALUE_COLUMN, bins=edges, ax=ax, shrink=0.9
-    )
+    cns.histplot(data=values.to_frame(_VALUE_COLUMN), x=_VALUE_COLUMN, bins=edges, ax=ax)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 

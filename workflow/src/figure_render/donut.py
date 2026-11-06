@@ -75,7 +75,6 @@ def draw_donut_panel(
     # the annotation by its original column-name content instead of position.
     center = next(text for text in ax.texts if text.get_text() == STATUS_COLUMN)
     center.set_text(center_text)
-    center.set_fontsize(cns.settings.legend_fontsize)
 
     legend = ax.get_legend()
     legend.set_title(None)

@@ -264,7 +264,6 @@ def _draw_genealogy_bars(
                 2 * BAR_HALF_WIDTH,
                 (high - low) / total,
                 facecolor=cluster_color(cluster),
-                edgecolor="none",
             )
         )
         # Only bars with room for a label get one; at k=15 most are slivers the

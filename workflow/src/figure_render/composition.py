@@ -148,8 +148,8 @@ def _label_bars(
 # =============================================================================
 def _render_empty_composition(output_stem: Path) -> None:
     """Render the placeholder page shown when there is no composition data."""
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
+    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX, unit="pt")
+    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt")
     ax = multipanel.panel(label="A")
     ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
     save_dual(output_stem)
@@ -195,12 +195,32 @@ def _draw_bar_panel(
     )
 
 
+def _donut_host_size_px(n_donut_rows: int) -> tuple[float, float]:
+    """Return the host rectangle that gives every donut a 100 x 100 pt axes box.
+
+    GridSpec's ``wspace``/``hspace`` are fractions of the average cell size, so
+    the gaps are part of the host and must be solved for rather than added on
+    top: a 2 x n grid of 100 pt cells needs ``2*100 + 0.35*100`` by
+    ``n*100 + 0.52*(n-1)*100``.
+    """
+    width = (
+        DONUTS_PER_ROW * DONUT_PANEL_WIDTH_PX
+        + (DONUTS_PER_ROW - 1) * DONUT_GRID_WSPACE * DONUT_PANEL_WIDTH_PX
+    )
+    height = (
+        n_donut_rows * DONUT_PANEL_HEIGHT_PX
+        + (n_donut_rows - 1) * DONUT_GRID_HSPACE * DONUT_PANEL_HEIGHT_PX
+    )
+    return width, height
+
+
 def _create_donut_host(multipanel: Any, n_donut_rows: int) -> plt.Axes:
     """Create the invisible host rectangle whose bounds become the donut grid."""
+    width, height = _donut_host_size_px(n_donut_rows)
     return multipanel.panel(
         label="",
-        width=DONUT_PANEL_WIDTH_PX * DONUTS_PER_ROW,
-        height=DONUT_PANEL_HEIGHT_PX * n_donut_rows,
+        width=width,
+        height=height,
         margin_right=DONUT_PANEL_MARGIN_RIGHT_PX,
         margin_bottom=DONUT_PANEL_MARGIN_BOTTOM_PX,
     )
@@ -305,8 +325,8 @@ def render_composition_figure(
     n_categories = len(df)
     logger.info(f"Creating figure with {1 + n_categories} panels ({n_categories} categories)...")
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=MULTIPANEL_MAX_WIDTH_PX)
+    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX, unit="pt")
+    multipanel = cns.multipanel(max_width=MULTIPANEL_MAX_WIDTH_PX, unit="pt")
     labels = panel_labels(1 + n_categories)
 
     n_donut_rows = (n_categories + DONUTS_PER_ROW - 1) // DONUTS_PER_ROW

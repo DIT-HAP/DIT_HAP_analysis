@@ -27,7 +27,7 @@ Version:  2.2.0
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import cnsplots as cns
 from loguru import logger
@@ -40,7 +40,10 @@ import pandas as pd
 from scipy.stats import pearsonr
 
 from figures import (
+    DENSITY_SCATTER_KWS,
     FURNITURE_COLOR,
+    REGRESSION_PANEL_SCATTER_KWS,
+    SCATTERPLOT_KWS,
     apply_house_style,
     apply_log_scale,
     apply_symlog_scale,
@@ -56,38 +59,8 @@ from ._schema import require_columns
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Verified to render ~50k points per panel legibly: density stays visible instead
-# of collapsing into a solid block. cns.scatterplot always forces edgecolor=None
-# internally, so a filled gray marker (not regplot's hollow-circle look) is the
-# closest equivalent that doesn't collide with that forced kwarg.
-REGRESSION_PANEL_SCATTER_KWS: dict[str, object] = {
-    "s": 3,
-    "color": FURNITURE_COLOR,
-    "alpha": 0.15,
-    "rasterized": True,
-}
-
-# Verified for ~5k points with categorical colour-coding. Deliberately NOT shared
-# with REGRESSION_PANEL_SCATTER_KWS: cns.scatterplot always passes edgecolor=None
-# to seaborn internally, so supplying 'edgecolor' here raises on the duplicate.
-SCATTERPLOT_KWS: dict[str, object] = {
-    "s": 6,
-    "alpha": 0.4,
-    "rasterized": True,
-}
-
-# Density panels bypass cns.scatterplot for ax.scatter (cns.scatterplot exposes
-# only categorical hue and forces edgecolor=None, so a per-point colour array
-# cannot be threaded through it). Higher alpha than
-# REGRESSION_PANEL_SCATTER_KWS: at 0.15 the colour signal washes out, and
-# overplotting is what the colour already encodes. No 'color'/'c' key -- those
-# collide with the density array.
-DENSITY_SCATTER_KWS: dict[str, Any] = {
-    "s": 1.5,
-    "alpha": 0.6,
-    "linewidths": 0,
-    "rasterized": True,
-}
+# Dense-scatter sizes live in figures.py, the single registry of style
+# exceptions; they are imported above and passed through unchanged.
 
 # Axes-fraction (x0, y0, width, height) for the inset colorbar: bottom-right,
 # clear of the top-left n/r/P annotation. An inset axes contributes nothing to
@@ -111,17 +84,6 @@ MAX_GRID_COLUMNS = 2
 _LEGEND_STRIP_LEFT = 0.86
 LEGEND_LAYOUT_RECT = (0, 0, _LEGEND_STRIP_LEFT, 1)
 LEGEND_ANCHOR = (_LEGEND_STRIP_LEFT, 0.5)
-
-# Layout points between the bar's top edge and its label.
-DENSITY_CBAR_LABEL_PAD = 2
-
-# Colorbar-axes fraction the "Density" title starts at. Negative: the word is
-# several bar-widths wide, so it has to begin left of the bar to sit over it.
-DENSITY_CBAR_TITLE_X = -1.5
-
-# Legend handles inherit the scatter's small marker and low alpha, so they are
-# scaled up and forced opaque or the swatches misrepresent the plotted colours.
-LEGEND_MARKER_SCALE = 2
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -254,7 +216,7 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection, *, scale: float = 
     x0, y0, width, height = DENSITY_CBAR_BOUNDS
     # Scaled about the bottom-right corner, which is the corner the bar is anchored to.
     cax = ax.inset_axes((x0 + width * (1 - scale), y0, width * scale, height * scale))
-    colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
+    colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1], extend="neither")
 
     # Only the ordering is meaningful: density is renormalised per panel, so
     # numeric ticks would invite comparison between panels with different n.
@@ -265,20 +227,9 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection, *, scale: float = 
     labels[0].set_verticalalignment("bottom")
     labels[-1].set_verticalalignment("top")
 
-    # length=0 drops the tick marks but keeps their labels.
-    colorbar.ax.tick_params(length=0, pad=1)
-
-    # Sits above the bar, sized and right-aligned to match the low/high ticks: the
-    # bar is far narrower than the word, so a centred title would spill past the
-    # panel's right edge, and an axis label would read as a full-size axis title.
-    colorbar.ax.set_title(
-        DENSITY_CBAR_LABEL,
-        loc="center",
-        # fontsize=plt.rcParams["ytick.labelsize"],
-        # pad=DENSITY_CBAR_LABEL_PAD,
-    )
-    # title.set_position((DENSITY_CBAR_TITLE_X, title.get_position()[1]))
-    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
+    # Sits above the bar: the bar is far narrower than the word, so a centred
+    # title would spill past the panel's right edge.
+    colorbar.ax.set_title(DENSITY_CBAR_LABEL, loc="center")
 
 
 def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bool:
@@ -776,7 +727,6 @@ def _add_shared_hue_legend(
         bbox_to_anchor=LEGEND_ANCHOR,
         frameon=False,
         title=hue,
-        markerscale=LEGEND_MARKER_SCALE,
         alignment="left",
     )
     # Left-align and position the title over the entry labels rather than
