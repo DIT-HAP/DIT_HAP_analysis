@@ -53,7 +53,7 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 # 3. Third-party Imports
@@ -174,6 +174,10 @@ _ESSENTIALITY_SHEET_NAMES = {
 # =============================================================================
 # LOADERS
 # =============================================================================
+# Columns the coverage loaders read from the insertion-level annotations table.
+REQUIRED_ANNOTATION_COLUMNS = ("Type", "Distance_to_stop_codon", "Systematic ID")
+
+
 def resolve_duplicate_annotations(annotations: pd.DataFrame) -> pd.DataFrame:
     """Collapse duplicate-indexed annotation rows to one row per index value.
 
@@ -215,6 +219,12 @@ def load_insertion_level(
     """
     fitting_results = pd.read_csv(fitting_results_path, sep="\t", index_col=[0, 1, 2, 3])
     annotations = pd.read_csv(annotations_path, sep="\t", index_col=[0, 1, 2, 3])
+
+    missing_columns = set(REQUIRED_ANNOTATION_COLUMNS) - set(annotations.columns)
+    if missing_columns:
+        raise ValueError(
+            f"{annotations_path} is missing required columns: {sorted(missing_columns)}"
+        )
 
     annotations = resolve_duplicate_annotations(annotations)
     annotations = annotations.reindex(fitting_results.index)
@@ -340,6 +350,66 @@ def compute_category_coverage(gene_result: pd.DataFrame, column: str) -> dict[st
         result[value] = compute_gene_coverage(subset)
 
     return result
+
+
+# =============================================================================
+# CORE LOGIC — LFC coverage by FYPO viability class (cross-dataset comparison)
+# =============================================================================
+# LFC coverage asks a different question from compute_gene_coverage: a gene is
+# covered when at least one insertion inside it survived the upstream hard filter
+# and replicate merge, i.e. when it has a row in the release's
+# insertion_level/LFC.tsv AND that insertion passes IN_GENE_FILTER. DR coverage
+# (DR not NaN) is carried alongside as a reference column; the two differ by only
+# a handful of genes because curve fitting succeeds on nearly every covered gene.
+#
+# The four FYPO viability values plus the all-gene total, in the order the stats
+# tables and the cross-dataset figure carry them.
+FYPO_COVERAGE_CLASSES = ("inviable", "viable", "depends_on_conditions", "unknown")
+LFC_TOTAL_LABEL = "total"
+
+
+def build_lfc_gene_table(
+    lfc_path: Path, annotations_path: Path, gene_result: pd.DataFrame
+) -> pd.DataFrame:
+    """Flag every gene for LFC and DR coverage over gene_result's gene universe."""
+    _lfc, annotations = load_insertion_level(lfc_path, annotations_path)
+    lfc_gene_ids = set(annotations.query(IN_GENE_FILTER)["Systematic ID"].dropna())
+
+    gene_table = gene_result[["Systematic ID", "FYPOviability"]].copy()
+    gene_table["lfc_covered"] = gene_table["Systematic ID"].isin(lfc_gene_ids)
+    gene_table["dr_covered"] = gene_result["DR"].notna()
+    return gene_table
+
+
+def _coverage_summary_row(fypo_class: str, subset: pd.DataFrame) -> dict[str, int | float | str]:
+    """One stats row: LFC/DR counts and their fractions of the class."""
+    n_total = len(subset)
+    n_dr = int(subset["dr_covered"].sum())
+    n_lfc = int(subset["lfc_covered"].sum())
+    return {
+        "fypo_class": fypo_class,
+        "n_total": n_total,
+        "n_dr": n_dr,
+        "n_lfc": n_lfc,
+        "pct_dr": n_dr / n_total,
+        "pct_lfc": n_lfc / n_total,
+    }
+
+
+def summarize_lfc_coverage(gene_table: pd.DataFrame) -> pd.DataFrame:
+    """Summarize LFC/DR coverage by FYPO viability class, with a total row last."""
+    annotated = gene_table.dropna(subset=["FYPOviability"])
+    rows = [
+        _coverage_summary_row(fypo_class, annotated[annotated["FYPOviability"] == fypo_class])
+        for fypo_class in FYPO_COVERAGE_CLASSES
+    ]
+    rows.append(_coverage_summary_row(LFC_TOTAL_LABEL, annotated))
+    return pd.DataFrame(rows)
+
+
+def combine_lfc_coverage_stats(stats_tables: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Stack per-dataset stats tables, preserving the given dataset order."""
+    return pd.concat(stats_tables, ignore_index=True)
 
 
 def build_detailed_gene_table(gene_result: pd.DataFrame) -> pd.DataFrame:

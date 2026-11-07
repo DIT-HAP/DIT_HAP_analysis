@@ -6,20 +6,26 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
+import pytest
 from workflow.src.coverage.core import (
     DETAIL_COLUMNS,
     DIMENSION_LABELS,
+    FYPO_COVERAGE_CLASSES,
     IN_GENE_FILTER,
+    LFC_TOTAL_LABEL,
     build_detailed_gene_table,
     build_fypo_unknown_table,
+    build_lfc_gene_table,
     build_stats_table,
     build_undetermined_essentiality_table,
+    combine_lfc_coverage_stats,
     compute_category_coverage,
     compute_gene_coverage,
     compute_insertion_coverage,
     coverage_dicts_from_stats_table,
     dr_dl_histogram_frame,
     resolve_duplicate_annotations,
+    summarize_lfc_coverage,
     write_detailed_gene_excel,
 )
 from workflow.src.release_schema import read_gene_level
@@ -434,8 +440,6 @@ def test_coverage_dicts_from_stats_table_roundtrips_build_stats_table():
 
 def test_coverage_dicts_from_stats_table_missing_row_raises():
     """A stats table without the gene|all summary row raises a clear error."""
-    import pytest
-
     # Only an insertion row — gene|all is absent.
     stats = pd.DataFrame(
         [
@@ -727,3 +731,129 @@ def test_write_detailed_gene_excel_skips_missing_columns(tmp_path):
         "dubious",
     }
     assert len(wb.sheetnames) == 5
+
+
+# =============================================================================
+# LFC COVERAGE (cross-dataset coverage by FYPO viability class)
+# =============================================================================
+def _write_lfc_fixture(tmp_path):
+    """Write a tiny LFC + annotations pair and return their paths."""
+    lfc = pd.DataFrame(
+        {
+            "Chr": ["I", "I", "I"],
+            "Coordinate": [100, 200, 300],
+            "Strand": ["+", "+", "+"],
+            "Target": ["TTAA", "TTAA", "TTAA"],
+            "YES0": [1.0, 1.0, 1.0],
+        }
+    )
+    lfc_path = tmp_path / "LFC.tsv"
+    lfc.to_csv(lfc_path, sep="\t", index=False)
+
+    annotations = pd.DataFrame(
+        {
+            "Chr": ["I", "I", "I", "I", "I"],
+            "Coordinate": [100, 200, 300, 300, 400],
+            "Strand": ["+", "+", "+", "+", "+"],
+            "Target": ["TTAA", "TTAA", "TTAA", "TTAA", "TTAA"],
+            "Systematic ID": ["A", "", "B", "C", "D"],
+            "Type": [
+                "Coding gene",
+                "Intergenic region",
+                "Coding gene",
+                "Coding gene",
+                "Coding gene",
+            ],
+            "Distance_to_stop_codon": [10, 0, 3, 10, 10],
+        }
+    )
+    annotations_path = tmp_path / "annotations.tsv"
+    annotations.to_csv(annotations_path, sep="\t", index=False)
+    return lfc_path, annotations_path
+
+
+def test_build_lfc_gene_table_flags_lfc_and_dr_coverage(tmp_path):
+    """LFC coverage needs a passing in-gene insertion in LFC; DR coverage is DR not NaN."""
+    lfc_path, annotations_path = _write_lfc_fixture(tmp_path)
+    gene_result = pd.DataFrame(
+        {
+            "Systematic ID": ["A", "B", "C", "D", "E"],
+            "FYPOviability": ["inviable", "viable", "viable", "unknown", "viable"],
+            "DR": [-0.5, None, 0.1, 0.2, None],
+        }
+    )
+
+    result = build_lfc_gene_table(lfc_path, annotations_path, gene_result)
+
+    assert list(result.columns) == ["Systematic ID", "FYPOviability", "lfc_covered", "dr_covered"]
+    assert list(result["lfc_covered"]) == [True, False, True, False, False]
+    assert list(result["dr_covered"]) == [True, False, True, True, False]
+
+
+def _make_lfc_gene_table():
+    """Per-gene coverage flags across every FYPO class plus one unannotated gene."""
+    return pd.DataFrame(
+        {
+            "Systematic ID": ["A", "B", "C", "D", "E", "F", "G", "H"],
+            "FYPOviability": [
+                "inviable",
+                "inviable",
+                "viable",
+                "viable",
+                "viable",
+                "depends_on_conditions",
+                "unknown",
+                None,
+            ],
+            "lfc_covered": [True, False, True, True, False, True, False, True],
+            "dr_covered": [True, True, True, False, False, True, False, True],
+        }
+    )
+
+
+def test_summarize_lfc_coverage_rows_columns_and_total():
+    """Five fixed rows; a total row over the FYPO-annotated genes only."""
+    stats = summarize_lfc_coverage(_make_lfc_gene_table())
+
+    assert list(stats.columns) == [
+        "fypo_class",
+        "n_total",
+        "n_dr",
+        "n_lfc",
+        "pct_dr",
+        "pct_lfc",
+    ]
+    assert list(stats["fypo_class"]) == [*FYPO_COVERAGE_CLASSES, LFC_TOTAL_LABEL]
+
+    total = stats[stats["fypo_class"] == LFC_TOTAL_LABEL].iloc[0]
+    assert total["n_total"] == 7  # the unannotated gene is outside every denominator
+    assert total["n_total"] == stats.loc[stats["fypo_class"] != LFC_TOTAL_LABEL, "n_total"].sum()
+    assert total["n_lfc"] == 4
+    assert total["n_dr"] == 4
+    assert total["pct_lfc"] == pytest.approx(4 / 7)
+
+
+def _make_stats_table(dataset):
+    """Five-row stats table shaped like one dataset's lfc_coverage_stats.tsv."""
+    return pd.DataFrame(
+        {
+            "dataset": [dataset] * 5,
+            "fypo_class": [*FYPO_COVERAGE_CLASSES, LFC_TOTAL_LABEL],
+            "n_total": [10, 20, 5, 5, 40],
+            "n_dr": [8, 15, 4, 3, 30],
+            "n_lfc": [7, 14, 4, 2, 27],
+            "pct_dr": [0.8, 0.75, 0.8, 0.6, 0.75],
+            "pct_lfc": [0.7, 0.7, 0.8, 0.4, 0.675],
+        }
+    )
+
+
+def test_combine_lfc_coverage_stats_preserves_order_and_columns():
+    """Three tables stack to 15 rows in the given dataset order."""
+    combined = combine_lfc_coverage_stats(
+        [_make_stats_table("A"), _make_stats_table("B"), _make_stats_table("C")]
+    )
+
+    assert len(combined) == 15
+    assert list(combined["dataset"].drop_duplicates()) == ["A", "B", "C"]
+    assert list(combined.columns) == list(_make_stats_table("A").columns)

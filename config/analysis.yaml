@@ -23,6 +23,19 @@ features:
   # echoed into the shell command, so Snakemake picks the change up on its own.
   paralog_source: deletion_library
 
+# --- Gene insertion coverage (2a_coverage.smk) ---
+coverage:
+  # Members of the cross-dataset LFC coverage comparison. Order sets the bar
+  # order in the figure (and the row order of the combined TSV): the three
+  # released libraries that actually differ, with LD_haploid first because its
+  # essential-gene coverage is the baseline the DIT-HAP libraries are compared
+  # against. HD_diploid is excluded (no release/ on disk), as are Spore2YES6_1328
+  # (pipeline control) and Spikein (no gene-level data).
+  lfc_comparison_datasets:
+    - LD_haploid
+    - HD_DIT_HAP
+    - LD_DIT_HAP
+
 # --- Gene-level clustering (clustering.smk) ---
 clustering:
   random_state: 42      # seed for KMeans / GMM (also KMeans n_init=10)
