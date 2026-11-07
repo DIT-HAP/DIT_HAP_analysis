@@ -60,8 +60,8 @@ import pandas as pd
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from figure_render.cluster_scatter import scatter_clusters
 from figures import (
-    CLUSTER_GRID_SCATTER_S,
     apply_house_style,
     cluster_color,
     grid_axes,
@@ -102,33 +102,6 @@ class PlotGridConfig:
 # =============================================================================
 # HELPERS
 # =============================================================================
-def scatter_clusters(ax: plt.Axes, df: pd.DataFrame, colors: dict[int, str]) -> None:
-    """One method's DR/DL scatter on one axes: per-cluster color + centroid id chip."""
-    for cluster, cluster_df in df.groupby("cluster"):
-        ax.scatter(
-            cluster_df["DR"],
-            cluster_df["DL"],
-            c=colors[int(cluster)],
-            s=CLUSTER_GRID_SCATTER_S,
-            rasterized=True,
-        )
-        ax.annotate(
-            f"{cluster}",
-            (cluster_df["DR"].mean(), cluster_df["DL"].mean()),
-            fontweight="bold",
-            ha="center",
-            va="center",
-            bbox={
-                "boxstyle": "round,pad=0.15",
-                "facecolor": "white",
-                "edgecolor": "none",
-                "alpha": 0.8,
-            },
-        )
-    ax.set_xlabel("DR")
-    ax.set_ylabel("DL")
-
-
 def curated_labels(curated: Path, annotated: pd.DataFrame) -> pd.Series:
     """The hand-curated clusters, DR-ascending-renumbered to 1..k like every method."""
     from clustering.candidates import renumber_by_dr  # noqa: PLC0415

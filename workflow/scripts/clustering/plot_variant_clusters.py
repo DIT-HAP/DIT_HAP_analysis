@@ -8,9 +8,9 @@ Visualizes one finalize variant's cluster assignments in the (DR, DL) feature
 space: one page for the final `cluster` (1..final_n_clusters, WT = lowest DR),
 plus — for merge-type variants (auto_merge / manual_merge) that keep a
 `raw_cluster` column — a second page for the pre-merge intermediate clusters.
-Different clusters get different colors (reuses the notebook's cluster-review
-plot: workflow/src/plotting/gene_level.visualize_cluster_on_feature_space), so
-the pipeline plot and the manual-merge notebook's review plot look identical.
+The pages use the house cnsplots style via
+workflow/src/figure_render/cluster_scatter.py, with one colour per cluster id
+across every variant.
 
 Input
 -----
@@ -57,9 +57,9 @@ from matplotlib.figure import Figure
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
+from figure_render.cluster_scatter import build_cluster_scatter_figure
 from figures import save_pdf_pages
 from logging_setup import setup_logger
-from plotting.gene_level import visualize_cluster_on_feature_space
 
 
 # =============================================================================
@@ -92,19 +92,27 @@ def _cluster_figures(df: pd.DataFrame, variant_label: str) -> list[Figure]:
     if "raw_cluster" in df.columns:
         intermediate = df.dropna(subset=["raw_cluster"]).copy()
         intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
-        figure = visualize_cluster_on_feature_space(intermediate, "raw_cluster")
-        figure.suptitle(
-            f"{variant_label} — intermediate "
-            f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
+        figure = build_cluster_scatter_figure(
+            intermediate,
+            cluster_col="raw_cluster",
+            one_based=False,
+            title=(
+                f"{variant_label} — intermediate "
+                f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
+            ),
         )
         figures.append(figure)
 
     final = df.dropna(subset=["cluster"]).copy()
     final["cluster"] = final["cluster"].astype(int)
-    figure = visualize_cluster_on_feature_space(
-        final, "cluster", cluster_minus_one=True, show_box=True, legend=True
+    figure = build_cluster_scatter_figure(
+        final,
+        cluster_col="cluster",
+        one_based=True,
+        show_box=True,
+        legend=True,
+        title=f"{variant_label} — final (cluster, n={final['cluster'].nunique()})",
     )
-    figure.suptitle(f"{variant_label} — final (cluster, n={final['cluster'].nunique()})")
     figures.append(figure)
     return figures
 
