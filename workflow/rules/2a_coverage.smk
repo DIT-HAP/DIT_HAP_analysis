@@ -140,3 +140,77 @@ rule plot_coverage_figures:
             --gene-result {input.gene_result} \
             --output-dir results/2a_coverage/{wildcards.dataset} &> {log}
         """
+
+
+# -----------------------------------------------------------------------------
+# LFC coverage across datasets (design doc 2026-11-07-lfc-coverage-comparison)
+# -----------------------------------------------------------------------------
+# A second, upstream coverage definition: a gene counts as covered when an
+# insertion inside it has a row in the release's insertion_level/LFC.tsv (i.e.
+# it survived the hard filter and replicate merge) and passes IN_GENE_FILTER.
+# compute_lfc_coverage fans out per dataset and reuses gene_result's 5,126-gene
+# universe + FYPOviability + DR for the reference statistic; compare_lfc_coverage
+# then stacks the per-dataset stats in config.coverage.lfc_comparison_datasets
+# order and draws the grouped figure from that same table.
+
+rule compute_lfc_coverage:
+    input:
+        lfc=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/insertion_level/LFC.tsv"
+        ),
+        annotations=lambda wc: (
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets'][wc.dataset]['release_dir']}/insertion_level/annotations.tsv.gz"
+        ),
+        gene_result=f"{_COVWORK}/gene_result.parquet",
+    output:
+        stats="results/2a_coverage/{dataset}/lfc_coverage_stats.tsv",
+        gene_table=f"{_COVWORK}/lfc_gene_coverage.parquet",
+    log:
+        "logs/2a_coverage/compute_lfc_coverage_{dataset}.log",
+    conda:
+        "../envs/statistics_and_figure_plotting.yml"
+    message:
+        "*** [coverage] Computing LFC gene coverage for {wildcards.dataset}..."
+    shell:
+        """
+        python workflow/scripts/coverage/compute_lfc_coverage.py \
+            --lfc {input.lfc} \
+            --annotations {input.annotations} \
+            --gene-result {input.gene_result} \
+            --dataset {wildcards.dataset} \
+            --output-stats {output.stats} \
+            --output-gene-table {output.gene_table} &> {log}
+        """
+
+
+rule compare_lfc_coverage:
+    input:
+        stats=lambda wc: [
+            f"results/2a_coverage/{dataset}/lfc_coverage_stats.tsv"
+            for dataset in config["coverage"]["lfc_comparison_datasets"]
+        ],
+    output:
+        comparison_tsv="results/2a_coverage/cross_dataset/lfc_coverage_comparison.tsv",
+        figure_pdf="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo.pdf",
+        figure_review="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo.review.png",
+        figure_horizontal_pdf="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo_horizontal.pdf",
+        figure_horizontal_review="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo_horizontal.review.png",
+        figure_two_libraries_pdf="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo_two_libraries.pdf",
+        figure_two_libraries_review="results/2a_coverage/cross_dataset/lfc_coverage_by_fypo_two_libraries.review.png",
+    log:
+        "logs/2a_coverage/compare_lfc_coverage.log",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** [coverage] Comparing LFC coverage across datasets..."
+    shell:
+        """
+        python workflow/scripts/coverage/compare_lfc_coverage.py \
+            --stats {input.stats} \
+            --output-tsv {output.comparison_tsv} \
+            --output-figure {output.figure_pdf} \
+            --output-figure-horizontal {output.figure_horizontal_pdf} \
+            --output-figure-two-libraries {output.figure_two_libraries_pdf} &> {log}
+        """
