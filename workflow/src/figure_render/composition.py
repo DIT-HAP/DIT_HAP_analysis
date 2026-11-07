@@ -32,7 +32,6 @@ from matplotlib.transforms import Bbox
 import pandas as pd
 
 from figures import (
-    JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
     PANEL_SIZES_PX,
     PanelShape,
@@ -59,7 +58,6 @@ from .donut import draw_donut_panel
 BAR_PANEL_WIDTH_PX, BAR_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 BAR_PANEL_PAD_LEFT_PX = 45  # gap for the category names, as in the gallery
 BAR_PANEL_MARGIN_RIGHT_PX = 8  # match the donut host's right margin
-MULTIPANEL_MAX_WIDTH_PX = 250
 DONUT_PANEL_WIDTH_PX, DONUT_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 DONUTS_PER_ROW = 2
 DONUT_PANEL_MARGIN_RIGHT_PX = 8
@@ -148,7 +146,6 @@ def _label_bars(
 # =============================================================================
 def _render_empty_composition(output_stem: Path) -> None:
     """Render the placeholder page shown when there is no composition data."""
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX, unit="pt")
     multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt")
     ax = multipanel.panel(label="A")
     ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
@@ -325,8 +322,7 @@ def render_composition_figure(
     n_categories = len(df)
     logger.info(f"Creating figure with {1 + n_categories} panels ({n_categories} categories)...")
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX, unit="pt")
-    multipanel = cns.multipanel(max_width=MULTIPANEL_MAX_WIDTH_PX, unit="pt")
+    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt")
     labels = panel_labels(1 + n_categories)
 
     n_donut_rows = (n_categories + DONUTS_PER_ROW - 1) // DONUTS_PER_ROW

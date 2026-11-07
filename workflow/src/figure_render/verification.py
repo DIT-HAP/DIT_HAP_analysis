@@ -133,9 +133,10 @@ SCATTER_ALPHA = 0.45
 # own decorations need. ROW_LABEL_PAD_LEFT_PX is the width of the longest
 # label ("spores, germinated, divided or microcolonies  (n=76)", 50 chars at the
 # 7 pt house tick size).
-# Registered layout exception: the donut (150 pt) + long row-name pad + strip
-# (120 pt) row was measured at 540 and wraps at the 493 pt journal cap. The
-# page is scaled down at typesetting rather than reflowed.
+# FIGURE_WIDTH_PX is multipanel's wrap width, not a page cap. The donut (150 pt)
+# + long row-name pad + strip (120 pt) row was measured at 540 and wraps into an
+# extra row at 493, so this figure keeps the wider wrap and lets the measured
+# export bounds size the page.
 FIGURE_WIDTH_PX = 540
 # Row pitch per panel type. A strip plot only needs to separate its rows; a
 # violin has to show a density profile, which the strip pitch is too short for.
@@ -147,7 +148,6 @@ ROW_LABEL_PAD_LEFT_PX = 200
 DONUT_PANEL_PX = 150
 DONUT_LEGEND_HEIGHT_PX = 30  # room for the legend under the ring
 PANEL_LABEL_PAD_PX = 26
-FIGURE_DECORATION_PX = 52
 
 
 def _dr_row_panel(
@@ -497,9 +497,7 @@ def render_category_summary_figure(
     apply_house_style()
 
     n_categories = len(order)
-    strip_height_px = n_categories * STRIP_ROW_HEIGHT_PX
 
-    cns.figure(width=FIGURE_WIDTH_PX, height=strip_height_px + FIGURE_DECORATION_PX, unit="pt")
     panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
 
     ax_donut = _donut_panel(panels, "A")
@@ -551,8 +549,6 @@ def render_category_boxplot_figure(
     basic = merged[merged[CATEGORY_COLUMN].isin(BASIC_BOXPLOT_CATEGORIES)]
     boxes = order_categories(basic[CATEGORY_WITH_ESSENTIALITY_COLUMN])
 
-    height_px = len(boxes) * VIOLIN_ROW_HEIGHT_PX
-    cns.figure(width=FIGURE_WIDTH_PX, height=height_px + FIGURE_DECORATION_PX, unit="pt")
     panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
     ax = _dr_row_panel(
         panels,
@@ -594,9 +590,7 @@ def render_critical_group_figure(
         columns=[BUCKET_COLUMN, DR_COLUMN],
     )
     present = order_labels_present(order, long[BUCKET_COLUMN])
-    height_px = max(len(present) * VIOLIN_ROW_HEIGHT_PX, DONUT_PANEL_PX)
 
-    cns.figure(width=FIGURE_WIDTH_PX, height=height_px + FIGURE_DECORATION_PX, unit="pt")
     panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
 
     ax_box = _dr_row_panel(

@@ -1,6 +1,7 @@
 """Tests for workflow/src/figures.py."""
 
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -9,7 +10,9 @@ import matplotlib as mpl
 
 mpl.use("Agg")  # 无头后端
 
+from loguru import logger
 import matplotlib.pyplot as plt
+from PIL import Image
 import pytest
 from workflow.src import figures
 from workflow.src.figures import PanelShape
@@ -139,3 +142,110 @@ def test_figure_size_for_grid_raises_on_invalid_input():
 
     with pytest.raises(ValueError, match="n_cols must be at least 1"):
         figures.figure_size_for_grid(1, 0)
+
+
+def test_content_bounds_never_shrinks_below_canvas():
+    """content_bounds keeps the designed canvas and adds the 2 pt pad around it."""
+    figures.apply_house_style()
+    fig, ax = plt.subplots(figsize=(2, 2))
+    ax.plot([1, 2, 3])
+    width, height = fig.get_size_inches()
+    pad_in = figures.CONTENT_PAD_PT / 72
+
+    bounds = figures.content_bounds(fig)
+
+    assert bounds.width == pytest.approx(width + 2 * pad_in, abs=1e-6)
+    assert bounds.height == pytest.approx(height + 2 * pad_in, abs=1e-6)
+    plt.close(fig)
+
+
+def test_content_bounds_grows_for_legend_outside_axes():
+    """content_bounds includes a legend anchored past the right edge of the canvas."""
+    figures.apply_house_style()
+    fig, ax = plt.subplots(figsize=(2, 2))
+    ax.plot([1, 2, 3], label="series")
+    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    canvas_width = fig.get_size_inches()[0]
+
+    bounds = figures.content_bounds(fig)
+
+    assert bounds.x1 > canvas_width + figures.CONTENT_PAD_PT / 72 + 0.1
+    plt.close(fig)
+
+
+def test_content_bounds_includes_in_layout_false_text():
+    """content_bounds picks up a figure text that matplotlib's tight bbox ignores."""
+    figures.apply_house_style()
+    fig, ax = plt.subplots(figsize=(2, 2))
+    ax.plot([1, 2, 3])
+    text = fig.text(1.2, 0.5, "outside")
+    text.set_in_layout(False)
+    canvas_width = fig.get_size_inches()[0]
+
+    bounds = figures.content_bounds(fig)
+
+    assert bounds.x1 > 1.2 * canvas_width
+    plt.close(fig)
+
+
+def test_content_bounds_warns_on_large_overshoot():
+    """content_bounds logs a warning when content grows the page past the ratio."""
+    figures.apply_house_style()
+    fig, ax = plt.subplots(figsize=(2, 2))
+    ax.plot([1, 2, 3])
+    fig.text(3.0, 0.5, "far outside")
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(message), level="WARNING")
+    try:
+        figures.content_bounds(fig)
+    finally:
+        logger.remove(sink_id)
+
+    assert any("Content expands" in message for message in messages)
+    plt.close(fig)
+
+
+def test_save_dual_writes_measured_bounds(tmp_path):
+    """save_dual renders the review PNG at the same measured bounds as the PDF."""
+    figures.apply_house_style()
+    fig, ax = plt.subplots(figsize=(2, 2))
+    ax.plot([1, 2, 3])
+    fig.text(1.2, 0.5, "outside")
+    bounds = figures.content_bounds(fig)
+
+    figures.save_dual(tmp_path / "outside")
+
+    with Image.open(tmp_path / "outside.review.png") as image:
+        assert image.width == pytest.approx(bounds.width * figures.HOUSE_FIGURE_DPI, abs=2)
+        assert image.height == pytest.approx(bounds.height * figures.HOUSE_FIGURE_DPI, abs=2)
+    [(pdf_width, pdf_height)] = _pdf_page_sizes(tmp_path / "outside.pdf")
+    assert (pdf_width, pdf_height) == pytest.approx(
+        (bounds.width * 72, bounds.height * 72), abs=0.5
+    )
+    plt.close(fig)
+
+
+def test_save_pdf_pages_uses_one_bound_for_every_page(tmp_path):
+    """save_pdf_pages gives every page the union of all page bounds."""
+    figures.apply_house_style()
+    plain, plain_ax = plt.subplots(figsize=(2, 2))
+    plain_ax.plot([1, 2, 3])
+    wide, wide_ax = plt.subplots(figsize=(3, 2))
+    wide_ax.plot([1, 2, 3])
+    wide.text(1.2, 0.5, "outside")
+
+    figures.save_pdf_pages(tmp_path / "pages", [plain, wide])
+
+    sizes = _pdf_page_sizes(tmp_path / "pages.pdf")
+    assert len(sizes) == 2
+    assert sizes[0] == pytest.approx(sizes[1], abs=0.5)
+    assert sizes[0][0] > 1.2 * 3 * 72  # the outside text starts at 1.2 x 3 in
+    plt.close("all")
+
+
+def _pdf_page_sizes(path: Path) -> list[tuple[float, float]]:
+    """Return (width, height) of every PDF page in points, read from the MediaBox entries."""
+    text = path.read_bytes().decode("latin-1")
+    boxes = [box.split() for box in re.findall(r"/MediaBox \[([^\]]+)\]", text)]
+    return [(float(x1) - float(x0), float(y1) - float(y0)) for x0, y0, x1, y1 in boxes]

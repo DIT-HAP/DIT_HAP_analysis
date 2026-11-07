@@ -17,6 +17,12 @@ caller picks a ``PanelShape`` and the figure size follows from the grid, rather
 than dividing a fixed page width by the column count and letting panels shrink
 out of the legible range as the grid grows.
 
+Export bounds are measured, not designed: ``content_bounds`` unions the
+panel-derived canvas with every visible artist, so a legend or label that lands
+outside the layout grows the page instead of being clipped. These are pipeline
+figures, not submission figures; a separate final-figure stage may impose a
+publication canvas, and nothing here reserves that hook.
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-09-01
 Version:  3.0.0
@@ -37,14 +43,15 @@ from matplotlib.axes import Axes
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+from matplotlib.transforms import Bbox
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Cell Press two-column width, in points (1/72 inch). Used only as the cap that
-# derived page widths are checked against; grids are still sized from panels.
+# Cell Press two-column width, in points (1/72 inch). Caps derived grid widths in
+# figure_size_for_grid and is multipanel's wrap width in composition; grids are
+# still sized from panels.
 JOURNAL_WIDTH_PX = 493
-JOURNAL_HEIGHT_PX = 425  # ~150 mm, 4:3 aspect
 
 # Display and export resolution, matching the cnsplots house style. Both are
 # the same so a save never triggers the multipanel relayout that a dpi change
@@ -80,6 +87,17 @@ PANEL_DECORATION_HEIGHT_PX = 31
 # are the slope, this is the intercept. Omitting it made a 1x1 figure's axes
 # 89 px instead of 100, since one cell absorbs the whole pad.
 FIGURE_PAD_PX = 19
+
+# Export bounds grow past the designed canvas instead of clipping it: content
+# that renders outside the panel layout is included, with this much air on every
+# side. Two points is below the smallest visible gap but keeps edge-touching
+# artists off the paper edge.
+CONTENT_PAD_PT = 2.0
+
+# An artist that grows the page by more than this fraction of the designed
+# canvas is a layout mistake rather than a legend needing a few points. Log it
+# and ship anyway; the page still contains everything.
+CONTENT_OVERFLOW_WARN_RATIO = 0.25
 
 # fit_panels' measure-and-correct loop. Two passes take the worst measured case
 # (4 columns, 15 px short) to under a pixel; the tolerance is well below the
@@ -465,45 +483,90 @@ def series_colors(n: int) -> list[str]:
     return house_colors(_SERIES_INDICES[:n])
 
 
+def content_bounds(fig: Figure) -> Bbox:
+    """Return the export region in inches: the canvas plus every drawn artist, padded."""
+    fig.canvas.draw()
+    canvas = Bbox.from_bounds(0.0, 0.0, *fig.get_size_inches())
+    bounds = Bbox.union([canvas, _measured_content_inches(fig)])
+    _warn_on_content_overshoot(canvas, bounds)
+
+    pad_in = CONTENT_PAD_PT / 72
+    return Bbox.from_bounds(
+        bounds.x0 - pad_in,
+        bounds.y0 - pad_in,
+        bounds.width + 2 * pad_in,
+        bounds.height + 2 * pad_in,
+    )
+
+
+def _measured_content_inches(fig: Figure) -> Bbox:
+    """Union the figure tight bbox with axes and figure artists that in_layout may exclude."""
+    to_inches = fig.dpi_scale_trans.inverted()
+
+    pixel_boxes = [ax.get_tightbbox() for ax in fig.axes]
+    figure_artists = [*fig.legends, *fig.texts, *fig.artists]
+    visible = [artist for artist in figure_artists if artist.get_visible()]
+    pixel_boxes += [artist.get_window_extent() for artist in visible]
+    boxes = [bbox.transformed(to_inches) for bbox in pixel_boxes if bbox is not None]
+
+    boxes.append(fig.get_tightbbox())
+    return Bbox.union(boxes)
+
+
+def _warn_on_content_overshoot(canvas: Bbox, bounds: Bbox) -> None:
+    """Log when measured content grows the page far past the designed canvas."""
+    width_ratio = (bounds.width - canvas.width) / canvas.width
+    height_ratio = (bounds.height - canvas.height) / canvas.height
+    if max(width_ratio, height_ratio) <= CONTENT_OVERFLOW_WARN_RATIO:
+        return
+
+    logger.warning(
+        f"Content expands the {canvas.width * 72:.0f}x{canvas.height * 72:.0f} pt canvas to "
+        f"{bounds.width * 72:.0f}x{bounds.height * 72:.0f} pt; "
+        f"check for an artist placed outside the layout."
+    )
+
+
 def save_dual(stem: Path | str) -> None:
-    """Save the current figure as a full-canvas PDF plus a tight review PNG."""
+    """Save the current figure as a PDF and a review PNG at the measured content bounds."""
     # Append rather than replace suffixes: Path.with_suffix()/.stem would truncate
     # at the first dot, so a stem like "HD1328-4.YES0_corr" would silently collapse
     # to "HD1328-4" and two samples would overwrite each other's figures.
     stem = Path(stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
+    bounds = content_bounds(plt.gcf())
 
-    # The PDF keeps the designed canvas so the page width is the journal width,
-    # not whatever the artists happen to span.
-    cns.savefig(stem.parent / f"{stem.name}.pdf", bbox_inches=None, transparent=False)
+    cns.savefig(stem.parent / f"{stem.name}.pdf", bbox_inches=bounds, transparent=False)
     cns.savefig(
         stem.parent / f"{stem.name}.review.png",
         dpi=HOUSE_FIGURE_DPI,
-        bbox_inches="tight",
+        bbox_inches=bounds,
         transparent=False,
     )
 
 
 def save_pdf_pages(stem: Path | str, pages: Iterable[Figure]) -> None:
-    """Save an iterable of figures as one multi-page PDF plus a page-1 review PNG."""
+    """Save figures as one multi-page PDF plus a page-1 review PNG, all at one bound."""
     # Same append rule as save_dual: never Path.with_suffix() a dotted stem.
     stem = Path(stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
     review_path = stem.parent / f"{stem.name}.review.png"
 
+    figures = list(pages)
+    bounds = Bbox.union([content_bounds(figure) for figure in figures])
+
     with PdfPages(stem.parent / f"{stem.name}.pdf") as pdf:
-        for number, figure in enumerate(pages):
+        for figure in figures:
             pdf.savefig(
                 figure,
                 dpi=HOUSE_FIGURE_DPI,
-                bbox_inches=None,
+                bbox_inches=bounds,
                 transparent=False,
             )
-            if number == 0:
-                cns.savefig(
-                    review_path,
-                    fig=figure,
-                    dpi=HOUSE_FIGURE_DPI,
-                    bbox_inches="tight",
-                    transparent=False,
-                )
+        cns.savefig(
+            review_path,
+            fig=figures[0],
+            dpi=HOUSE_FIGURE_DPI,
+            bbox_inches=bounds,
+            transparent=False,
+        )

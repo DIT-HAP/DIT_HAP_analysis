@@ -20,6 +20,7 @@ Output
 ------
 - cluster_scatter.pdf: 1 page (direct/grid, no raw_cluster) or 2 pages
   (auto_merge/manual_merge — intermediate page first, then final)
+- cluster_scatter.review.png: page-1 preview at the same measured bounds
 
 Usage
 -----
@@ -50,12 +51,13 @@ import pandas as pd
 
 mpl.use("Agg")  # headless: this script only writes a PDF, never displays
 from loguru import logger
-from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
 
 # 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
+from figures import save_pdf_pages
 from logging_setup import setup_logger
 from plotting.gene_level import visualize_cluster_on_feature_space
 
@@ -84,38 +86,40 @@ class PlotVariantClustersConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _cluster_figures(df: pd.DataFrame, variant_label: str) -> list[Figure]:
+    """Build the intermediate (when raw_cluster exists) and final cluster scatter pages."""
+    figures: list[Figure] = []
+    if "raw_cluster" in df.columns:
+        intermediate = df.dropna(subset=["raw_cluster"]).copy()
+        intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
+        figure = visualize_cluster_on_feature_space(intermediate, "raw_cluster")
+        figure.suptitle(
+            f"{variant_label} — intermediate "
+            f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
+        )
+        figures.append(figure)
+
+    final = df.dropna(subset=["cluster"]).copy()
+    final["cluster"] = final["cluster"].astype(int)
+    figure = visualize_cluster_on_feature_space(
+        final, "cluster", cluster_minus_one=True, show_box=True, legend=True
+    )
+    figure.suptitle(f"{variant_label} — final (cluster, n={final['cluster'].nunique()})")
+    figures.append(figure)
+    return figures
+
+
 @logger.catch(reraise=True)
 def run(config: PlotVariantClustersConfig) -> None:
     """Render the intermediate (if present) and final cluster scatters into one PDF."""
     config.validate()
     df = pd.read_csv(config.final_clusters, sep="\t", index_col=0)
 
-    pages = 0
-    with PdfPages(config.output) as pdf:
-        if "raw_cluster" in df.columns:
-            intermediate = df.dropna(subset=["raw_cluster"]).copy()
-            intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
-            fig = visualize_cluster_on_feature_space(intermediate, "raw_cluster")
-            fig.suptitle(
-                f"{config.variant_label} — intermediate "
-                f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
-            )
-            pdf.savefig(fig)
-            fig.clf()
-            pages += 1
-
-        final = df.dropna(subset=["cluster"]).copy()
-        final["cluster"] = final["cluster"].astype(int)
-        fig = visualize_cluster_on_feature_space(
-            final, "cluster", cluster_minus_one=True, show_box=True, legend=True
-        )
-        fig.suptitle(f"{config.variant_label} — final (cluster, n={final['cluster'].nunique()})")
-        pdf.savefig(fig)
-        fig.clf()
-        pages += 1
+    figures = _cluster_figures(df, config.variant_label)
+    save_pdf_pages(config.output.with_suffix(""), figures)
 
     logger.success(
-        f"Wrote {pages}-page cluster scatter for {config.variant_label} -> {config.output}"
+        f"Wrote {len(figures)}-page cluster scatter for {config.variant_label} -> {config.output}"
     )
 
 

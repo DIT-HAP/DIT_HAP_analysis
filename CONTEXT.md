@@ -35,7 +35,10 @@ Snakemake 规则之间传递的数据格式。
 
 **核心函数**：
 - `apply_house_style()`：设置全局调色板和布局参数
-- `save_dual(output_stem)`：保存 PDF（期刊质量）+ PNG（评审预览）
+- `content_bounds(fig)`：导出边界 = 面板推导画布 ∪ 实际渲染内容（只放大不缩小，四周 +2 pt）
+- `save_dual(output_stem)`：保存 PDF + 评审 PNG，两者使用同一实测边界
+
+**尺寸约定**：流水线图只需要设 axes/panel 尺寸，画布由内容实测决定，不按期刊画布裁剪。投稿用的最终 figures 在独立环节手工调整并另行设置画布。
 
 ---
 
