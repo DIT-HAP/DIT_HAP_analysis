@@ -271,6 +271,9 @@ def plot_dotplot(
         cmap=DENSITY_CMAP,
     )
     plotter.hm_ax.set_title(title, loc="left")
+    # cnsplots right-aligns x tick labels for its rotated default; at rotation 0
+    # that leaves every label half an advance to the left of its tick.
+    plt.setp(plotter.hm_ax.get_xticklabels(), ha="center")
 
     save_dual(output_stem)
     plt.close(figure)
