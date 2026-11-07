@@ -26,9 +26,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -48,6 +48,7 @@ from utr.core import load_insertion_level
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs and parquet outputs for the UTR data preparation."""
+
     fitting_results: Path
     annotations: Path
     gene_level: Path
@@ -91,13 +92,27 @@ def run(config: PrepareConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare UTR parquet intermediates")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv")
-    parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)")
-    parser.add_argument("--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv")
-    parser.add_argument("--output-fitting-results", type=Path, required=True, help="Output fitting_results.parquet")
-    parser.add_argument("--output-annotations", type=Path, required=True, help="Output annotations.parquet")
-    parser.add_argument("--output-gene-result", type=Path, required=True, help="Output gene_result.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)"
+    )
+    parser.add_argument(
+        "--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--output-fitting-results", type=Path, required=True, help="Output fitting_results.parquet"
+    )
+    parser.add_argument(
+        "--output-annotations", type=Path, required=True, help="Output annotations.parquet"
+    )
+    parser.add_argument(
+        "--output-gene-result", type=Path, required=True, help="Output gene_result.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

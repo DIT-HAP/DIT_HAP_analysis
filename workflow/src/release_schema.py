@@ -28,11 +28,11 @@ Usage
 # 1. Standard Library Imports
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # =============================================================================
 # GLOBAL CONSTANTS

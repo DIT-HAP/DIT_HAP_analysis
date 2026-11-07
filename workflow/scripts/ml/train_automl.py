@@ -48,19 +48,19 @@ Version:  1.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import shutil
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
+import sys
 
 # 3. Third-party Imports
 import joblib
-import matplotlib
+from loguru import logger
+import matplotlib as mpl
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-from loguru import logger
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -72,22 +72,22 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from io_table import read_parquet
 from logging_setup import setup_logger
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 # mljar-supervised's automl_plots.py (as of 1.3.1) still calls the removed
 # plt.cm.get_cmap(); restore it so mljar's heatmap/correlation report plots
 # don't silently fail on matplotlib>=3.9.
-if not hasattr(matplotlib.cm, "get_cmap"):
-    matplotlib.cm.get_cmap = matplotlib.colormaps.get_cmap
+if not hasattr(mpl.cm, "get_cmap"):
+    mpl.cm.get_cmap = mpl.colormaps.get_cmap
 import matplotlib.cm as mpl_cm
 
 # mljar-supervised 1.3.1's plot helpers (automl_plots.py) still call plt.cm.get_cmap(),
-# which matplotlib removed in 3.9 (superseded by matplotlib.colormaps.get_cmap). mljar's
+# which matplotlib removed in 3.9 (superseded by mpl.colormaps.get_cmap). mljar's
 # own dependency spec has no upper bound on matplotlib, so newer matplotlib breaks their
 # diagnostic heatmaps (feature importance / model correlation) unless we restore the alias.
 if not hasattr(mpl_cm, "get_cmap"):
-    mpl_cm.get_cmap = matplotlib.colormaps.get_cmap
+    mpl_cm.get_cmap = mpl.colormaps.get_cmap
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -101,22 +101,78 @@ TOTAL_TIME_LIMIT = 14400
 # Feature list from the notebook. Some names differ from our matrix (t1/2 (min)
 # -> protein_half_life_minutes); absent features are dropped at runtime with a warning.
 FEATURE_COLUMNS = [
-    "Abs_distance_from_telomere", "Relative_distance_from_telomere", "Abs_distance_from_centromere", "Relative_distance_from_centromere",
-    "Gene_length", "GC_content_of_gene", "CDS_number", "GC_content_of_CDS", "Fraction_of_CDS", "GC3", "ENC",
-    "Peptide_length", "Primary_peptide_length",
-    "mean_EMM_Nitrogen_Starved_Cell_RNA_Abundance", "mean_EMM_Proliferating_Cell_RNA_Abundance",
-    "std_EMM_Nitrogen_Starved_Cell_RNA_Abundance", "std_EMM_Proliferating_Cell_RNA_Abundance",
-    "cv_EMM_Nitrogen_Starved_Cell_RNA_Abundance", "cv_EMM_Proliferating_Cell_RNA_Abundance",
-    "tAIg", "mRNA_half_life_minutes", "mRNA_synthesis_rate_per_minute",
-    "Mass (kDa)", "pI", "Charge", "Residues", "CAI", "aromaticity", "aliphatic_index", "gravy", "flexibility", "instability_index",
-    "aa_percent_Ala", "aa_percent_Cys", "aa_percent_Asp", "aa_percent_Glu", "aa_percent_Phe", "aa_percent_Gly", "aa_percent_His",
-    "aa_percent_Ile", "aa_percent_Lys", "aa_percent_Leu", "aa_percent_Met", "aa_percent_Asn", "aa_percent_Pro", "aa_percent_Gln",
-    "aa_percent_Arg", "aa_percent_Ser", "aa_percent_Thr", "aa_percent_Val", "aa_percent_Trp", "aa_percent_Tyr",
-    "copies_per_cell_EMM_Proliferating_Cell", "copies_per_cell_EMMN_Quiescent_Cell", "protein_half_life_minutes",
-    "mean_pLDDT", "std_pLDDT", "cv_pLDDT", "PFAM_domain_count",
-    "japonicus_ortholog_count", "cerevisiae_ortholog_count", "human_ortholog_count", "paralog_count",
-    "evolutionary_rate", "mean.phylop", "diversity.S", "diversity.Pi", "diversity.Theta", "diversity.Tajima_D",
-    "GO_term_richness", "PPI_degree", "GI_degree",
+    "Abs_distance_from_telomere",
+    "Relative_distance_from_telomere",
+    "Abs_distance_from_centromere",
+    "Relative_distance_from_centromere",
+    "Gene_length",
+    "GC_content_of_gene",
+    "CDS_number",
+    "GC_content_of_CDS",
+    "Fraction_of_CDS",
+    "GC3",
+    "ENC",
+    "Peptide_length",
+    "Primary_peptide_length",
+    "mean_EMM_Nitrogen_Starved_Cell_RNA_Abundance",
+    "mean_EMM_Proliferating_Cell_RNA_Abundance",
+    "std_EMM_Nitrogen_Starved_Cell_RNA_Abundance",
+    "std_EMM_Proliferating_Cell_RNA_Abundance",
+    "cv_EMM_Nitrogen_Starved_Cell_RNA_Abundance",
+    "cv_EMM_Proliferating_Cell_RNA_Abundance",
+    "tAIg",
+    "mRNA_half_life_minutes",
+    "mRNA_synthesis_rate_per_minute",
+    "Mass (kDa)",
+    "pI",
+    "Charge",
+    "Residues",
+    "CAI",
+    "aromaticity",
+    "aliphatic_index",
+    "gravy",
+    "flexibility",
+    "instability_index",
+    "aa_percent_Ala",
+    "aa_percent_Cys",
+    "aa_percent_Asp",
+    "aa_percent_Glu",
+    "aa_percent_Phe",
+    "aa_percent_Gly",
+    "aa_percent_His",
+    "aa_percent_Ile",
+    "aa_percent_Lys",
+    "aa_percent_Leu",
+    "aa_percent_Met",
+    "aa_percent_Asn",
+    "aa_percent_Pro",
+    "aa_percent_Gln",
+    "aa_percent_Arg",
+    "aa_percent_Ser",
+    "aa_percent_Thr",
+    "aa_percent_Val",
+    "aa_percent_Trp",
+    "aa_percent_Tyr",
+    "copies_per_cell_EMM_Proliferating_Cell",
+    "copies_per_cell_EMMN_Quiescent_Cell",
+    "protein_half_life_minutes",
+    "mean_pLDDT",
+    "std_pLDDT",
+    "cv_pLDDT",
+    "PFAM_domain_count",
+    "japonicus_ortholog_count",
+    "cerevisiae_ortholog_count",
+    "human_ortholog_count",
+    "paralog_count",
+    "evolutionary_rate",
+    "mean.phylop",
+    "diversity.S",
+    "diversity.Pi",
+    "diversity.Theta",
+    "diversity.Tajima_D",
+    "GO_term_richness",
+    "PPI_degree",
+    "GI_degree",
 ]
 
 
@@ -126,6 +182,7 @@ FEATURE_COLUMNS = [
 @dataclass(kw_only=True, frozen=True)
 class AutoMLConfig:
     """Inputs, output dir, target/mode, and training parameters."""
+
     modeling_data: Path
     target: str
     mode: str
@@ -160,9 +217,13 @@ def load_modeling_data(config: AutoMLConfig) -> pd.DataFrame:
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def train(config: AutoMLConfig, data: pd.DataFrame):
-    """Split, PowerTransform (train-only), fit mljar AutoML, return model + test data + predictions + scalers."""
-    from supervised.automl import AutoML
+def train(
+    config: AutoMLConfig, data: pd.DataFrame
+) -> tuple[object, pd.DataFrame, pd.Series, np.ndarray, PowerTransformer, PowerTransformer]:
+    """Split, PowerTransform (train-only), fit mljar AutoML, return model + test data + predictions
+    +
+    scalers."""
+    from supervised.automl import AutoML  # noqa: PLC0415
 
     available = [c for c in config.feature_columns if c in data.columns]
     missing = [c for c in config.feature_columns if c not in data.columns]
@@ -171,15 +232,22 @@ def train(config: AutoMLConfig, data: pd.DataFrame):
 
     X = data[available].copy()
     y = data[config.target].copy()
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=config.test_size, random_state=config.random_state)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=config.test_size, random_state=config.random_state
+    )
 
-    # Train-only PowerTransform (no leakage), persisted so predictions can be inverse-transformed later.
+    # Train-only PowerTransform (no leakage), persisted so predictions can be
+    # inverse-transformed later.
     feats_scaler = PowerTransformer(method="yeo-johnson")
-    X_train = pd.DataFrame(feats_scaler.fit_transform(X_train), index=X_train.index, columns=X_train.columns)
-    X_test = pd.DataFrame(feats_scaler.transform(X_test), index=X_test.index, columns=X_test.columns)
+    X_train = pd.DataFrame(
+        feats_scaler.fit_transform(X_train), index=X_train.index, columns=X_train.columns
+    )
+    X_test = pd.DataFrame(
+        feats_scaler.transform(X_test), index=X_test.index, columns=X_test.columns
+    )
 
     target_scaler = PowerTransformer(method="yeo-johnson")
-    y_train_t = target_scaler.fit_transform(y_train.values.reshape(-1, 1)).ravel()
+    y_train_t = target_scaler.fit_transform(y_train.to_numpy().reshape(-1, 1)).ravel()
 
     # Clean the results dir first — mljar errors/resumes on a non-empty results_path.
     if config.output_dir.exists():
@@ -219,10 +287,15 @@ def evaluate(config: AutoMLConfig, y_test: pd.Series, y_pred: np.ndarray) -> dic
     axes[0].set_xlabel(f"True {config.target}")
     axes[0].set_ylabel(f"Predicted {config.target}")
     axes[0].set_title(f"Predicted vs True ({config.mode})")
-    axes[0].text(0.05, 0.92, f"R2={r2:.3f}\nr={r:.3f}\nRMSE={rmse:.3f}", transform=axes[0].transAxes,
-                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+    axes[0].text(
+        0.05,
+        0.92,
+        f"R2={r2:.3f}\nr={r:.3f}\nRMSE={rmse:.3f}",
+        transform=axes[0].transAxes,
+        bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.8},
+    )
 
-    residuals = y_test.values - y_pred
+    residuals = y_test.to_numpy() - y_pred
     axes[1].scatter(y_pred, residuals, s=20, alpha=0.5, color="#6479cc", edgecolor="none")
     axes[1].axhline(0, color="k", linestyle="--", linewidth=1, alpha=0.6)
     axes[1].set_xlabel(f"Predicted {config.target}")
@@ -268,7 +341,7 @@ def run_automl_analysis(config: AutoMLConfig) -> None:
     config.validate()
     data = load_modeling_data(config)
 
-    automl, X_test, y_test, y_pred, feats_scaler, target_scaler = train(config, data)
+    _automl, _X_test, y_test, y_pred, feats_scaler, target_scaler = train(config, data)
 
     metrics = evaluate(config, y_test, y_pred)
     pd.DataFrame([metrics]).to_csv(config.output_dir / "metrics.tsv", sep="\t", index=False)
@@ -279,7 +352,9 @@ def run_automl_analysis(config: AutoMLConfig) -> None:
 
     aggregate_feature_importance(config.output_dir)
 
-    logger.success(f"AutoML analysis complete ({config.target} {config.mode}) -> {config.output_dir}")
+    logger.success(
+        f"AutoML analysis complete ({config.target} {config.mode}) -> {config.output_dir}"
+    )
 
 
 # =============================================================================
@@ -287,15 +362,37 @@ def run_automl_analysis(config: AutoMLConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Train mljar AutoML regressor for one target x mode")
-    parser.add_argument("--modeling-data", type=Path, required=True, help="Shared modeling_data parquet (from prepare_ml_data.py)")
+    parser = argparse.ArgumentParser(
+        description="Train mljar AutoML regressor for one target x mode"
+    )
+    parser.add_argument(
+        "--modeling-data",
+        type=Path,
+        required=True,
+        help="Shared modeling_data parquet (from prepare_ml_data.py)",
+    )
     parser.add_argument("--target", required=True, choices=["DR", "DL"], help="Regression target")
-    parser.add_argument("--mode", required=True, choices=["Explain", "Perform"], help="mljar AutoML mode")
-    parser.add_argument("--output-dir", type=Path, required=True, help="mljar results_path / output dir")
-    parser.add_argument("--test-size", type=float, default=TEST_SIZE, help="Test split fraction (default 0.2)")
-    parser.add_argument("--random-state", type=int, default=RANDOM_STATE, help="Random seed (default 42)")
-    parser.add_argument("--total-time-limit", type=int, default=TOTAL_TIME_LIMIT, help="mljar total_time_limit seconds")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--mode", required=True, choices=["Explain", "Perform"], help="mljar AutoML mode"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, required=True, help="mljar results_path / output dir"
+    )
+    parser.add_argument(
+        "--test-size", type=float, default=TEST_SIZE, help="Test split fraction (default 0.2)"
+    )
+    parser.add_argument(
+        "--random-state", type=int, default=RANDOM_STATE, help="Random seed (default 42)"
+    )
+    parser.add_argument(
+        "--total-time-limit",
+        type=int,
+        default=TOTAL_TIME_LIMIT,
+        help="mljar total_time_limit seconds",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

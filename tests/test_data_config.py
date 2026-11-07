@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from workflow.src.data_config import (
     InsertionLevelConfig,
     default_dataset_name,
@@ -18,8 +17,12 @@ def test_list_dataset_names_includes_all_nine_projects():
     """Registry lists all registered projects under DIT_HAP_snakemake/projects/."""
     names = list_dataset_names()
     assert set(names) == {
-        "LD_DIT_HAP", "HD_DIT_HAP",
-        "HD_diploid", "LD_haploid", "Spikein", "Spore2YES6_1328",
+        "LD_DIT_HAP",
+        "HD_DIT_HAP",
+        "HD_diploid",
+        "LD_haploid",
+        "Spikein",
+        "Spore2YES6_1328",
     }
 
 
@@ -48,7 +51,8 @@ def test_spikein_has_no_gene_level_config():
 
 @pytest.mark.parametrize("name", ["Spikein", "Spore2YES6_1328", "LD_DIT_HAP", "LD_haploid"])
 def test_populated_datasets_validate_against_real_release_dirs(name):
-    """These 4 datasets have a populated release/ on disk right now; validate_all_paths must pass."""
+    """These 4 datasets have a populated release/ on disk right now; validate_all_paths must
+    pass."""
     cfg = load_dataset_config(name)
     cfg.validate_all_paths()
 

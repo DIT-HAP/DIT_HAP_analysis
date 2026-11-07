@@ -20,9 +20,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -50,6 +50,7 @@ from verification.core import (
 @dataclass(kw_only=True, frozen=True)
 class BoxplotConfig:
     """Parquet inputs + figure/TSV output paths for the boxplot stage."""
+
     merged: Path
     verification: Path
     output_figure: Path
@@ -97,9 +98,14 @@ def run(config: BoxplotConfig) -> None:
             group=group,
             order=order,
         )
-        logger.info(f"{group}: {len(detail):,} genes across {len(dr_by_bucket)} verification buckets")
+        logger.info(
+            f"{group}: {len(detail):,} genes across {len(dr_by_bucket)} verification buckets"
+        )
 
-    logger.success(f"Box plot figures + critical-gene TSVs written to {config.output_critical_genes_dir.parent}")
+    logger.success(
+        f"Box plot figures + critical-gene TSVs written to "
+        f"{config.output_critical_genes_dir.parent}"
+    )
 
 
 # =============================================================================
@@ -107,12 +113,28 @@ def run(config: BoxplotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Verification category box plot + per-critical-group figures and review TSVs")
+    parser = argparse.ArgumentParser(
+        description="Verification category box plot + per-critical-group figures and review TSVs"
+    )
     parser.add_argument("--merged", type=Path, required=True, help="Input merged.parquet")
-    parser.add_argument("--verification", type=Path, required=True, help="Input verification.parquet")
-    parser.add_argument("--output-figure", type=Path, required=True, help="Output stem for the category box plot (writes <stem>.pdf + <stem>.review.png)")
-    parser.add_argument("--output-critical-genes-dir", type=Path, required=True, help="Output dir for per-group figures + review TSVs")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--verification", type=Path, required=True, help="Input verification.parquet"
+    )
+    parser.add_argument(
+        "--output-figure",
+        type=Path,
+        required=True,
+        help="Output stem for the category box plot (writes <stem>.pdf + <stem>.review.png)",
+    )
+    parser.add_argument(
+        "--output-critical-genes-dir",
+        type=Path,
+        required=True,
+        help="Output dir for per-group figures + review TSVs",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

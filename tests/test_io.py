@@ -1,8 +1,6 @@
 """Tests for workflow/src/io.py file-extension dispatch."""
 
-
 import pytest
-
 from workflow.src.io_table import read_file
 
 
@@ -35,5 +33,5 @@ def test_unsupported_extension_raises(tmp_path):
     """An unrecognized extension raises ValueError naming the file."""
     f = tmp_path / "data.json"
     f.write_text("{}")
-    with pytest.raises(ValueError, match="Unsupported file type: data.json"):
+    with pytest.raises(ValueError, match=r"Unsupported file type: data\.json"):
         read_file(f)

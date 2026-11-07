@@ -42,21 +42,21 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 from sklearn.preprocessing import PowerTransformer, StandardScaler
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-DR_SPLIT_THRESHOLD = -0.35   # negative DR = depleted (upstream sign flip 2026-09-17)
+DR_SPLIT_THRESHOLD = -0.35  # negative DR = depleted (upstream sign flip 2026-09-17)
 WT_CLUSTER = 9
 TARGET_FEATURES = ["A", "DR", "DL", "DIT_HAP_cluster"]
 
@@ -152,12 +152,15 @@ SELECTED_FEATURES_AND_TRANSFORMATIONS = {
 @dataclass(kw_only=True, frozen=True)
 class PrepConfig:
     """Inputs, output dir, and split/threshold parameters for feature/target prep."""
+
     feature_matrix: Path
     final_clusters: Path
     output_dir: Path
     dr_split_threshold: float = DR_SPLIT_THRESHOLD
     wt_cluster: int = WT_CLUSTER
-    transformations: dict = field(default_factory=lambda: dict(SELECTED_FEATURES_AND_TRANSFORMATIONS))
+    transformations: dict = field(
+        default_factory=lambda: dict(SELECTED_FEATURES_AND_TRANSFORMATIONS)
+    )
 
     def validate(self) -> None:
         """Raise ValueError if a required input is missing."""
@@ -181,7 +184,9 @@ from logging_setup import setup_logger
 def merge_features_targets(feature_matrix: Path, final_clusters: Path) -> pd.DataFrame:
     """Left-join the feature matrix with A/DR/DL/DIT_HAP_cluster targets from final_clusters.tsv."""
     gene_features = pd.read_csv(feature_matrix, sep="\t")
-    metrics = pd.read_csv(final_clusters, sep="\t").rename(columns={"Systematic ID": "Systematic_ID"})
+    metrics = pd.read_csv(final_clusters, sep="\t").rename(
+        columns={"Systematic ID": "Systematic_ID"}
+    )
 
     # DIT_HAP_cluster comes from the final `cluster` column (auto or manual finalize).
     target_values = metrics[["Systematic_ID", "A", "DR", "DL", "cluster"]].rename(
@@ -189,7 +194,12 @@ def merge_features_targets(feature_matrix: Path, final_clusters: Path) -> pd.Dat
     )
 
     merged = (
-        pd.merge(gene_features, target_values, left_on="gene_systematic_id", right_on="Systematic_ID", how="left")
+        gene_features.merge(
+            target_values,
+            left_on="gene_systematic_id",
+            right_on="Systematic_ID",
+            how="left",
+        )
         .drop(columns=["Systematic_ID"])
         .rename(columns={"gene_systematic_id": "Systematic_ID"})
     )
@@ -198,24 +208,31 @@ def merge_features_targets(feature_matrix: Path, final_clusters: Path) -> pd.Dat
 
 
 @logger.catch(reraise=True)
-def transform_data(data: pd.DataFrame, transformations: dict, target_features: list[str]) -> pd.DataFrame:
-    """Apply the per-feature transformation map column-by-column, then append untransformed targets."""
+def transform_data(
+    data: pd.DataFrame, transformations: dict, target_features: list[str]
+) -> pd.DataFrame:
+    """Apply the per-feature transformation map column-by-column, then append untransformed
+    targets."""
     transformed_data = pd.DataFrame()
     for feature, transformation in transformations.items():
         if feature not in data.columns and transformation != "set_index":
             continue
         if transformation == "set_index":
             transformed_data[feature] = data.index.tolist()
-            transformed_data.set_index(feature, inplace=True)
+            transformed_data = transformed_data.set_index(feature)
         elif transformation == "OneHotEncoder":
             values = pd.get_dummies(data[feature], prefix=feature, dummy_na=True).astype(int)
             transformed_data = pd.concat([transformed_data, values], axis=1)
         elif transformation == "binary_encoding":
             transformed_data[feature] = data[feature].map({"+": 1, "-": 0})
         elif transformation == "StandardScaler":
-            transformed_data[feature] = StandardScaler().fit_transform(data[feature].values.reshape(-1, 1))
+            transformed_data[feature] = StandardScaler().fit_transform(
+                data[feature].to_numpy().reshape(-1, 1)
+            )
         elif transformation == "PowerTransformer":
-            transformed_data[feature] = PowerTransformer().fit_transform(data[feature].values.reshape(-1, 1))
+            transformed_data[feature] = PowerTransformer().fit_transform(
+                data[feature].to_numpy().reshape(-1, 1)
+            )
         else:
             transformed_data[feature] = data[feature]
 
@@ -230,7 +247,9 @@ def run_preparation(config: PrepConfig) -> None:
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     merged = merge_features_targets(config.feature_matrix, config.final_clusters)
-    merged.to_csv(config.output_dir / "all_features_with_target_values.csv", index=False, float_format="%.5f")
+    merged.to_csv(
+        config.output_dir / "all_features_with_target_values.csv", index=False, float_format="%.5f"
+    )
 
     selected_features = list(config.transformations.keys())
     available = [f for f in selected_features if f in merged.columns]
@@ -247,26 +266,54 @@ def run_preparation(config: PrepConfig) -> None:
     # Negative DR is the depleted end (upstream sign flip, 2026-09-17), so the
     # "more depleted than p35" split is DR < threshold, not DR > threshold.
     working = {
-        "all": merged[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "DR_lt_p35": merged.query(f"DR < {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
-        "DR_ge_p35": merged.query(f"DR >= {config.dr_split_threshold}")[available + TARGET_FEATURES].copy().dropna(axis=0, how="any").set_index("Systematic_ID"),
+        "all": merged[available + TARGET_FEATURES]
+        .copy()
+        .dropna(axis=0, how="any")
+        .set_index("Systematic_ID"),
+        "DR_lt_p35": merged.query(f"DR < {config.dr_split_threshold}")[available + TARGET_FEATURES]
+        .copy()
+        .dropna(axis=0, how="any")
+        .set_index("Systematic_ID"),
+        "DR_ge_p35": merged.query(f"DR >= {config.dr_split_threshold}")[available + TARGET_FEATURES]
+        .copy()
+        .dropna(axis=0, how="any")
+        .set_index("Systematic_ID"),
     }
 
-    transformed = {des: transform_data(data, config.transformations, TARGET_FEATURES) for des, data in working.items()}
+    transformed = {
+        des: transform_data(data, config.transformations, TARGET_FEATURES)
+        for des, data in working.items()
+    }
 
     for des, tdf in transformed.items():
         feature_cols = [c for c in tdf.columns if c not in TARGET_FEATURES]
-        tdf.to_csv(config.output_dir / f"{des}_transformed_features_and_targets.csv", index=True, float_format="%.3f")
-        tdf[feature_cols].to_csv(config.output_dir / f"{des}_transformed_features.csv", index=True, float_format="%.3f")
-        tdf[TARGET_FEATURES].to_csv(config.output_dir / f"{des}_transformed_targets.csv", index=True, float_format="%.3f")
+        tdf.to_csv(
+            config.output_dir / f"{des}_transformed_features_and_targets.csv",
+            index=True,
+            float_format="%.3f",
+        )
+        tdf[feature_cols].to_csv(
+            config.output_dir / f"{des}_transformed_features.csv", index=True, float_format="%.3f"
+        )
+        tdf[TARGET_FEATURES].to_csv(
+            config.output_dir / f"{des}_transformed_targets.csv", index=True, float_format="%.3f"
+        )
         logger.info(f"  split {des}: {tdf.shape}")
 
     # nonWT split derived from the 'all' transformed frame (DIT_HAP_cluster != WT).
     non_wt = transformed["all"].query(f"DIT_HAP_cluster != {config.wt_cluster}").copy()
     feature_cols = [c for c in non_wt.columns if c not in TARGET_FEATURES]
-    non_wt.to_csv(config.output_dir / "nonWT_transformed_features_and_targets.csv", index=True, float_format="%.3f")
-    non_wt[feature_cols].to_csv(config.output_dir / "nonWT_transformed_features.csv", index=True, float_format="%.3f")
-    non_wt[TARGET_FEATURES].to_csv(config.output_dir / "nonWT_transformed_targets.csv", index=True, float_format="%.3f")
+    non_wt.to_csv(
+        config.output_dir / "nonWT_transformed_features_and_targets.csv",
+        index=True,
+        float_format="%.3f",
+    )
+    non_wt[feature_cols].to_csv(
+        config.output_dir / "nonWT_transformed_features.csv", index=True, float_format="%.3f"
+    )
+    non_wt[TARGET_FEATURES].to_csv(
+        config.output_dir / "nonWT_transformed_targets.csv", index=True, float_format="%.3f"
+    )
     logger.info(f"  split nonWT: {non_wt.shape}")
 
     logger.success(f"Feature/target preparation complete -> {config.output_dir}")
@@ -277,13 +324,33 @@ def run_preparation(config: PrepConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Prepare ML feature/target tables from feature matrix + clusters")
-    parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output dir for features_targets tables")
-    parser.add_argument("--dr-split-threshold", type=float, default=DR_SPLIT_THRESHOLD, help="DR split threshold (negative = depleted; default -0.35)")
-    parser.add_argument("--wt-cluster", type=int, default=WT_CLUSTER, help="WT cluster id for nonWT split (default 9)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="Prepare ML feature/target tables from feature matrix + clusters"
+    )
+    parser.add_argument(
+        "--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv"
+    )
+    parser.add_argument(
+        "--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, required=True, help="Output dir for features_targets tables"
+    )
+    parser.add_argument(
+        "--dr-split-threshold",
+        type=float,
+        default=DR_SPLIT_THRESHOLD,
+        help="DR split threshold (negative = depleted; default -0.35)",
+    )
+    parser.add_argument(
+        "--wt-cluster",
+        type=int,
+        default=WT_CLUSTER,
+        help="WT cluster id for nonWT split (default 9)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -55,7 +55,7 @@ def main() -> None:
     cur["lit_category"] = cur["literature_role"].apply(classify_role)
 
     attr = pd.read_csv(ATTR, sep="\t")
-    split_complexes = set(attr.loc[attr["gmm_is_split"] == True, "complex"])
+    split_complexes = set(attr.loc[attr["gmm_is_split"], "complex"])
 
     rows = []
     for cx, sub in cur.groupby("complex"):
@@ -68,8 +68,12 @@ def main() -> None:
         # Literature "off-core" = shared OR peripheral (the biologically loose ones)
         lit_offcore = set(sub.loc[sub["lit_category"].isin(["shared", "peripheral"]), "gene_name"])
 
-        minor_precision = len(gmm_minor & lit_offcore) / len(gmm_minor) if gmm_minor else float("nan")
-        minor_recall = len(gmm_minor & lit_offcore) / len(lit_offcore) if lit_offcore else float("nan")
+        minor_precision = (
+            len(gmm_minor & lit_offcore) / len(gmm_minor) if gmm_minor else float("nan")
+        )
+        minor_recall = (
+            len(gmm_minor & lit_offcore) / len(lit_offcore) if lit_offcore else float("nan")
+        )
 
         minor_lit = sub.loc[sub["gmm_subgroup"] == "minor", "lit_category"]
         minor_dominant = minor_lit.mode().iloc[0] if len(minor_lit) else "none"
@@ -83,16 +87,20 @@ def main() -> None:
         else:
             verdict = "discordant"
 
-        rows.append({
-            "complex": cx,
-            "n_members": len(sub),
-            "gmm_core": ", ".join(sorted(gmm_core)),
-            "gmm_minor": ", ".join(sorted(gmm_minor)),
-            "minor_dominant_role": minor_dominant,
-            "minor_precision": round(minor_precision, 3) if minor_precision == minor_precision else None,
-            "minor_recall": round(minor_recall, 3) if minor_recall == minor_recall else None,
-            "verdict": verdict,
-        })
+        rows.append(
+            {
+                "complex": cx,
+                "n_members": len(sub),
+                "gmm_core": ", ".join(sorted(gmm_core)),
+                "gmm_minor": ", ".join(sorted(gmm_minor)),
+                "minor_dominant_role": minor_dominant,
+                "minor_precision": round(minor_precision, 3)
+                if minor_precision == minor_precision
+                else None,
+                "minor_recall": round(minor_recall, 3) if minor_recall == minor_recall else None,
+                "verdict": verdict,
+            }
+        )
 
     out = pd.DataFrame(rows).sort_values("minor_precision", ascending=False, na_position="last")
     out.to_csv(OUT, sep="\t", index=False)
@@ -100,15 +108,22 @@ def main() -> None:
     print(out.to_string(index=False))
 
     print("\n=== interpretation ===")
-    print(f"concordant (GMM-minor ≈ literature off-core, prec≥0.75): {(out['verdict']=='concordant').sum()}")
-    print(f"partial (0.5-0.75): {(out['verdict']=='partial').sum()}")
-    print(f"discordant (<0.5): {(out['verdict']=='discordant').sum()}")
+    print(
+        f"concordant (GMM-minor ≈ literature off-core, prec≥0.75): "
+        f"{(out['verdict'] == 'concordant').sum()}"
+    )
+    print(f"partial (0.5-0.75): {(out['verdict'] == 'partial').sum()}")
+    print(f"discordant (<0.5): {(out['verdict'] == 'discordant').sum()}")
 
     # The shared-subunit paradox: same subunits, opposite GMM label across complexes
     print("\n=== shared-module label paradox (Rvb1/Rvb2/Act1/Arp4 across Ino80 vs Swr1) ===")
     shared_mod = cur[cur["gene_name"].isin(["rvb1", "rvb2", "act1", "alp5"])]
     paradox = shared_mod[shared_mod["complex"].isin(["Ino80 complex", "Swr1 complex"])]
-    print(paradox[["complex", "gene_name", "gmm_subgroup", "lit_category"]].sort_values(["gene_name", "complex"]).to_string(index=False))
+    print(
+        paradox[["complex", "gene_name", "gmm_subgroup", "lit_category"]]
+        .sort_values(["gene_name", "complex"])
+        .to_string(index=False)
+    )
     print("\nSame physical module, opposite GMM subgroup across the two complexes:")
     print("→ GMM geometry alone cannot flag shared subunits; the literature overlay is required.")
 

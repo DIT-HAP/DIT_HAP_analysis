@@ -46,15 +46,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -83,8 +83,6 @@ from logging_setup import setup_logger
 _FRACTION_BINS = 20
 _BREADTH_BINS = 30
 
-_CUT_LINEWIDTH = 1.0
-
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -92,6 +90,7 @@ _CUT_LINEWIDTH = 1.0
 @dataclass(kw_only=True, slots=True, frozen=True)
 class DistributionPlotConfig:
     """The view's two computed tables plus the figure path."""
+
     terms: Path
     genes: Path
     view: str
@@ -114,23 +113,39 @@ def plot_distributions(terms: pd.DataFrame, genes: pd.DataFrame) -> None:
     axes = grid_axes(1, 3, labels=panel_labels(3), shape=PanelShape.SQUARE)
 
     draw_histogram_panel(
-        axes[0], terms["paralog_fraction"], bins=_FRACTION_BINS,
-        xlabel="Paralog fraction", ylabel="# terms", title="Paralog buffering",
+        axes[0],
+        terms["paralog_fraction"],
+        bins=_FRACTION_BINS,
+        xlabel="Paralog fraction",
+        ylabel="# terms",
+        title="Paralog buffering",
     )
     # The cut the moonlighting column is taken with. Drawn as furniture, not as a
     # fitted quantity: it is the quantile of the panel's own data.
     cut = float(terms["moonlighting_cut_n_groups"].iloc[0])
     draw_histogram_panel(
-        axes[1], genes["n_groups"], bins=_BREADTH_BINS,
-        xlabel="Groups per gene", ylabel="# genes", title="Gene breadth",
+        axes[1],
+        genes["n_groups"],
+        bins=_BREADTH_BINS,
+        xlabel="Groups per gene",
+        ylabel="# genes",
+        title="Gene breadth",
     )
-    axes[1].axvline(cut, color=FURNITURE_COLOR, linestyle="--", linewidth=_CUT_LINEWIDTH,
-                    label=f"P{MOONLIGHTING_QUANTILE * 100:g} = {cut:g}")
+    axes[1].axvline(
+        cut,
+        color=FURNITURE_COLOR,
+        linestyle="--",
+        label=f"P{MOONLIGHTING_QUANTILE * 100:g} = {cut:g}",
+    )
     axes[1].legend(loc="upper right")
 
     draw_histogram_panel(
-        axes[2], terms["moonlighting_fraction"], bins=_FRACTION_BINS,
-        xlabel="Moonlighting fraction", ylabel="# terms", title="Moonlighting",
+        axes[2],
+        terms["moonlighting_fraction"],
+        bins=_FRACTION_BINS,
+        xlabel="Moonlighting fraction",
+        ylabel="# terms",
+        title="Moonlighting",
     )
     # A share's own range, pinned so the same panel can be read across views.
     for ax in (axes[0], axes[2]):
@@ -156,7 +171,8 @@ def run(config: DistributionPlotConfig) -> None:
     save_dual(config.output.with_suffix(""))
     logger.success(
         f"[{config.view}] {len(terms):,} terms / {len(genes):,} genes; "
-        f"cut = {float(terms['moonlighting_cut_n_groups'].iloc[0]):g} groups/gene; wrote {config.output}"
+        f"cut = {float(terms['moonlighting_cut_n_groups'].iloc[0]):g} groups/gene; "
+        f"wrote {config.output}"
     )
 
 
@@ -165,12 +181,21 @@ def run(config: DistributionPlotConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Plot one view's paralog / moonlighting / breadth distributions")
+    parser = argparse.ArgumentParser(
+        description="Plot one view's paralog / moonlighting / breadth distributions"
+    )
     parser.add_argument("--terms", type=Path, required=True, help="view_fractions.tsv")
     parser.add_argument("--genes", type=Path, required=True, help="view_gene_breadth.tsv")
     parser.add_argument("--view", required=True, help="The view's name, for the log line")
-    parser.add_argument("--output", type=Path, required=True, help="Output PDF (a .review.png sibling is written too)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output PDF (a .review.png sibling is written too)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -180,7 +205,10 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = DistributionPlotConfig(
-            terms=args.terms, genes=args.genes, view=args.view, output=args.output,
+            terms=args.terms,
+            genes=args.genes,
+            view=args.view,
+            output=args.output,
         )
         run(config)
     except (ValueError, OSError) as e:

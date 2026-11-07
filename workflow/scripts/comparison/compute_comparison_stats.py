@@ -25,9 +25,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -50,6 +50,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True)
 class StatsConfig:
     """Parquet input + TSV output for the correlation stats computation."""
+
     fitness_table: Path
     output_stats: Path
 
@@ -86,9 +87,15 @@ def run(config: StatsConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Pairwise fitness correlation stats TSV")
-    parser.add_argument("--fitness-table", type=Path, required=True, help="Input fitness_table.parquet")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output correlation stats TSV")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--fitness-table", type=Path, required=True, help="Input fitness_table.parquet"
+    )
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output correlation stats TSV"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

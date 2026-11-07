@@ -17,6 +17,12 @@ caller picks a ``PanelShape`` and the figure size follows from the grid, rather
 than dividing a fixed page width by the column count and letting panels shrink
 out of the legible range as the grid grows.
 
+Export bounds are measured, not designed: ``content_bounds`` unions the
+panel-derived canvas with every visible artist, so a legend or label that lands
+outside the layout grows the page instead of being clipped. These are pipeline
+figures, not submission figures; a separate final-figure stage may impose a
+publication canvas, and nothing here reserves that hook.
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-09-01
 Version:  3.0.0
@@ -25,24 +31,32 @@ Version:  3.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import cnsplots as cns
-import matplotlib.pyplot as plt
 from loguru import logger
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+from matplotlib.transforms import Bbox
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Page width in cnsplots layout pixels (72 per inch). Taken from cnsplots' own
-# multipanel default. No longer sizes grids -- it is the journal's one-page cap
-# that derived widths are checked against.
-JOURNAL_WIDTH_PX = int(cns.settings.multipanel_max_width)
-JOURNAL_HEIGHT_PX = 425  # ~150 mm, 4:3 aspect
+# Cell Press two-column width, in points (1/72 inch). Caps derived grid widths in
+# figure_size_for_grid and is multipanel's wrap width in composition; grids are
+# still sized from panels.
+JOURNAL_WIDTH_PX = 493
+
+# Display and export resolution, matching the cnsplots house style. Both are
+# the same so a save never triggers the multipanel relayout that a dpi change
+# would.
+HOUSE_FIGURE_DPI = 360
 
 
 class PanelShape(StrEnum):
@@ -74,6 +88,17 @@ PANEL_DECORATION_HEIGHT_PX = 31
 # 89 px instead of 100, since one cell absorbs the whole pad.
 FIGURE_PAD_PX = 19
 
+# Export bounds grow past the designed canvas instead of clipping it: content
+# that renders outside the panel layout is included, with this much air on every
+# side. Two points is below the smallest visible gap but keeps edge-touching
+# artists off the paper edge.
+CONTENT_PAD_PT = 2.0
+
+# An artist that grows the page by more than this fraction of the designed
+# canvas is a layout mistake rather than a legend needing a few points. Log it
+# and ship anyway; the page still contains everything.
+CONTENT_OVERFLOW_WARN_RATIO = 0.25
+
 # fit_panels' measure-and-correct loop. Two passes take the worst measured case
 # (4 columns, 15 px short) to under a pixel; the tolerance is well below the
 # smallest visible difference, and stopping there avoids a pass that would only
@@ -95,13 +120,15 @@ class _GridSpecification:
     shape: PanelShape
     axes: tuple[Axes, ...]
 
-# Panel-label offsets from the axes corner, in layout pixels. cnsplots defaults
-# both to 0, which puts the letter on top of the y tick labels; measured over a
-# 2x6 log grid, this is the smallest pair with no overlap against either the
-# tick labels or the axes title. Increased pad_top from 6 to 10 to prevent
-# overlap with longer panel titles.
-PANEL_LABEL_PAD_LEFT_PX = 25
-PANEL_LABEL_PAD_TOP_PX = 25
+
+# Panel-label offsets from the axes corner. cnsplots defaults both to 0, which
+# puts the letter on top of the y tick labels; measured over a 2x6 log grid,
+# 12.5 pt is the smallest offset with no overlap against either the tick labels
+# or the axes title. cnsplots stores these pads in display pixels, so the value
+# must be rescaled whenever HOUSE_FIGURE_DPI changes.
+PANEL_LABEL_PAD_PT = 12.5
+PANEL_LABEL_PAD_LEFT_PX = PANEL_LABEL_PAD_PT * HOUSE_FIGURE_DPI / 72
+PANEL_LABEL_PAD_TOP_PX = PANEL_LABEL_PAD_PT * HOUSE_FIGURE_DPI / 72
 
 # Uppercase A-Z, then A1, A2, ... A bare chr(65 + i) emits '[', '\\', ']' past Z.
 _ALPHABET_SIZE = 26
@@ -110,6 +137,16 @@ _ALPHABET_SIZE = 26
 # consistent colour means the same thing, so the palette name lives here alone
 # and no module may name a colour of its own.
 HOUSE_PALETTE = "Cell"
+
+# Arial-first stack from the cnsplots house style. Arial is installed on the
+# target machines; the metric-compatible Linux faces are fallbacks only.
+FONT_SANS_SERIF = (
+    "Arial",
+    "Helvetica",
+    "Nimbus Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+)
 
 # Semantic colour roles, resolved from HOUSE_PALETTE on demand rather than
 # written as literals, so re-pointing HOUSE_PALETTE re-colours every figure.
@@ -131,6 +168,39 @@ FURNITURE_COLOR = cns.GRAY
 # Overrides cnsplots' 'gnuplot', which is non-monotonic in perceptual lightness:
 # equal density steps must read as equal colour steps.
 DENSITY_CMAP = "viridis"
+
+# =============================================================================
+# STYLE EXCEPTIONS (defaults-first; every entry carries its reason)
+# =============================================================================
+# Dense point clouds. cnsplots' s=7 fills in once thousands of points overlap,
+# so these are reductions, never the enlargements the house style forbids.
+REGRESSION_PANEL_SCATTER_KWS: dict[str, Any] = {
+    "s": 3,
+    "color": FURNITURE_COLOR,
+    "alpha": 0.15,
+    "rasterized": True,
+}
+SCATTERPLOT_KWS: dict[str, Any] = {
+    "s": 6,
+    "alpha": 0.4,
+    "rasterized": True,
+}
+DENSITY_SCATTER_KWS: dict[str, Any] = {
+    "s": 1.5,
+    "alpha": 0.6,
+    "linewidths": 0,
+    "rasterized": True,
+}
+CLUSTER_GRID_SCATTER_S = 3
+
+# Bare ax.scatter does not inherit cnsplots' s=7 (matplotlib's rcParam default
+# is s=36), so callers that cannot use cns.scatterplot pass this explicitly.
+HOUSE_SCATTER_S = 7
+
+# Fit-critical text. Both sizes exist so text fits a measured panel; they are
+# the only typography overrides the house style permits.
+FIT_ANNOTATION_FONT_PT = 5
+FIT_CAPTION_FONT_OFFSET_PT = -2.0
 
 # cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
 # minor.size back gives ticks indistinguishable from major ones. Derive the
@@ -220,31 +290,32 @@ def apply_symlog_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
 
 
 def apply_house_style() -> None:
-    """Configure cnsplots with project house style: Cell palette, viridis density, Arial font."""
-    # Remove Helvetica to prevent findfont warnings; Arial is installed
-    cns.settings.font_sans_serif = ("Arial", "DejaVu Sans")
-    cns.settings.panel_label_fontname = "Arial"
+    """Configure cnsplots with the project house style: Cell palette, viridis, Arial-first fonts."""
+    cns.settings.font_sans_serif = FONT_SANS_SERIF
+    cns.settings.panel_label_fontname = None  # inherit the resolved font stack
 
     # Fonttype 42 embeds TrueType, editable in Illustrator
     cns.settings.pdf_fonttype = 42
+    cns.settings.svg_fonttype = "none"  # keep SVG text editable
 
     cns.settings.panel_pad_left = PANEL_LABEL_PAD_LEFT_PX
     cns.settings.panel_pad_top = PANEL_LABEL_PAD_TOP_PX
+
+    cns.settings.figure_dpi = HOUSE_FIGURE_DPI
+    cns.settings.savefig_dpi = HOUSE_FIGURE_DPI
+    cns.settings.savefig_transparent = False  # white background for print/preview
 
     # Both are needed: setup_matplotlib sets the rcParams cycle for bare
     # matplotlib calls, palette_qual is what cns.* plot functions and
     # multipanel.panel() read when no explicit color_cycle is passed.
     cns.settings.palette_qual = HOUSE_PALETTE
     cns.settings.palette_seq = DENSITY_CMAP
-    cns.setup_matplotlib(color_cycle=HOUSE_PALETTE)
+    cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=DENSITY_CMAP)
 
 
 def panel_labels(n: int) -> list[str]:
     """Return n unique panel labels: A-Z, then A1, A2, ... for n > 26."""
-    return [
-        chr(65 + i) if i < _ALPHABET_SIZE else f"A{i - _ALPHABET_SIZE + 1}"
-        for i in range(n)
-    ]
+    return [chr(65 + i) if i < _ALPHABET_SIZE else f"A{i - _ALPHABET_SIZE + 1}" for i in range(n)]
 
 
 def figure_size_for_grid(
@@ -351,7 +422,7 @@ def grid_axes(
     width_px, height_px = figure_size_for_grid(n_rows, n_cols, shape)
     panel_width, panel_height = PANEL_SIZES_PX[shape]
 
-    cns.figure(width=width_px, height=height_px)
+    cns.figure(width=width_px, height=height_px, unit="pt")
     fig = plt.gcf()
     grid = fig.subplots(n_rows, n_cols, squeeze=False, sharex=share_x, sharey=share_y)
 
@@ -412,13 +483,90 @@ def series_colors(n: int) -> list[str]:
     return house_colors(_SERIES_INDICES[:n])
 
 
+def content_bounds(fig: Figure) -> Bbox:
+    """Return the export region in inches: the canvas plus every drawn artist, padded."""
+    fig.canvas.draw()
+    canvas = Bbox.from_bounds(0.0, 0.0, *fig.get_size_inches())
+    bounds = Bbox.union([canvas, _measured_content_inches(fig)])
+    _warn_on_content_overshoot(canvas, bounds)
+
+    pad_in = CONTENT_PAD_PT / 72
+    return Bbox.from_bounds(
+        bounds.x0 - pad_in,
+        bounds.y0 - pad_in,
+        bounds.width + 2 * pad_in,
+        bounds.height + 2 * pad_in,
+    )
+
+
+def _measured_content_inches(fig: Figure) -> Bbox:
+    """Union the figure tight bbox with axes and figure artists that in_layout may exclude."""
+    to_inches = fig.dpi_scale_trans.inverted()
+
+    pixel_boxes = [ax.get_tightbbox() for ax in fig.axes]
+    figure_artists = [*fig.legends, *fig.texts, *fig.artists]
+    visible = [artist for artist in figure_artists if artist.get_visible()]
+    pixel_boxes += [artist.get_window_extent() for artist in visible]
+    boxes = [bbox.transformed(to_inches) for bbox in pixel_boxes if bbox is not None]
+
+    boxes.append(fig.get_tightbbox())
+    return Bbox.union(boxes)
+
+
+def _warn_on_content_overshoot(canvas: Bbox, bounds: Bbox) -> None:
+    """Log when measured content grows the page far past the designed canvas."""
+    width_ratio = (bounds.width - canvas.width) / canvas.width
+    height_ratio = (bounds.height - canvas.height) / canvas.height
+    if max(width_ratio, height_ratio) <= CONTENT_OVERFLOW_WARN_RATIO:
+        return
+
+    logger.warning(
+        f"Content expands the {canvas.width * 72:.0f}x{canvas.height * 72:.0f} pt canvas to "
+        f"{bounds.width * 72:.0f}x{bounds.height * 72:.0f} pt; "
+        f"check for an artist placed outside the layout."
+    )
+
+
 def save_dual(stem: Path | str) -> None:
-    """Save the current figure as a journal PDF plus a review PNG, given a stem with no extension."""
+    """Save the current figure as a PDF and a review PNG at the measured content bounds."""
     # Append rather than replace suffixes: Path.with_suffix()/.stem would truncate
     # at the first dot, so a stem like "HD1328-4.YES0_corr" would silently collapse
     # to "HD1328-4" and two samples would overwrite each other's figures.
     stem = Path(stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
+    bounds = content_bounds(plt.gcf())
 
-    cns.savefig(stem.parent / f"{stem.name}.pdf")
-    cns.savefig(stem.parent / f"{stem.name}.review.png")
+    cns.savefig(stem.parent / f"{stem.name}.pdf", bbox_inches=bounds, transparent=False)
+    cns.savefig(
+        stem.parent / f"{stem.name}.review.png",
+        dpi=HOUSE_FIGURE_DPI,
+        bbox_inches=bounds,
+        transparent=False,
+    )
+
+
+def save_pdf_pages(stem: Path | str, pages: Iterable[Figure]) -> None:
+    """Save figures as one multi-page PDF plus a page-1 review PNG, all at one bound."""
+    # Same append rule as save_dual: never Path.with_suffix() a dotted stem.
+    stem = Path(stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    review_path = stem.parent / f"{stem.name}.review.png"
+
+    figures = list(pages)
+    bounds = Bbox.union([content_bounds(figure) for figure in figures])
+
+    with PdfPages(stem.parent / f"{stem.name}.pdf") as pdf:
+        for figure in figures:
+            pdf.savefig(
+                figure,
+                dpi=HOUSE_FIGURE_DPI,
+                bbox_inches=bounds,
+                transparent=False,
+            )
+        cns.savefig(
+            review_path,
+            fig=figures[0],
+            dpi=HOUSE_FIGURE_DPI,
+            bbox_inches=bounds,
+            transparent=False,
+        )

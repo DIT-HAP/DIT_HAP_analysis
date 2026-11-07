@@ -11,16 +11,16 @@ serializable, since a spec that parses can still be a broken figure and drawing 
 needs a browser.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "workflow" / "src"))
 sys.path.insert(0, str(_REPO_ROOT / "workflow" / "scripts" / "coherence"))
 
-import pandas as pd
-import pytest
+import pandas as pd  # noqa: E402
+import pytest  # noqa: E402
 
 pytest.importorskip("altair")
 pytest.importorskip("networkx")
@@ -28,32 +28,44 @@ pytest.importorskip("networkx")
 
 # --- interactive scatter ----------------------------------------------------
 def _scatter_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    metrics = pd.DataFrame({
-        "source": ["s"] * 3,
-        "group_id": ["g1", "g2", "g3"],
-        "group_name": ["coherent term", "middling term", "loose term"],
-        "n_scored_members": [2, 2, 1],
-        "median_pairwise_distance_z": [-3.0, 0.5, 2.0],
-        "q_value_coherent": [0.01, 0.4, 0.9],
-        "q_value_incoherent": [0.9, 0.6, 0.1],
-    })
-    long_table = pd.DataFrame({
-        "source": ["s"] * 5,
-        "group_id": ["g1", "g1", "g2", "g2", "g3"],
-        "group_name": ["coherent term", "coherent term", "middling term", "middling term", "loose term"],
-        "Systematic ID": ["a", "b", "c", "unfitted", "e"],
-        "Name": ["a", "b", "c", "unfitted", "e"],
-    })
-    fitting = pd.DataFrame({
-        "Systematic ID": ["a", "b", "c", "e"],
-        "Name": ["a", "b", "c", "e"],
-        "DR": [-1.0, -1.1, -0.5, 0.0],
-        "DL": [0.1, 0.2, 0.3, 0.4],
-        "norm_DR": [-1.0, -1.1, -0.5, 0.0],
-        "norm_DL": [0.01, 0.02, 0.03, 0.04],
-        "R2": [0.9, 0.8, 0.7, 0.6],
-        "FYPOviability": ["viable"] * 4,
-    })
+    metrics = pd.DataFrame(
+        {
+            "source": ["s"] * 3,
+            "group_id": ["g1", "g2", "g3"],
+            "group_name": ["coherent term", "middling term", "loose term"],
+            "n_scored_members": [2, 2, 1],
+            "median_pairwise_distance_z": [-3.0, 0.5, 2.0],
+            "q_value_coherent": [0.01, 0.4, 0.9],
+            "q_value_incoherent": [0.9, 0.6, 0.1],
+        }
+    )
+    long_table = pd.DataFrame(
+        {
+            "source": ["s"] * 5,
+            "group_id": ["g1", "g1", "g2", "g2", "g3"],
+            "group_name": [
+                "coherent term",
+                "coherent term",
+                "middling term",
+                "middling term",
+                "loose term",
+            ],
+            "Systematic ID": ["a", "b", "c", "unfitted", "e"],
+            "Name": ["a", "b", "c", "unfitted", "e"],
+        }
+    )
+    fitting = pd.DataFrame(
+        {
+            "Systematic ID": ["a", "b", "c", "e"],
+            "Name": ["a", "b", "c", "e"],
+            "DR": [-1.0, -1.1, -0.5, 0.0],
+            "DL": [0.1, 0.2, 0.3, 0.4],
+            "norm_DR": [-1.0, -1.1, -0.5, 0.0],
+            "norm_DL": [0.01, 0.02, 0.03, 0.04],
+            "R2": [0.9, 0.8, 0.7, 0.6],
+            "FYPOviability": ["viable"] * 4,
+        }
+    )
     return metrics, long_table, fitting
 
 
@@ -118,8 +130,9 @@ def test_member_rows_carry_keys_only_so_the_cloud_is_embedded_once():
     looked_up = highlighted["transform"][0]["from"]["data"]["name"]
     assert looked_up in spec["datasets"]
     n_embedded = sum(
-        1 for rows in spec["datasets"].values()
-        if rows and "DR" in rows[0]   # the full gene record, not the member join keys
+        1
+        for rows in spec["datasets"].values()
+        if rows and "DR" in rows[0]  # the full gene record, not the member join keys
     )
     assert n_embedded == 1, f"the gene record is embedded more than once: {n_embedded}"
 
@@ -136,42 +149,50 @@ def test_centroid_is_the_mean_of_its_members():
 def test_shared_group_names_are_disambiguated_but_unique_ones_are_not():
     from plot_interactive_scatter import term_labels
 
-    metrics = pd.DataFrame({
-        "source": ["kegg_brite"] * 3,
-        "group_name": ["Others", "Others", "solo term"],
-        "group_id": ["b1", "b2", "g1"],
-    })
+    metrics = pd.DataFrame(
+        {
+            "source": ["kegg_brite"] * 3,
+            "group_name": ["Others", "Others", "solo term"],
+            "group_id": ["b1", "b2", "g1"],
+        }
+    )
     assert term_labels(metrics)["term"].tolist() == ["Others (b1)", "Others (b2)", "solo term"]
 
 
 def _pooled_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Two sources sharing a group_id — the collision the pooled views must survive."""
-    metrics = pd.DataFrame({
-        "source": ["go_cc", "go_macrocomplex"],
-        "group_id": ["GO:1", "GO:1"],
-        "group_name": ["same name", "same name"],
-        "n_scored_members": [2, 1],
-        "median_pairwise_distance_z": [-3.0, 1.0],
-        "q_value_coherent": [0.01, 0.9],
-        "q_value_incoherent": [0.9, 0.1],
-    })
-    long_table = pd.DataFrame({
-        "source": ["go_cc", "go_cc", "go_macrocomplex"],
-        "group_id": ["GO:1", "GO:1", "GO:1"],
-        "group_name": ["same name"] * 3,
-        "Systematic ID": ["a", "b", "c"],
-        "Name": ["a", "b", "c"],
-    })
-    fitting = pd.DataFrame({
-        "Systematic ID": ["a", "b", "c"],
-        "Name": ["a", "b", "c"],
-        "DR": [-1.0, -0.5, 0.0],
-        "DL": [0.1, 0.2, 0.3],
-        "norm_DR": [-1.0, -0.5, 0.0],
-        "norm_DL": [0.01, 0.02, 0.03],
-        "R2": [0.9, 0.8, 0.7],
-        "FYPOviability": ["viable"] * 3,
-    })
+    metrics = pd.DataFrame(
+        {
+            "source": ["go_cc", "go_macrocomplex"],
+            "group_id": ["GO:1", "GO:1"],
+            "group_name": ["same name", "same name"],
+            "n_scored_members": [2, 1],
+            "median_pairwise_distance_z": [-3.0, 1.0],
+            "q_value_coherent": [0.01, 0.9],
+            "q_value_incoherent": [0.9, 0.1],
+        }
+    )
+    long_table = pd.DataFrame(
+        {
+            "source": ["go_cc", "go_cc", "go_macrocomplex"],
+            "group_id": ["GO:1", "GO:1", "GO:1"],
+            "group_name": ["same name"] * 3,
+            "Systematic ID": ["a", "b", "c"],
+            "Name": ["a", "b", "c"],
+        }
+    )
+    fitting = pd.DataFrame(
+        {
+            "Systematic ID": ["a", "b", "c"],
+            "Name": ["a", "b", "c"],
+            "DR": [-1.0, -0.5, 0.0],
+            "DL": [0.1, 0.2, 0.3],
+            "norm_DR": [-1.0, -0.5, 0.0],
+            "norm_DL": [0.01, 0.02, 0.03],
+            "R2": [0.9, 0.8, 0.7],
+            "FYPOviability": ["viable"] * 3,
+        }
+    )
     return metrics, long_table, fitting
 
 
@@ -182,7 +203,8 @@ def test_pooled_terms_are_prefixed_with_their_source():
     # The same name in two databases is two different groups, so neither the picker
     # nor the centroid map may treat them as one.
     assert term_labels(metrics)["term"].tolist() == [
-        "go_cc: same name", "go_macrocomplex: same name",
+        "go_cc: same name",
+        "go_macrocomplex: same name",
     ]
 
 
@@ -198,12 +220,13 @@ def test_pooled_members_join_on_source_as_well_as_group_id():
     metrics, long_table, fitting = _pooled_frames()
     metrics = cohort_labels(term_labels(metrics), coherent_z=-2.0, incoherent_z=0.5)
     detail = gene_detail(fitting)
-    members = member_table(metrics, long_table, detail, None)   # None = pooled
+    members = member_table(metrics, long_table, detail, None)  # None = pooled
 
     # GO:1 exists in both sources; on group_id alone every row would claim both
     # terms and each centroid would sit on all three genes.
     assert members.groupby("term").size().to_dict() == {
-        "go_cc: same name": 2, "go_macrocomplex: same name": 1,
+        "go_cc: same name": 2,
+        "go_macrocomplex: same name": 1,
     }
     centroids = centroid_table(members, detail, metrics).set_index("term")
     assert centroids.loc["go_macrocomplex: same name", "norm_DR"] == pytest.approx(0.0)
@@ -239,10 +262,14 @@ def test_scatter_spec_is_serializable_and_carries_a_dropdown():
 
     detail, members, centroids = _scatter_pieces()
     options = term_options(centroids)
-    params = [p for p in build_chart(detail, members, centroids, options).to_dict()["params"]
-              if isinstance(p, dict)]
-    pickers = [p for p in params if isinstance(p.get("bind"), dict)
-               and p["bind"].get("input") == "select"]
+    params = [
+        p
+        for p in build_chart(detail, members, centroids, options).to_dict()["params"]
+        if isinstance(p, dict)
+    ]
+    pickers = [
+        p for p in params if isinstance(p.get("bind"), dict) and p["bind"].get("input") == "select"
+    ]
     assert len(pickers) == 2, f"expected term + cohort dropdowns, got {len(pickers)}"
     term = next(p for p in pickers if p["name"] == "term_pick")
     cohort = next(p for p in pickers if p["name"] == "cohort_pick")
@@ -277,7 +304,7 @@ def test_the_centroid_panel_can_set_the_dropdowns_selection():
 
     detail, members, centroids = _scatter_pieces()
     spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
-    picker = [p for p in spec["params"] if isinstance(p.get("bind"), dict)][0]
+    picker = next(p for p in spec["params"] if isinstance(p.get("bind"), dict))
 
     # One selection, two ways in: the bound dropdown sets it, and a click on a
     # centroid marker sets the same value, so the two controls cannot disagree.
@@ -289,9 +316,13 @@ def test_the_centroid_panel_can_set_the_dropdowns_selection():
     # the pick. Every term panel must be listed, and the gene panel must not be.
     for title in ("Terms", "Group centroids"):
         named = {layer.get("name") for layer in _panel(spec, title)["layer"] if layer.get("name")}
-        assert named and named <= set(picker["views"]), f"a click on {title} never reaches the pick"
-    gene_units = {layer.get("name") for layer in _panel(spec, "Selected term's genes")["layer"]
-                  if layer.get("name")}
+        assert named
+        assert named <= set(picker["views"]), f"a click on {title} never reaches the pick"
+    gene_units = {
+        layer.get("name")
+        for layer in _panel(spec, "Selected term's genes")["layer"]
+        if layer.get("name")
+    }
     assert not (set(picker["views"]) & gene_units), "the click must not listen on the gene panel"
     # Filtering the highlighted-gene layer (the panel's last, after the cloud split)
     # by that selection is what redraws the genes when the map is clicked, with no
@@ -300,7 +331,7 @@ def test_the_centroid_panel_can_set_the_dropdowns_selection():
     assert {"filter": {"param": picker["name"]}} in genes["transform"]
 
 
-# --- q–z term panel ---------------------------------------------------------
+# --- q-z term panel ---------------------------------------------------------
 def test_the_q_z_panel_opens_the_page_and_encodes_q_z_and_size():
     from plot_interactive_scatter import build_chart, term_options
 
@@ -323,7 +354,8 @@ def test_the_q_z_panel_opens_the_page_and_encodes_q_z_and_size():
     assert points[0]["encoding"]["x"]["scale"]["domain"] == [0.0, 1.0]
     # z is this page's own extent, padded so an edge marker is not clipped.
     z_lo, z_hi = points[0]["encoding"]["y"]["scale"]["domain"]
-    assert z_lo < -3.0 and z_hi > 2.0, f"z axis {z_lo, z_hi} does not span the fixture"
+    assert z_lo < -3.0, f"z axis {z_lo, z_hi} does not span the fixture"
+    assert z_hi > 2.0, f"z axis {z_lo, z_hi} does not span the fixture"
 
     # Area, not radius, and log-compressed like the static figure's point_sizes():
     # a 69-fold count range must not put 69x the ink on the page.
@@ -333,8 +365,9 @@ def test_the_q_z_panel_opens_the_page_and_encodes_q_z_and_size():
 
 def _filters(layer: dict) -> list:
     """The `transform_filter` predicates of a layer, in order."""
-    return [transform["filter"] for transform in layer.get("transform", [])
-            if "filter" in transform]
+    return [
+        transform["filter"] for transform in layer.get("transform", []) if "filter" in transform
+    ]
 
 
 def test_the_q_z_panel_draws_the_two_cohort_cuts_and_takes_z_from_the_caller():
@@ -355,10 +388,14 @@ def test_the_q_z_panel_draws_the_two_cohort_cuts_and_takes_z_from_the_caller():
     # The z cut is a parameter, not a constant: a page built with another
     # threshold must move the line with it, or the figure would contradict the
     # cohort colours drawn from the same config value.
-    moved = build_chart(detail, members, centroids, term_options(centroids),
-                        coherent_z=-1.5).to_dict()
-    z_rules = [layer for layer in moved["hconcat"][0]["layer"]
-               if layer["mark"]["type"] == "rule" and "y" in layer.get("encoding", {})]
+    moved = build_chart(
+        detail, members, centroids, term_options(centroids), coherent_z=-1.5
+    ).to_dict()
+    z_rules = [
+        layer
+        for layer in moved["hconcat"][0]["layer"]
+        if layer["mark"]["type"] == "rule" and "y" in layer.get("encoding", {})
+    ]
     assert moved["datasets"][z_rules[0]["data"]["name"]] == [{"coherent_z": -1.5}]
 
 
@@ -380,7 +417,8 @@ def test_the_q_z_panel_can_set_the_dropdowns_selection():
     assert len(points) == 2, "one dimmed layer plus the picked marker"
     dimmed, picked = points
     named = [layer for layer in stats["layer"] if layer.get("name")]
-    assert len(named) == 1 and named[0] is dimmed
+    assert len(named) == 1
+    assert named[0] is dimmed
     assert dimmed["name"] in picker["views"], "a click on a term never reaches the dropdown"
     # The split, spelled out: the dimmed layer draws everything EXCEPT the pick,
     # the picked layer draws exactly the pick. Substring checks would pass even if
@@ -398,8 +436,9 @@ def test_the_cohort_dropdown_reaches_both_term_panels():
     # it from one panel and that panel keeps showing all terms while the others
     # narrow — three panels that no longer share a view.
     for title in ("Terms", "Group centroids"):
-        points = [layer for layer in _panel(spec, title)["layer"]
-                  if layer["mark"]["type"] == "circle"]
+        points = [
+            layer for layer in _panel(spec, title)["layer"] if layer["mark"]["type"] == "circle"
+        ]
         assert points, f"{title} draws no points"
         for layer in points:
             assert any("cohort_pick" in str(predicate) for predicate in _filters(layer)), (
@@ -412,8 +451,7 @@ def test_the_size_legend_is_drawn_once_and_under_the_left_panel():
 
     detail, members, centroids = _scatter_pieces()
     spec = build_chart(detail, members, centroids, term_options(centroids)).to_dict()
-    sized = [layer for layer in spec["hconcat"][0]["layer"]
-             if "size" in layer.get("encoding", {})]
+    sized = [layer for layer in spec["hconcat"][0]["layer"] if "size" in layer.get("encoding", {})]
     assert len(sized) == 2
 
     legends = [layer["encoding"]["size"].get("legend") for layer in sized]
@@ -432,7 +470,8 @@ def test_axis_extents_are_padded_and_never_degenerate():
     from plot_interactive_scatter import member_extent, padded_extent
 
     lo, hi = padded_extent(pd.Series([0.0, 1.0]))
-    assert lo < 0.0 and hi > 1.0
+    assert lo < 0.0
+    assert hi > 1.0
     # A page whose column has no range still needs a non-zero domain, or the scale
     # collapses and every marker lands on one line.
     assert padded_extent(pd.Series([2.0, 2.0])) == (1.0, 3.0)
@@ -442,33 +481,37 @@ def test_axis_extents_are_padded_and_never_degenerate():
 # --- redundancy network -----------------------------------------------------
 def _combined_table() -> pd.DataFrame:
     """Three terms, two of them sharing most of their members."""
-    return pd.DataFrame({
-        "source": ["go_cc"] * 3 + ["go_cc"],
-        "group_id": ["t1", "t2", "t3", "solo"],
-        "group_name": ["alpha", "alpha variant", "beta", "loner"],
-        "scored_member_names": [
-            ["a", "b", "c", "d"],
-            ["a", "b", "c", "e"],       # high Jaccard with t1
-            ["a", "b", "x", "y"],       # lower Jaccard with both
-            ["z"],
-        ],
-    })
+    return pd.DataFrame(
+        {
+            "source": ["go_cc"] * 3 + ["go_cc"],
+            "group_id": ["t1", "t2", "t3", "solo"],
+            "group_name": ["alpha", "alpha variant", "beta", "loner"],
+            "scored_member_names": [
+                ["a", "b", "c", "d"],
+                ["a", "b", "c", "e"],  # high Jaccard with t1
+                ["a", "b", "x", "y"],  # lower Jaccard with both
+                ["z"],
+            ],
+        }
+    )
 
 
 def _dedup_table() -> pd.DataFrame:
-    return pd.DataFrame({
-        "source": ["go_cc"] * 4,
-        "group_id": ["t1", "t2", "t3", "solo"],
-        "redundancy_cluster": ["all:0", "all:0", "all:0", "all:1"],
-        "is_representative": [True, False, False, True],
-        "representative_source": ["auto"] * 4,
-        "representative_name": ["alpha"] * 3 + ["loner"],
-        "median_pairwise_distance_z": [-4.0, -3.0, -1.0, 0.0],
-        "q_value_coherent": [0.01, 0.02, 0.5, 0.9],
-        "q_value_incoherent": [0.5, 0.6, 0.9, 1.0],
-        "n_scored_members": [4, 4, 4, 1],
-        "n_annotated_members": [10, 12, 40, 2],
-    })
+    return pd.DataFrame(
+        {
+            "source": ["go_cc"] * 4,
+            "group_id": ["t1", "t2", "t3", "solo"],
+            "redundancy_cluster": ["all:0", "all:0", "all:0", "all:1"],
+            "is_representative": [True, False, False, True],
+            "representative_source": ["auto"] * 4,
+            "representative_name": ["alpha"] * 3 + ["loner"],
+            "median_pairwise_distance_z": [-4.0, -3.0, -1.0, 0.0],
+            "q_value_coherent": [0.01, 0.02, 0.5, 0.9],
+            "q_value_incoherent": [0.5, 0.6, 0.9, 1.0],
+            "n_scored_members": [4, 4, 4, 1],
+            "n_annotated_members": [10, 12, 40, 2],
+        }
+    )
 
 
 def test_network_frames_skip_clusters_of_one():
@@ -499,7 +542,9 @@ def test_overview_names_only_representatives(tmp_path):
     out = tmp_path / "overview.html"
     write_overview(nodes, edges, out)
     page = out.read_text()
-    drawn = json.loads(re.search(r"nodes\s*=\s*new vis\.DataSet\((\[.*?\])\);", page, re.DOTALL).group(1))
+    drawn = json.loads(
+        re.search(r"nodes\s*=\s*new vis\.DataSet\((\[.*?\])\);", page, re.DOTALL).group(1)
+    )
 
     # pyvis substitutes the node id for a falsy label, so an unfixed page comes back
     # with every absorbed term labelled "go_cc:t2" — 1,944 of them in the real run.
@@ -570,11 +615,12 @@ def test_pull_in_lonely_only_moves_the_clusters_with_no_relatives():
 
     graph = nx.Graph()
     graph.add_nodes_from(range(4))
-    graph.add_edge(0, 1)          # 0 and 1 are related; 2 and 3 are not
+    graph.add_edge(0, 1)  # 0 and 1 are related; 2 and 3 are not
     centres = [(0.0, 0.0), (10.0, 0.0), (500.0, 0.0), (9.0, 0.0)]
     pulled = pull_in_lonely(centres, graph)
 
-    assert pulled[0] == centres[0] and pulled[1] == centres[1], "a connected cluster moved"
+    assert pulled[0] == centres[0], "a connected cluster moved"
+    assert pulled[1] == centres[1], "a connected cluster moved"
     assert math.dist(pulled[2], centres[2]) > 0, "the lonely cluster was not pulled in"
     assert math.dist(pulled[3], centres[3]) == 0, "a lonely cluster already inside the rim moved"
 
@@ -607,7 +653,8 @@ def test_scale_positions_stay_inside_the_canvas():
 
     scaled = scale_positions({0: (0.0, 0.0), 1: (10.0, 4.0), 2: (3.0, 9.0)})
     for x, y in scaled.values():
-        assert 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+        assert 0.0 <= x <= 1.0
+        assert 0.0 <= y <= 1.0
 
 
 def test_network_spec_is_serializable():

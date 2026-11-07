@@ -16,9 +16,9 @@ Version:  3.0.0
 # IMPORTS
 # =============================================================================
 import cnsplots as cns
+from loguru import logger
 import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
 
 # The zero-dilution reference sample: no spike-in reads to be linear against.
 REFERENCE_SAMPLE = "Spikein0"
@@ -32,9 +32,7 @@ def render_spikein_panel(
     ax: plt.Axes,
     spikein: pd.DataFrame,
     *,
-    marker_size: float = 20,
     add_equation: bool = True,
-    hue_order: list[str] | None = None,
 ) -> None:
     """Render the spike-in dilution linearity panel via ``cns.regplot``.
 
@@ -49,27 +47,25 @@ def render_spikein_panel(
     spikein : pd.DataFrame
         Spike-in stats with columns Sample, Name, Relative_Dilution_Ratio,
         Relative_Read_Ratio.
-    marker_size : float, default 20
-        Scatter marker size in points², forwarded to ``cns.regplot``'s ``s``.
     add_equation : bool, default True
         Annotate the fitted equation and R² in the bottom-right.
-    hue_order : list of str, optional
-        Explicit ``Name`` order, so the site→colour mapping does not depend on
-        pandas' group ordering. Defaults to the encountered order.
 
     Notes
     -----
     ``Spikein0`` is dropped: it is the zero-dilution reference, so its reads say
     nothing about linearity, and its floored read count would anchor the fit at
     -inf. Matches the source notebook.
+
+    ``cns.regplot`` reads the site order from the column's encounter order when
+    ``color`` names a column, so the frame is sorted first. ``hue_order`` has no
+    effect in that branch.
     """
     spikein_filtered = spikein.query("Sample != @REFERENCE_SAMPLE").copy()
     if spikein_filtered.empty:
         raise ValueError(f"No spike-in rows left after dropping {REFERENCE_SAMPLE}")
 
     spikein_filtered["Name"] = spikein_filtered["Name"].str.replace("Spike-in Insertion ", "#")
-    if hue_order is None:
-        hue_order = sorted(spikein_filtered["Name"].unique())
+    spikein_filtered = spikein_filtered.sort_values("Name", kind="stable")
 
     # color=<column> (not hue=): one legend entry per insertion site, but a
     # single overall fit — hue= would fit and annotate five separate lines.
@@ -78,8 +74,6 @@ def render_spikein_panel(
         x="Relative_Dilution_Ratio",
         y="Relative_Read_Ratio",
         color="Name",
-        hue_order=hue_order,
-        s=marker_size,
         add_equation=add_equation,
         ax=ax,
     )
@@ -95,5 +89,5 @@ def render_spikein_panel(
 
     logger.debug(
         f"Rendered spike-in panel: {len(spikein_filtered)} points, "
-        f"{len(hue_order)} insertion sites"
+        f"{spikein_filtered['Name'].nunique()} insertion sites"
     )

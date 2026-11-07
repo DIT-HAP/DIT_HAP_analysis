@@ -44,9 +44,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -97,14 +97,22 @@ def run(config: PrepareConfig) -> int:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare the positioned insertion profile for 4a")
-    parser.add_argument("--fitting-results", type=Path, required=True,
-                        help="Release insertion_level/fitting_results.tsv")
-    parser.add_argument("--annotations", type=Path, required=True,
-                        help="Release insertion_level/annotations.tsv.gz")
-    parser.add_argument("--gene-level", type=Path, required=True,
-                        help="Release gene_level/fitting_results.tsv")
+    parser.add_argument(
+        "--fitting-results",
+        type=Path,
+        required=True,
+        help="Release insertion_level/fitting_results.tsv",
+    )
+    parser.add_argument(
+        "--annotations", type=Path, required=True, help="Release insertion_level/annotations.tsv.gz"
+    )
+    parser.add_argument(
+        "--gene-level", type=Path, required=True, help="Release gene_level/fitting_results.tsv"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output parquet path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

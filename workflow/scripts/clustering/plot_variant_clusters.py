@@ -8,9 +8,9 @@ Visualizes one finalize variant's cluster assignments in the (DR, DL) feature
 space: one page for the final `cluster` (1..final_n_clusters, WT = lowest DR),
 plus — for merge-type variants (auto_merge / manual_merge) that keep a
 `raw_cluster` column — a second page for the pre-merge intermediate clusters.
-Different clusters get different colors (reuses the notebook's cluster-review
-plot: workflow/src/plotting/gene_level.visualize_cluster_on_feature_space), so
-the pipeline plot and the manual-merge notebook's review plot look identical.
+The pages use the house cnsplots style via
+workflow/src/figure_render/cluster_scatter.py, with one colour per cluster id
+across every variant.
 
 Input
 -----
@@ -20,6 +20,7 @@ Output
 ------
 - cluster_scatter.pdf: 1 page (direct/grid, no raw_cluster) or 2 pages
   (auto_merge/manual_merge — intermediate page first, then final)
+- cluster_scatter.review.png: page-1 preview at the same measured bounds
 
 Usage
 -----
@@ -38,26 +39,27 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 3. Third-party Imports
-import matplotlib
+import matplotlib as mpl
 
 # 2. Data Processing Imports
 import pandas as pd
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
+mpl.use("Agg")  # headless: this script only writes a PDF, never displays
 from loguru import logger
-from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
 
 # 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
+from figure_render.cluster_scatter import build_cluster_scatter_figure
+from figures import save_pdf_pages
 from logging_setup import setup_logger
-from plotting.gene_level import visualize_cluster_on_feature_space
 
 
 # =============================================================================
@@ -66,6 +68,7 @@ from plotting.gene_level import visualize_cluster_on_feature_space
 @dataclass(kw_only=True, frozen=True)
 class PlotVariantClustersConfig:
     """Inputs, output, and the figure title label for one variant's cluster scatter."""
+
     final_clusters: Path
     output: Path
     variant_label: str
@@ -83,32 +86,49 @@ class PlotVariantClustersConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _cluster_figures(df: pd.DataFrame, variant_label: str) -> list[Figure]:
+    """Build the intermediate (when raw_cluster exists) and final cluster scatter pages."""
+    figures: list[Figure] = []
+    if "raw_cluster" in df.columns:
+        intermediate = df.dropna(subset=["raw_cluster"]).copy()
+        intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
+        figure = build_cluster_scatter_figure(
+            intermediate,
+            cluster_col="raw_cluster",
+            one_based=False,
+            title=(
+                f"{variant_label} — intermediate "
+                f"(raw_cluster, n={intermediate['raw_cluster'].nunique()})"
+            ),
+        )
+        figures.append(figure)
+
+    final = df.dropna(subset=["cluster"]).copy()
+    final["cluster"] = final["cluster"].astype(int)
+    figure = build_cluster_scatter_figure(
+        final,
+        cluster_col="cluster",
+        one_based=True,
+        show_box=True,
+        legend=True,
+        title=f"{variant_label} — final (cluster, n={final['cluster'].nunique()})",
+    )
+    figures.append(figure)
+    return figures
+
+
 @logger.catch(reraise=True)
 def run(config: PlotVariantClustersConfig) -> None:
     """Render the intermediate (if present) and final cluster scatters into one PDF."""
     config.validate()
     df = pd.read_csv(config.final_clusters, sep="\t", index_col=0)
 
-    pages = 0
-    with PdfPages(config.output) as pdf:
-        if "raw_cluster" in df.columns:
-            intermediate = df.dropna(subset=["raw_cluster"]).copy()
-            intermediate["raw_cluster"] = intermediate["raw_cluster"].astype(int)
-            fig = visualize_cluster_on_feature_space(intermediate, "raw_cluster")
-            fig.suptitle(f"{config.variant_label} — intermediate (raw_cluster, n={intermediate['raw_cluster'].nunique()})")
-            pdf.savefig(fig)
-            fig.clf()
-            pages += 1
+    figures = _cluster_figures(df, config.variant_label)
+    save_pdf_pages(config.output.with_suffix(""), figures)
 
-        final = df.dropna(subset=["cluster"]).copy()
-        final["cluster"] = final["cluster"].astype(int)
-        fig = visualize_cluster_on_feature_space(final, "cluster", cluster_minus_one=True, show_box=True, legend=True)
-        fig.suptitle(f"{config.variant_label} — final (cluster, n={final['cluster'].nunique()})")
-        pdf.savefig(fig)
-        fig.clf()
-        pages += 1
-
-    logger.success(f"Wrote {pages}-page cluster scatter for {config.variant_label} -> {config.output}")
+    logger.success(
+        f"Wrote {len(figures)}-page cluster scatter for {config.variant_label} -> {config.output}"
+    )
 
 
 # =============================================================================
@@ -116,11 +136,22 @@ def run(config: PlotVariantClustersConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Plot DR/DL cluster scatter for one finalize variant")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="final_clusters.tsv (any finalize variant)")
+    parser = argparse.ArgumentParser(
+        description="Plot DR/DL cluster scatter for one finalize variant"
+    )
+    parser.add_argument(
+        "--final-clusters",
+        type=Path,
+        required=True,
+        help="final_clusters.tsv (any finalize variant)",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output cluster_scatter.pdf")
-    parser.add_argument("--variant-label", type=str, required=True, help="Variant name, used in figure titles")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--variant-label", type=str, required=True, help="Variant name, used in figure titles"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

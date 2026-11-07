@@ -36,17 +36,17 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 3. Third-party Imports
-import matplotlib
+import matplotlib as mpl
 
 # 2. Data Processing Imports
 import pandas as pd
 
-matplotlib.use("Agg")  # headless: this script only writes figures, never displays
+mpl.use("Agg")  # headless: this script only writes figures, never displays
 from loguru import logger
 
 # 4. Local Imports (relative path resolution)
@@ -67,6 +67,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True, slots=True)
 class QcConfig:
     """Parquet + stats TSV inputs and the output directory for the distribution QC."""
+
     fitness_table: Path
     stats: Path
     output_dir: Path
@@ -106,10 +107,18 @@ def run(config: QcConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Raw and log10 distribution QC per fitness column")
-    parser.add_argument("--fitness-table", type=Path, required=True, help="Input fitness_table.parquet")
-    parser.add_argument("--stats", type=Path, required=True, help="Input fitness_correlation_stats.tsv")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for the QC figure")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--fitness-table", type=Path, required=True, help="Input fitness_table.parquet"
+    )
+    parser.add_argument(
+        "--stats", type=Path, required=True, help="Input fitness_correlation_stats.tsv"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, required=True, help="Output directory for the QC figure"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

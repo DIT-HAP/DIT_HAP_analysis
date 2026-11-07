@@ -38,18 +38,12 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from pathlib import Path
 
-# 2. Data Processing Imports
-import numpy as np
-import pandas as pd
-
-# 4. Local Imports
-from io_table import read_file
-
 # 3. Third-party Imports
 from loguru import logger
 
-# 4. Local Imports
-from release_schema import LEGACY_METRIC_RENAME
+# 2. Data Processing Imports
+import numpy as np
+import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (
@@ -59,11 +53,28 @@ from sklearn.metrics import (
 )
 from sklearn.mixture import GaussianMixture
 
+# 4. Local Imports
+from io_table import read_file
+
+# 4. Local Imports
+from release_schema import LEGACY_METRIC_RENAME
+
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
 # Curve-fit features considered for correlation (viz only); clustering uses DR+DL.
-ALL_FEATURES = ["A", "DR", "DL", "t10", "t50", "t90", "t_window", "t_inflection", "y_inflection", "auc"]
+ALL_FEATURES = [
+    "A",
+    "DR",
+    "DL",
+    "t10",
+    "t50",
+    "t90",
+    "t_window",
+    "t_inflection",
+    "y_inflection",
+    "auc",
+]
 SELECTED_FEATURES = ["DR", "DL"]
 # DR below this floor is clamped; DL is divided by this divisor (byte-faithful quirk).
 # Upstream flipped the DR sign convention on 2026-09-17 (negative = depleted), so what
@@ -83,23 +94,32 @@ BEST_METHOD = "kmeans"
 # =============================================================================
 @logger.catch
 def load_and_annotate(fitting_results: Path, essentiality_verification_csv: Path) -> pd.DataFrame:
-    """Load fitting statistics, normalize legacy um/lam -> DR/DL, and inject RevisedDeletion_essentiality at position 3."""
+    """Load fitting statistics, normalize legacy um/lam -> DR/DL, and inject
+    RevisedDeletion_essentiality at position 3."""
     data_df = read_file(fitting_results, index_col=[0])
-    rename = {old: new for old, new in LEGACY_METRIC_RENAME.items() if old in data_df.columns and new not in data_df.columns}
+    rename = {
+        old: new
+        for old, new in LEGACY_METRIC_RENAME.items()
+        if old in data_df.columns and new not in data_df.columns
+    }
     if rename:
         logger.info(f"Normalizing legacy metric columns: {rename}")
         data_df = data_df.rename(columns=rename)
     ess_df = read_file(essentiality_verification_csv)
-    verification_essentiality = ess_df.set_index("systematic_id")["verification_essentiality"].to_dict()
+    verification_essentiality = ess_df.set_index("systematic_id")[
+        "verification_essentiality"
+    ].to_dict()
 
     # Byte-faithful: verified value if present, else fall back to DeletionLibrary_essentiality.
     data_df.insert(
         3,
         "RevisedDeletion_essentiality",
         data_df.apply(
-            lambda row: verification_essentiality[row.name]
-            if row.name in verification_essentiality
-            else row["DeletionLibrary_essentiality"],
+            lambda row: (
+                verification_essentiality[row.name]
+                if row.name in verification_essentiality
+                else row["DeletionLibrary_essentiality"]
+            ),
             axis=1,
         ),
     )
@@ -109,13 +129,20 @@ def load_and_annotate(fitting_results: Path, essentiality_verification_csv: Path
 
 @logger.catch
 def scale_features(
-    data_df: pd.DataFrame, selected_features: list[str], dr_clamp: float = DR_CLAMP, dl_divisor: float = DL_DIVISOR
+    data_df: pd.DataFrame,
+    selected_features: list[str],
+    dr_clamp: float = DR_CLAMP,
+    dl_divisor: float = DL_DIVISOR,
 ) -> pd.DataFrame:
-    """Apply the notebook's bespoke scaling: clamp DR at dr_clamp (a floor), divide DL by dl_divisor; dropna defines the clustered set."""
+    """Apply the notebook's bespoke scaling: clamp DR at dr_clamp (a floor), divide DL by
+    dl_divisor;
+    dropna defines the clustered set."""
     scaled_data = data_df[selected_features].dropna().copy()
     scaled_data["DR"] = scaled_data["DR"].apply(lambda x: max(dr_clamp, x))
     scaled_data["DL"] = scaled_data["DL"].apply(lambda x: x / dl_divisor)
-    logger.info(f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features")
+    logger.info(
+        f"Scaled feature matrix: {scaled_data.shape[0]} genes x {scaled_data.shape[1]} features"
+    )
     return scaled_data
 
 
@@ -142,14 +169,18 @@ def evaluate_cluster_numbers(data: np.ndarray, k_range: range, random_state: int
 # PER-METHOD CLUSTERING
 # =============================================================================
 @logger.catch(reraise=True)
-def cluster_one_method(method: str, data: pd.DataFrame, n_clusters: int, random_state: int) -> np.ndarray:
+def cluster_one_method(
+    method: str, data: pd.DataFrame, n_clusters: int, random_state: int
+) -> np.ndarray:
     """Run one clustering method by name, returning 0-based labels aligned to `data`'s rows."""
     if method == "kmeans":
         logger.info("Running K-means clustering")
         return KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10).fit_predict(data)
     if method == "hierarchical_agg":
         logger.info("Running agglomerative hierarchical clustering")
-        return AgglomerativeClustering(n_clusters=n_clusters, linkage="ward", metric="euclidean").fit_predict(data)
+        return AgglomerativeClustering(
+            n_clusters=n_clusters, linkage="ward", metric="euclidean"
+        ).fit_predict(data)
     if method == "hierarchical_div":
         logger.info("Running divisive hierarchical clustering")
         linkage_matrix = linkage(data, method="complete", metric="cityblock")
@@ -163,7 +194,8 @@ def cluster_one_method(method: str, data: pd.DataFrame, n_clusters: int, random_
 
 @logger.catch
 def score_labels(data: pd.DataFrame, labels: np.ndarray) -> dict:
-    """Score one labeling with silhouette / Calinski-Harabasz / Davies-Bouldin + cluster count (unrounded)."""
+    """Score one labeling with silhouette / Calinski-Harabasz / Davies-Bouldin + cluster count
+    (unrounded)."""
     return {
         "silhouette_score": silhouette_score(data, labels),
         "calinski_harabasz_score": calinski_harabasz_score(data, labels),
@@ -210,7 +242,7 @@ def renumber_by_dr(
     # Row order is rank order: rank 0 (lowest DR = most depleted) -> id 1, and the
     # last row (highest DR = WT) -> wt_cluster. The remaining ids fill the ranks between.
     remaining = [i for i in range(1, n_clusters + 1) if i != wt_cluster]
-    ordered_ids = remaining + [wt_cluster]
+    ordered_ids = [*remaining, wt_cluster]
     # Guard against silent mis-numbering: dict(zip(...)) would quietly truncate if
     # counts diverge (too few groups, or wt_cluster out of the 1..n_clusters range).
     if len(stats) != len(ordered_ids):
@@ -220,7 +252,7 @@ def renumber_by_dr(
         )
     # stats is already sorted ascending-DR and re-indexed, so row order == rank order:
     # rank 0 (lowest DR) -> ordered_ids[0] (wt_cluster), rank 1 -> id 1, ...
-    raw_to_final = dict(zip(stats["_raw"], ordered_ids))
+    raw_to_final = dict(zip(stats["_raw"], ordered_ids, strict=False))
     return raw_labels.map(raw_to_final)
 
 
@@ -237,7 +269,9 @@ def finalize_direct(
     """
     out = annotated.copy()
     out["cluster"] = renumber_by_dr(annotated, raw_labels, n_clusters, wt_cluster)
-    logger.info(f"finalize_direct: {len(raw_labels)} genes -> {n_clusters} clusters (WT={wt_cluster})")
+    logger.info(
+        f"finalize_direct: {len(raw_labels)} genes -> {n_clusters} clusters (WT={wt_cluster})"
+    )
     return out
 
 
@@ -259,19 +293,21 @@ def finalize_auto_merge(
     centroids = scaled.loc[raw_labels.index].groupby(raw_labels.to_numpy()).mean().sort_index()
     if len(centroids) < n_clusters:
         raise ValueError(
-            f"auto_merge needs >= {n_clusters} transitional clusters to merge, got {len(centroids)}."
+            f"auto_merge needs >= {n_clusters} transitional clusters to merge, "
+            f"got {len(centroids)}."
         )
-    merge_labels = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward", metric="euclidean").fit_predict(
-        centroids.to_numpy()
-    )
-    candidate_to_group = dict(zip(centroids.index, merge_labels))
+    merge_labels = AgglomerativeClustering(
+        n_clusters=n_clusters, linkage="ward", metric="euclidean"
+    ).fit_predict(centroids.to_numpy())
+    candidate_to_group = dict(zip(centroids.index, merge_labels, strict=False))
     merged = raw_labels.map(candidate_to_group)
 
     out = annotated.copy()
     out["cluster"] = renumber_by_dr(annotated, merged, n_clusters, wt_cluster)
     out["raw_cluster"] = raw_labels
     logger.info(
-        f"finalize_auto_merge: {len(centroids)} transitional clusters -> {n_clusters} (WT={wt_cluster})"
+        f"finalize_auto_merge: {len(centroids)} transitional clusters -> "
+        f"{n_clusters} (WT={wt_cluster})"
     )
     return out
 

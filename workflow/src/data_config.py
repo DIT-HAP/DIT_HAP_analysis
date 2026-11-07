@@ -54,24 +54,33 @@ DATASETS_YAML = Path(__file__).resolve().parents[2] / "config" / "datasets.yaml"
 # pipeline renames it, change it here only.
 MERGED_READS_SUBDIR = "8_merged"
 
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class InsertionLevelConfig:
     """Paths under release/insertion_level/. Always-present files plus branch-gated optionals."""
+
     annotations: Path
-    baseMean: Path
+    baseMean: Path  # noqa: N815
     LFCs: Path
-    fitting_LFCs: Path | None = None
+    fitting_LFCs: Path | None = None  # noqa: N815
     fitting_results: Path | None = None
     transformed_weights: Path | None = None
     imputation_statistics: Path | None = None
 
     def validate_paths(self) -> None:
         """Raise FileNotFoundError if any present (non-None) path is missing on disk."""
-        for path in [self.annotations, self.baseMean, self.LFCs, self.fitting_LFCs,
-                     self.fitting_results, self.transformed_weights, self.imputation_statistics]:
+        for path in [
+            self.annotations,
+            self.baseMean,
+            self.LFCs,
+            self.fitting_LFCs,
+            self.fitting_results,
+            self.transformed_weights,
+            self.imputation_statistics,
+        ]:
             if path is not None and not path.exists():
                 raise FileNotFoundError(f"Insertion-level release file not found: {path}")
 
@@ -79,8 +88,9 @@ class InsertionLevelConfig:
 @dataclass(kw_only=True, frozen=True)
 class GeneLevelConfig:
     """Paths under release/gene_level/. Only constructed when has_time_points is True."""
+
     LFCs: Path
-    fitting_LFCs: Path
+    fitting_LFCs: Path  # noqa: N815
     fitting_results: Path
 
     def validate_paths(self) -> None:
@@ -93,6 +103,7 @@ class GeneLevelConfig:
 @dataclass(kw_only=True, frozen=True)
 class DatasetConfig:
     """Aggregate config for one registered project's release/ output."""
+
     name: str
     label: str
     has_time_points: bool
@@ -133,7 +144,8 @@ def reference_pombase_version() -> str:
 
 
 def reference_alphafold_dir() -> Path:
-    """Return the registry's reference.alphafold_dir as a Path (never copied locally, see design doc §4)."""
+    """Return the registry's reference.alphafold_dir as a Path (never copied locally, see design doc
+    §4)."""
     return Path(_load_registry()["reference"]["alphafold_dir"])
 
 
@@ -154,10 +166,18 @@ def load_dataset_config(name: str | None = None) -> DatasetConfig:
         annotations=release_dir / "insertion_level" / "annotations.tsv.gz",
         baseMean=release_dir / "insertion_level" / "baseMean.tsv",
         LFCs=release_dir / "insertion_level" / "LFC.tsv",
-        fitting_LFCs=(release_dir / "insertion_level" / "fitting_LFCs.tsv") if has_time_points else None,
-        fitting_results=(release_dir / "insertion_level" / "fitting_results.tsv") if has_time_points else None,
-        transformed_weights=(release_dir / "insertion_level" / "transformed_weights.tsv") if has_time_points else None,
-        imputation_statistics=(release_dir / "insertion_level" / "imputation_statistics.tsv") if has_imputation else None,
+        fitting_LFCs=(release_dir / "insertion_level" / "fitting_LFCs.tsv")
+        if has_time_points
+        else None,
+        fitting_results=(release_dir / "insertion_level" / "fitting_results.tsv")
+        if has_time_points
+        else None,
+        transformed_weights=(release_dir / "insertion_level" / "transformed_weights.tsv")
+        if has_time_points
+        else None,
+        imputation_statistics=(release_dir / "insertion_level" / "imputation_statistics.tsv")
+        if has_imputation
+        else None,
     )
 
     gene_level = None

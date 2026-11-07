@@ -1,13 +1,12 @@
 """Tests for the pure data preparation behind the enrichment figures."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import pytest
-
 from workflow.src.enrichment.plotting import (
     DOTPLOT_COLOR_COLUMN,
     DOTPLOT_SIZE_COLUMN,
@@ -98,9 +97,7 @@ def test_dotplot_plot_frame_orders_clusters_numerically():
     terms = dotplot_terms(enrichment, top_terms_per_cluster=1)
     frame = dotplot_plot_frame(enrichment, terms)
 
-    assert list(frame["Cluster"].cat.categories) == [
-        str(cluster) for cluster in range(1, 11)
-    ]
+    assert list(frame["Cluster"].cat.categories) == [str(cluster) for cluster in range(1, 11)]
 
 
 def test_variant_heatmap_leaves_unseen_cells_empty():
@@ -129,9 +126,7 @@ def test_significant_term_counts_counts_per_cluster_and_variant():
 
 def test_term_display_names_maps_every_seen_term():
     """The name map covers terms from both variants."""
-    names = term_display_names(
-        {"first": _two_cluster_frame(), "second": _two_cluster_frame()}
-    )
+    names = term_display_names({"first": _two_cluster_frame(), "second": _two_cluster_frame()})
     assert names["GO:4"] == "component D"
 
 

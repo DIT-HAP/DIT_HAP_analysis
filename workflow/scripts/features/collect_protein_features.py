@@ -40,15 +40,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -68,6 +68,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ProteinConfig:
     """Inputs/outputs for protein-level feature collection."""
+
     pombase_dir: Path
     alphafold_dir: Path
     literature_dir: Path
@@ -83,7 +84,7 @@ class ProteinConfig:
 
     @property
     def gene_meta_file(self) -> Path:
-        """PomBase gene_IDs_names_products.tsv, used for update_sysIDs()/uniprot2id."""
+        """PomBase gene_IDs_names_products.tsv, used for update_sys_ids()/uniprot2id."""
         return self.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv"
 
 
@@ -98,12 +99,19 @@ def run(config: ProteinConfig) -> None:
     """Collect protein-level features filtered to the DNA-level coding-gene set."""
     coding_genes = read_coding_genes(config.dna_features)
     _, uniprot2id = load_gene_meta(config.gene_meta_file)
-    protein_meta = pd.read_csv(config.pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0)
+    protein_meta = pd.read_csv(
+        config.pombase_dir / "Protein_features" / "peptide_stats.tsv", sep="\t", index_col=0
+    )
 
     logger.info("Collecting protein-level features")
     protein_df = collect_protein_level_features(
-        config.pombase_dir, config.alphafold_dir, config.literature_dir,
-        config.gene_meta_file, protein_meta, uniprot2id, coding_genes,
+        config.pombase_dir,
+        config.alphafold_dir,
+        config.literature_dir,
+        config.gene_meta_file,
+        protein_meta,
+        uniprot2id,
+        coding_genes,
     )
     write_parquet(protein_df, config.output_protein)
     logger.success(f"Wrote {len(protein_df)} gene rows to {config.output_protein}")
@@ -116,11 +124,34 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Collect protein-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--alphafold-dir", type=Path, required=True, help="AlphaFold structure directory (.pdb.gz files)")
-    parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_protein", help="Output protein-level features parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--alphafold-dir",
+        type=Path,
+        required=True,
+        help="AlphaFold structure directory (.pdb.gz files)",
+    )
+    parser.add_argument(
+        "--literature-dir",
+        type=Path,
+        required=True,
+        help="Directory of literature supplementary tables",
+    )
+    parser.add_argument(
+        "--dna-features",
+        type=Path,
+        required=True,
+        help="DNA-level features parquet (for coding-gene set)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_protein",
+        help="Output protein-level features parquet",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -130,8 +161,11 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = ProteinConfig(
-            pombase_dir=args.pombase_dir, alphafold_dir=args.alphafold_dir, literature_dir=args.literature_dir,
-            dna_features=args.dna_features, output_protein=args.output_protein,
+            pombase_dir=args.pombase_dir,
+            alphafold_dir=args.alphafold_dir,
+            literature_dir=args.literature_dir,
+            dna_features=args.dna_features,
+            output_protein=args.output_protein,
         )
         config.validate()
         run(config)

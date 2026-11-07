@@ -1,5 +1,5 @@
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scripts" / "coherence"))
@@ -9,12 +9,14 @@ import pytest
 
 
 def _write_macrocomplex(tmp_path: Path) -> Path:
-    df = pd.DataFrame({
-        "complex_term_id": ["GO:0001", "GO:0001", "GO:0002"],
-        "GO_term_name": ["alpha complex", "alpha complex", "beta complex"],
-        "systematic_id": ["SPAC1", "SPAC2", "SPBC1"],
-        "symbol": ["gene1", "gene2", "gene3"],
-    })
+    df = pd.DataFrame(
+        {
+            "complex_term_id": ["GO:0001", "GO:0001", "GO:0002"],
+            "GO_term_name": ["alpha complex", "alpha complex", "beta complex"],
+            "systematic_id": ["SPAC1", "SPAC2", "SPBC1"],
+            "symbol": ["gene1", "gene2", "gene3"],
+        }
+    )
     d = tmp_path / "ontologies_and_associations"
     d.mkdir(parents=True)
     df.to_csv(d / "macromolecular_complex_annotation.tsv", sep="\t", index=False)
@@ -22,22 +24,32 @@ def _write_macrocomplex(tmp_path: Path) -> Path:
     # dir is not complete without it.
     meta = tmp_path / "Gene_metadata"
     meta.mkdir(parents=True)
-    pd.DataFrame({
-        "gene_systematic_id": ["SPAC1", "SPAC2", "SPBC1"],
-        "gene_name": ["gene1", "gene2", "gene3"],
-    }).to_csv(meta / "gene_IDs_names_products.tsv", sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "gene_systematic_id": ["SPAC1", "SPAC2", "SPBC1"],
+            "gene_name": ["gene1", "gene2", "gene3"],
+        }
+    ).to_csv(meta / "gene_IDs_names_products.tsv", sep="\t", index=False)
     return tmp_path
 
 
 def test_prepare_macrocomplex_returns_long_table(tmp_path):
     from prepare_annotation import load_source
+
     out = load_source("go_macrocomplex", _write_macrocomplex(tmp_path))
-    assert list(out.columns) == ["source", "group_id", "group_name",
-                                 "Systematic ID", "Name", "n_annotated_members"]
+    assert list(out.columns) == [
+        "source",
+        "group_id",
+        "group_name",
+        "Systematic ID",
+        "Name",
+        "n_annotated_members",
+    ]
     assert len(out) == 3
 
 
 def test_prepare_unknown_source_raises(tmp_path):
     from coherence.sources import load_source
+
     with pytest.raises(ValueError, match="unknown source"):
         load_source("kegg_nope", tmp_path)

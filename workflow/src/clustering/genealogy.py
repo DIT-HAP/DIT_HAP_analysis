@@ -31,6 +31,10 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 from collections.abc import Sequence
+from itertools import pairwise
+
+from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 
 # 2. Data Processing Imports
 import numpy as np
@@ -38,8 +42,6 @@ import pandas as pd
 
 # 4. Local Imports
 from figures import cluster_color
-from matplotlib.axes import Axes
-from matplotlib.patches import Rectangle
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -88,11 +90,13 @@ def cluster_genealogy(labels: pd.DataFrame, k_values: Sequence[int]) -> pd.DataF
         partitions[k] = subset.loc[universe, "cluster"].to_numpy()
 
     rows = []
-    for parent_k, child_k in zip(k_values, k_values[1:], strict=False):
+    for parent_k, child_k in pairwise(k_values):
         parent = partitions[parent_k]
         child = partitions[child_k]
         # One row per (parent, child) pair that actually shares genes.
-        pairs = pd.crosstab(pd.Series(parent, name="cluster"), pd.Series(child, name="child_cluster"))
+        pairs = pd.crosstab(
+            pd.Series(parent, name="cluster"), pd.Series(child, name="child_cluster")
+        )
         child_sizes = pairs.sum(axis=0)
         for child_label in pairs.columns:
             column = pairs[child_label]
@@ -118,21 +122,22 @@ def cluster_genealogy(labels: pd.DataFrame, k_values: Sequence[int]) -> pd.DataF
 # =============================================================================
 # CORE LOGIC — alluvial panel
 # =============================================================================
-def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Sequence[int], method: str) -> None:
-    """Render how one method's clusters split from k to k, as a stacked alluvial."""
-    # Each column is one k; a column's bars are that partition's clusters, sized
-    # by their share of the genes, coloured by the cluster they descend from at
-    # the smallest k. Reading it across, a bar that stays one band survived; a
-    # bar that fans into several is the extra k buying a refinement of it.
-    if genealogy.empty:
-        ax.set(xlabel="k", ylabel="Share of genes", title=f"Genealogy ({method})", xlim=(-0.5, len(k_values) - 0.5), ylim=(0, 1))
-        ax.text(0.5, 0.5, "no stable links", transform=ax.transAxes, ha="center", va="center")
-        return
+def _render_empty_genealogy(ax: Axes, k_values: Sequence[int], method: str) -> None:
+    """Label an empty genealogy panel instead of drawing axes without bars."""
+    ax.set(
+        xlabel="k",
+        ylabel="Share of genes",
+        title=f"Genealogy ({method})",
+        xlim=(-0.5, len(k_values) - 0.5),
+        ylim=(0, 1),
+    )
+    ax.text(0.5, 0.5, "no stable links", transform=ax.transAxes, ha="center", va="center")
 
-    # Cluster ids are only unique WITHIN a k, so every lookup is keyed by
-    # (k, cluster). Bars and bands take the CLUSTER's own id colour (the same
-    # per-id mapping as the scatter pages), so at one k each cluster reads in
-    # its own hue and a split visibly hands over to the children's colours.
+
+def _genealogy_order(
+    genealogy: pd.DataFrame, k_values: Sequence[int]
+) -> tuple[dict[int, int], dict[int, list[int]], dict[int, int]]:
+    """Order every column's bars by their parent's position in the previous column."""
     x_lookup = {k: position for position, k in enumerate(k_values)}
 
     # Columns are ordered by where each cluster's parent sat in the previous
@@ -149,75 +154,160 @@ def render_genealogy_panel(ax: Axes, genealogy: pd.DataFrame, *, k_values: Seque
     order: dict[int, list[int]] = {}
     previous_rank: dict[int, int] = {}
     for k in k_values:
-        ranked = sorted(members[k], key=lambda c: (previous_rank.get(parent_of.get((k, c), -1), 0), c))
+        ranked = sorted(
+            members[k], key=lambda c: (previous_rank.get(parent_of.get((k, c), -1), 0), c)
+        )
         order[k] = ranked
         previous_rank = {c: rank for rank, c in enumerate(ranked)}
+    return x_lookup, order, previous_rank
 
+
+def _genealogy_bars(
+    genealogy: pd.DataFrame, order: dict[int, list[int]], k_values: Sequence[int]
+) -> dict[tuple[int, int], tuple[float, float]]:
+    """Stack each column's bars by gene count; a child-only cluster uses its child size."""
     bars: dict[tuple[int, int], tuple[float, float]] = {}
     for k in k_values:
         cursor = 0.0
         for cluster in order[k]:
             own = genealogy[(genealogy["k"] == k) & (genealogy["cluster"] == cluster)]
-            size = (
-                float(own["n_genes"].iloc[0]) if not own.empty
-                else float(genealogy[(genealogy["k"] == k - 1) & (genealogy["child_cluster"] == cluster)]["child_genes"].iloc[0])
-            )
+            if own.empty:
+                children = genealogy[
+                    (genealogy["k"] == k - 1) & (genealogy["child_cluster"] == cluster)
+                ]
+                size = float(children["child_genes"].iloc[0])
+            else:
+                size = float(own["n_genes"].iloc[0])
             bars[(k, cluster)] = (cursor, cursor + size)
             cursor += size
+    return bars
 
-    # Band stubs inside each bar, stacked in the order the bars are drawn — any
-    # other order makes two bands cross inside the bar they share.
-    total = max(high for _, high in bars.values())
 
-    def scale(value: float) -> float:
-        """A y position in gene counts -> axis units."""
-        return value / total
+def _draw_band(
+    ax: Axes,
+    *,
+    x_left: float,
+    x_right: float,
+    start: float,
+    child_start: float,
+    n_genes: float,
+    child_genes: float,
+    child: int,
+    total: float,
+) -> None:
+    """One eased band from a parent bar to a child bar, in axis units."""
+    steps = np.linspace(x_left, x_right, 16)
+    # Cosine easing: bands leave and arrive vertically, so a split reads as a
+    # fork rather than a diagonal crossing.
+    weight = (1 - np.cos(np.pi * (steps - steps[0]) / (steps[-1] - steps[0]))) / 2
+    lower = start + (child_start - start) * weight
+    upper = start + child_genes + (child_start + n_genes - start - child_genes) * weight
+    ax.fill_between(
+        steps,
+        lower / total,
+        upper / total,
+        color=cluster_color(child),
+        alpha=BAND_ALPHA,
+    )
 
-    for parent_k, child_k in zip(k_values, k_values[1:], strict=False):
+
+def _draw_genealogy_bands(
+    ax: Axes,
+    genealogy: pd.DataFrame,
+    k_values: Sequence[int],
+    bars: dict[tuple[int, int], tuple[float, float]],
+    order: dict[int, list[int]],
+    x_lookup: dict[int, int],
+    previous_rank: dict[int, int],
+    total: float,
+) -> None:
+    """Draw one band per parent->child link, stacked inside the bars they share."""
+    for parent_k, child_k in pairwise(k_values):
         links = genealogy[genealogy["k"] == parent_k]
         rank = {c: position for position, c in enumerate(order[child_k])}
         outgoing_cursor = {key: low for key, (low, _) in bars.items() if key[0] == parent_k}
         incoming_cursor = {key: low for key, (low, _) in bars.items() if key[0] == child_k}
         for parent in sorted(order[parent_k], key=lambda c: previous_rank.get(c, 0)):
-            children = (
-                links[links["cluster"] == parent]
-                .sort_values(by="child_cluster", key=lambda column: column.map(rank))
+            children = links[links["cluster"] == parent].sort_values(
+                by="child_cluster", key=lambda column: column.map(rank)
             )
             for _, row in children.iterrows():
                 child = int(row["child_cluster"])
                 start = outgoing_cursor[(parent_k, parent)]
                 child_start = incoming_cursor[(child_k, child)]
-                steps = np.linspace(x_lookup[parent_k], x_lookup[child_k], 16)
-                # Cosine easing: bands leave and arrive vertically, so a split
-                # reads as a fork rather than a diagonal crossing.
-                weight = (1 - np.cos(np.pi * (steps - steps[0]) / (steps[-1] - steps[0]))) / 2
-                ax.fill_between(
-                    steps,
-                    scale(start + (child_start - start) * weight),
-                    scale(start + float(row["child_genes"]) + (child_start + float(row["n_genes"]) - start - float(row["child_genes"])) * weight),
-                    color=cluster_color(child),
-                    alpha=BAND_ALPHA,
+                _draw_band(
+                    ax,
+                    x_left=x_lookup[parent_k],
+                    x_right=x_lookup[child_k],
+                    start=start,
+                    child_start=child_start,
+                    n_genes=float(row["n_genes"]),
+                    child_genes=float(row["child_genes"]),
+                    child=child,
+                    total=total,
                 )
                 outgoing_cursor[(parent_k, parent)] = start + float(row["child_genes"])
                 incoming_cursor[(child_k, child)] = child_start + float(row["n_genes"])
 
+
+def _draw_genealogy_bars(
+    ax: Axes,
+    bars: dict[tuple[int, int], tuple[float, float]],
+    x_lookup: dict[int, int],
+    total: float,
+) -> None:
+    """Draw each column's bars and number only those with room for a label."""
     for (k, cluster), (low, high) in bars.items():
         ax.add_patch(
             Rectangle(
-                (x_lookup[k] - BAR_HALF_WIDTH, scale(low)), 2 * BAR_HALF_WIDTH, scale(high - low),
+                (x_lookup[k] - BAR_HALF_WIDTH, low / total),
+                2 * BAR_HALF_WIDTH,
+                (high - low) / total,
                 facecolor=cluster_color(cluster),
-                edgecolor="none",
             )
         )
         # Only bars with room for a label get one; at k=15 most are slivers the
         # reader takes by position.
         if high - low > LABEL_MIN_SHARE * total:
-            ax.text(x_lookup[k], scale((low + high) / 2), str(cluster), ha="center", va="center")
+            ax.text(
+                x_lookup[k],
+                (low + high) / 2 / total,
+                str(cluster),
+                ha="center",
+                va="center",
+            )
+
+
+def render_genealogy_panel(
+    ax: Axes, genealogy: pd.DataFrame, *, k_values: Sequence[int], method: str
+) -> None:
+    """Render how one method's clusters split from k to k, as a stacked alluvial."""
+    # Each column is one k; a column's bars are that partition's clusters, sized
+    # by their share of the genes, coloured by the cluster they descend from at
+    # the smallest k. Reading it across, a bar that stays one band survived; a
+    # bar that fans into several is the extra k buying a refinement of it.
+    if genealogy.empty:
+        _render_empty_genealogy(ax, k_values, method)
+        return
+
+    # Cluster ids are only unique WITHIN a k, so every lookup is keyed by
+    # (k, cluster). Bars and bands take the CLUSTER's own id colour (the same
+    # per-id mapping as the scatter pages), so at one k each cluster reads in
+    # its own hue and a split visibly hands over to the children's colours.
+    x_lookup, order, previous_rank = _genealogy_order(genealogy, k_values)
+    bars = _genealogy_bars(genealogy, order, k_values)
+    total = max(high for _, high in bars.values())
+
+    _draw_genealogy_bands(ax, genealogy, k_values, bars, order, x_lookup, previous_rank, total)
+    _draw_genealogy_bars(ax, bars, x_lookup, total)
 
     ax.set(
-        xlabel="k", ylabel="Share of genes",
+        xlabel="k",
+        ylabel="Share of genes",
         title=f"Genealogy ({method})",
-        xticks=list(x_lookup.values()), xticklabels=[str(k) for k in x_lookup],
-        xlim=(-0.5, len(k_values) - 0.5), ylim=(0, 1.0),
+        xticks=list(x_lookup.values()),
+        xticklabels=[str(k) for k in x_lookup],
+        xlim=(-0.5, len(k_values) - 0.5),
+        ylim=(0, 1.0),
     )
     ax.invert_yaxis()  # the largest cluster at the top, where the eye starts

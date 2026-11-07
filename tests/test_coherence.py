@@ -8,14 +8,13 @@ API: geometric_median init/convergence, the median_pairwise_distance z-score
 sign, and its degenerate-input contract.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pytest
-
 from workflow.src.coherence.metrics import (
     coherence_metrics,
     compute_distance_stats,
@@ -57,12 +56,21 @@ def test_coherence_metrics_returns_geomedian_and_pairwise_distance_keys():
     """
     points = np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.866], [0.5, -0.866]])
     result = coherence_metrics(points)
-    for key in ("geom_median_DR", "geom_median_DL", "median_pairwise_distance",
-                "mean_pairwise_distance", "std_pairwise_distance",
-                "min_pairwise_distance", "max_pairwise_distance"):
+    for key in (
+        "geom_median_DR",
+        "geom_median_DL",
+        "median_pairwise_distance",
+        "mean_pairwise_distance",
+        "std_pairwise_distance",
+        "min_pairwise_distance",
+        "max_pairwise_distance",
+    ):
         assert key in result
-    assert (result["min_pairwise_distance"] <= result["median_pairwise_distance"]
-            <= result["max_pairwise_distance"])
+    assert (
+        result["min_pairwise_distance"]
+        <= result["median_pairwise_distance"]
+        <= result["max_pairwise_distance"]
+    )
 
 
 def test_permutation_statistics_reports_both_one_sided_tails():
@@ -72,13 +80,13 @@ def test_permutation_statistics_reports_both_one_sided_tails():
     tails, and both carry the add-one correction.
     """
     null = np.arange(1000, dtype=float)  # 0..999, no tie at 250.5
-    z, p_coherent, p_incoherent = permutation_statistics(250.5, null, 999)
-    assert p_coherent == pytest.approx(252 / 1000)   # 251 draws <= 250.5, plus 1
-    assert p_incoherent == pytest.approx(750 / 1000)   # 749 draws >= 250.5, plus 1
+    _, p_coherent, p_incoherent = permutation_statistics(250.5, null, 999)
+    assert p_coherent == pytest.approx(252 / 1000)  # 251 draws <= 250.5, plus 1
+    assert p_incoherent == pytest.approx(750 / 1000)  # 749 draws >= 250.5, plus 1
 
     _, p_coherent_tie, p_incoherent_tie = permutation_statistics(250.0, null, 999)
-    assert p_coherent_tie == pytest.approx(252 / 1000)   # 251 <= 250, plus 1
-    assert p_incoherent_tie == pytest.approx(751 / 1000)   # 750 >= 250, plus 1
+    assert p_coherent_tie == pytest.approx(252 / 1000)  # 251 <= 250, plus 1
+    assert p_incoherent_tie == pytest.approx(751 / 1000)  # 750 >= 250, plus 1
     assert p_coherent_tie + p_incoherent_tie > 1.0
 
 
@@ -93,15 +101,17 @@ def test_compute_distance_stats_agrees_with_the_two_tuple_wrapper():
     bg = rng.standard_normal((80, 2))
     X = bg[:9]
     stats = compute_distance_stats(
-        X, bg, ["median_pairwise_distance", "mean_pairwise_distance"],
-        n_permutations=100, random_state=42,
+        X,
+        bg,
+        ["median_pairwise_distance", "mean_pairwise_distance"],
+        n_permutations=100,
+        random_state=42,
     )
     for method, (z, p_coherent, p_incoherent) in stats.items():
-        z2, p2 = compute_distance_zscore(
-            X, bg, method=method, n_permutations=100, random_state=42
-        )
+        z2, p2 = compute_distance_zscore(X, bg, method=method, n_permutations=100, random_state=42)
         assert (z, p_coherent) == (z2, p2)
-        assert 0.0 < p_coherent <= 1.0 and 0.0 < p_incoherent <= 1.0
+        assert 0.0 < p_coherent <= 1.0
+        assert 0.0 < p_incoherent <= 1.0
 
 
 def test_compute_distance_zscores_matches_per_method_calls():
@@ -138,8 +148,11 @@ def test_compute_distance_zscores_deduplicates_repeated_methods():
     bg = rng.standard_normal((100, 2))
     X = bg[:5]
     merged = compute_distance_zscores(
-        X, bg, ["median_pairwise_distance", "median_pairwise_distance"],
-        n_permutations=50, random_state=42,
+        X,
+        bg,
+        ["median_pairwise_distance", "median_pairwise_distance"],
+        n_permutations=50,
+        random_state=42,
     )
     assert list(merged) == ["median_pairwise_distance"]
 
@@ -152,7 +165,8 @@ def test_compute_distance_zscore_returns_z_and_p_tuple():
     result = compute_distance_zscore(
         members, bg, method="median_pairwise_distance", n_permutations=100, random_state=42
     )
-    assert isinstance(result, tuple) and len(result) == 2
+    assert isinstance(result, tuple)
+    assert len(result) == 2
     z, p = result
     assert np.isfinite(z)
     assert 0.0 <= p <= 1.0

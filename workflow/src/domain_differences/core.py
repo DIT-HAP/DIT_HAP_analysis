@@ -63,8 +63,18 @@ IN_GENE_Q = 'Type == "Coding gene" and Distance_to_stop_codon > 4'
 # Release columns the stage carries through the pipeline. ``Coordinate`` is the
 # insertion site key (one site = one TTAA, reported once per direction).
 INSERTION_COLUMNS = [
-    "Systematic ID", "name", "gene_DR", "Chr", "Coordinate", "Strand",
-    "Insertion_direction", "Residue_affected", "Residue_frame", "frac", "DR", "DL",
+    "Systematic ID",
+    "name",
+    "gene_DR",
+    "Chr",
+    "Coordinate",
+    "Strand",
+    "Insertion_direction",
+    "Residue_affected",
+    "Residue_frame",
+    "frac",
+    "DR",
+    "DL",
 ]
 
 # The three sheets of the hand spreadsheet, in the order the plot groups them.
@@ -103,7 +113,10 @@ def read_insertions(fitting_results: Path, annotations: Path, gene_level: Path) 
     # reindex() and the join below both require a unique key; a duplicated
     # Coordinate/Strand/Target would silently fan out into a cross product.
     if not fitting.index.is_unique:
-        raise ValueError(f"insertion fitting_results has {int(fitting.index.duplicated().sum())} duplicate index rows")
+        raise ValueError(
+            f"insertion fitting_results has "
+            f"{int(fitting.index.duplicated().sum())} duplicate index rows"
+        )
 
     ann = pd.read_csv(annotations, sep="\t", index_col=[0, 1, 2, 3])
     ann = (
@@ -120,7 +133,9 @@ def read_insertions(fitting_results: Path, annotations: Path, gene_level: Path) 
     # stop codon; a zero-length span (both distances 0) stays NaN rather than
     # dividing by zero. Kept alongside Residue_affected because it is the column
     # the prototype's tables were built on.
-    in_gene["frac"] = (in_gene["Distance_to_start_codon"] / span.where(span != 0)).clip(lower=0, upper=1)
+    in_gene["frac"] = (in_gene["Distance_to_start_codon"] / span.where(span != 0)).clip(
+        lower=0, upper=1
+    )
 
     genes = read_gene_table(gene_level)
     out = in_gene.reset_index()
@@ -141,9 +156,11 @@ def read_gene_table(gene_level: Path) -> pd.DataFrame:
     applied silently.
     """
     g = read_gene_level(gene_level)
-    table = (g.assign(name=g["Name"].fillna(g["Systematic ID"]))
-             .set_index("Systematic ID")[["name", "DR"]]
-             .rename(columns={"DR": "gene_DR"}))
+    table = (
+        g.assign(name=g["Name"].fillna(g["Systematic ID"]))
+        .set_index("Systematic ID")[["name", "DR"]]
+        .rename(columns={"DR": "gene_DR"})
+    )
     return table[~table.index.duplicated(keep="last")]
 
 
@@ -151,7 +168,9 @@ def read_protein_lengths(peptide_stats: Path) -> dict[str, int]:
     """{Systematic ID: protein length in residues} from PomBase's peptide_stats.tsv."""
     p = pd.read_csv(peptide_stats, sep="\t")
     return {
-        sid: int(n) for sid, n in zip(p["Systematic_ID"], p["Residues"]) if pd.notna(n)
+        sid: int(n)
+        for sid, n in zip(p["Systematic_ID"], p["Residues"], strict=False)
+        if pd.notna(n)
     }
 
 
@@ -240,11 +259,15 @@ def segment_counts(frame: pd.DataFrame, segments: list[tuple[int, int]]) -> list
     runs = np.ones(len(coord), dtype=bool)
     if len(coord) > 1:
         runs[1:] = coord[1:] != coord[:-1]
-    per_row_insertions = frame["n_insertions"].to_numpy() if "n_insertions" in frame.columns else None
+    per_row_insertions = (
+        frame["n_insertions"].to_numpy() if "n_insertions" in frame.columns else None
+    )
     counts = []
     for lo, hi in segments:
         n_sites = int(runs[lo:hi].sum())
-        n_insertions = int(per_row_insertions[lo:hi].sum()) if per_row_insertions is not None else hi - lo
+        n_insertions = (
+            int(per_row_insertions[lo:hi].sum()) if per_row_insertions is not None else hi - lo
+        )
         counts.append((n_insertions, n_sites))
     return counts
 
@@ -258,9 +281,7 @@ def gene_name_to_sid(gene_level: Path) -> dict[str, str]:
     return {str(n).lower(): s for s, n in genes["name"].items()}
 
 
-def read_hand_regions(
-    xlsx: Path, peptide_stats: Path, name_to_sid: dict[str, str]
-) -> pd.DataFrame:
+def read_hand_regions(xlsx: Path, peptide_stats: Path, name_to_sid: dict[str, str]) -> pd.DataFrame:
     """The hand annotation as explicit per-gene residue intervals.
 
     A row of the spreadsheet says "the last X residues of this protein are not
@@ -290,17 +311,25 @@ def read_hand_regions(
             bp_check = ""
             if pd.notna(c_res) and pd.notna(length) and pd.notna(dist_stop):
                 implied = (length - int(c_res) + 1) * 3
-                bp_check = ("ok" if abs(implied - dist_stop) <= 3
-                            else f"off({implied:g} vs {dist_stop:g})")
-            rows.append({
-                "Gene": gene, "sid": sid, "term": term, "protein_len": length,
-                "regions": "|".join(f"{a}-{b}" for a, b in regions),
-                "n_regions": len(regions),
-                "affected_N": n_res, "affected_C": c_res,
-                "dist_start_bp": r.get("Distance to start codon (bp)"),
-                "dist_stop_bp": dist_stop, "comment": comment,
-                "bp_check": bp_check,
-            })
+                bp_check = (
+                    "ok" if abs(implied - dist_stop) <= 3 else f"off({implied:g} vs {dist_stop:g})"
+                )
+            rows.append(
+                {
+                    "Gene": gene,
+                    "sid": sid,
+                    "term": term,
+                    "protein_len": length,
+                    "regions": "|".join(f"{a}-{b}" for a, b in regions),
+                    "n_regions": len(regions),
+                    "affected_N": n_res,
+                    "affected_C": c_res,
+                    "dist_start_bp": r.get("Distance to start codon (bp)"),
+                    "dist_stop_bp": dist_stop,
+                    "comment": comment,
+                    "bp_check": bp_check,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -312,7 +341,7 @@ def hand_terms(hand: pd.DataFrame) -> dict[str, str]:
     would keep the last.
     """
     usable = hand[hand["sid"].notna() & hand["n_regions"].gt(0)]
-    return dict(zip(usable["sid"], usable["term"]))
+    return dict(zip(usable["sid"], usable["term"], strict=False))
 
 
 def hand_region_map(hand: pd.DataFrame) -> dict[str, list[tuple[int, int]]]:

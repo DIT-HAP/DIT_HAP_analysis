@@ -49,16 +49,16 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+
+# 3. Third-party Imports
+from loguru import logger
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
-
-# 3. Third-party Imports
-from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -106,7 +106,7 @@ def run(config: PermutationConfig) -> int:
         # the index ranges are positional into the profile this rule rebuilds with
         # the same by_site flag; a length mismatch means the two rules disagree
         drs = profiles[sid]["DR"].to_numpy(dtype=float)
-        segments = [(int(lo), int(hi)) for lo, hi in zip(group["lo"], group["hi"])]
+        segments = [(int(lo), int(hi)) for lo, hi in zip(group["lo"], group["hi"], strict=False)]
         if segments[-1][1] != len(drs):
             raise ValueError(
                 f"{sid}: segment ranges end at {segments[-1][1]} but the profile has "
@@ -116,17 +116,30 @@ def run(config: PermutationConfig) -> int:
             drs, segments, n_perm=config.n_permutations, rng=rng, min_seg=config.min_seg
         )
         for k, p in enumerate(per_segment):
-            rows.append({"Systematic ID": sid, "segment": k + 1,
-                         "perm_p_seg": round(p, 4), "perm_p_gene": round(gene_p, 4)})
+            rows.append(
+                {
+                    "Systematic ID": sid,
+                    "segment": k + 1,
+                    "perm_p_seg": round(p, 4),
+                    "perm_p_gene": round(gene_p, 4),
+                }
+            )
 
     table = pd.DataFrame(rows, columns=PERMUTATION_COLUMNS)
     table.to_csv(config.output, index=False, sep="\t")
 
     resolution = 1 / (config.n_permutations + 1)
-    logger.info(f"{len(table):,} segments over {table['Systematic ID'].nunique():,} genes "
-                f"({config.n_permutations:,} permutations each, floor {resolution:.4f})")
-    logger.info(f"perm_p_seg  <= 0.05: {100 * table['perm_p_seg'].le(0.05).mean():.0f}%  (anti-conservative)")
-    logger.info(f"perm_p_gene <= 0.05: {100 * table['perm_p_gene'].le(0.05).mean():.0f}%  (calibrated)")
+    logger.info(
+        f"{len(table):,} segments over {table['Systematic ID'].nunique():,} genes "
+        f"({config.n_permutations:,} permutations each, floor {resolution:.4f})"
+    )
+    logger.info(
+        f"perm_p_seg  <= 0.05: {100 * table['perm_p_seg'].le(0.05).mean():.0f}%  "
+        f"(anti-conservative)"
+    )
+    logger.info(
+        f"perm_p_gene <= 0.05: {100 * table['perm_p_gene'].le(0.05).mean():.0f}%  (calibrated)"
+    )
     logger.info(f"wrote {config.output}")
     return 0
 
@@ -141,10 +154,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--segments", type=Path, required=True, help="Input segments.parquet")
     parser.add_argument("--n-permutations", type=int, required=True, help="Shuffles per p-value")
     parser.add_argument("--min-seg", type=int, required=True, help="Minimum points per segment")
-    parser.add_argument("--by-site", action=argparse.BooleanOptionalAction, default=True,
-                        help="Must match the flag the segmentation rule used")
+    parser.add_argument(
+        "--by-site",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Must match the flag the segmentation rule used",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output permutation TSV")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -152,14 +171,19 @@ def main() -> int:
     """Main orchestrator: build config, run the permutations, report results."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
+    if args.n_permutations < 1:
+        logger.error(f"Error: --n-permutations must be at least 1, got {args.n_permutations}")
+        return 1
+
     try:
         config = PermutationConfig(
-            insertions=args.insertions.resolve(), segments=args.segments.resolve(),
-            n_permutations=args.n_permutations, min_seg=args.min_seg, by_site=args.by_site,
+            insertions=args.insertions.resolve(),
+            segments=args.segments.resolve(),
+            n_permutations=args.n_permutations,
+            min_seg=args.min_seg,
+            by_site=args.by_site,
             output=args.output.resolve(),
         )
-        if config.n_permutations < 1:
-            raise ValueError(f"--n-permutations must be at least 1, got {config.n_permutations}")
         config.output.parent.mkdir(parents=True, exist_ok=True)
         run(config)
     except (ValueError, FileNotFoundError) as e:

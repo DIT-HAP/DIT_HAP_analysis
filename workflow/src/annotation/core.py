@@ -38,7 +38,11 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
+from collections.abc import Callable
 from pathlib import Path
+
+# 3. Third-party Imports
+from loguru import logger
 
 # 2. Data Processing Imports
 import pandas as pd
@@ -46,9 +50,6 @@ import pandas as pd
 # 4. Local Imports
 from data_config import load_dataset_config
 from io_table import read_file, read_parquet
-
-# 3. Third-party Imports
-from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -65,7 +66,14 @@ VALID_GENE_TYPES = {
     "snoRNA": ["snoRNA gene"],
     "sncRNA": ["sncRNA gene"],
     "snRNA": ["snRNA gene"],
-    "noncoding": ["lncRNA gene", "tRNA gene", "rRNA gene", "snoRNA gene", "sncRNA gene", "snRNA gene"],
+    "noncoding": [
+        "lncRNA gene",
+        "tRNA gene",
+        "rRNA gene",
+        "snoRNA gene",
+        "sncRNA gene",
+        "snRNA gene",
+    ],
 }
 
 # PomBase's sentinel for "this gene has no ortholog in the target species".
@@ -89,9 +97,20 @@ _CONFLICTING = "conflicting"
 # 13-field row plus a short continuation). Names are supplied positionally and extra
 # fields are tolerated so a handful of malformed rows cannot abort the whole read.
 _SGD_PHENOTYPE_COLUMNS = [
-    "feature_name", "feature_type", "gene_name", "sgdid", "reference",
-    "experiment_type", "mutant_type", "allele", "strain_background", "phenotype",
-    "chemical", "condition", "details", "reporter",
+    "feature_name",
+    "feature_type",
+    "gene_name",
+    "sgdid",
+    "reference",
+    "experiment_type",
+    "mutant_type",
+    "allele",
+    "strain_background",
+    "phenotype",
+    "chemical",
+    "condition",
+    "details",
+    "reporter",
 ]
 
 # goatools namespace -> annotation column. GO slim (not full GO) because a gene
@@ -131,9 +150,21 @@ _SGD_ORF_TYPE = "ORF"
 
 # SGD_features.tab is also headerless, but uniformly 16 fields.
 _SGD_FEATURE_COLUMNS = [
-    "sgdid", "feature_type", "qualifier", "systematic_name", "standard_name",
-    "alias", "parent_feature", "secondary_sgdid", "chromosome", "start", "stop",
-    "strand", "genetic_position", "coordinate_version", "sequence_version",
+    "sgdid",
+    "feature_type",
+    "qualifier",
+    "systematic_name",
+    "standard_name",
+    "alias",
+    "parent_feature",
+    "secondary_sgdid",
+    "chromosome",
+    "start",
+    "stop",
+    "strand",
+    "genetic_position",
+    "coordinate_version",
+    "sequence_version",
     "description",
 ]
 
@@ -199,7 +230,8 @@ def read_ortholog_file(ortholog_file: Path) -> pd.DataFrame:
 
 
 def read_sgd_phenotype_data(phenotype_file: Path) -> pd.DataFrame:
-    """Read SGD's headerless, ragged phenotype_data.tab, padding/truncating rows to the 14 known fields."""
+    """Read SGD's headerless, ragged phenotype_data.tab, padding/truncating rows to the 14 known
+    fields."""
     width = len(_SGD_PHENOTYPE_COLUMNS)
     rows = [
         (line.split("\t") + [None] * width)[:width]
@@ -210,7 +242,8 @@ def read_sgd_phenotype_data(phenotype_file: Path) -> pd.DataFrame:
 
 
 def build_sc_essentiality(phenotype_data: pd.DataFrame) -> pd.DataFrame:
-    """Derive per-gene null-mutant essentiality plus a per-label evidence count from SGD phenotypes."""
+    """Derive per-gene null-mutant essentiality plus a per-label evidence count from SGD
+    phenotypes."""
     viability = phenotype_data.loc[
         (phenotype_data["mutant_type"] == _NULL_MUTANT)
         & (phenotype_data["phenotype"].isin(_VIABILITY_PHENOTYPES)),
@@ -219,8 +252,8 @@ def build_sc_essentiality(phenotype_data: pd.DataFrame) -> pd.DataFrame:
     if viability.empty:
         return pd.DataFrame(columns=["essentiality", "essentiality_evidence"])
 
-    counts = (
-        viability.groupby(["feature_name", "phenotype"]).size().unstack(fill_value=0)
+    counts = viability.pivot_table(
+        index="feature_name", columns="phenotype", aggfunc="size", fill_value=0
     )
     for phenotype in _VIABILITY_PHENOTYPES:
         if phenotype not in counts.columns:
@@ -260,9 +293,12 @@ def build_sc_ortholog_block(
     sc_gene_info: pd.DataFrame,
     sc_essentiality: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Assemble per-ortholog S. cerevisiae id/name/essentiality/description columns, positionally aligned."""
+    """Assemble per-ortholog S. cerevisiae id/name/essentiality/description columns, positionally
+    aligned."""
     records = {}
-    for pombe_id, field in zip(orthologs["gene_systematic_id"], orthologs["orthologs"]):
+    for pombe_id, field in zip(
+        orthologs["gene_systematic_id"], orthologs["orthologs"], strict=False
+    ):
         groups = parse_ortholog_field(field)
         records[pombe_id] = {
             "Sc_ortholog_id": _INDEPENDENT_SEP.join(groups),
@@ -280,7 +316,9 @@ def build_sc_ortholog_block(
 def build_hs_ortholog_block(orthologs: pd.DataFrame) -> pd.DataFrame:
     """Assemble human ortholog symbols and count straight from PomBase's curated symbols."""
     records = {}
-    for pombe_id, field in zip(orthologs["gene_systematic_id"], orthologs["orthologs"]):
+    for pombe_id, field in zip(
+        orthologs["gene_systematic_id"], orthologs["orthologs"], strict=False
+    ):
         groups = parse_ortholog_field(field)
         records[pombe_id] = {
             "Hs_ortholog_symbol": _INDEPENDENT_SEP.join(groups),
@@ -292,10 +330,15 @@ def build_hs_ortholog_block(orthologs: pd.DataFrame) -> pd.DataFrame:
     return block
 
 
-def _join_per_group(groups: list[str], lookup_table: pd.DataFrame, lookup) -> str:
-    """Map each ortholog group through `lookup` and pipe-join, keeping fusion fragments in one group."""
+def _join_per_group(
+    groups: list[str], lookup_table: pd.DataFrame, lookup: Callable[[str, pd.DataFrame], str]
+) -> str:
+    """Map each ortholog group through `lookup` and pipe-join, keeping fusion fragments in one
+    group."""
     return _INDEPENDENT_SEP.join(
-        _FRAGMENT_SEP.join(lookup(fragment, lookup_table) for fragment in group.split(_FRAGMENT_SEP))
+        _FRAGMENT_SEP.join(
+            lookup(fragment, lookup_table) for fragment in group.split(_FRAGMENT_SEP)
+        )
         for group in groups
     )
 
@@ -347,7 +390,9 @@ def _build_block(
     if required and missing:
         raise ValueError(f"Source table is missing required column(s): {missing}")
 
-    available = {source: target for source, target in columns_map.items() if source in table.columns}
+    available = {
+        source: target for source, target in columns_map.items() if source in table.columns
+    }
     return table[list(available)].rename(columns=available).set_index("systematic_id")
 
 
@@ -359,16 +404,19 @@ def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.D
     characterisation_status, taxonomic_distribution, deletion_viability (renamed to FYPOviability).
     """
     logger.info("Reading PomBase gene metadata from parquet")
-    block = _build_block(read_parquet(gene_ids_parquet), {
-        "systematic_id": "systematic_id",
-        "name": "gene_name",
-        "gene_product": "gene_product",
-        "product": "product",
-        "feature_type": "feature_type",
-        "characterisation_status": "characterisation_status",
-        "taxonomic_distribution": "taxonomic_distribution",
-        "deletion_viability": "FYPOviability",
-    })
+    block = _build_block(
+        read_parquet(gene_ids_parquet),
+        {
+            "systematic_id": "systematic_id",
+            "name": "gene_name",
+            "gene_product": "gene_product",
+            "product": "product",
+            "feature_type": "feature_type",
+            "characterisation_status": "characterisation_status",
+            "taxonomic_distribution": "taxonomic_distribution",
+            "deletion_viability": "FYPOviability",
+        },
+    )
 
     # Apply gene type filter
     feature_types = VALID_GENE_TYPES.get(gene_type)
@@ -393,12 +441,15 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
     Category, Sub_category.
     """
     logger.info("Reading deletion library categories")
-    block = _build_block(read_file(deletion_library_xlsx), {
-        "Systematic ID": "systematic_id",
-        "Gene dispensability. This study": "deletion_essentiality",
-        "Category": "Category",
-        "Sub_category": "Sub_category",
-    })
+    block = _build_block(
+        read_file(deletion_library_xlsx),
+        {
+            "Systematic ID": "systematic_id",
+            "Gene dispensability. This study": "deletion_essentiality",
+            "Category": "Category",
+            "Sub_category": "Sub_category",
+        },
+    )
 
     if "deletion_essentiality" in block.columns:
         block["deletion_essentiality"] = block["deletion_essentiality"].fillna("Not_determined")
@@ -409,7 +460,8 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
 
 @logger.catch(reraise=True)
 def build_verification_block(verification_csv: Path) -> pd.DataFrame:
-    """Build block 2b: Essentiality verification phenotype (systematic_id, verification_phenotype)."""
+    """Build block 2b: Essentiality verification phenotype (systematic_id,
+    verification_phenotype)."""
     logger.info("Reading essentiality verification data")
     block = _build_block(
         read_file(verification_csv),
@@ -477,8 +529,8 @@ def report_gene_status_summary(reference: pd.DataFrame, filter_type: str) -> Non
     if filter_type != "all":
         not_in_pombase = (reference["gene_status"] == "not_in_pombase").sum()
         wrong_type = (
-            (reference["gene_status"] != "not_in_pombase") &
-            (reference["gene_status"] != filter_type)
+            (reference["gene_status"] != "not_in_pombase")
+            & (reference["gene_status"] != filter_type)
         ).sum()
 
         if not_in_pombase > 0:
@@ -503,7 +555,8 @@ def build_go_slim_block(
     ns2slim_assoc: dict[str, dict[str, set[str]]],
     slim_term_names: dict[str, str],
 ) -> pd.DataFrame:
-    """Turn goatools' namespace->gene->slim-term-ids mapping into one readable column per namespace."""
+    """Turn goatools' namespace->gene->slim-term-ids mapping into one readable column per
+    namespace."""
     columns = {}
     for namespace, column in _GO_SLIM_NAMESPACES.items():
         gene2terms = ns2slim_assoc.get(namespace, {})
@@ -519,9 +572,7 @@ def build_go_slim_block(
     return block
 
 
-def _collapse_unique(
-    table: pd.DataFrame, *, key: str, value: str, column: str
-) -> pd.DataFrame:
+def _collapse_unique(table: pd.DataFrame, *, key: str, value: str, column: str) -> pd.DataFrame:
     """Group by `key` and pipe-join unique `value`s in first-seen order."""
     collapsed = (
         table.groupby(key)[value]
@@ -561,7 +612,8 @@ def build_grna_block(grna_parameters: pd.DataFrame) -> pd.DataFrame:
     if genes.duplicated().any():
         duplicates = genes[genes.duplicated()].unique().tolist()
         raise ValueError(
-            f"gRNA parameter table has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+            f"gRNA parameter table has duplicate gene ids, which would fan out rows: "
+            f"{duplicates[:10]}"
         )
 
     block = grna_parameters.set_index(_GRNA_GENE_COLUMN)[list(available)].rename(columns=available)
@@ -596,7 +648,8 @@ def assemble_annotation_reference_split(
         if block.index.has_duplicates:
             duplicates = block.index[block.index.duplicated()].unique().tolist()
             raise ValueError(
-                f"Experimental block has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+                f"Experimental block has duplicate gene ids, which would fan out rows: "
+                f"{duplicates[:10]}"
             )
         reference = reference.join(block, how="outer")
 
@@ -605,7 +658,8 @@ def assemble_annotation_reference_split(
         if block.index.has_duplicates:
             duplicates = block.index[block.index.duplicated()].unique().tolist()
             raise ValueError(
-                f"Annotation block has duplicate gene ids, which would fan out rows: {duplicates[:10]}"
+                f"Annotation block has duplicate gene ids, which would fan out rows: "
+                f"{duplicates[:10]}"
             )
         reference = reference.join(block, how="left")
 
@@ -659,7 +713,8 @@ def annotate_table(
 
 
 def _require_gene_column(table: pd.DataFrame, gene_column: str) -> None:
-    """Raise a KeyError naming the available columns, rather than letting pandas raise a bare one."""
+    """Raise a KeyError naming the available columns, rather than letting pandas raise a bare
+    one."""
     if gene_column not in table.columns:
         raise KeyError(
             f"Gene column {gene_column!r} not found in the input table. "

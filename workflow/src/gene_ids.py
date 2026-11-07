@@ -21,8 +21,8 @@ Output
 
 Usage
 -----
-    from gene_ids import update_sysIDs
-    resolved = update_sysIDs(["cdc2", "SPBC11B10.09"], gene_meta_file)
+    from gene_ids import update_sys_ids
+    resolved = update_sys_ids(["cdc2", "SPBC11B10.09"], gene_meta_file)
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
 Date:     2026-07-15
@@ -35,18 +35,57 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from pathlib import Path
 
+# 3. Local Imports
+from loguru import logger
+
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
-# 3. Local Imports
 from io_table import read_file
 
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def update_sysIDs(
+def _normalize_gene_id(gene: str) -> str:
+    """Strip whitespace and normalize a dotted transcript ID to GENE.transcript case."""
+    gene = gene.strip()
+    if "." in gene:
+        gene = gene.split(".")[0].upper() + "." + gene.split(".")[1].lower()
+    return gene
+
+
+def _apply_lookup(gene: str | float, lookup: pd.DataFrame) -> str | float:
+    """Keep a unique match; an ambiguous index hit logs a warning and yields NaN."""
+    updated = lookup.loc[gene, "gene_systematic_id"]
+    if isinstance(updated, str):
+        logger.debug(f"{gene} is updated to {updated}")
+        return updated
+    logger.warning(f"{gene} has multiple updates: {updated}")
+    return np.nan
+
+
+def _resolve_gene_id(
+    gene: str | float,
+    sys_ids_now: list[str],
+    names2ID: pd.DataFrame,
+    synonyms2ID: pd.DataFrame,
+) -> str | float:
+    """Resolve one identifier: NA -> current ID -> gene name -> synonym -> unchanged."""
+    if pd.isna(gene):
+        logger.debug(f"{gene} is NA")
+        return gene
+    if gene in sys_ids_now:
+        return gene
+    for lookup in (names2ID, synonyms2ID):
+        if gene in lookup.index:
+            return _apply_lookup(gene, lookup)
+    logger.debug(f"{gene} is not found in geneid2symbol or synonyms2ID")
+    return gene
+
+
+def update_sys_ids(
     genes: list[str],
     gene_meta_file: Path,
     gene_filter: str = "gene_type == 'protein coding gene'",
@@ -76,31 +115,6 @@ def update_sysIDs(
     updated_sysIDs = []
     for gene in genes:
         if isinstance(gene, str):
-            gene = gene.strip()
-            if "." in gene:
-                gene = gene.split(".")[0].upper() + "." + gene.split(".")[1].lower()
-        if pd.isna(gene):
-            updated_sysIDs.append(gene)
-            print(f"{gene} is NA")
-        elif gene in sysIDs_now:
-            updated_sysIDs.append(gene)
-        elif gene in names2ID.index:
-            updated = names2ID.loc[gene, "gene_systematic_id"]
-            if isinstance(updated, str):
-                updated_sysIDs.append(updated)
-                print(f"{gene} is updated to {updated}")
-            else:
-                updated_sysIDs.append(np.nan)
-                print(f"{gene} has multiple updates:", updated)
-        elif gene in synonyms2ID.index:
-            updated = synonyms2ID.loc[gene, "gene_systematic_id"]
-            if isinstance(updated, str):
-                updated_sysIDs.append(updated)
-                print(f"{gene} is updated to {updated}")
-            else:
-                updated_sysIDs.append(np.nan)
-                print(f"{gene} has multiple updates:", updated)
-        else:
-            updated_sysIDs.append(gene)
-            print(f"{gene} is not found in geneid2symbol or synonyms2ID")
+            gene = _normalize_gene_id(gene)
+        updated_sysIDs.append(_resolve_gene_id(gene, sysIDs_now, names2ID, synonyms2ID))
     return updated_sysIDs

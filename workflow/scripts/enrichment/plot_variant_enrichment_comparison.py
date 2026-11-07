@@ -54,15 +54,15 @@ SRC_DIR = SCRIPT_DIR.parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from enrichment.plotting import (  # noqa: E402
+from enrichment.plotting import (
     plot_variant_counts,
     plot_variant_heatmap,
     significant_term_counts,
     term_display_names,
     variant_heatmap_matrix,
 )
-from enrichment.schema import ENRICHMENT_COLUMNS  # noqa: E402
-from logging_setup import setup_logger  # noqa: E402
+from enrichment.schema import ENRICHMENT_COLUMNS
+from logging_setup import setup_logger
 
 # =============================================================================
 # 2. CONSTANTS

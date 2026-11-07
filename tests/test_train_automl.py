@@ -1,22 +1,19 @@
 """Tests for the split ML pipeline: src.ml.data spine + train_automl driver (no mljar training)."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
 import pytest
-
 from workflow.scripts.ml.prepare_ml_data import PrepareConfig
 from workflow.scripts.ml.train_automl import (
     FEATURE_COLUMNS,
     AutoMLConfig,
     aggregate_feature_importance,
     evaluate,
-)
-from workflow.scripts.ml.train_automl import (
     load_modeling_data as load_modeling_data_pickle,
 )
 from workflow.src.io_table import write_parquet
@@ -75,7 +72,13 @@ def test_src_load_modeling_data_filters_dr_and_maps_cluster(tmp_path):
     feat = pd.DataFrame({"gene_systematic_id": ["SPAC1", "SPAC2", "SPAC3"], "GC3": [0.1, 0.2, 0.3]})
     feat.to_csv(tmp_path / "f.tsv", sep="\t", index=False)
     clusters = pd.DataFrame(
-        {"Systematic ID": ["SPAC1", "SPAC2", "SPAC3"], "A": [1.0, 2.0, 3.0], "DR": [0.5, 0.1, 0.9], "DL": [3.0, 4.0, 5.0], "cluster": [1, 9, 2]}
+        {
+            "Systematic ID": ["SPAC1", "SPAC2", "SPAC3"],
+            "A": [1.0, 2.0, 3.0],
+            "DR": [0.5, 0.1, 0.9],
+            "DL": [3.0, 4.0, 5.0],
+            "cluster": [1, 9, 2],
+        }
     )
     clusters.to_csv(tmp_path / "c.tsv", sep="\t", index=False)
 
@@ -110,8 +113,12 @@ def test_aggregate_feature_importance_means_across_files(tmp_path):
     out = tmp_path / "out"
     (out / "3_Linear").mkdir(parents=True)
     (out / "6_RandomForest").mkdir(parents=True)
-    pd.DataFrame({"feature": ["f1", "f2"], "importance": [0.8, 0.2]}).set_index("feature").to_csv(out / "3_Linear" / "learner_fold_0_importance.csv")
-    pd.DataFrame({"feature": ["f1", "f2"], "importance": [0.6, 0.4]}).set_index("feature").to_csv(out / "6_RandomForest" / "learner_fold_0_importance.csv")
+    pd.DataFrame({"feature": ["f1", "f2"], "importance": [0.8, 0.2]}).set_index("feature").to_csv(
+        out / "3_Linear" / "learner_fold_0_importance.csv"
+    )
+    pd.DataFrame({"feature": ["f1", "f2"], "importance": [0.6, 0.4]}).set_index("feature").to_csv(
+        out / "6_RandomForest" / "learner_fold_0_importance.csv"
+    )
 
     result = aggregate_feature_importance(out)
     assert list(result.columns) == ["feature", "importance"]

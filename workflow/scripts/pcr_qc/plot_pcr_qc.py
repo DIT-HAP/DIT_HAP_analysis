@@ -46,9 +46,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -76,6 +76,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True)
 class PlotPCRQCConfig:
     """Resolved parquet input / PDF output paths for the 2x2 PCR QC figure."""
+
     pbl_pbr: Path
     tech: Path
     bio: Path
@@ -171,11 +172,25 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Build the 2x2 PCR / library-prep QC figure")
     parser.add_argument("--pbl-pbr", type=Path, required=True, help="Panel (a): pbl_pbr.parquet")
-    parser.add_argument("--tech", type=Path, required=True, help="Panel (b): tech.parquet (merged technical replicate pair)")
-    parser.add_argument("--bio", type=Path, required=True, help="Panel (c): bio.parquet (merged biological replicate pair)")
-    parser.add_argument("--spikein", type=Path, required=True, help="Panel (d): spike_in_stats.parquet")
+    parser.add_argument(
+        "--tech",
+        type=Path,
+        required=True,
+        help="Panel (b): tech.parquet (merged technical replicate pair)",
+    )
+    parser.add_argument(
+        "--bio",
+        type=Path,
+        required=True,
+        help="Panel (c): bio.parquet (merged biological replicate pair)",
+    )
+    parser.add_argument(
+        "--spikein", type=Path, required=True, help="Panel (d): spike_in_stats.parquet"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output figure PDF")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

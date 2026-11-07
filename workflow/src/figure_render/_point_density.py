@@ -22,8 +22,8 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import numpy as np
 from loguru import logger
+import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 from scipy.stats import gaussian_kde
 
@@ -81,7 +81,8 @@ def _grid_interpolated_density(
     grid_size: int,
     seed: int,
 ) -> np.ndarray:
-    """Evaluate a subsampled KDE once on a regular grid, then bilinearly interpolate to every point."""
+    """Evaluate a subsampled KDE once on a regular grid, then bilinearly interpolate to every
+    point."""
     kernel = _kde_on_subsample(xf, yf, subsample_n=subsample_n, seed=seed)
 
     x_edges = np.linspace(xf.min(), xf.max(), grid_size)

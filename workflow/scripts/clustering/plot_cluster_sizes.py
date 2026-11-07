@@ -40,16 +40,16 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
-import pandas as pd
+mpl.use("Agg")
 from loguru import logger
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -72,15 +72,19 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class GenealogyConfig:
     """Label table in; one alluvial panel per method out."""
+
     labels: Path
     output: Path
     col_num: int = 3
 
     def validate(self) -> None:
-        """Raise ValueError if the label table is missing or malformed, then ensure the output dir exists."""
+        """Raise ValueError if the label table is missing or malformed, then ensure the output dir
+        exists."""
         if not self.labels.exists():
             raise ValueError(f"Required input not found: {self.labels}")
-        schema = pd.read_parquet(self.labels, columns=["method", "k", "cluster"]).pipe(lambda frame: frame.head(0))
+        schema = pd.read_parquet(self.labels, columns=["method", "k", "cluster"]).pipe(
+            lambda frame: frame.head(0)
+        )
         missing = [name for name in ("method", "k", "cluster") if name not in schema.columns]
         if missing:
             raise ValueError(f"Label table lacks columns: {missing}")
@@ -104,16 +108,19 @@ def run(config: GenealogyConfig) -> None:
     row_num = -(-len(methods) // col_num)
     axes = grid_axes(row_num, col_num, labels=panel_labels(len(methods)), shape=PanelShape.WIDE)
 
-    for method, ax in zip(methods, axes):
+    for method, ax in zip(methods, axes, strict=False):
         genealogy = cluster_genealogy(labels[labels["method"] == method], k_values)
         render_genealogy_panel(ax, genealogy, k_values=k_values, method=method)
 
-    for ax in axes[len(methods):]:  # hide the unused grid cells
+    for ax in axes[len(methods) :]:  # hide the unused grid cells
         ax.set_visible(False)
 
     fit_panels()
     save_dual(config.output.with_suffix(""))
-    logger.success(f"cluster genealogy -> {config.output} ({len(methods)} method panels, k={k_values[0]}..{k_values[-1]})")
+    logger.success(
+        f"cluster genealogy -> {config.output} ({len(methods)} method panels, "
+        f"k={k_values[0]}..{k_values[-1]})"
+    )
 
 
 # =============================================================================
@@ -122,10 +129,17 @@ def run(config: GenealogyConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Render per-method cluster genealogy alluvials")
-    parser.add_argument("--labels", type=Path, required=True, help="grid_labels.parquet from compute_clustering_grid")
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        required=True,
+        help="grid_labels.parquet from compute_clustering_grid",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output cluster_genealogy.pdf")
     parser.add_argument("--col-num", type=int, default=3, help="Panel columns (default 3)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

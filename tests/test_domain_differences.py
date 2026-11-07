@@ -12,15 +12,14 @@ The two failures worth remembering are both in core.py: a count that sliced by
 label instead of position, and a region string that packs two intervals.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
 import pytest
-
 from workflow.src.domain_differences.core import (
     IN_GENE_Q,
     collapse_sites,
@@ -43,14 +42,37 @@ from workflow.src.domain_differences.segmentation import (
 # fixture builders — the release tables' key columns, in their real order
 # ---------------------------------------------------------------------------
 _ANN_COLUMNS = [
-    "Chr", "Coordinate", "Strand", "Target", "Chr_Interval", "Start_Interval",
-    "End_Interval", "Transcript", "Length", "Strand_Interval", "Feature",
-    "Systematic ID", "Type", "Accumulated_CDS_bases", "Name", "FYPOviability",
-    "DeletionLibrary_essentiality", "ParentalRegion_start", "ParentalRegion_end",
-    "ParentalRegion_length", "Distance_to_region_start", "Distance_to_region_end",
-    "Fraction_to_region_start", "Fraction_to_region_end", "Distance_to_start_codon",
-    "Distance_to_stop_codon", "Fraction_to_start_codon", "Fraction_to_stop_codon",
-    "Residue_affected", "Residue_frame", "Insertion_direction",
+    "Chr",
+    "Coordinate",
+    "Strand",
+    "Target",
+    "Chr_Interval",
+    "Start_Interval",
+    "End_Interval",
+    "Transcript",
+    "Length",
+    "Strand_Interval",
+    "Feature",
+    "Systematic ID",
+    "Type",
+    "Accumulated_CDS_bases",
+    "Name",
+    "FYPOviability",
+    "DeletionLibrary_essentiality",
+    "ParentalRegion_start",
+    "ParentalRegion_end",
+    "ParentalRegion_length",
+    "Distance_to_region_start",
+    "Distance_to_region_end",
+    "Fraction_to_region_start",
+    "Fraction_to_region_end",
+    "Distance_to_start_codon",
+    "Distance_to_stop_codon",
+    "Fraction_to_start_codon",
+    "Fraction_to_stop_codon",
+    "Residue_affected",
+    "Residue_frame",
+    "Insertion_direction",
 ]
 _FIT_COLUMNS = ["Chr", "Coordinate", "Strand", "Target", "A", "DR", "DL"]
 
@@ -61,34 +83,51 @@ def _write_release(tmp_path: Path, annotations: list[dict], fitting: list[dict])
     """Write the two release tables the stage reads and return their paths."""
     ann_path = tmp_path / "annotations.tsv.gz"
     pd.DataFrame(annotations, columns=_ANN_COLUMNS).to_csv(
-        ann_path, sep="\t", index=False, compression="gzip")
+        ann_path, sep="\t", index=False, compression="gzip"
+    )
     fit_path = tmp_path / "fitting_results.tsv"
     pd.DataFrame(fitting, columns=_FIT_COLUMNS).to_csv(fit_path, sep="\t", index=False)
     genes_path = tmp_path / "gene_level.tsv"
     sids = sorted({a["Systematic ID"] for a in annotations if isinstance(a["Systematic ID"], str)})
-    pd.DataFrame({"Systematic ID": sids, "Name": ["named_gene"] * len(sids),
-                  "DR": [-0.75] * len(sids)}).to_csv(genes_path, sep="\t", index=False)
+    pd.DataFrame(
+        {"Systematic ID": sids, "Name": ["named_gene"] * len(sids), "DR": [-0.75] * len(sids)}
+    ).to_csv(genes_path, sep="\t", index=False)
     return fit_path, ann_path, genes_path
 
 
-def _ann(chr_, coord, strand, target, type_, stop, start, sid, residue, direction,
-         feature="CDS"):
+def _ann(chr_, coord, strand, target, type_, stop, start, sid, residue, direction, feature="CDS"):
     """One annotation row with every column the stage reads; the rest are blanks."""
     row = dict.fromkeys(_ANN_COLUMNS, np.nan)
-    row.update({
-        "Chr": chr_, "Coordinate": coord, "Strand": strand, "Target": target,
-        "Feature": feature, "Systematic ID": sid, "Type": type_,
-        "Distance_to_start_codon": start, "Distance_to_stop_codon": stop,
-        "Residue_affected": residue, "Residue_frame": residue,
-        "Insertion_direction": direction,
-    })
+    row.update(
+        {
+            "Chr": chr_,
+            "Coordinate": coord,
+            "Strand": strand,
+            "Target": target,
+            "Feature": feature,
+            "Systematic ID": sid,
+            "Type": type_,
+            "Distance_to_start_codon": start,
+            "Distance_to_stop_codon": stop,
+            "Residue_affected": residue,
+            "Residue_frame": residue,
+            "Insertion_direction": direction,
+        }
+    )
     return row
 
 
 def _fit(chr_, coord, strand, target, dr, dl=3.0):
     """One fitting row; A/DL/t's are not read by the stage beyond their presence."""
-    return {"Chr": chr_, "Coordinate": coord, "Strand": strand, "Target": target,
-            "A": 1.0, "DR": dr, "DL": dl}
+    return {
+        "Chr": chr_,
+        "Coordinate": coord,
+        "Strand": strand,
+        "Target": target,
+        "A": 1.0,
+        "DR": dr,
+        "DL": dl,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +154,11 @@ def test_read_insertions_keeps_only_in_gene_rows(tmp_path):
         _ann("I", 200, "+", "T2", "Coding gene", 4, 60, "g1", 21, "Forward"),
         _ann("I", 300, "+", "T3", "Intergenic region", 0, np.nan, np.nan, np.nan, "Forward"),
     ]
-    fitting = [_fit("I", 100, "+", "T1", -0.5), _fit("I", 200, "+", "T2", -0.2),
-               _fit("I", 300, "+", "T3", 0.1)]
+    fitting = [
+        _fit("I", 100, "+", "T1", -0.5),
+        _fit("I", 200, "+", "T2", -0.2),
+        _fit("I", 300, "+", "T3", 0.1),
+    ]
     paths = _write_release(tmp_path, annotations, fitting)
 
     out = read_insertions(*paths)
@@ -169,28 +211,30 @@ def test_read_insertions_rejects_a_duplicated_fitting_index(tmp_path):
 # ---------------------------------------------------------------------------
 def _insertions() -> pd.DataFrame:
     """Two sites: one with both directions, one Forward-only, at ordered coordinates."""
-    return pd.DataFrame({
-        "Systematic ID": ["g1"] * 3,
-        "name": ["named"] * 3,
-        "gene_DR": [-0.75] * 3,
-        "Chr": ["I"] * 3,
-        "Coordinate": [200, 100, 100],
-        "Strand": ["+"] * 3,
-        "Insertion_direction": ["Forward", "Forward", "Reverse"],
-        "Residue_affected": [30, 10, 10],
-        "Residue_frame": [30, 10, 10],
-        "frac": [0.6, 0.2, 0.2],
-        "DR": [-0.40, -1.00, -0.60],
-        "DL": [3.0, 3.0, 3.0],
-    })
+    return pd.DataFrame(
+        {
+            "Systematic ID": ["g1"] * 3,
+            "name": ["named"] * 3,
+            "gene_DR": [-0.75] * 3,
+            "Chr": ["I"] * 3,
+            "Coordinate": [200, 100, 100],
+            "Strand": ["+"] * 3,
+            "Insertion_direction": ["Forward", "Forward", "Reverse"],
+            "Residue_affected": [30, 10, 10],
+            "Residue_frame": [30, 10, 10],
+            "frac": [0.6, 0.2, 0.2],
+            "DR": [-0.40, -1.00, -0.60],
+            "DL": [3.0, 3.0, 3.0],
+        }
+    )
 
 
 def test_collapse_sites_averages_the_two_directions():
     """One row per Coordinate, DR = mean of the pair; the pair is a within-site replicate."""
     out = collapse_sites(_insertions()).set_index("Coordinate")
     assert len(out) == 2
-    assert out.loc[100, "DR"] == pytest.approx(-0.8)   # mean(-1.0, -0.6)
-    assert out.loc[200, "DR"] == pytest.approx(-0.4)   # Forward only -> itself
+    assert out.loc[100, "DR"] == pytest.approx(-0.8)  # mean(-1.0, -0.6)
+    assert out.loc[200, "DR"] == pytest.approx(-0.4)  # Forward only -> itself
 
 
 def test_collapse_sites_keeps_both_channels_and_the_evidence_count():
@@ -198,8 +242,10 @@ def test_collapse_sites_keeps_both_channels_and_the_evidence_count():
     out = collapse_sites(_insertions()).set_index("Coordinate")
     assert out.loc[100, "DR_fwd"] == pytest.approx(-1.0)
     assert out.loc[100, "DR_rev"] == pytest.approx(-0.6)
-    assert out.loc[200, "n_dir"] == 1 and out.loc[100, "n_dir"] == 2
-    assert out.loc[100, "n_insertions"] == 2 and out.loc[200, "n_insertions"] == 1
+    assert out.loc[200, "n_dir"] == 1
+    assert out.loc[100, "n_dir"] == 2
+    assert out.loc[100, "n_insertions"] == 2
+    assert out.loc[200, "n_insertions"] == 1
 
 
 def test_collapse_sites_orders_along_the_cds():
@@ -213,28 +259,34 @@ def test_collapse_sites_orders_along_the_cds():
 # ---------------------------------------------------------------------------
 def test_segment_counts_counts_sites_not_insertions():
     """n_sites counts runs of equal Coordinate; n_insertions sums the insertions behind them."""
-    frame = pd.DataFrame({
-        "Coordinate": [10, 10, 20, 30, 30],
-        "n_insertions": [2, 2, 1, 2, 2],
-        "DR": [-1.0] * 5,
-    })
+    frame = pd.DataFrame(
+        {
+            "Coordinate": [10, 10, 20, 30, 30],
+            "n_insertions": [2, 2, 1, 2, 2],
+            "DR": [-1.0] * 5,
+        }
+    )
     # positions 0:3 cover coordinates 10,10,20 -> 2 sites / 5 insertions
     assert segment_counts(frame, [(0, 3), (3, 5)]) == [(5, 2), (4, 1)]
 
 
 def test_segment_counts_is_positional_not_label_based():
-    """Segments are (lo, hi) index RANGES into the profile, so the frame's own labels are irrelevant.
+    """Segments are (lo, hi) index RANGES into the profile, so the frame's own labels are
+    irrelevant.
 
     A profile arrives with a reset index, but the count used to be taken off a
     Series indexed like the frame, which turned ``sites[lo:hi]`` into a LABEL
     slice: the same call on a label-shifted frame counted the wrong points (and
     silently, since the counts stayed plausible).
     """
-    frame = pd.DataFrame({
-        "Coordinate": [10, 20, 20, 30],
-        "n_insertions": [1, 2, 2, 1],
-        "DR": [-1.0] * 4,
-    }, index=[10, 11, 12, 13])
+    frame = pd.DataFrame(
+        {
+            "Coordinate": [10, 20, 20, 30],
+            "n_insertions": [1, 2, 2, 1],
+            "DR": [-1.0] * 4,
+        },
+        index=[10, 11, 12, 13],
+    )
     assert segment_counts(frame, [(0, 2), (2, 4)]) == [(3, 2), (3, 1)]
 
 
@@ -254,7 +306,9 @@ def _hand(rows: list[dict]) -> pd.DataFrame:
 
 def test_hand_region_map_parses_a_single_interval():
     """``a-b`` becomes (a, b)."""
-    hand = _hand([{"Gene": "mcm4", "sid": "SP1", "term": "C", "regions": "740-870", "n_regions": 1}])
+    hand = _hand(
+        [{"Gene": "mcm4", "sid": "SP1", "term": "C", "regions": "740-870", "n_regions": 1}]
+    )
     assert hand_region_map(hand) == {"SP1": [(740, 870)]}
 
 
@@ -264,18 +318,21 @@ def test_hand_region_map_parses_both_termini():
     Splitting the whole string on '-' alone reads the junction as a number and
     raises; the '|' is the interval separator and has to come off first.
     """
-    hand = _hand([{"Gene": "x", "sid": "SP2", "term": "N+C",
-                   "regions": "1-24|740-870", "n_regions": 2}])
+    hand = _hand(
+        [{"Gene": "x", "sid": "SP2", "term": "N+C", "regions": "1-24|740-870", "n_regions": 2}]
+    )
     assert hand_region_map(hand) == {"SP2": [(1, 24), (740, 870)]}
 
 
 def test_hand_region_map_drops_rows_without_a_usable_region():
     """Unmapped rows and rows whose terminus could not be resolved are not shadable."""
-    hand = _hand([
-        {"Gene": "unknown", "sid": np.nan, "term": "C", "regions": "", "n_regions": 0},
-        {"Gene": "y", "sid": "SP3", "term": "C", "regions": "", "n_regions": 0},
-        {"Gene": "z", "sid": "SP4", "term": "C", "regions": "10-20", "n_regions": 1},
-    ])
+    hand = _hand(
+        [
+            {"Gene": "unknown", "sid": np.nan, "term": "C", "regions": "", "n_regions": 0},
+            {"Gene": "y", "sid": "SP3", "term": "C", "regions": "", "n_regions": 0},
+            {"Gene": "z", "sid": "SP4", "term": "C", "regions": "10-20", "n_regions": 1},
+        ]
+    )
     assert hand_region_map(hand) == {"SP4": [(10, 20)]}
 
 
@@ -295,8 +352,7 @@ def test_paper_lambda_is_the_published_noise_scale():
     x = np.array([0.0, 0.1, 0.2])
     published = np.sqrt(2 * 1.01 * np.log(3)) * noise_sigma(x)
     assert paper_lambda(x, paper_c=1.0, delta=0.01) == pytest.approx(published)
-    assert paper_lambda(x, paper_c=1.0, delta=0.01, sigma_add=0.1) == pytest.approx(
-        published + 0.1)
+    assert paper_lambda(x, paper_c=1.0, delta=0.01, sigma_add=0.1) == pytest.approx(published + 0.1)
     assert paper_lambda(x, paper_c=2.0) == pytest.approx(2 * published)
 
 
@@ -353,13 +409,14 @@ def test_min_seg_is_enforced_by_the_forced_merge_pass():
 def test_read_gene_table_normalizes_legacy_metric_headers(tmp_path):
     """Older releases ship the metric as `um`; the summary's gene_DR must not come out empty."""
     path = tmp_path / "gene_level.tsv"
-    pd.DataFrame({"Systematic ID": ["SP1", "SP2"], "Name": ["mcm4", np.nan],
-                  "um": [-0.9, -0.1]}).to_csv(path, sep="\t", index=False)
+    pd.DataFrame(
+        {"Systematic ID": ["SP1", "SP2"], "Name": ["mcm4", np.nan], "um": [-0.9, -0.1]}
+    ).to_csv(path, sep="\t", index=False)
 
     table = read_gene_table(path)
     assert table.loc["SP1", "gene_DR"] == pytest.approx(-0.9)
     assert table.loc["SP1", "name"] == "mcm4"
-    assert table.loc["SP2", "name"] == "SP2"   # unnamed genes fall back to the ID
+    assert table.loc["SP2", "name"] == "SP2"  # unnamed genes fall back to the ID
 
 
 def test_read_insertions_carries_gene_dr_onto_every_insertion(tmp_path):
@@ -374,11 +431,26 @@ def test_read_insertions_carries_gene_dr_onto_every_insertion(tmp_path):
 # ---------------------------------------------------------------------------
 def test_hand_terms_reads_only_usable_rows():
     """A row with no mapped gene or no resolvable interval carries no call."""
-    hand = pd.concat([
-        _hand([{"Gene": "mcm4", "sid": "SP1", "term": "C", "regions": "740-870", "n_regions": 1}]),
-        _hand([{"Gene": "x", "sid": "SP2", "term": "N+C", "regions": "1-24|740-870", "n_regions": 2}]),
-        _hand([{"Gene": "y", "sid": np.nan, "term": "C", "regions": "", "n_regions": 0}]),
-    ], ignore_index=True)
+    hand = pd.concat(
+        [
+            _hand(
+                [{"Gene": "mcm4", "sid": "SP1", "term": "C", "regions": "740-870", "n_regions": 1}]
+            ),
+            _hand(
+                [
+                    {
+                        "Gene": "x",
+                        "sid": "SP2",
+                        "term": "N+C",
+                        "regions": "1-24|740-870",
+                        "n_regions": 2,
+                    }
+                ]
+            ),
+            _hand([{"Gene": "y", "sid": np.nan, "term": "C", "regions": "", "n_regions": 0}]),
+        ],
+        ignore_index=True,
+    )
     assert hand_terms(hand) == {"SP1": "C", "SP2": "N+C"}
 
 

@@ -43,15 +43,15 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -67,6 +67,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True)
 class FinalizeDirectConfig:
     """Inputs, outputs, and params for the `direct` finalize variant."""
+
     annotated_data: Path
     scaled_data: Path
     labels: Path
@@ -98,12 +99,15 @@ def run(config: FinalizeDirectConfig) -> None:
     scaled = read_parquet(config.scaled_data)
     raw_labels = read_parquet(config.labels)
     out = finalize_direct(
-        annotated, raw_labels,
+        annotated,
+        raw_labels,
         n_clusters=config.n_clusters,
         wt_cluster=config.wt_cluster,
     )
     out.to_csv(config.output, sep="\t", index=True)
-    logger.success(f"Wrote {len(out)} genes ({out['cluster'].notna().sum()} clustered) to {config.output}")
+    logger.success(
+        f"Wrote {len(out)} genes ({out['cluster'].notna().sum()} clustered) to {config.output}"
+    )
 
     # Per-variant metrics on the final clustering (label permutation-invariant scores).
     final = out.loc[scaled.index, "cluster"]
@@ -117,15 +121,40 @@ def run(config: FinalizeDirectConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Finalize clusters — direct variant (renumber labels by DR)")
-    parser.add_argument("--annotated-data", type=Path, required=True, help="Annotated data parquet (from prepare)")
-    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix parquet (for scoring)")
-    parser.add_argument("--labels", type=Path, required=True, help="Labels parquet from cluster_one_method (k=final_n_clusters)")
+    parser = argparse.ArgumentParser(
+        description="Finalize clusters — direct variant (renumber labels by DR)"
+    )
+    parser.add_argument(
+        "--annotated-data", type=Path, required=True, help="Annotated data parquet (from prepare)"
+    )
+    parser.add_argument(
+        "--scaled-data",
+        type=Path,
+        required=True,
+        help="Scaled (DR, DL) matrix parquet (for scoring)",
+    )
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        required=True,
+        help="Labels parquet from cluster_one_method (k=final_n_clusters)",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
-    parser.add_argument("--metrics-output", type=Path, required=True, help="Output per-variant metrics.tsv")
-    parser.add_argument("--n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
-    parser.add_argument("--wt-cluster", type=int, default=9, help="WT/background cluster id (default 9)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--metrics-output", type=Path, required=True, help="Output per-variant metrics.tsv"
+    )
+    parser.add_argument(
+        "--n-clusters",
+        type=int,
+        default=FINAL_N_CLUSTERS,
+        help=f"Final cluster count (default {FINAL_N_CLUSTERS})",
+    )
+    parser.add_argument(
+        "--wt-cluster", type=int, default=9, help="WT/background cluster id (default 9)"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

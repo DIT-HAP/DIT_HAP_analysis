@@ -13,12 +13,12 @@ the literal `NONE` for "none", a capital-Crick-strand `C` on the 2013 ids) and
 because the PAIRS are what a consumer usually wants; `collect_evolutionary_features`
 only needs the count, but the coherence stage's `paralog_fraction` wants the gene
 set (via that count), and any other consumer would otherwise re-parse the sheet and
-re-run update_sysIDs().
+re-run update_sys_ids().
 
 Input
 -----
 - The curated deletion-library categories xlsx (Paralogues column)
-- PomBase gene_IDs_names_products.tsv, for update_sysIDs()
+- PomBase gene_IDs_names_products.tsv, for update_sys_ids()
 
 Output
 ------
@@ -30,7 +30,8 @@ Usage
 -----
     python build_deletion_library_paralogs.py \\
         --deletion-library-xlsx resources/curated/deletion_library_categories.xlsx \\
-        --gene-meta resources/external/pombase/2026-06-01/Gene_metadata/gene_IDs_names_products.tsv \\
+        --gene-meta resources/external/pombase/2026-06-01/Gene_metadata/gene_IDs_names_products.tsv
+        \\
         --output results/1b_features/2026-06-01/deletion_library_paralogs.parquet
 
 Author:   Yusheng Yang (guidance) + Claude Sonnet 5 (implementation)
@@ -43,9 +44,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -64,6 +65,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class DeletionLibraryParalogsConfig:
     """Inputs/outputs for the deletion-library paralog long table."""
+
     deletion_library_xlsx: Path
     gene_meta: Path
     output: Path
@@ -95,11 +97,25 @@ def run(config: DeletionLibraryParalogsConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Explode the deletion-library Paralogues column into a long table")
-    parser.add_argument("--deletion-library-xlsx", type=Path, required=True, help="Curated deletion-library categories xlsx")
-    parser.add_argument("--gene-meta", type=Path, required=True, help="PomBase gene_IDs_names_products.tsv, for update_sysIDs()")
+    parser = argparse.ArgumentParser(
+        description="Explode the deletion-library Paralogues column into a long table"
+    )
+    parser.add_argument(
+        "--deletion-library-xlsx",
+        type=Path,
+        required=True,
+        help="Curated deletion-library categories xlsx",
+    )
+    parser.add_argument(
+        "--gene-meta",
+        type=Path,
+        required=True,
+        help="PomBase gene_IDs_names_products.tsv, for update_sys_ids()",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output long-table parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

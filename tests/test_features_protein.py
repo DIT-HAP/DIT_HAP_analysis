@@ -4,12 +4,11 @@ import gzip
 from pathlib import Path
 
 import pytest
-
 from workflow.src.features.protein import (
     calculate_aliphatic_index_biopython,
-    extract_pLDDT_pdb_gz,
+    extract_plddt_pdb_gz,
     extract_protein_features_from_peptide_sequence,
-    pLDDT_statistics_report,
+    plddt_statistics_report,
 )
 
 POMBASE_DIR = Path("resources/external/pombase/2025-10-01")
@@ -33,7 +32,9 @@ def test_aliphatic_index_all_glycine_is_zero():
     assert calculate_aliphatic_index_biopython("GGGG") == 0.0
 
 
-@pytest.mark.skipif(not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)")
+@pytest.mark.skipif(
+    not POMBASE_DIR.exists(), reason="requires resources/external/pombase/2025-10-01 (Task 3)"
+)
 def test_extract_protein_features_from_real_peptide_fasta():
     """Feature extraction from the real peptide.fa produces the known SPAC1002.01 row."""
     peptide_fasta = POMBASE_DIR / "genome_sequence_and_features" / "peptide.fa"
@@ -44,21 +45,21 @@ def test_extract_protein_features_from_real_peptide_fasta():
     assert 0 <= row["aromaticity"] <= 1
 
 
-def test_extract_pLDDT_pdb_gz_reads_bfactor_as_plddt(tmp_path):
-    """extract_pLDDT_pdb_gz reads the bfactor column as the pLDDT score."""
+def test_extract_plddt_pdb_gz_reads_bfactor_as_plddt(tmp_path):
+    """extract_plddt_pdb_gz reads the bfactor column as the pLDDT score."""
     pdb_gz = tmp_path / "AF-P00000-F1-model_v6.pdb.gz"
     with gzip.open(pdb_gz, "wt") as f:
         f.write(_MINIMAL_PDB)
-    pLDDT = extract_pLDDT_pdb_gz(pdb_gz)
+    pLDDT = extract_plddt_pdb_gz(pdb_gz)
     assert pLDDT == [87.50]
 
 
-def test_pLDDT_statistics_report_computes_disorder_fraction(tmp_path):
+def test_plddt_statistics_report_computes_disorder_fraction(tmp_path):
     """A structure with one high-confidence residue (>50) has disorder_fraction 0.0."""
     pdb_gz = tmp_path / "AF-P00000-F1-model_v6.pdb.gz"
     with gzip.open(pdb_gz, "wt") as f:
         f.write(_MINIMAL_PDB)
-    report = pLDDT_statistics_report(tmp_path, structure_format="pdb.gz")
+    report = plddt_statistics_report(tmp_path, structure_format="pdb.gz")
     row = report.set_index("uniprot_id").loc["P00000"]
     assert row["disorder_fraction"] == 0.0
     assert row["mean_pLDDT"] == 87.5

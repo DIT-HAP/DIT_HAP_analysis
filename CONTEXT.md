@@ -6,7 +6,7 @@
 架构模式，将数据计算和图表绘制分离为独立的脚本和环境。
 
 - **计算脚本**：负责统计分析、聚类、富集计算等，输出 Parquet/TSV 格式的结构化数据。运行在 `statistics_and_figure_plotting.yml` 环境（pandas 3.x, matplotlib 3.11+）。
-- **绘图脚本**：负责读取计算结果并渲染图表，输出 PDF/PNG。运行在 `cnsplots.yml` 环境（pandas 2.x, matplotlib 3.10, cnsplots 0.7.0）。
+- **绘图脚本**：负责读取计算结果并渲染图表，输出 PDF/PNG。运行在 `cnsplots.yml` 环境（pandas 2.x, matplotlib 3.10, cnsplots 0.8.0）。
 
 **动机**：cnsplots 包要求 matplotlib<3.11，与计算环境的新版本依赖冲突。通过环境隔离避免依赖冲突。
 
@@ -35,12 +35,15 @@ Snakemake 规则之间传递的数据格式。
 
 **核心函数**：
 - `apply_house_style()`：设置全局调色板和布局参数
-- `save_dual(output_stem)`：保存 PDF（期刊质量）+ PNG（评审预览）
+- `content_bounds(fig)`：导出边界 = 面板推导画布 ∪ 实际渲染内容（只放大不缩小，四周 +2 pt）
+- `save_dual(output_stem)`：保存 PDF + 评审 PNG，两者使用同一实测边界
+
+**尺寸约定**：流水线图只需要设 axes/panel 尺寸，画布由内容实测决定，不按期刊画布裁剪。投稿用的最终 figures 在独立环节手工调整并另行设置画布。
 
 ---
 
 ### cnsplots
-外部 PyPI 包（版本 0.7.0），提供 50+ 高级绘图函数（箱线图、热图、火山图等）。
+外部 PyPI 包（版本 0.8.0），提供 50+ 高级绘图函数（箱线图、热图、火山图等）。
 
 - **环境**：`workflow/envs/cnsplots.yml`
 - **依赖约束**：pandas 2.2-2.4, matplotlib 3.10-3.11（与计算环境隔离）
@@ -64,6 +67,6 @@ Snakemake 规则文件，集中管理所有绘图规则。
 - **关系**：本项目消费上游的 `release/` 输出，进行下游分析（聚类、富集、ML）
 - **对齐点**：
   - 解耦架构（脚本级分离 + 环境隔离）
-  - cnsplots 包的使用（版本 0.7.0）
+  - cnsplots 包的使用（版本 0.8.0）
   - 样式系统（`figures.py` 的 API 设计）
   - 命名约定（`compute_`/`plot_` 前缀）

@@ -37,27 +37,27 @@ Version:  5.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import sys
-import warnings
 from itertools import combinations
 from pathlib import Path
+import sys
 from typing import Any
+import warnings
 
-import matplotlib
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import squareform
 from scipy.stats import false_discovery_control, pearsonr, spearmanr
 
-matplotlib.use("Agg")  # headless: builders only write figures, never display
-import matplotlib.pyplot as plt
+mpl.use("Agg")  # headless: builders only write figures, never display
 from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
+import matplotlib.pyplot as plt
 
 # Project path setup: sibling src/ modules (figures, figure_render.*) import by
 # bare name, which needs workflow/src itself on sys.path.
@@ -69,6 +69,7 @@ from figures import (
     apply_house_style,
     house_colors,
     panel_labels,
+    save_dual,
 )
 
 # =============================================================================
@@ -149,7 +150,9 @@ LOG10_PREFIX = "log10 "
 COLUMN_DISPLAY_NAMES = {
     "Barseq_from_dulab": "Barseq (dulab)",
     "Barseq_from_koch": "Barseq (koch)",
-    "Integration density, in-vivo (integrations/kb/million inserts)": f"{LOG10_PREFIX}Integration density (in-vivo)",
+    "Integration density, in-vivo (integrations/kb/million inserts)": (
+        f"{LOG10_PREFIX}Integration density (in-vivo)"
+    ),
     "ipkm": f"{LOG10_PREFIX}ipkm",
     "uipkm": f"{LOG10_PREFIX}uipkm",
     "colony_size_Malecki2016": "Colony size",
@@ -167,7 +170,10 @@ DISTRIBUTION_DISPLAY_NAMES = {
 
 # The two correlation coefficients, as (stats column, panel title) pairs: one
 # figure holds both, since they are the same matrix read two ways.
-HEATMAP_PANELS: tuple[tuple[str, str], ...] = (("r_pearson", "Pearson"), ("rho_spearman", "Spearman"))
+HEATMAP_PANELS: tuple[tuple[str, str], ...] = (
+    ("r_pearson", "Pearson"),
+    ("rho_spearman", "Spearman"),
+)
 
 # Study category each column belongs to, for the heatmap row annotation bands.
 COLUMN_CATEGORIES = {
@@ -226,6 +232,10 @@ HEATMAP_CMAP = "RdBu_r"
 # Squaring the cells means moving the bar alongside the key instead of under it.
 # Change the column count, the rect, or the row names and this has to be
 # re-measured.
+#
+# Registered layout exception: 540, not the 493 pt journal cap. At 493 the
+# matrix body falls to ~62 pt, below the house 80 pt panel floor; the page is
+# scaled down at typesetting instead of reflowed.
 HEATMAP_PAGE_PX = (540, 124)
 
 # A white annotation track padded between the Study band and the matrix: the
@@ -256,10 +266,6 @@ HEATMAP_LEGEND_BOUNDS = (0.83, 0.02, 0.17, 0.96)
 # its bottom stays inside the matrices' own vertical extent; the two constraints
 # meet at this y0 and they are what stops the page getting any shorter.
 HEATMAP_CBAR_BOUNDS = (0.485, 0.11, 0.03, 0.22)
-
-# The dendrogram's own default is 0.5 pt, which at print size reads as a hairline
-# next to the 8 pt type it sits beside.
-HEATMAP_TREE_LINEWIDTH = 1.0
 
 # The distribution QC figure: every analysed column gets a panel of its own
 # distribution and a panel of the same values log10-transformed, so a row of the
@@ -297,9 +303,7 @@ def rename_metrics_for_comparison(annotation_reference: pd.DataFrame) -> pd.Data
     missing = [c for c in _SOURCE_METRIC_COLUMNS if c not in annotation_reference.columns]
     if missing:
         raise KeyError(f"annotation reference is missing metric columns: {missing}")
-    return annotation_reference[list(_SOURCE_METRIC_COLUMNS)].rename(
-        columns=_SOURCE_METRIC_COLUMNS
-    )
+    return annotation_reference[list(_SOURCE_METRIC_COLUMNS)].rename(columns=_SOURCE_METRIC_COLUMNS)
 
 
 # =============================================================================
@@ -384,12 +388,17 @@ def select_fitness_columns(fitness_table: pd.DataFrame) -> list[str]:
     candidates = STUDY_FITNESS_COLUMNS + list(METRIC_COLUMNS)
     available, missing = [], []
     for column in candidates:
-        if column in fitness_table.columns and fitness_table[column].notna().sum() >= MIN_PAIRS_FOR_CORRELATION:
+        if (
+            column in fitness_table.columns
+            and fitness_table[column].notna().sum() >= MIN_PAIRS_FOR_CORRELATION
+        ):
             available.append(column)
         else:
             missing.append(column)
     if missing:
-        logger.warning(f"Skipping {len(missing)} fitness column(s) (absent or too sparse): {missing}")
+        logger.warning(
+            f"Skipping {len(missing)} fitness column(s) (absent or too sparse): {missing}"
+        )
     logger.info(f"Correlating {len(available)} fitness columns: {available}")
     return available
 
@@ -415,25 +424,27 @@ def compute_correlation_stats(fitness_table: pd.DataFrame, columns: list[str]) -
             # poison the BH correction downstream.
             logger.warning(f"Skipping pair ({col_x} vs {col_y}): degenerate (constant column)")
             continue
-        rows.append({
-            "col_x": col_x,
-            "col_y": col_y,
-            "pair": f"{col_x} vs {col_y}",
-            "n": n,
-            "r_pearson": r,
-            "p_pearson": p_value,
-            "rho_spearman": rho,
-            "p_spearman": rho_p_value,
-        })
-    stats = pd.DataFrame(rows, columns=[c for c in STATS_COLUMNS if c not in ("p_fdr", "p_spearman_fdr")])
+        rows.append(
+            {
+                "col_x": col_x,
+                "col_y": col_y,
+                "pair": f"{col_x} vs {col_y}",
+                "n": n,
+                "r_pearson": r,
+                "p_pearson": p_value,
+                "rho_spearman": rho,
+                "p_spearman": rho_p_value,
+            }
+        )
+    stats = pd.DataFrame(
+        rows, columns=[c for c in STATS_COLUMNS if c not in ("p_fdr", "p_spearman_fdr")]
+    )
     if stats.empty:
         return pd.DataFrame(columns=STATS_COLUMNS)
 
     stats["p_fdr"] = false_discovery_control(stats["p_pearson"].to_numpy(), method="bh")
     stats["p_spearman_fdr"] = false_discovery_control(stats["p_spearman"].to_numpy(), method="bh")
     return stats[STATS_COLUMNS]
-
-
 
 
 # =============================================================================
@@ -500,10 +511,14 @@ def plot_pairwise_scatter(
     so every panel stays legible. ``order`` is the comparison's column order, which
     also places the companion heatmap, so both figures read consistently.
     """
-    from figure_render.scatter import render_pairwise_matrix_figure
+    from figure_render.scatter import render_pairwise_matrix_figure  # noqa: PLC0415
 
     render_pairwise_matrix_figure(
-        fitness_table, output_stem, columns=columns, labels=COLUMN_DISPLAY_NAMES, order=order,
+        fitness_table,
+        output_stem,
+        columns=columns,
+        labels=COLUMN_DISPLAY_NAMES,
+        order=order,
     )
 
 
@@ -533,11 +548,13 @@ def build_distribution_frame(fitness_table: pd.DataFrame, columns: list[str]) ->
             (DISTRIBUTION_SCALES[1], np.log10(positive.to_numpy())),
         ):
             frames.append(
-                pd.DataFrame({
-                    DISTRIBUTION_PHENOTYPE_COLUMN: phenotype,
-                    DISTRIBUTION_SCALE_COLUMN: scale,
-                    DISTRIBUTION_VALUE_COLUMN: scaled,
-                })
+                pd.DataFrame(
+                    {
+                        DISTRIBUTION_PHENOTYPE_COLUMN: phenotype,
+                        DISTRIBUTION_SCALE_COLUMN: scale,
+                        DISTRIBUTION_VALUE_COLUMN: scaled,
+                    }
+                )
             )
     return pd.concat(frames, ignore_index=True)
 
@@ -556,7 +573,7 @@ def plot_fitness_distributions(
     ``order`` -- the order both comparison figures use -- so a
     phenotype's row sits where its matrix row does.
     """
-    from figure_render.histogram import render_grouped_histogram_figure
+    from figure_render.histogram import render_grouped_histogram_figure  # noqa: PLC0415
 
     render_grouped_histogram_figure(
         build_distribution_frame(fitness_table, order),
@@ -581,7 +598,7 @@ def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
     ``cns.add_panel_label``'s right-aligned offset. Both are drawn in figure space
     from the panel's own bounding box instead.
     """
-    import cnsplots as cns
+    import cnsplots as cns  # noqa: PLC0415
 
     figure = plotter.ax.figure
     # Every axes in the figure at this point is the composite's (the legend strip is
@@ -605,32 +622,38 @@ def _frame_heatmap_panel(plotter: Any, name: str, letter: str) -> None:
     above = top + plt.rcParams["axes.titlepad"] / (figure.get_size_inches()[1] * 72)
 
     figure.text(
-        left, above, letter,
-        ha="left", va="bottom",
-        fontsize=cns.settings.title_fontsize,
+        left,
+        above,
+        letter,
+        ha="left",
+        va="bottom",
         fontweight=cns.settings.panel_label_fontweight,
     )
     figure.text(
-        (left + right) / 2, above, name,
-        ha="center", va="bottom",
-        fontsize=cns.settings.title_fontsize,
+        (left + right) / 2,
+        above,
+        name,
+        ha="center",
+        va="bottom",
         fontweight=plt.rcParams["axes.titleweight"],
     )
 
 
 def _draw_heatmap_legend(cell: Axes, study_colors: dict[str, str], *, fig: Figure) -> None:
     """Draw the shared value colourbar and Study category key inside ``cell`` (the legend strip)."""
-    import cnsplots as cns
+    import cnsplots as cns  # noqa: PLC0415
 
     cell.set_axis_off()
 
     colorbar_axes = cell.inset_axes(HEATMAP_CBAR_BOUNDS)
     colorbar = fig.colorbar(
-        ScalarMappable(norm=Normalize(vmin=CORRELATION_MIN, vmax=CORRELATION_MAX), cmap=HEATMAP_CMAP),
+        ScalarMappable(
+            norm=Normalize(vmin=CORRELATION_MIN, vmax=CORRELATION_MAX), cmap=HEATMAP_CMAP
+        ),
         cax=colorbar_axes,
         ticks=[CORRELATION_MIN, 0, CORRELATION_MAX],
+        extend="neither",
     )
-    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
     # Ticks right, label left, so the bar is the middle of its own block and can be
     # centred on the same line as the key.
     colorbar.ax.yaxis.set_label_position("left")
@@ -679,15 +702,17 @@ def plot_correlation_heatmap(
     them, whichever page width they are given. Drawing them means owning the
     category colours, which is why they are passed to the heatmap explicitly.
     """
-    import anndata as ad
-    import cnsplots as cns
+    import anndata as ad  # noqa: PLC0415
+    import cnsplots as cns  # noqa: PLC0415
 
     apply_house_style()
 
     if tree is None:
         tree = comparison_linkage(stats, columns)
     order_labels = [COLUMN_DISPLAY_NAMES.get(c, c) for c in columns]
-    study_colors = dict(zip(STUDY_CATEGORIES, house_colors(range(len(STUDY_CATEGORIES))), strict=True))
+    study_colors = dict(
+        zip(STUDY_CATEGORIES, house_colors(range(len(STUDY_CATEGORIES))), strict=True)
+    )
     categories = pd.Categorical(
         [COLUMN_CATEGORIES.get(c, "Other") for c in columns],
         categories=STUDY_CATEGORIES,
@@ -699,15 +724,17 @@ def plot_correlation_heatmap(
     spacer = pd.Categorical([SPACER_VALUE] * len(columns), categories=[SPACER_VALUE])
     annotation_colors = {"Study": study_colors, SPACER_COLUMN: {SPACER_VALUE: BACKGROUND_COLOR}}
 
-    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1])
+    cns.figure(width=HEATMAP_PAGE_PX[0], height=HEATMAP_PAGE_PX[1], unit="pt")
     figure = plt.gcf()
     panel_axes = figure.subplots(1, len(HEATMAP_PANELS), squeeze=False)[0]
     plotters = []
 
-    for ax, (metric, name) in zip(panel_axes, HEATMAP_PANELS, strict=True):
-        panel_matrix = correlation_matrix(stats, columns, metric).rename(
-            index=COLUMN_DISPLAY_NAMES, columns=COLUMN_DISPLAY_NAMES
-        ).loc[order_labels, order_labels]
+    for ax, (metric, _) in zip(panel_axes, HEATMAP_PANELS, strict=True):
+        panel_matrix = (
+            correlation_matrix(stats, columns, metric)
+            .rename(index=COLUMN_DISPLAY_NAMES, columns=COLUMN_DISPLAY_NAMES)
+            .loc[order_labels, order_labels]
+        )
         data = ad.AnnData(
             panel_matrix.to_numpy(),
             obs=pd.DataFrame({"Study": categories, SPACER_COLUMN: spacer}, index=order_labels),
@@ -736,9 +763,6 @@ def plot_correlation_heatmap(
                 # the column names are dropped, so the permutation is all that is used.
                 col_dendrogram=False,
                 col_dendrogram_kws={"linkage": tree},
-                # The tree's own line weight: PyComplexHeatmap defaults it to 0.5 pt,
-                # which reads as a hairline beside 8 pt type.
-                tree_kws={"linewidth": HEATMAP_TREE_LINEWIDTH},
                 cmap=HEATMAP_CMAP,
                 vmin=CORRELATION_MIN,
                 vmax=CORRELATION_MAX,
@@ -769,11 +793,9 @@ def plot_correlation_heatmap(
         _frame_heatmap_panel(plotter, name, label)
 
     _draw_heatmap_legend(figure.add_axes(HEATMAP_LEGEND_BOUNDS), study_colors, fig=figure)
-    # The legends are their own axes, which the default tight export bbox drops --
-    # saving the full canvas is what keeps them in the figure.
-    with cns.settings.context(savefig_bbox="standard"):
-        cns.savefig(str(output_path))
-    plt.close(plt.gcf())
+    # save_dual keeps the full canvas, so the legend axes are not cropped away.
+    save_dual(Path(output_path).with_suffix(""))
+    plt.close(figure)
 
 
 def plot_comparison_figures(
@@ -793,5 +815,7 @@ def plot_comparison_figures(
     order, tree = cluster_comparison_columns(stats, columns)
 
     # save_dual() appends .pdf/.review.png itself, so pass the bare stem.
-    plot_pairwise_scatter(fitness_table, columns, output_dir / "pairwise_fitness_comparison", order=order)
+    plot_pairwise_scatter(
+        fitness_table, columns, output_dir / "pairwise_fitness_comparison", order=order
+    )
     plot_correlation_heatmap(stats, columns, output_dir / "correlation_heatmap.pdf", tree=tree)

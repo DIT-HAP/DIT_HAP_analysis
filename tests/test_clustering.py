@@ -1,27 +1,26 @@
 """Tests for the split gene-level clustering pipeline (shared module + driver configs)."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
 import pytest
-
 from workflow.scripts.clustering.cluster_one_method import MethodConfig
 from workflow.scripts.clustering.finalize_auto_merge_clusters import (
     FinalizeAutoMergeConfig,
-)
-from workflow.scripts.clustering.finalize_auto_merge_clusters import (
     run as run_finalize_auto_merge,
 )
-from workflow.scripts.clustering.finalize_direct_clusters import FinalizeDirectConfig
 from workflow.scripts.clustering.finalize_direct_clusters import (
+    FinalizeDirectConfig,
     run as run_finalize_direct,
 )
-from workflow.scripts.clustering.finalize_grid_clusters import FinalizeGridConfig
-from workflow.scripts.clustering.finalize_grid_clusters import run as run_finalize_grid
+from workflow.scripts.clustering.finalize_grid_clusters import (
+    FinalizeGridConfig,
+    run as run_finalize_grid,
+)
 from workflow.scripts.clustering.prepare_clustering_data import PrepareConfig
 from workflow.src.clustering.candidates import (
     BEST_METHOD,
@@ -44,7 +43,7 @@ def test_best_method_is_pinned_to_kmeans():
     assert METHODS[0] == "kmeans"
 
 
-def test_scale_features_clamps_DR_and_divides_DL():
+def test_scale_features_clamps_dr_and_divides_dl():
     """DR below -1.3 is clamped up to -1.3; DL is divided by 10 (byte-faithful quirk #1)."""
     df = pd.DataFrame(
         {"DR": [-0.5, -1.3, -2.0, -1.29], "DL": [10.0, 20.0, 5.0, 100.0]},
@@ -159,7 +158,8 @@ def test_method_config_rejects_unknown_method(tmp_path):
 
 
 def _toy_annotated_scaled(n_per=20, seed=0):
-    """Build a small annotated table + matching scaled matrix with 9 well-separated blobs in (DR, DL)."""
+    """Build a small annotated table + matching scaled matrix with 9 well-separated blobs in (DR,
+    DL)."""
     rng = np.random.default_rng(seed)
     centers = [
         (0.05, 0.1),
@@ -195,7 +195,7 @@ def test_finalize_direct_produces_k_clusters_labelled_1_to_9():
     assert {"DR", "DL", "A"}.issubset(out.columns)
 
 
-def test_finalize_direct_assigns_lowest_DR_to_wt_cluster():
+def test_finalize_direct_assigns_lowest_dr_to_wt_cluster():
     annotated, scaled = _toy_annotated_scaled()
     labels = pd.Series(cluster_one_method("kmeans", scaled, 9, 42), index=scaled.index)
     out = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
@@ -229,9 +229,7 @@ def test_finalize_direct_defaults_to_best_method():
     """BEST_METHOD is still kmeans, the method the direct driver defaults to."""
     assert BEST_METHOD == "kmeans"
     annotated, scaled = _toy_annotated_scaled()
-    labels = pd.Series(
-        cluster_one_method(BEST_METHOD, scaled, 9, 42), index=scaled.index
-    )
+    labels = pd.Series(cluster_one_method(BEST_METHOD, scaled, 9, 42), index=scaled.index)
     out = finalize_direct(annotated, labels, n_clusters=9, wt_cluster=9)
     assert sorted(out["cluster"].dropna().unique()) == list(range(1, 10))
 
@@ -244,12 +242,9 @@ def test_renumber_by_dr_tiebreak_on_dl_then_raw_id():
     #   B: DR=1.0, DL=0.2   } identical mean DR, differing mean DL -> only the
     #   C: DR=1.0, DL=0.8   } mean_dl tiebreak can order these two.
     rows = []
-    for i in range(10):
-        rows.append((f"A{i}", 0.0, 0.5, "A"))
-    for i in range(10):
-        rows.append((f"B{i}", 1.0, 0.2, "B"))
-    for i in range(10):
-        rows.append((f"C{i}", 1.0, 0.8, "C"))
+    rows.extend((f"A{i}", 0.0, 0.5, "A") for i in range(10))
+    rows.extend((f"B{i}", 1.0, 0.2, "B") for i in range(10))
+    rows.extend((f"C{i}", 1.0, 0.8, "C") for i in range(10))
     idx = [r[0] for r in rows]
     annotated = pd.DataFrame(
         {"DR": [r[1] for r in rows], "DL": [r[2] for r in rows], "A": 1.0}, index=idx
@@ -340,9 +335,7 @@ def test_finalize_grid_assigns_cells_and_numbers_by_dr():
 def test_finalize_grid_raises_on_cell_count_mismatch():
     annotated, scaled = _toy_annotated_scaled(n_per=10)
     with pytest.raises(ValueError, match="but final_n_clusters is 9"):
-        finalize_grid(
-            annotated, scaled, dr_cuts=[0.5], dl_cuts=[0.5], n_clusters=9, wt_cluster=9
-        )
+        finalize_grid(annotated, scaled, dr_cuts=[0.5], dl_cuts=[0.5], n_clusters=9, wt_cluster=9)
 
 
 def test_finalize_direct_driver_writes_final_tsv(tmp_path):

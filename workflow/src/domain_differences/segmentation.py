@@ -50,27 +50,52 @@ Version:  2.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
+from dataclasses import dataclass
+from enum import StrEnum
 import itertools
 
 # 2. Data Processing Imports
+from loguru import logger
 import numpy as np
 
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
 MIN_SEG = 1
-PAPER_C = 1.0        # C in lam = C*sqrt(2(1+delta)*log T)*sigma + sigma_add
-PAPER_DELTA = 0.01   # the delta of the theory's threshold
-PAPER_RHO = 0.01     # tail-greedy: merge ceil(rho*alpha) pairs per scale
+PAPER_C = 1.0  # C in lam = C*sqrt(2(1+delta)*log T)*sigma + sigma_add
+PAPER_DELTA = 0.01  # the delta of the theory's threshold
+PAPER_RHO = 0.01  # tail-greedy: merge ceil(rho*alpha) pairs per scale
 
 # MAD is biased low at small n (E[1.4826*MAD_n] = c*sigma, c=0.67 at n=3, 0.93 at
 # n=10). Dividing it out is what makes the within-segment spread comparable across
 # segments of different size -- without it a 3-point segment looks 50% tighter than
 # a 20-point one for free. Values from 200k standard-normal draws (seed 20261012);
 # above n=20 the fitted 1 - 0.83/n is within 1% out to n=64.
-_MAD_C = np.array([1.0, 1.0, 0.835, 0.671, 0.7347, 0.8213, 0.8409, 0.8783,
-                   0.8873, 0.9079, 0.9129, 0.9262, 0.9297, 0.9382, 0.9402,
-                   0.9464, 0.9479, 0.9527, 0.9544, 0.9585, 0.9595])
+_MAD_C = np.array(
+    [
+        1.0,
+        1.0,
+        0.835,
+        0.671,
+        0.7347,
+        0.8213,
+        0.8409,
+        0.8783,
+        0.8873,
+        0.9079,
+        0.9129,
+        0.9262,
+        0.9297,
+        0.9382,
+        0.9402,
+        0.9464,
+        0.9479,
+        0.9527,
+        0.9544,
+        0.9585,
+        0.9595,
+    ]
+)
 
 
 # =============================================================================
@@ -82,8 +107,9 @@ def noise_sigma(x: np.ndarray) -> float:
     return 0.0 if len(d) == 0 else float(1.4826 * np.median(np.abs(d)) / np.sqrt(2))
 
 
-def paper_lambda(x: np.ndarray, *, paper_c: float = PAPER_C,
-                 delta: float = PAPER_DELTA, sigma_add: float = 0.0) -> float:
+def paper_lambda(
+    x: np.ndarray, *, paper_c: float = PAPER_C, delta: float = PAPER_DELTA, sigma_add: float = 0.0
+) -> float:
     """The paper's stop rule for one gene, in detail units.
 
     ``lam = C*sqrt(2(1+delta)*lnT)*sigma + sigma_add``. The ``1e-12 * max|x|``
@@ -117,9 +143,163 @@ def universe_floor(min_seg: int) -> int:
 # =============================================================================
 # CORE LOGIC — TGUH
 # =============================================================================
-def tguh_paper(x: np.ndarray, min_seg: int = MIN_SEG, *, paper_c: float = PAPER_C,
-               delta: float = PAPER_DELTA, rho: float = PAPER_RHO,
-               sigma_add: float = 0.0) -> list[tuple[int, int]]:
+class _ShortOutcome(StrEnum):
+    """What the short-segment forcing step did in one TGUH pass."""
+
+    NOT_SHORT = "not_short"
+    MERGED = "merged"
+    STUCK = "stuck"
+
+
+@dataclass
+class _TGUHState:
+    """Mutable region state for the tail-greedy merge loop, one live region per point."""
+
+    start: list[int]
+    end: list[int]
+    ssum: list[float]
+    size: list[int]
+    alive: list[bool]
+    left: list[int]
+    right: list[int]
+    alpha: int
+
+    def mean(self, i: int) -> float:
+        """Mean of region ``i``."""
+        return self.ssum[i] / self.size[i]
+
+    def detail(self, i: int) -> float:
+        """Scaled detail between region ``i`` and the live region on its right."""
+        j = self.right[i]
+        return detail_weight(self.size[i], self.size[j]) * (self.mean(i) - self.mean(j))
+
+    def merge(self, i: int) -> None:
+        """Absorb the region on ``i``'s right into ``i``."""
+        j = self.right[i]
+        self.ssum[i] += self.ssum[j]
+        self.size[i] += self.size[j]
+        self.end[i] = self.end[j]
+        self.alive[j] = False
+        k = self.right[j]
+        self.right[i] = k
+        if k != -1:
+            self.left[k] = i
+
+    def segments(self) -> list[tuple[int, int]]:
+        """Live regions as ``(lo, hi)`` half-open index pairs, in point order."""
+        return [(self.start[i], self.end[i]) for i in range(len(self.size)) if self.alive[i]]
+
+
+def _tguh_initial_state(x: np.ndarray) -> _TGUHState:
+    """One live region per point, each seeded with that point's value as its running sum."""
+    n = len(x)
+    right = [i + 1 for i in range(n)]
+    right[n - 1] = -1
+    return _TGUHState(
+        start=list(range(n)),
+        end=[i + 1 for i in range(n)],
+        ssum=list(map(float, x)),
+        size=[1] * n,
+        alive=[True] * n,
+        left=[i - 1 for i in range(n)],
+        right=right,
+        alpha=n,
+    )
+
+
+def _force_short_segment(state: _TGUHState, min_seg: int) -> _ShortOutcome:
+    """Merge the smallest sub-``min_seg`` region into its closer neighbour, if one exists."""
+    short = [i for i in range(len(state.size)) if state.alive[i] and state.size[i] < min_seg]
+    if not short:
+        return _ShortOutcome.NOT_SHORT
+    i = min(short, key=lambda k: state.size[k])
+    candidates = (
+        [(abs(state.mean(i) - state.mean(state.left[i])), state.left[i])]
+        if state.left[i] != -1
+        else []
+    )
+    if state.right[i] != -1:
+        candidates.append((abs(state.mean(i) - state.mean(state.right[i])), state.right[i]))
+    if not candidates:
+        return _ShortOutcome.STUCK
+    j = min(candidates)[1]
+    state.merge(min(i, j))
+    state.alpha -= 1
+    return _ShortOutcome.MERGED
+
+
+def _candidate_pairs(state: _TGUHState, lam: float) -> list[tuple[float, int]]:
+    """Adjacent pairs whose scaled detail is within ``lam``, as ``(detail, left index)``."""
+    pairs = []
+    i = 0
+    while i != -1:
+        j = state.right[i]
+        if j != -1:
+            d = abs(state.detail(i))
+            if d <= lam:
+                pairs.append((d, i))
+        i = state.right[i]
+    return pairs
+
+
+def _quota_merge(state: _TGUHState, pairs: list[tuple[float, int]], rho: float) -> None:
+    """Merge the smallest details, up to ``ceil(rho * alpha)`` per pass, skipping stale pairs."""
+    pairs.sort()
+    quota = max(1, int(np.ceil(rho * state.alpha)))
+    used: set[int] = set()
+    merged = 0
+    for _, i in pairs:
+        if merged >= quota:
+            break
+        j = state.right[i]
+        if not state.alive[i] or j == -1 or i in used or j in used:
+            continue
+        state.merge(i)
+        used.update((i, j))
+        merged += 1
+        state.alpha -= 1
+
+
+def _merge_residual_short_segments(
+    segments: list[tuple[int, int]], x: np.ndarray, lam: float
+) -> None:
+    """Merge surviving neighbours whose detail is still within ``lam``, in place."""
+    changed = True
+    while changed and len(segments) > 1:
+        changed = False
+        for k in range(1, len(segments)):
+            (a, b), (c, d) = segments[k - 1], segments[k]
+            detail = abs(detail_weight(b - a, d - c) * (x[a:b].mean() - x[c:d].mean()))
+            if detail <= lam:
+                segments[k - 1] = (a, d)
+                segments.pop(k)
+                changed = True
+                break
+
+
+def _tguh_step(state: _TGUHState, *, lam: float, rho: float, min_seg: int) -> bool:
+    """Run one tail-greedy pass; return False when no further merge is possible."""
+    if min_seg > 1:
+        outcome = _force_short_segment(state, min_seg)
+        if outcome is _ShortOutcome.STUCK:
+            return False
+        if outcome is _ShortOutcome.MERGED:
+            return True
+    pairs = _candidate_pairs(state, lam)
+    if pairs:
+        _quota_merge(state, pairs, rho)
+    return bool(pairs)
+
+
+def tguh_paper(
+    x: np.ndarray,
+    min_seg: int = MIN_SEG,
+    *,
+    paper_c: float = PAPER_C,
+    delta: float = PAPER_DELTA,
+    rho: float = PAPER_RHO,
+    sigma_add: float = 0.0,
+) -> list[tuple[int, int]]:
     """TGUH as published, with an optional minimum segment size.
 
     Merges the adjacent pair with the smallest scaled detail while that detail is
@@ -140,90 +320,15 @@ def tguh_paper(x: np.ndarray, min_seg: int = MIN_SEG, *, paper_c: float = PAPER_
     if n == 1:
         return [(0, 1)]
     lam = paper_lambda(x, paper_c=paper_c, delta=delta, sigma_add=sigma_add)
+    state = _tguh_initial_state(x)
+    while _tguh_step(state, lam=lam, rho=rho, min_seg=min_seg):
+        pass
 
-    start = list(range(n))
-    end = [i + 1 for i in range(n)]
-    ssum = list(map(float, x))
-    size = [1] * n
-    alive = [True] * n
-    left = [i - 1 for i in range(n)]
-    right = [i + 1 for i in range(n)]
-    right[n - 1] = -1
-    alpha = n
-
-    def mean(i: int) -> float:
-        return ssum[i] / size[i]
-
-    def detail(i: int) -> float:
-        j = right[i]
-        return detail_weight(size[i], size[j]) * (mean(i) - mean(j))
-
-    def merge(i: int) -> None:              # absorbs right[i] into i
-        j = right[i]
-        ssum[i] += ssum[j]
-        size[i] += size[j]
-        end[i] = end[j]
-        alive[j] = False
-        k = right[j]
-        right[i] = k
-        if k != -1:
-            left[k] = i
-
-    while True:
-        if min_seg > 1:
-            short = [i for i in range(n) if alive[i] and size[i] < min_seg]
-            if short:
-                i = min(short, key=lambda k: size[k])
-                cands = ([(abs(mean(i) - mean(left[i])), left[i])]
-                         if left[i] != -1 else [])
-                if right[i] != -1:
-                    cands.append((abs(mean(i) - mean(right[i])), right[i]))
-                if not cands:
-                    break
-                j = min(cands)[1]
-                merge(min(i, j))
-                alpha -= 1
-                continue
-        pairs = []
-        i = 0
-        while i != -1:
-            j = right[i]
-            if j != -1:
-                d = abs(detail(i))
-                if d <= lam:
-                    pairs.append((d, i))
-            i = right[i]
-        if not pairs:
-            break
-        pairs.sort()
-        quota = max(1, int(np.ceil(rho * alpha)))
-        used, merged = set(), 0
-        for _, i in pairs:
-            if merged >= quota:
-                break
-            j = right[i]
-            if not alive[i] or j == -1 or i in used or j in used:
-                continue
-            merge(i)
-            used.update((i, j))
-            merged += 1
-            alpha -= 1
-
-    segs = [(start[i], end[i]) for i in range(n) if alive[i]]
+    segments = state.segments()
     if min_seg == 1:
-        return segs
-    changed = True
-    while changed and len(segs) > 1:
-        changed = False
-        for k in range(1, len(segs)):
-            (a, b), (c, d) = segs[k - 1], segs[k]
-            dt = abs(detail_weight(b - a, d - c) * (x[a:b].mean() - x[c:d].mean()))
-            if dt <= lam:
-                segs[k - 1] = (a, d)
-                segs.pop(k)
-                changed = True
-                break
-    return segs
+        return segments
+    _merge_residual_short_segments(segments, x, lam)
+    return segments
 
 
 # =============================================================================
@@ -261,7 +366,9 @@ def segment_metrics(drs: np.ndarray, segments: list[tuple[int, int]]) -> list[di
     """
     sigma_gene = noise_sigma(drs)
     scale = [segment_scale(drs[lo:hi]) for lo, hi in segments]
-    se = [max(s, sigma_gene) / np.sqrt(hi - lo) for s, (lo, hi) in zip(scale, segments)]
+    se = [
+        max(s, sigma_gene) / np.sqrt(hi - lo) for s, (lo, hi) in zip(scale, segments, strict=False)
+    ]
     mean = [float(drs[lo:hi].mean()) for lo, hi in segments]
     return [
         {
@@ -269,8 +376,9 @@ def segment_metrics(drs: np.ndarray, segments: list[tuple[int, int]]) -> list[di
             "sigma_gene": sigma_gene,
             "H": scale[k] / sigma_gene if sigma_gene > 0 else np.nan,
             "se_seg": float(se[k]),
-            "z_boundary": (abs(mean[k] - mean[k - 1]) / np.hypot(se[k], se[k - 1])
-                           if k else np.nan),
+            "z_boundary": (
+                abs(mean[k] - mean[k - 1]) / np.hypot(se[k], se[k - 1]) if k else np.nan
+            ),
         }
         for k in range(len(segments))
     ]
@@ -302,12 +410,14 @@ def region_contrasts(means: np.ndarray, weights: np.ndarray) -> np.ndarray:
 def max_cut_contrast(x: np.ndarray, min_seg: int = MIN_SEG) -> float:
     """Max over internal cuts of |mean(L) - mean(R)| — the statistic ``perm_p`` nulls."""
     n = len(x)
-    return max((abs(x[:c].mean() - x[c:].mean())
-                for c in range(min_seg, n - min_seg + 1)), default=0.0)
+    return max(
+        (abs(x[:c].mean() - x[c:].mean()) for c in range(min_seg, n - min_seg + 1)), default=0.0
+    )
 
 
-def perm_p(x: np.ndarray, obs: float, n_perm: int, rng: np.random.Generator,
-           min_seg: int = MIN_SEG) -> float:
+def perm_p(
+    x: np.ndarray, obs: float, n_perm: int, rng: np.random.Generator, min_seg: int = MIN_SEG
+) -> float:
     """Permutation p for a max-over-cuts contrast: DR values shuffled against the fixed order.
 
     Vectorized over permutations, looping only over cuts. The null maximises over
@@ -325,8 +435,14 @@ def perm_p(x: np.ndarray, obs: float, n_perm: int, rng: np.random.Generator,
     return (int((edges >= obs).sum()) + 1) / (n_perm + 1)
 
 
-def segment_permutation(drs: np.ndarray, segments: list[tuple[int, int]], *, n_perm: int,
-                        rng: np.random.Generator, min_seg: int = MIN_SEG) -> tuple[list[float], float]:
+def segment_permutation(
+    drs: np.ndarray,
+    segments: list[tuple[int, int]],
+    *,
+    n_perm: int,
+    rng: np.random.Generator,
+    min_seg: int = MIN_SEG,
+) -> tuple[list[float], float]:
     """The two permutation p's: per segment against the rest of the gene, and per gene.
 
     ``perm_p_seg`` is ANTI-CONSERVATIVE — the segment was selected for exactly this
@@ -371,7 +487,8 @@ def _check() -> None:
     # a flat series has no noise to scale the threshold by -> one segment, not n
     flat = np.full(12, -0.5)
     assert tguh_paper(flat, 1, sigma_add=0.1) == [(0, 12)]
-    assert universe_floor(1) == 4 and universe_floor(2) == 6
+    assert universe_floor(1) == 4
+    assert universe_floor(2) == 6
 
     # two clean levels -> the change point comes back with a large boundary z and a
     # small calibrated p; H stays low because 12 points of MAD is a noisy scale
@@ -379,9 +496,11 @@ def _check() -> None:
     segs = tguh_paper(x, 1, sigma_add=0.1)
     assert segs == [(0, 12), (12, 24)], segs
     metrics = segment_metrics(x, segs)
-    assert np.isnan(metrics[0]["z_boundary"]) and metrics[1]["z_boundary"] > 5
+    assert np.isnan(metrics[0]["z_boundary"])
+    assert metrics[1]["z_boundary"] > 5
     per_seg, gene = segment_permutation(x, segs, n_perm=400, rng=rng)
-    assert per_seg[1] <= 0.01 and gene <= 1 / 401, (per_seg, gene)
+    assert per_seg[1] <= 0.01, (per_seg, gene)
+    assert gene <= 1 / 401, (per_seg, gene)
     assert all(m["H"] < 1.5 for m in metrics), [m["H"] for m in metrics]
 
     # a two-point gene has only its one difference to estimate noise from, and the
@@ -399,7 +518,7 @@ def _check() -> None:
     assert all(a >= b for a, b in itertools.pairwise(by_c)), by_c
     by_add = [len(tguh_paper(noisy, 1, sigma_add=a)) for a in (0.0, 0.1, 0.3)]
     assert all(a >= b for a, b in itertools.pairwise(by_add)), by_add
-    print("OK  mad_consistency / paper threshold / min_seg / reliability / permutation p")
+    logger.info("OK  mad_consistency / paper threshold / min_seg / reliability / permutation p")
 
 
 if __name__ == "__main__":

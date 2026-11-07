@@ -42,6 +42,7 @@ from pathlib import Path
 # Local project
 import cnsplots as cns
 from loguru import logger
+from matplotlib import font_manager
 from matplotlib.font_manager import FontProperties
 
 # Data processing / plotting
@@ -185,9 +186,20 @@ def dotplot_plot_frame(
     )
 
 
+def _installed_house_font() -> str:
+    """The first face of the house stack this machine actually has.
+
+    Measuring against the whole fallback chain makes matplotlib log one
+    "font family not found" warning per absent face, which is noise: only the
+    first installed face is ever used for measurement.
+    """
+    installed = {font.name for font in font_manager.fontManager.ttflist}
+    return next(name for name in plt.rcParams["font.sans-serif"] if name in installed)
+
+
 def label_width_pt(names: Iterable[str]) -> float:
     """Width the longest label needs at the house tick size, in points."""
-    font = FontProperties(family=plt.rcParams["font.sans-serif"], size=_tick_font_pt())
+    font = FontProperties(family=_installed_house_font(), size=_tick_font_pt())
     engine = TextToPath()
     widths = [engine.get_text_width_height_descent(str(name), font, False)[0] for name in names]
     return max(widths)
@@ -198,18 +210,6 @@ def rotated_label_height_pt(names: Iterable[str], angle_deg: float) -> float:
     angle = np.radians(angle_deg)
     width_pt = label_width_pt(names)
     return float(width_pt * np.sin(angle) + _tick_font_pt() * np.cos(angle))
-
-
-def _save_at_canvas_size(output_stem: Path) -> None:
-    """Save at the size cns.figure declared, not a box cropped around the artists."""
-    # Two separate crops have to be switched off: cns.setup_matplotlib() sets
-    # rcParams["savefig.bbox"]="tight", and cns.savefig() then adds its own tight bbox
-    # on top. Either one trims the row labels or the size legend off the page.
-    with (
-        plt.rc_context({"savefig.bbox": "standard"}),
-        cns.settings.context(savefig_bbox="standard"),
-    ):
-        save_dual(output_stem)
 
 
 def plot_dotplot(
@@ -234,7 +234,7 @@ def plot_dotplot(
     width = round(label_col_pt + MATRIX_PT + legend_pt + RIGHT_PAD_PT)
     height = round(TITLE_PT + _row_pitch_pt() * len(terms) + FOOTER_PT)
 
-    cns.figure(width=width, height=height)
+    cns.figure(width=width, height=height, unit="pt")
     figure = plt.gcf()
     # add_axes, not subplots: pycomplexheatmap's colorbar calls subplots_adjust(bottom=0),
     # which would wipe out the footer this canvas budgets for.
@@ -271,8 +271,12 @@ def plot_dotplot(
         cmap=DENSITY_CMAP,
     )
     plotter.hm_ax.set_title(title, loc="left")
+    # The plotter leaves x tick labels centre-anchored on the axis line, so they
+    # ride over the ticks. Re-anchor them at the top and centre them on the tick
+    # (cnsplots right-aligns them for its rotated default, which is wrong at 0).
+    plt.setp(plotter.hm_ax.get_xticklabels(), ha="center", va="top")
 
-    _save_at_canvas_size(output_stem)
+    save_dual(output_stem)
     plt.close(figure)
     logger.success(f"Wrote dotplot -> {output_stem}.pdf")
 
@@ -281,14 +285,14 @@ def _plot_empty_dotplot(output_stem: Path, title: str) -> None:
     """Write a one-line note figure when a variant has no significant term to plot."""
     width = LABEL_PAD_PT + MATRIX_PT + RIGHT_PAD_PT
     height = round(TITLE_PT + _row_pitch_pt() + FOOTER_PT)
-    cns.figure(width=width, height=height)
+    cns.figure(width=width, height=height, unit="pt")
     figure = plt.gcf()
     ax = figure.add_axes((0, 0, 1, 1))
     ax.axis("off")
     ax.set_title(title, loc="left")
     ax.text(0.5, 0.5, "no significant terms", ha="center", va="center")
 
-    _save_at_canvas_size(output_stem)
+    save_dual(output_stem)
     plt.close(figure)
     logger.warning(f"No significant terms; wrote a placeholder dotplot -> {output_stem}.pdf")
 
@@ -377,7 +381,7 @@ def plot_variant_heatmap(matrix: pd.DataFrame, term_names: pd.Series, output_ste
     width = round(label_col_pt + MATRIX_PT + COLORBAR_GAP_PT + COLORBAR_BAR_PT + COLORBAR_TEXT_PT)
     height = round(TITLE_PT + _row_pitch_pt() * len(matrix) + footer_pt)
 
-    cns.figure(width=width, height=height)
+    cns.figure(width=width, height=height, unit="pt")
     figure = plt.gcf()
     matrix_left = label_col_pt / width
     matrix_bottom = footer_pt / height
@@ -395,7 +399,7 @@ def plot_variant_heatmap(matrix: pd.DataFrame, term_names: pd.Series, output_ste
     cax = figure.add_axes((cbar_left, matrix_bottom, COLORBAR_BAR_PT / width, matrix_height_frac))
     figure.colorbar(image, cax=cax, label=r"$-\log_{10}$(FDR)", extend="neither")
 
-    _save_at_canvas_size(output_stem)
+    save_dual(output_stem)
     plt.close(figure)
     logger.success(f"Wrote variant heatmap -> {output_stem}.pdf")
 
@@ -413,7 +417,7 @@ def plot_variant_counts(counts: pd.DataFrame, output_stem: Path, fdr_threshold: 
     width = round(COUNTS_LEFT_PT + COUNTS_MATRIX_WIDTH_PT + legend_pt)
     height = round(COUNTS_TOP_PT + axes_height_pt + COUNTS_FOOTER_PT)
 
-    cns.figure(width=width, height=height)
+    cns.figure(width=width, height=height, unit="pt")
     figure = plt.gcf()
     ax = figure.add_axes(
         (
@@ -437,6 +441,6 @@ def plot_variant_counts(counts: pd.DataFrame, output_stem: Path, fdr_threshold: 
     ax.set_ylabel(ylabel)
     ax.legend(title="Variant", loc="upper left", bbox_to_anchor=(1.02, 1.0))
 
-    _save_at_canvas_size(output_stem)
+    save_dual(output_stem)
     plt.close(figure)
     logger.success(f"Wrote variant counts -> {output_stem}.pdf")

@@ -1,17 +1,16 @@
 """Tests for workflow/src/plotting/gene_level.py."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 
 import numpy as np
 import pandas as pd
-
 from workflow.src.plotting.gene_level import (
     CLUSTER_COLORS,
     DR_XLIM,
@@ -38,7 +37,13 @@ def _synthetic(n: int, n_clusters: int, cluster_col: str) -> pd.DataFrame:
 def test_value_column_constants():
     """Raw and fitted LFC columns are the 5 DIT-HAP time points."""
     assert RAW_VALUE_COLS == ["YES0", "YES1", "YES2", "YES3", "YES4"]
-    assert FITTED_VALUE_COLS == ["YES0_fitted", "YES1_fitted", "YES2_fitted", "YES3_fitted", "YES4_fitted"]
+    assert FITTED_VALUE_COLS == [
+        "YES0_fitted",
+        "YES1_fitted",
+        "YES2_fitted",
+        "YES3_fitted",
+        "YES4_fitted",
+    ]
 
 
 def test_visualize_merged_clusters_two_panels():
@@ -61,7 +66,8 @@ def test_cluster_scatter_uses_post_flip_dr_window():
     df = _synthetic(90, 9, "cluster")
     fig = visualize_cluster_on_feature_space(df, "cluster", cluster_minus_one=True)
     assert all(ax.get_xlim() == DR_XLIM for ax in fig.axes)
-    assert DR_XLIM[0] < 0 < DR_XLIM[1] and abs(DR_XLIM[0]) > DR_XLIM[1]
+    assert DR_XLIM[0] < 0 < DR_XLIM[1]
+    assert abs(DR_XLIM[0]) > DR_XLIM[1]
 
 
 def test_palette_sizes():

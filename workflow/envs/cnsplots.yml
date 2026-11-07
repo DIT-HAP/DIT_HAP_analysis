@@ -22,4 +22,4 @@ dependencies:
   - networkx>=3.3,<4
   - pyvis>=0.3.2,<0.4
   - pip:
-    - cnsplots==0.7.0
+    - cnsplots==0.8.0

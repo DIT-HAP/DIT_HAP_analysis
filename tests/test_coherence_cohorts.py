@@ -1,5 +1,5 @@
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
@@ -7,16 +7,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scrip
 
 import pandas as pd
 import pytest
+
 from io_table import write_parquet
 
 
 def _metrics(rows):
     """A minimal metrics frame: (source, group_id, z, q) rows."""
     return pd.DataFrame(
-        [{"source": src, "group_id": gid, "group_name": f"name {gid}",
-          "median_pairwise_distance_z": z, "q_value_coherent": q,
-          "scored_member_names": ["ada1", "bms1"]}
-         for src, gid, z, q in rows]
+        [
+            {
+                "source": src,
+                "group_id": gid,
+                "group_name": f"name {gid}",
+                "median_pairwise_distance_z": z,
+                "q_value_coherent": q,
+                "scored_member_names": ["ada1", "bms1"],
+            }
+            for src, gid, z, q in rows
+        ]
     )
 
 
@@ -34,17 +42,19 @@ def test_labels_apply_both_conditions_to_the_coherent_side(tmp_path):
     """Coherent needs q <= 0.05 AND z < -2; incoherent is z > 1 alone."""
     from export_cohorts import Cohort, label_cohorts
 
-    table = _metrics([
-        ("go_cc", "GO:1", -3.0, 0.01),   # coherent: both cuts pass
-        ("go_cc", "GO:2", -3.0, 0.40),   # tight but not significant -> other
-        ("go_cc", "GO:3", -1.0, 0.01),   # significant but not tight enough -> other
-        ("go_cc", "GO:4", 2.0, 0.43),    # incoherent: z only, no q requirement
-        ("go_cc", "GO:5", 0.5, 0.90),    # between the cuts -> other
-    ])
+    table = _metrics(
+        [
+            ("go_cc", "GO:1", -3.0, 0.01),  # coherent: both cuts pass
+            ("go_cc", "GO:2", -3.0, 0.40),  # tight but not significant -> other
+            ("go_cc", "GO:3", -1.0, 0.01),  # significant but not tight enough -> other
+            ("go_cc", "GO:4", 2.0, 0.43),  # incoherent: z only, no q requirement
+            ("go_cc", "GO:5", 0.5, 0.90),  # between the cuts -> other
+        ]
+    )
 
     labelled = label_cohorts(table, _config(tmp_path))
 
-    assert dict(zip(labelled["group_id"], labelled["cohort"])) == {
+    assert dict(zip(labelled["group_id"], labelled["cohort"], strict=False)) == {
         "GO:1": Cohort.COHERENT.value,
         "GO:2": Cohort.OTHER.value,
         "GO:3": Cohort.OTHER.value,
@@ -76,7 +86,9 @@ def test_dedup_flag_joins_on_source_and_group_id(tmp_path):
     metrics = _metrics([("go_cc", "GO:1", -3.0, 0.01), ("go_bp", "GO:1", -3.0, 0.01)])
     representatives = tmp_path / "reps.tsv"
     # Only go_bp's GO:1 survived de-duplication.
-    pd.DataFrame({"source": ["go_bp"], "group_id": ["GO:1"]}).to_csv(representatives, sep="\t", index=False)
+    pd.DataFrame({"source": ["go_bp"], "group_id": ["GO:1"]}).to_csv(
+        representatives, sep="\t", index=False
+    )
 
     flagged = attach_dedup_columns(metrics, representatives).set_index("source")
 
@@ -90,12 +102,14 @@ def test_dedup_columns_carry_moonlighting_fraction_from_the_all_terms_table(tmp_
 
     metrics = _metrics([("go_cc", "GO:1", -3.0, 0.01), ("go_cc", "GO:2", -3.0, 0.01)])
     dedup = tmp_path / "dedup.tsv"
-    pd.DataFrame({
-        "source": ["go_cc", "go_cc"],
-        "group_id": ["GO:1", "GO:2"],
-        "is_representative": [True, False],
-        "moonlighting_fraction": [0.25, 1.0],
-    }).to_csv(dedup, sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "source": ["go_cc", "go_cc"],
+            "group_id": ["GO:1", "GO:2"],
+            "is_representative": [True, False],
+            "moonlighting_fraction": [0.25, 1.0],
+        }
+    ).to_csv(dedup, sep="\t", index=False)
 
     merged = attach_dedup_columns(metrics, dedup).set_index("group_id")
 
@@ -109,11 +123,13 @@ def test_workbook_holds_one_sheet_per_cohort(tmp_path):
     from export_cohorts import build_sheets, label_cohorts, write_workbook
 
     config = _config(tmp_path)
-    table = _metrics([
-        ("go_cc", "GO:1", -3.0, 0.01),
-        ("go_cc", "GO:2", 2.0, 0.43),
-        ("go_cc", "GO:3", 0.5, 0.90),
-    ])
+    table = _metrics(
+        [
+            ("go_cc", "GO:1", -3.0, 0.01),
+            ("go_cc", "GO:2", 2.0, 0.43),
+            ("go_cc", "GO:3", 0.5, 0.90),
+        ]
+    )
 
     write_workbook(build_sheets(label_cohorts(table, config), config), config.output)
 
@@ -122,6 +138,8 @@ def test_workbook_holds_one_sheet_per_cohort(tmp_path):
     assert list(sheets["coherent"]["group_id"]) == ["GO:1"]
     assert list(sheets["incoherent"]["group_id"]) == ["GO:2"]
     assert len(sheets["all_terms"]) == 3
-    assert {"coherent_q_max", "coherent_z_threshold", "incoherent_z_threshold"} <= set(sheets["thresholds"]["cut"])
+    assert {"coherent_q_max", "coherent_z_threshold", "incoherent_z_threshold"} <= set(
+        sheets["thresholds"]["cut"]
+    )
     # The list column is joined for display, not written as an Excel-hostile repr.
     assert sheets["coherent"]["scored_member_names"].iloc[0] == "ada1, bms1"

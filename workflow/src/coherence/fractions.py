@@ -26,6 +26,7 @@ way and only the selection differs.
 
 Pure functions over frames; no IO.
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
@@ -93,7 +94,9 @@ def view_breadth(group_members: pd.DataFrame, clusters: set[str]) -> tuple[pd.Da
     # stops meaning "broader than the usual gene".
     cut = float(counts["n_groups"].quantile(MOONLIGHTING_QUANTILE)) if not counts.empty else 0.0
     counts["is_moonlighting"] = counts["n_groups"] > cut
-    return counts.sort_values(["n_groups", "gene"], ascending=[False, True]).reset_index(drop=True), cut
+    return counts.sort_values(["n_groups", "gene"], ascending=[False, True]).reset_index(
+        drop=True
+    ), cut
 
 
 def moonlighting_fraction(members: Iterable[str], moonlighting_ids: set[str]) -> float:

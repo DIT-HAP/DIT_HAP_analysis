@@ -36,9 +36,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -57,6 +57,7 @@ from ml.data import DR_FILTER, load_modeling_data
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Inputs, output, and the DR filter for modeling-data preparation."""
+
     feature_matrix: Path
     final_clusters: Path
     output: Path
@@ -90,12 +91,25 @@ def run(config: PrepareConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Prepare shared ML modeling data (merge + DR filter)")
-    parser.add_argument("--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv")
-    parser.add_argument("--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv")
+    parser = argparse.ArgumentParser(
+        description="Prepare shared ML modeling data (merge + DR filter)"
+    )
+    parser.add_argument(
+        "--feature-matrix", type=Path, required=True, help="Per-gene feature matrix tsv"
+    )
+    parser.add_argument(
+        "--final-clusters", type=Path, required=True, help="Curated final_clusters.tsv"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output modeling_data pickle")
-    parser.add_argument("--dr-filter", type=float, default=DR_FILTER, help="DR < filter threshold (negative = depleted; default -0.3)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--dr-filter",
+        type=float,
+        default=DR_FILTER,
+        help="DR < filter threshold (negative = depleted; default -0.3)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

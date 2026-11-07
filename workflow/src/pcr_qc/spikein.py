@@ -22,11 +22,10 @@ Usage
 # IMPORTS
 # =============================================================================
 # 1. Data Processing Imports
-import numpy as np
-import pandas as pd
-
 # 2. Third-party Imports
 from loguru import logger
+import numpy as np
+import pandas as pd
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -90,16 +89,21 @@ def build_spike_sites_df(raw_reads: pd.DataFrame, spike_in_sites: dict[str, dict
         try:
             reads = raw_reads.loc[key, :].to_numpy()
         except KeyError:
-            logger.warning(f"Spike-in site not found: {strain} ({info['chr']}:{info['coord']} {info['strand']})")
+            logger.warning(
+                f"Spike-in site not found: {strain} "
+                f"({info['chr']}:{info['coord']} {info['strand']})"
+            )
             continue
-        records.append({
-            "Chr": info["chr"],
-            "Coordinate": info["coord"],
-            "Strand": info["strand"],
-            "Strain": strain,
-            "Name": f"Spike-in Insertion {order}",
-            "Reads": reads,
-        })
+        records.append(
+            {
+                "Chr": info["chr"],
+                "Coordinate": info["coord"],
+                "Strand": info["strand"],
+                "Strain": strain,
+                "Name": f"Spike-in Insertion {order}",
+                "Reads": reads,
+            }
+        )
 
     if not records:
         raise ValueError("No spike-in sites found in the raw reads table")
@@ -118,16 +122,21 @@ def build_spike_in_stats(raw_reads: pd.DataFrame, spike_in_sites: dict[str, dict
     wide = pd.DataFrame(sites_df["Reads"].tolist(), columns=sample_names)
     wide[["Chr", "Coordinate", "Strand", "Strain", "Name"]] = sites_df[
         ["Chr", "Coordinate", "Strand", "Strain", "Name"]
-    ].values
+    ].to_numpy()
 
     long_df = (
         wide.sort_values(["Chr", "Coordinate"])
         .sort_values(["Strain"])
         .reset_index(drop=True)
-        .set_index(["Chr", "Coordinate", "Strand", "Name", "Strain"])
-        .rename_axis("Sample", axis=1)
-        .stack()
-        .to_frame("Reads")
+        .melt(
+            id_vars=["Chr", "Coordinate", "Strand", "Name", "Strain"],
+            var_name="Sample",
+            value_name="Reads",
+        )
     )
 
-    return long_df.groupby("Strain").apply(assign_ratio_by_order, spike_in_ratio=SPIKE_IN_RATIO).droplevel(0, axis=0)
+    return (
+        long_df.groupby("Strain")
+        .apply(assign_ratio_by_order, spike_in_ratio=SPIKE_IN_RATIO)
+        .droplevel(0, axis=0)
+    )

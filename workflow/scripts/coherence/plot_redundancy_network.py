@@ -60,20 +60,20 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
+from dataclasses import dataclass
 import html
 import json
-import sys
-from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
 import altair as alt
-import networkx as nx
-import numpy as np
-import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+import networkx as nx
+import numpy as np
+import pandas as pd
 from pyvis.network import Network
 
 # 4. Local Imports
@@ -85,8 +85,9 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 # work is behind a __main__ guard), which is also how tests/test_coherence_dedup.py
 # reaches it.
 sys.path.append(str(SCRIPT_DIR))
-from coherence.palette import source_colors
 from deduplicate_terms import jaccard_index, member_set
+
+from coherence.palette import source_colors
 from figures import FURNITURE_COLOR, house_colors
 from io_table import read_parquet
 from logging_setup import setup_logger
@@ -95,19 +96,36 @@ from logging_setup import setup_logger
 # GLOBAL CONSTANTS
 # =============================================================================
 _REQUIRED_COMBINED_COLUMNS = ["source", "group_id", "group_name", "scored_member_names"]
-_REQUIRED_DEDUP_COLUMNS = ["source", "group_id", "redundancy_cluster", "is_representative",
-                           "representative_source", "median_pairwise_distance_z",
-                           "q_value_coherent", "q_value_incoherent", "n_scored_members"]
+_REQUIRED_DEDUP_COLUMNS = [
+    "source",
+    "group_id",
+    "redundancy_cluster",
+    "is_representative",
+    "representative_source",
+    "median_pairwise_distance_z",
+    "q_value_coherent",
+    "q_value_incoherent",
+    "n_scored_members",
+]
 
 # Columns taken from the de-duplicated table. Its `scored_member_names` is a
 # comma-joined STRING (it is a human-facing TSV), while the combined Parquet's is a
 # real list column — joining on both and letting name suffixes pick a winner would
 # hand `member_set` the string and raise. Only the columns this script needs cross
 # the join, and the member sets come from the Parquet alone.
-_DEDUP_COLUMNS = ["source", "group_id", "redundancy_cluster", "is_representative",
-                  "representative_source", "representative_name",
-                  "median_pairwise_distance_z", "q_value_coherent",
-                  "q_value_incoherent", "n_scored_members", "n_annotated_members"]
+_DEDUP_COLUMNS = [
+    "source",
+    "group_id",
+    "redundancy_cluster",
+    "is_representative",
+    "representative_source",
+    "representative_name",
+    "median_pairwise_distance_z",
+    "q_value_coherent",
+    "q_value_incoherent",
+    "n_scored_members",
+    "n_annotated_members",
+]
 
 # Above this many terms a cluster is drawn without node names: the labels would
 # overlap into a grey block, and the hover tooltip still identifies a node.
@@ -152,22 +170,32 @@ _HOUSE_RED = house_colors((0,))[0]
 # A cluster's footprint grows as the 0.35 power of its term count, and its own
 # normalised layout is scaled into that footprint. The gap is what a reader sees as
 # the space between one network and the next.
-_OVERVIEW_CLUSTER_UNIT = 110.0   # footprint of a single-term cluster
+_OVERVIEW_CLUSTER_UNIT = 110.0  # footprint of a single-term cluster
 _OVERVIEW_SIZE_EXPONENT = 0.35
-_OVERVIEW_GAP = 160.0            # clearance between two clusters' footprints
-_OVERVIEW_SPREAD = 6.0           # initial spring box, in units of the radius mass
+_OVERVIEW_GAP = 160.0  # clearance between two clusters' footprints
+_OVERVIEW_SPREAD = 6.0  # initial spring box, in units of the radius mass
 _OVERVIEW_SEPARATION_PASSES = 60
-_OVERVIEW_RADIUS = (6.0, 26.0)   # vis.js node radius, sqrt-scaled by gene count
+_OVERVIEW_RADIUS = (6.0, 26.0)  # vis.js node radius, sqrt-scaled by gene count
 _OVERVIEW_EDGE_WIDTH = (0.3, 2.6)
 _OVERVIEW_HEIGHT_PX = 950
 
 # Columns the Altair page actually reads, per layer. See build_chart.
-_NODE_FIELDS = ["cluster_label", "group_name", "group_id", "source", "role",
-                "representative_source", "median_pairwise_distance_z",
-                "q_value_coherent", "q_value_incoherent",
-                "n_scored_members", "n_annotated_members", "x", "y"]
-_EDGE_FIELDS = ["cluster_label", "from", "to", "jaccard", "x", "y", "x2", "y2",
-                "mid_x", "mid_y"]
+_NODE_FIELDS = [
+    "cluster_label",
+    "group_name",
+    "group_id",
+    "source",
+    "role",
+    "representative_source",
+    "median_pairwise_distance_z",
+    "q_value_coherent",
+    "q_value_incoherent",
+    "n_scored_members",
+    "n_annotated_members",
+    "x",
+    "y",
+]
+_EDGE_FIELDS = ["cluster_label", "from", "to", "jaccard", "x", "y", "x2", "y2", "mid_x", "mid_y"]
 _LABEL_FIELDS = ["cluster_label", "group_name", "x", "y"]
 
 _NODE_TOOLTIP = [
@@ -190,6 +218,7 @@ _NODE_TOOLTIP = [
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
     """Inputs and outputs for the redundancy-network pages."""
+
     combined: Path
     deduplicated: Path
     output: Path
@@ -207,6 +236,7 @@ class PlotConfig:
 @dataclass(frozen=True, slots=True)
 class _Cluster:
     """One redundancy cluster: what it is called, what it holds, and where it goes."""
+
     label: str
     rows: pd.DataFrame
     names: list[str]
@@ -258,9 +288,7 @@ def cluster_radii(sizes: list[int]) -> list[float]:
     return [_OVERVIEW_CLUSTER_UNIT * float(size) ** _OVERVIEW_SIZE_EXPONENT for size in sizes]
 
 
-def separate(
-    centres: list[tuple[float, float]], radii: list[float]
-) -> list[tuple[float, float]]:
+def separate(centres: list[tuple[float, float]], radii: list[float]) -> list[tuple[float, float]]:
     """Push apart overlapping cluster discs, keeping the arrangement they came in."""
     # The spring layout knows nothing about how much room a cluster's own layout
     # needs, so its discs overlap. Resolving them pairwise — same as the classic
@@ -326,8 +354,11 @@ def cluster_places(
     radii = cluster_radii(sizes)
     if graph.number_of_edges():
         raw = nx.spring_layout(
-            graph, seed=_LAYOUT_SEED, iterations=_LAYOUT_ITERATIONS,
-            weight="weight", scale=1.0,
+            graph,
+            seed=_LAYOUT_SEED,
+            iterations=_LAYOUT_ITERATIONS,
+            weight="weight",
+            scale=1.0,
         )
     else:
         raw = nx.circular_layout(graph)
@@ -336,11 +367,13 @@ def cluster_places(
     # and the separation pass below can only blur it: measured on the real table, the
     # similarity of each cluster's three nearest neighbours rises from 4.9x to 14.2x
     # the chance level between 3x and 6x, while the outline stays as compact.
-    spread = _OVERVIEW_SPREAD * float(np.sqrt(sum(radius ** 2 for radius in radii)))
-    centres = [(float(raw[i][0] - 0.5) * spread, float(raw[i][1] - 0.5) * spread)
-               for i in range(len(representatives))]
+    spread = _OVERVIEW_SPREAD * float(np.sqrt(sum(radius**2 for radius in radii)))
+    centres = [
+        (float(raw[i][0] - 0.5) * spread, float(raw[i][1] - 0.5) * spread)
+        for i in range(len(representatives))
+    ]
     centres = pull_in_lonely(centres, graph)
-    return [(x, y, radius) for (x, y), radius in zip(separate(centres, radii), radii)]
+    return [(x, y, radius) for (x, y), radius in zip(separate(centres, radii), radii, strict=False)]
 
 
 def pull_in_lonely(
@@ -361,9 +394,12 @@ def pull_in_lonely(
         return centres
     centre_x = float(np.mean([position[0] for position in centres]))
     centre_y = float(np.mean([position[1] for position in centres]))
-    rim = float(np.percentile(
-        [np.hypot(x - centre_x, y - centre_y) for x, y in connected], 90,
-    ))
+    rim = float(
+        np.percentile(
+            [np.hypot(x - centre_x, y - centre_y) for x, y in connected],
+            90,
+        )
+    )
 
     pulled = list(centres)
     for index in lonely:
@@ -371,8 +407,7 @@ def pull_in_lonely(
         distance = float(np.hypot(x - centre_x, y - centre_y))
         if distance > rim:
             scale = rim / distance
-            pulled[index] = (centre_x + (x - centre_x) * scale,
-                             centre_y + (y - centre_y) * scale)
+            pulled[index] = (centre_x + (x - centre_x) * scale, centre_y + (y - centre_y) * scale)
     return pulled
 
 
@@ -385,8 +420,11 @@ def layout(nodes: int, edges: list[tuple[int, int, float]]) -> dict[int, tuple[f
         # Stronger (more redundant) pairs are pulled closer, so distance on the page
         # reads as dissimilarity about as well as a 2-D projection of it can.
         raw = nx.spring_layout(
-            graph, seed=_LAYOUT_SEED, iterations=_LAYOUT_ITERATIONS,
-            weight="weight", scale=1.0,
+            graph,
+            seed=_LAYOUT_SEED,
+            iterations=_LAYOUT_ITERATIONS,
+            weight="weight",
+            scale=1.0,
         )
     else:
         raw = nx.circular_layout(graph)
@@ -417,19 +455,24 @@ def cluster_backbone(rows: pd.DataFrame) -> tuple[list[str], list[tuple[int, int
     return names, edges, scale_positions(layout(len(rows), edges))
 
 
-def network_frames(combined: pd.DataFrame, table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """The (nodes, edges, labels) frames for every cluster worth drawing."""
+def _merge_member_sets(combined: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
+    """The deduplicated terms joined to their member sets, terms without one dropped."""
     merged = table[_DEDUP_COLUMNS].merge(
         combined[["source", "group_id", "group_name", "scored_member_names"]],
-        on=["source", "group_id"], how="left",
+        on=["source", "group_id"],
+        how="left",
     )
     # A term missing from the combined table cannot contribute a member set, and a
     # cluster built without it would silently misstate the merge.
     missing = int(merged["scored_member_names"].isna().sum())
-    if missing:
-        logger.warning(f"{missing} deduplicated term(s) absent from the combined table; excluded")
-        merged = merged[merged["scored_member_names"].notna()]
+    if not missing:
+        return merged
+    logger.warning(f"{missing} deduplicated term(s) absent from the combined table; excluded")
+    return merged[merged["scored_member_names"].notna()]
 
+
+def _collect_clusters(merged: pd.DataFrame) -> list[_Cluster]:
+    """Every cluster worth drawing, laid out and labelled before the overview packs them."""
     # Every cluster laid out and labelled first, because the overview places them
     # against each other and so needs all of them before it can put any one down.
     clusters = []
@@ -446,32 +489,39 @@ def network_frames(combined: pd.DataFrame, table: pd.DataFrame) -> tuple[pd.Data
         # its member set is what the overview measures cluster relatedness with.
         representative_members = member_set(rows["scored_member_names"].iloc[0])
         clusters.append(_Cluster(label, rows, names, edges, positions, representative_members))
+    return clusters
 
-    # Related clusters next to each other, each with room for its own layout. The
-    # packing is in `cluster_places`; this only converts the result into per-node
-    # coordinates by dropping each cluster's normalised layout into its footprint.
-    places = cluster_places(
-        [cluster.representative_members for cluster in clusters],
-        [len(cluster.rows) for cluster in clusters],
+
+def _cluster_rows(
+    cluster: _Cluster, centre_x: float, centre_y: float, radius: float
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Node, edge and label rows for one cluster placed in its overview footprint."""
+    label, rows, names, edges, positions = (
+        cluster.label,
+        cluster.rows,
+        cluster.names,
+        cluster.edges,
+        cluster.positions,
     )
 
+    # Binds this iteration's state explicitly (`positions` included), so the
+    # closure cannot go stale whatever the caller does with the loop variable.
+    def overview(
+        index: int,
+        positions: dict = positions,
+        centre_x: float = centre_x,
+        centre_y: float = centre_y,
+        radius: float = radius,
+    ) -> tuple[float, float]:
+        x, y = positions[index]
+        return centre_x + (x - 0.5) * 2 * radius, centre_y + (y - 0.5) * 2 * radius
+
     node_rows, edge_rows, label_rows = [], [], []
-    for cluster, (centre_x, centre_y, radius) in zip(clusters, places):
-        label, rows, names, edges, positions = (
-            cluster.label, cluster.rows, cluster.names, cluster.edges, cluster.positions
-        )
-
-        # Binds this iteration's state explicitly (`positions` included), so the
-        # closure cannot go stale whatever the caller does with the loop variable.
-        def overview(index: int, positions: dict = positions, centre_x: float = centre_x,
-                     centre_y: float = centre_y, radius: float = radius) -> tuple[float, float]:
-            x, y = positions[index]
-            return centre_x + (x - 0.5) * 2 * radius, centre_y + (y - 0.5) * 2 * radius
-
-        for index, (_, row) in enumerate(rows.iterrows()):
-            x, y = positions[index]
-            ox, oy = overview(index)
-            node_rows.append({
+    for index, (_, row) in enumerate(rows.iterrows()):
+        x, y = positions[index]
+        ox, oy = overview(index)
+        node_rows.append(
+            {
                 "cluster_label": label,
                 # Qualified by source: 173 group_ids appear in more than one source,
                 # and the overview addresses nodes by a single id.
@@ -486,27 +536,72 @@ def network_frames(combined: pd.DataFrame, table: pd.DataFrame) -> tuple[pd.Data
                 "q_value_incoherent": row["q_value_incoherent"],
                 "n_scored_members": row["n_scored_members"],
                 "n_annotated_members": row["n_annotated_members"],
-                "x": x, "y": y, "ox": ox, "oy": oy,
-            })
-            if len(rows) <= _MAX_LABELLED:
-                label_rows.append({
-                    "cluster_label": label, "group_name": row["group_name"], "x": x, "y": y,
-                })
+                "x": x,
+                "y": y,
+                "ox": ox,
+                "oy": oy,
+            }
+        )
+        if len(rows) <= _MAX_LABELLED:
+            label_rows.append(
+                {
+                    "cluster_label": label,
+                    "group_name": row["group_name"],
+                    "x": x,
+                    "y": y,
+                }
+            )
 
-        for i, j, weight in edges:
-            x1, y1 = positions[i]
-            x2, y2 = positions[j]
-            ox1, oy1 = overview(i)
-            ox2, oy2 = overview(j)
-            edge_rows.append({
+    for i, j, weight in edges:
+        x1, y1 = positions[i]
+        x2, y2 = positions[j]
+        ox1, oy1 = overview(i)
+        ox2, oy2 = overview(j)
+        edge_rows.append(
+            {
                 "cluster_label": label,
-                "from": names[i], "to": names[j], "jaccard": weight,
+                "from": names[i],
+                "to": names[j],
+                "jaccard": weight,
                 "from_id": f"{rows['source'].iloc[i]}:{rows['group_id'].iloc[i]}",
                 "to_id": f"{rows['source'].iloc[j]}:{rows['group_id'].iloc[j]}",
-                "x": x1, "y": y1, "x2": x2, "y2": y2,
-                "mid_x": (x1 + x2) / 2, "mid_y": (y1 + y2) / 2,
-                "ox": ox1, "oy": oy1, "ox2": ox2, "oy2": oy2,
-            })
+                "x": x1,
+                "y": y1,
+                "x2": x2,
+                "y2": y2,
+                "mid_x": (x1 + x2) / 2,
+                "mid_y": (y1 + y2) / 2,
+                "ox": ox1,
+                "oy": oy1,
+                "ox2": ox2,
+                "oy2": oy2,
+            }
+        )
+
+    return node_rows, edge_rows, label_rows
+
+
+def network_frames(
+    combined: pd.DataFrame, table: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The (nodes, edges, labels) frames for every cluster worth drawing."""
+    merged = _merge_member_sets(combined, table)
+    clusters = _collect_clusters(merged)
+
+    # Related clusters next to each other, each with room for its own layout. The
+    # packing is in `cluster_places`; this only converts the result into per-node
+    # coordinates by dropping each cluster's normalised layout into its footprint.
+    places = cluster_places(
+        [cluster.representative_members for cluster in clusters],
+        [len(cluster.rows) for cluster in clusters],
+    )
+
+    node_rows, edge_rows, label_rows = [], [], []
+    for cluster, (centre_x, centre_y, radius) in zip(clusters, places, strict=False):
+        nodes, edges, labels = _cluster_rows(cluster, centre_x, centre_y, radius)
+        node_rows.extend(nodes)
+        edge_rows.extend(edges)
+        label_rows.extend(labels)
 
     return pd.DataFrame(node_rows), pd.DataFrame(edge_rows), pd.DataFrame(label_rows)
 
@@ -537,13 +632,20 @@ def build_chart(nodes: pd.DataFrame, edges: pd.DataFrame, labels: pd.DataFrame) 
         .transform_filter(picker)
         .mark_rule(color=FURNITURE_COLOR)
         .encode(
-            **axes, x2="x2:Q", y2="y2:Q",
+            **axes,
+            x2="x2:Q",
+            y2="y2:Q",
             strokeWidth=alt.StrokeWidth(
-                "jaccard:Q", title="Jaccard",
-                scale=alt.Scale(domain=[0, 1], range=list(_EDGE_WIDTH_RANGE)), legend=None,
+                "jaccard:Q",
+                title="Jaccard",
+                scale=alt.Scale(domain=[0, 1], range=list(_EDGE_WIDTH_RANGE)),
+                legend=None,
             ),
-            tooltip=[alt.Tooltip("from:N", title="Term"), alt.Tooltip("to:N", title="with"),
-                     alt.Tooltip("jaccard:Q", title="Jaccard", format=".3f")],
+            tooltip=[
+                alt.Tooltip("from:N", title="Term"),
+                alt.Tooltip("to:N", title="with"),
+                alt.Tooltip("jaccard:Q", title="Jaccard", format=".3f"),
+            ],
         )
     )
     # The Jaccard is what justifies each edge, so on a readable cluster it is printed
@@ -557,7 +659,8 @@ def build_chart(nodes: pd.DataFrame, edges: pd.DataFrame, labels: pd.DataFrame) 
         .encode(
             # The edge's midpoint, not its endpoints: anchored on a node the number
             # would be drawn under that node's marker and never seen.
-            x=alt.X("mid_x:Q", axis=None), y=alt.Y("mid_y:Q", axis=None),
+            x=alt.X("mid_x:Q", axis=None),
+            y=alt.Y("mid_y:Q", axis=None),
             text=alt.Text("jaccard:Q", format=".2f"),
         )
     )
@@ -584,19 +687,30 @@ def build_chart(nodes: pd.DataFrame, edges: pd.DataFrame, labels: pd.DataFrame) 
             #
             # Both legends sit outside the frame: inside, they land on the cluster
             # whatever corner they take, because the spring layout fills the panel.
-            size=alt.Size("n_annotated_members:Q", title="Annotated genes",
-                          scale=alt.Scale(type="sqrt",
-                                          domain=[0, float(nodes["n_annotated_members"].max())],
-                                          range=[_NODE_SIZE_MIN, _NODE_SIZE_MAX]),
-                          legend=alt.Legend(orient="right", tickCount=5)),
-            color=alt.Color("source:N", title="Source",
-                            scale=alt.Scale(domain=_SOURCE_DOMAIN,
-                                            range=[_SOURCE_COLORS[s] for s in _SOURCE_DOMAIN]),
-                            legend=alt.Legend(orient="right", columns=1)),
-            stroke=alt.condition("datum.role === 'representative'",
-                                 alt.value(_HOUSE_RED), alt.value("white")),
-            strokeWidth=alt.condition("datum.role === 'representative'",
-                                      alt.value(3), alt.value(1)),
+            size=alt.Size(
+                "n_annotated_members:Q",
+                title="Annotated genes",
+                scale=alt.Scale(
+                    type="sqrt",
+                    domain=[0, float(nodes["n_annotated_members"].max())],
+                    range=[_NODE_SIZE_MIN, _NODE_SIZE_MAX],
+                ),
+                legend=alt.Legend(orient="right", tickCount=5),
+            ),
+            color=alt.Color(
+                "source:N",
+                title="Source",
+                scale=alt.Scale(
+                    domain=_SOURCE_DOMAIN, range=[_SOURCE_COLORS[s] for s in _SOURCE_DOMAIN]
+                ),
+                legend=alt.Legend(orient="right", columns=1),
+            ),
+            stroke=alt.condition(
+                "datum.role === 'representative'", alt.value(_HOUSE_RED), alt.value("white")
+            ),
+            strokeWidth=alt.condition(
+                "datum.role === 'representative'", alt.value(3), alt.value(1)
+            ),
             tooltip=_NODE_TOOLTIP,
         )
     )
@@ -612,7 +726,8 @@ def build_chart(nodes: pd.DataFrame, edges: pd.DataFrame, labels: pd.DataFrame) 
         (links + weights + names + points)
         .add_params(picker)
         .properties(
-            width=_CHART_WIDTH, height=_CHART_HEIGHT,
+            width=_CHART_WIDTH,
+            height=_CHART_HEIGHT,
             title=alt.TitleParams("Coherence redundancy clusters", subtitle=subtitle),
         )
         .configure_view(stroke=None)
@@ -657,8 +772,13 @@ def write_overview(nodes: pd.DataFrame, edges: pd.DataFrame, path: Path) -> None
     # are drawn for representatives only — 1,944 labels is not a figure — so each
     # cluster reads as one annotated blob, and every node still answers on hover.
     net = Network(
-        height=f"{_OVERVIEW_HEIGHT_PX}px", width="100%", bgcolor="#ffffff",
-        font_color="#222222", directed=False, notebook=False, cdn_resources="remote",
+        height=f"{_OVERVIEW_HEIGHT_PX}px",
+        width="100%",
+        bgcolor="#ffffff",
+        font_color="#222222",
+        directed=False,
+        notebook=False,
+        cdn_resources="remote",
     )
     net.toggle_physics(False)
 
@@ -671,7 +791,8 @@ def write_overview(nodes: pd.DataFrame, edges: pd.DataFrame, path: Path) -> None
             row["node_id"],
             label=row["group_name"] if representative else "",
             title=node_tooltip(row),
-            x=row["ox"], y=row["oy"],
+            x=row["ox"],
+            y=row["oy"],
             size=overview_radius(row["n_annotated_members"]),
             shape="dot",
             color={
@@ -690,23 +811,32 @@ def write_overview(nodes: pd.DataFrame, edges: pd.DataFrame, path: Path) -> None
 
     for row in edges.to_dict("records"):
         net.add_edge(
-            row["from_id"], row["to_id"],
+            row["from_id"],
+            row["to_id"],
             width=overview_edge_width(row["jaccard"]),
             color=f"rgba(120, 120, 120, {0.25 + 0.6 * row['jaccard']:.2f})",
             title=f"Jaccard {row['jaccard']:.3f}",
         )
 
-    net.set_options(json.dumps({
-        # `set_options` REPLACES pyvis's options object rather than merging into it,
-        # so this has to be here as well as in toggle_physics() above: calling the
-        # latter on its own is silently undone by this call, and the page then runs
-        # a physics simulation over 1,944 equally-positioned nodes to no effect.
-        "physics": {"enabled": False},
-        "interaction": {"hover": True, "tooltipDelay": 120, "navigationButtons": True,
-                        "keyboard": {"enabled": False}},
-        "nodes": {"font": {"size": 14, "face": "sans-serif"}},
-        "edges": {"smooth": False},
-    }))
+    net.set_options(
+        json.dumps(
+            {
+                # `set_options` REPLACES pyvis's options object rather than merging into it,
+                # so this has to be here as well as in toggle_physics() above: calling the
+                # latter on its own is silently undone by this call, and the page then runs
+                # a physics simulation over 1,944 equally-positioned nodes to no effect.
+                "physics": {"enabled": False},
+                "interaction": {
+                    "hover": True,
+                    "tooltipDelay": 120,
+                    "navigationButtons": True,
+                    "keyboard": {"enabled": False},
+                },
+                "nodes": {"font": {"size": 14, "face": "sans-serif"}},
+                "edges": {"smooth": False},
+            }
+        )
+    )
     net.write_html(str(path), notebook=False, open_browser=False)
     close_loading_bar(path)
 
@@ -745,7 +875,9 @@ def run(config: PlotConfig) -> None:
     table = pd.read_csv(config.deduplicated, sep="\t")
     missing = [column for column in _REQUIRED_DEDUP_COLUMNS if column not in table.columns]
     if missing:
-        raise ValueError(f"deduplicated table missing required column(s) {missing} (have: {list(table.columns)})")
+        raise ValueError(
+            f"deduplicated table missing required column(s) {missing} (have: {list(table.columns)})"
+        )
 
     nodes, edges, labels = network_frames(combined, table)
     if nodes.empty:
@@ -762,13 +894,27 @@ def run(config: PlotConfig) -> None:
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Interactive Altair network of the coherence redundancy clusters")
-    parser.add_argument("--combined", type=Path, required=True, help="combined/coherence_metrics.parquet")
-    parser.add_argument("--deduplicated", type=Path, required=True, help="dedup/coherence_terms_deduplicated.tsv")
-    parser.add_argument("--output", type=Path, required=True, help="Output HTML page: one cluster at a time")
-    parser.add_argument("--output-overview", type=Path, required=True,
-                        help="Output HTML page: every cluster at once (pyvis)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="Interactive Altair network of the coherence redundancy clusters"
+    )
+    parser.add_argument(
+        "--combined", type=Path, required=True, help="combined/coherence_metrics.parquet"
+    )
+    parser.add_argument(
+        "--deduplicated", type=Path, required=True, help="dedup/coherence_terms_deduplicated.tsv"
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output HTML page: one cluster at a time"
+    )
+    parser.add_argument(
+        "--output-overview",
+        type=Path,
+        required=True,
+        help="Output HTML page: every cluster at once (pyvis)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

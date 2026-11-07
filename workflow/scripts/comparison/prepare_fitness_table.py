@@ -27,7 +27,8 @@ Usage
 -----
     python workflow/scripts/comparison/prepare_fitness_table.py \\
         --protein-features results/1b_features/2026-06-01/pombe_coding_gene_protein_features.tsv \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --annotation-reference
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output-fitness-table results/6a_comparison/HD_DIT_HAP/_work/fitness_table.parquet
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
@@ -40,15 +41,15 @@ Version:  3.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -67,6 +68,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, frozen=True, slots=True)
 class PrepareConfig:
     """Feature TSV + annotation reference parquet inputs and the parquet output."""
+
     protein_features: Path
     annotation_reference: Path
     clip_upper: float
@@ -104,12 +106,33 @@ def run(config: PrepareConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Prepare the merged fitness table parquet intermediate")
-    parser.add_argument("--protein-features", type=Path, required=True, help="pombe_coding_gene_protein_features.tsv")
-    parser.add_argument("--annotation-reference", type=Path, required=True, help="gene_annotation_reference.protein.parquet")
-    parser.add_argument("--clip-upper", type=float, default=CLIP_UPPER, help="Upper cap for integration-density columns")
-    parser.add_argument("--output-fitness-table", type=Path, required=True, help="Output fitness_table.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="Prepare the merged fitness table parquet intermediate"
+    )
+    parser.add_argument(
+        "--protein-features",
+        type=Path,
+        required=True,
+        help="pombe_coding_gene_protein_features.tsv",
+    )
+    parser.add_argument(
+        "--annotation-reference",
+        type=Path,
+        required=True,
+        help="gene_annotation_reference.protein.parquet",
+    )
+    parser.add_argument(
+        "--clip-upper",
+        type=float,
+        default=CLIP_UPPER,
+        help="Upper cap for integration-density columns",
+    )
+    parser.add_argument(
+        "--output-fitness-table", type=Path, required=True, help="Output fitness_table.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -20,17 +20,17 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")  # headless: this script only writes a PDF, never displays
-import matplotlib.pyplot as plt
+mpl.use("Agg")  # headless: this script only writes a PDF, never displays
 from loguru import logger
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 
 # 3. Local Imports (relative path resolution)
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -47,6 +47,7 @@ from noncoding_rna.core import plot_feature_type_donut, plot_trna_summary
 @dataclass(kw_only=True, frozen=True)
 class FiguresConfig:
     """Parquet inputs + PDF output for the ncRNA figures."""
+
     combined: Path
     nuclear_trnas: Path
     output_figures: Path
@@ -78,7 +79,10 @@ def run(config: FiguresConfig) -> None:
     plt.close(fig_donut)
     plt.close(fig_trna)
 
-    logger.success(f"ncRNA figures: {len(combined):,} annotated ncRNA genes, {len(nuclear_trnas):,} nuclear tRNAs")
+    logger.success(
+        f"ncRNA figures: {len(combined):,} annotated ncRNA genes, "
+        f"{len(nuclear_trnas):,} nuclear tRNAs"
+    )
 
 
 # =============================================================================
@@ -86,11 +90,19 @@ def run(config: FiguresConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Non-coding RNA figures (Feature-type donut + tRNA copy-number PDF)")
+    parser = argparse.ArgumentParser(
+        description="Non-coding RNA figures (Feature-type donut + tRNA copy-number PDF)"
+    )
     parser.add_argument("--combined", type=Path, required=True, help="Input combined.parquet")
-    parser.add_argument("--nuclear-trnas", type=Path, required=True, help="Input nuclear_trnas.parquet")
-    parser.add_argument("--output-figures", type=Path, required=True, help="Output ncRNA figures PDF")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--nuclear-trnas", type=Path, required=True, help="Input nuclear_trnas.parquet"
+    )
+    parser.add_argument(
+        "--output-figures", type=Path, required=True, help="Output ncRNA figures PDF"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

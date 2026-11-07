@@ -35,11 +35,11 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # =============================================================================
 # GLOBAL CONSTANTS
@@ -54,7 +54,9 @@ DR_FILTER = -0.3
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def load_modeling_data(feature_matrix: Path, final_clusters: Path, dr_filter: float = DR_FILTER) -> pd.DataFrame:
+def load_modeling_data(
+    feature_matrix: Path, final_clusters: Path, dr_filter: float = DR_FILTER
+) -> pd.DataFrame:
     """Merge feature matrix + targets, filter to DR < threshold (notebook behavior)."""
     features = pd.read_csv(feature_matrix, sep="\t")
     targets = pd.read_csv(final_clusters, sep="\t").rename(
@@ -62,7 +64,7 @@ def load_modeling_data(feature_matrix: Path, final_clusters: Path, dr_filter: fl
     )[["Systematic_ID", "A", "DR", "DL", "DIT_HAP_cluster"]]
 
     data = (
-        pd.merge(features, targets, left_on="gene_systematic_id", right_on="Systematic_ID", how="left")
+        features.merge(targets, left_on="gene_systematic_id", right_on="Systematic_ID", how="left")
         .drop(columns=["Systematic_ID"])
         .rename(columns={"gene_systematic_id": "Systematic_ID"})
         .query(f"DR < {dr_filter}")

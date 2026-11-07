@@ -40,15 +40,15 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -68,6 +68,7 @@ class MethodConfig:
     Clusters to `n_intermediate` when set (merge variants), else `final_n_clusters`
     (direct variants).
     """
+
     method: str
     scaled_data: Path
     output_labels: Path
@@ -81,16 +82,20 @@ class MethodConfig:
         return self.n_intermediate if self.n_intermediate is not None else self.final_n_clusters
 
     def validate(self) -> None:
-        """Raise ValueError on an unknown method, missing input, or bad k; ensure output dir exists."""
+        """Raise ValueError on an unknown method, missing input, or bad k; ensure output dir
+        exists."""
         if self.method not in METHODS:
-            raise ValueError(f"Unknown clustering method: {self.method!r} (expected one of {METHODS})")
+            raise ValueError(
+                f"Unknown clustering method: {self.method!r} (expected one of {METHODS})"
+            )
         if not self.scaled_data.exists():
             raise ValueError(f"Required input not found: {self.scaled_data}")
         if self.n_clusters <= 1:
             raise ValueError("n_clusters must be greater than 1.")
         if self.n_intermediate is not None and self.n_intermediate < self.final_n_clusters:
             raise ValueError(
-                f"n_intermediate ({self.n_intermediate}) must be >= final_n_clusters ({self.final_n_clusters})"
+                f"n_intermediate ({self.n_intermediate}) must be >= "
+                f"final_n_clusters ({self.final_n_clusters})"
             )
         self.output_labels.parent.mkdir(parents=True, exist_ok=True)
 
@@ -111,7 +116,10 @@ def run(config: MethodConfig) -> None:
     # Index labels by systematic ID so the finalize/merge rules can map them back safely.
     label_series = pd.Series(labels, index=scaled_data.index, name="cluster")
     write_parquet(label_series, config.output_labels)
-    logger.success(f"[{config.method}] {len(label_series)} genes labeled at k={config.n_clusters} -> {config.output_labels}")
+    logger.success(
+        f"[{config.method}] {len(label_series)} genes labeled at "
+        f"k={config.n_clusters} -> {config.output_labels}"
+    )
 
 
 # =============================================================================
@@ -121,12 +129,28 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Cluster one variant's method (labels only)")
     parser.add_argument("--method", required=True, choices=METHODS, help="Clustering method to run")
-    parser.add_argument("--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle")
-    parser.add_argument("--output-labels", type=Path, required=True, help="Output labels parquet (pd.Series)")
-    parser.add_argument("--final-n-clusters", type=int, default=FINAL_N_CLUSTERS, help=f"Final cluster count (default {FINAL_N_CLUSTERS})")
-    parser.add_argument("--n-intermediate", type=int, default=None, help="Transitional cluster count for merge variants (default: none -> cluster to final)")
+    parser.add_argument(
+        "--scaled-data", type=Path, required=True, help="Scaled (DR, DL) matrix pickle"
+    )
+    parser.add_argument(
+        "--output-labels", type=Path, required=True, help="Output labels parquet (pd.Series)"
+    )
+    parser.add_argument(
+        "--final-n-clusters",
+        type=int,
+        default=FINAL_N_CLUSTERS,
+        help=f"Final cluster count (default {FINAL_N_CLUSTERS})",
+    )
+    parser.add_argument(
+        "--n-intermediate",
+        type=int,
+        default=None,
+        help="Transitional cluster count for merge variants (default: none -> cluster to final)",
+    )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed (default 42)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -12,9 +12,11 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+from collections.abc import Sequence
+from pathlib import Path
 import sys
 import textwrap
-from pathlib import Path
+from typing import Any
 
 # Add workflow/src to path for imports
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,10 +25,13 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 import cnsplots as cns
+from loguru import logger
+from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
+from matplotlib.transforms import Bbox
 import pandas as pd
+
 from figures import (
-    JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
     PANEL_SIZES_PX,
     PanelShape,
@@ -34,7 +39,6 @@ from figures import (
     panel_labels,
     save_dual,
 )
-from loguru import logger
 
 from ._schema import require_columns
 from .donut import draw_donut_panel
@@ -54,7 +58,6 @@ from .donut import draw_donut_panel
 BAR_PANEL_WIDTH_PX, BAR_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 BAR_PANEL_PAD_LEFT_PX = 45  # gap for the category names, as in the gallery
 BAR_PANEL_MARGIN_RIGHT_PX = 8  # match the donut host's right margin
-MULTIPANEL_MAX_WIDTH_PX = 250
 DONUT_PANEL_WIDTH_PX, DONUT_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 DONUTS_PER_ROW = 2
 DONUT_PANEL_MARGIN_RIGHT_PX = 8
@@ -126,18 +129,159 @@ def _label_bars(
     for index, row in df.reset_index(drop=True).iterrows():
         part, whole = int(row[part_column]), int(row[whole_column])
         ax.text(
-            x0 + BAR_LABEL_PAD_PCT, index,
+            x0 + BAR_LABEL_PAD_PCT,
+            index,
             f"{row[percentage_column]:.1f}% ({part:,}/{part + whole:,})",
             # center_baseline, not center: "center" centres the layout box, whose
             # descent reserves room the digits never use, so the glyphs ride
             # high in the bar. This centres the digit body instead.
-            ha="left", va="center_baseline", color=BAR_LABEL_COLOR,
+            ha="left",
+            va="center_baseline",
+            color=BAR_LABEL_COLOR,
         )
 
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _render_empty_composition(output_stem: Path) -> None:
+    """Render the placeholder page shown when there is no composition data."""
+    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt")
+    ax = multipanel.panel(label="A")
+    ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+    save_dual(output_stem)
+
+
+def _create_bar_panel(multipanel: Any, label: str) -> plt.Axes:
+    """Create panel A with the bar layout reserves; the bars are drawn afterwards."""
+    return multipanel.panel(
+        label=label,
+        width=BAR_PANEL_WIDTH_PX,
+        height=BAR_PANEL_HEIGHT_PX,
+        pad_left=BAR_PANEL_PAD_LEFT_PX,
+        margin_right=BAR_PANEL_MARGIN_RIGHT_PX,
+        margin_bottom=BAR_PANEL_MARGIN_BOTTOM_PX,
+    )
+
+
+def _draw_bar_panel(
+    ax_bar: plt.Axes,
+    df: pd.DataFrame,
+    *,
+    category_column: str,
+    percentage_column: str,
+    part_column: str,
+    whole_column: str,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+) -> None:
+    """Draw the percentage bars and label each one with its counts."""
+    cns.barplot(data=df, y=category_column, x=percentage_column, ax=ax_bar)
+    ax_bar.set_ylabel(ylabel)
+    ax_bar.set_xlabel(xlabel)
+    ax_bar.set_title(title)
+    ax_bar.set_xlim(0, 100)
+
+    _label_bars(
+        ax_bar,
+        df,
+        percentage_column=percentage_column,
+        part_column=part_column,
+        whole_column=whole_column,
+    )
+
+
+def _donut_host_size_px(n_donut_rows: int) -> tuple[float, float]:
+    """Return the host rectangle that gives every donut a 100 x 100 pt axes box.
+
+    GridSpec's ``wspace``/``hspace`` are fractions of the average cell size, so
+    the gaps are part of the host and must be solved for rather than added on
+    top: a 2 x n grid of 100 pt cells needs ``2*100 + 0.35*100`` by
+    ``n*100 + 0.52*(n-1)*100``.
+    """
+    width = (
+        DONUTS_PER_ROW * DONUT_PANEL_WIDTH_PX
+        + (DONUTS_PER_ROW - 1) * DONUT_GRID_WSPACE * DONUT_PANEL_WIDTH_PX
+    )
+    height = (
+        n_donut_rows * DONUT_PANEL_HEIGHT_PX
+        + (n_donut_rows - 1) * DONUT_GRID_HSPACE * DONUT_PANEL_HEIGHT_PX
+    )
+    return width, height
+
+
+def _create_donut_host(multipanel: Any, n_donut_rows: int) -> plt.Axes:
+    """Create the invisible host rectangle whose bounds become the donut grid."""
+    width, height = _donut_host_size_px(n_donut_rows)
+    return multipanel.panel(
+        label="",
+        width=width,
+        height=height,
+        margin_right=DONUT_PANEL_MARGIN_RIGHT_PX,
+        margin_bottom=DONUT_PANEL_MARGIN_BOTTOM_PX,
+    )
+
+
+def _donut_gridspec(fig: plt.Figure, host_box: Bbox, n_donut_rows: int) -> GridSpec:
+    """Subdivide the measured host rectangle into the donut grid."""
+    return fig.add_gridspec(
+        n_donut_rows,
+        DONUTS_PER_ROW,
+        left=host_box.x0,
+        right=host_box.x1,
+        bottom=host_box.y0,
+        top=host_box.y1,
+        wspace=DONUT_GRID_WSPACE,
+        hspace=DONUT_GRID_HSPACE,
+    )
+
+
+def _draw_donut_cells(
+    fig: plt.Figure,
+    gridspec: GridSpec,
+    df: pd.DataFrame,
+    labels: Sequence[str],
+    *,
+    category_column: str,
+    part_column: str,
+    whole_column: str,
+    part_label: str,
+    whole_label: str,
+) -> None:
+    """Draw one part/whole donut per category into its own grid cell."""
+    for cell_index, (label, (_, row)) in enumerate(zip(labels, df.iterrows(), strict=True)):
+        ax_donut = fig.add_subplot(
+            gridspec[cell_index // DONUTS_PER_ROW, cell_index % DONUTS_PER_ROW]
+        )
+        cns.setup_ax(ax_donut)
+        plt.sca(ax_donut)
+        cns.add_panel_label(label)
+
+        category = str(row[category_column])
+        part, whole = int(row[part_column]), int(row[whole_column])
+        if part + whole == 0:
+            ax_donut.set_axis_off()
+            ax_donut.text(
+                0.5,
+                0.5,
+                f"{category}\n(no data)",
+                ha="center",
+                va="center",
+                transform=ax_donut.transAxes,
+            )
+            continue
+
+        draw_donut_panel(
+            ax_donut,
+            part,
+            whole,
+            part_label=part_label,
+            whole_label=whole_label,
+            center_text=f"{_wrap_center_text(category)}\n(n = {part + whole:,})",
+        )
+
+
 @logger.catch(reraise=True)
 def render_composition_figure(
     df: pd.DataFrame,
@@ -172,18 +316,13 @@ def render_composition_figure(
 
     if df.empty:
         logger.warning("No composition data to plot!")
-        cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-        multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
-        ax = multipanel.panel(label="A")
-        ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
-        save_dual(output_stem)
+        _render_empty_composition(output_stem)
         return
 
     n_categories = len(df)
     logger.info(f"Creating figure with {1 + n_categories} panels ({n_categories} categories)...")
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=MULTIPANEL_MAX_WIDTH_PX)
+    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt")
     labels = panel_labels(1 + n_categories)
 
     n_donut_rows = (n_categories + DONUTS_PER_ROW - 1) // DONUTS_PER_ROW
@@ -191,37 +330,23 @@ def render_composition_figure(
     # Panel A: horizontal percentage bars, categories down the y axis so long
     # names stay readable; each bar is labelled with its percentage and
     # covered/total counts, left-aligned at the axis.
-    ax_bar = multipanel.panel(
-        label=labels[0],
-        width=BAR_PANEL_WIDTH_PX,
-        height=BAR_PANEL_HEIGHT_PX,
-        pad_left=BAR_PANEL_PAD_LEFT_PX,
-        margin_right=BAR_PANEL_MARGIN_RIGHT_PX,
-        margin_bottom=BAR_PANEL_MARGIN_BOTTOM_PX,
-    )
+    ax_bar = _create_bar_panel(multipanel, labels[0])
 
     # An empty host rectangle whose coordinates become the donut grid's bounds.
     # Sized for the whole block so the grid inherits one aligned pitch.
     # No label here — the first donut cell will carry labels[1].
-    host = multipanel.panel(
-        label="",
-        width=DONUT_PANEL_WIDTH_PX * DONUTS_PER_ROW,
-        height=DONUT_PANEL_HEIGHT_PX * n_donut_rows,
-        margin_right=DONUT_PANEL_MARGIN_RIGHT_PX,
-        margin_bottom=DONUT_PANEL_MARGIN_BOTTOM_PX,
-    )
+    host = _create_donut_host(multipanel, n_donut_rows)
 
-    cns.barplot(data=df, y=category_column, x=percentage_column, ax=ax_bar)
-    ax_bar.set_ylabel(ylabel)
-    ax_bar.set_xlabel(xlabel)
-    ax_bar.set_title(title)
-    ax_bar.set_xlim(0, 100)
-
-    _label_bars(
-        ax_bar, df,
+    _draw_bar_panel(
+        ax_bar,
+        df,
+        category_column=category_column,
         percentage_column=percentage_column,
         part_column=part_column,
         whole_column=whole_column,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        title=title,
     )
 
     # Every mp.panel() call is done, so the host's rectangle is final. Draw
@@ -233,40 +358,21 @@ def render_composition_figure(
     host.set_axis_off()
     host.set_gid(DONUT_GRID_HOST_GID)
 
-    gridspec = fig.add_gridspec(
-        n_donut_rows,
-        DONUTS_PER_ROW,
-        left=host_box.x0,
-        right=host_box.x1,
-        bottom=host_box.y0,
-        top=host_box.y1,
-        wspace=DONUT_GRID_WSPACE,
-        hspace=DONUT_GRID_HSPACE,
-    )
+    gridspec = _donut_gridspec(fig, host_box, n_donut_rows)
 
     # Donut cells: part vs whole per category, in the frame's row order.
     # All cells get their own letter from labels[1] onwards.
-    for cell_index, (label, (_, row)) in enumerate(zip(labels[1:], df.iterrows(), strict=True)):
-        ax_donut = fig.add_subplot(
-            gridspec[cell_index // DONUTS_PER_ROW, cell_index % DONUTS_PER_ROW]
-        )
-        cns.setup_ax(ax_donut)
-        plt.sca(ax_donut)
-        cns.add_panel_label(label)
-
-        category = str(row[category_column])
-        part, whole = int(row[part_column]), int(row[whole_column])
-        if part + whole == 0:
-            ax_donut.set_axis_off()
-            ax_donut.text(0.5, 0.5, f"{category}\n(no data)", ha="center", va="center",
-                          transform=ax_donut.transAxes)
-            continue
-
-        draw_donut_panel(
-            ax_donut, part, whole,
-            part_label=part_label, whole_label=whole_label,
-            center_text=f"{_wrap_center_text(category)}\n(n = {part + whole:,})",
-        )
+    _draw_donut_cells(
+        fig,
+        gridspec,
+        df,
+        labels[1:],
+        category_column=category_column,
+        part_column=part_column,
+        whole_column=whole_column,
+        part_label=part_label,
+        whole_label=whole_label,
+    )
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

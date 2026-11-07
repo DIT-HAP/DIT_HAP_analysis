@@ -36,9 +36,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -58,6 +58,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class NetworkConfig:
     """Inputs/outputs for network-level feature collection."""
+
     pombase_dir: Path
     biogrid_tsv: Path
     dna_features: Path
@@ -91,15 +92,24 @@ def run(config: NetworkConfig) -> None:
     ontology_cfg = OntologyDataConfig(
         ontology_obo=od / "go-basic.obo",
         ontology_association_gaf=od / "gene_ontology_annotation.gaf.tsv",
-        slim_terms_table=[od / "bp_go_slim_terms.tsv", od / "mf_go_slim_terms.tsv", od / "cc_go_slim_terms.tsv"],
+        slim_terms_table=[
+            od / "bp_go_slim_terms.tsv",
+            od / "mf_go_slim_terms.tsv",
+            od / "cc_go_slim_terms.tsv",
+        ],
     )
     _, _, _, gene2go, _, _ = load_ontology_data(
         ontology_cfg.load_data(),
-        relationships={"is_a", "part_of"}, propagate_counts=True, load_obsolete=False, prt=None,
+        relationships={"is_a", "part_of"},
+        propagate_counts=True,
+        load_obsolete=False,
+        prt=None,
     )
 
     logger.info("Collecting network-level features")
-    network_df = collect_network_level_features(config.pombase_dir, config.biogrid_tsv, gene2go, coding_genes)
+    network_df = collect_network_level_features(
+        config.pombase_dir, config.biogrid_tsv, gene2go, coding_genes
+    )
     write_parquet(network_df, config.output_network)
     logger.success(f"Wrote {len(network_df)} gene rows to {config.output_network}")
 
@@ -112,9 +122,22 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect network-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
     parser.add_argument("--biogrid-tsv", type=Path, required=True, help="BioGrid interaction table")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_network", help="Output network-level features parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--dna-features",
+        type=Path,
+        required=True,
+        help="DNA-level features parquet (for coding-gene set)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_network",
+        help="Output network-level features parquet",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -124,8 +147,10 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = NetworkConfig(
-            pombase_dir=args.pombase_dir, biogrid_tsv=args.biogrid_tsv,
-            dna_features=args.dna_features, output_network=args.output_network,
+            pombase_dir=args.pombase_dir,
+            biogrid_tsv=args.biogrid_tsv,
+            dna_features=args.dna_features,
+            output_network=args.output_network,
         )
         config.validate()
         run(config)

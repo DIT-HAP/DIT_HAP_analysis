@@ -35,9 +35,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -56,6 +56,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class RnaConfig:
     """Inputs/outputs for RNA-level feature collection."""
+
     pombase_dir: Path
     literature_dir: Path
     dna_features: Path
@@ -70,7 +71,7 @@ class RnaConfig:
 
     @property
     def gene_meta_file(self) -> Path:
-        """PomBase gene_IDs_names_products.tsv, used for update_sysIDs()."""
+        """PomBase gene_IDs_names_products.tsv, used for update_sys_ids()."""
         return self.pombase_dir / "Gene_metadata" / "gene_IDs_names_products.tsv"
 
 
@@ -97,10 +98,28 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Collect RNA-level pombe features")
     parser.add_argument("--pombase-dir", type=Path, required=True, help="PomBase version directory")
-    parser.add_argument("--literature-dir", type=Path, required=True, help="Directory of literature supplementary tables")
-    parser.add_argument("--dna-features", type=Path, required=True, help="DNA-level features parquet (for coding-gene set)")
-    parser.add_argument("--output", type=Path, required=True, dest="output_rna", help="Output RNA-level features parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--literature-dir",
+        type=Path,
+        required=True,
+        help="Directory of literature supplementary tables",
+    )
+    parser.add_argument(
+        "--dna-features",
+        type=Path,
+        required=True,
+        help="DNA-level features parquet (for coding-gene set)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        dest="output_rna",
+        help="Output RNA-level features parquet",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -110,8 +129,10 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         config = RnaConfig(
-            pombase_dir=args.pombase_dir, literature_dir=args.literature_dir,
-            dna_features=args.dna_features, output_rna=args.output_rna,
+            pombase_dir=args.pombase_dir,
+            literature_dir=args.literature_dir,
+            dna_features=args.dna_features,
+            output_rna=args.output_rna,
         )
         config.validate()
         run(config)

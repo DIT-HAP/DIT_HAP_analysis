@@ -6,8 +6,9 @@ is each view's own, so the same gene can be moonlighting in one view and not in
 another. The gene sets, by contrast, stay each cluster's own — two views differ
 only in which groups they count.
 """
-import sys
+
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
@@ -19,32 +20,38 @@ import pytest
 
 def _metrics():
     """The combined metrics table, sliced by view_terms: three terms, two sources."""
-    return pd.DataFrame({
-        "source": ["go_cc", "go_bp", "go_bp"],
-        "group_id": ["GO:1", "GO:2", "GO:3"],
-        "group_name": ["one", "two", "three"],
-        "n_scored_members": [2, 2, 2],
-        "scored_member_names": [["a", "b"], ["a", "c"], ["c", "d"]],
-        "paralog_fraction": [0.5, 0.0, 1.0],
-    })
+    return pd.DataFrame(
+        {
+            "source": ["go_cc", "go_bp", "go_bp"],
+            "group_id": ["GO:1", "GO:2", "GO:3"],
+            "group_name": ["one", "two", "three"],
+            "n_scored_members": [2, 2, 2],
+            "scored_member_names": [["a", "b"], ["a", "c"], ["c", "d"]],
+            "paralog_fraction": [0.5, 0.0, 1.0],
+        }
+    )
 
 
 def _dedup():
     """One cluster spanning both sources (all:1) + one go_bp-only cluster (all:2)."""
-    return pd.DataFrame({
-        "source": ["go_cc", "go_bp", "go_bp"],
-        "group_id": ["GO:1", "GO:2", "GO:3"],
-        "redundancy_cluster": ["all:1", "all:1", "all:2"],
-        "is_representative": [True, False, True],
-    })
+    return pd.DataFrame(
+        {
+            "source": ["go_cc", "go_bp", "go_bp"],
+            "group_id": ["GO:1", "GO:2", "GO:3"],
+            "redundancy_cluster": ["all:1", "all:1", "all:2"],
+            "is_representative": [True, False, True],
+        }
+    )
 
 
 def _group_members():
     """The (group, gene) long table, already reduced to cluster + gene."""
-    return pd.DataFrame({
-        "redundancy_cluster": ["all:1", "all:1", "all:1", "all:2", "all:2"],
-        "gene": ["a", "b", "c", "c", "d"],
-    })
+    return pd.DataFrame(
+        {
+            "redundancy_cluster": ["all:1", "all:1", "all:1", "all:2", "all:2"],
+            "gene": ["a", "b", "c", "c", "d"],
+        }
+    )
 
 
 def test_view_terms_slices_each_view_from_the_combined_table():
@@ -77,7 +84,8 @@ def test_breadth_is_counted_within_the_view_and_the_cut_is_the_views_own():
     assert set(bp_genes.loc[bp_genes["is_moonlighting"], "gene"]) == {"c"}
     # Per term, over its own members: GO:2 {a,c} -> 1/2 flagged; GO:3 {c,d} -> 1/2.
     assert bp.set_index("group_id")["moonlighting_fraction"].to_dict() == {
-        "GO:2": 0.5, "GO:3": 0.5,
+        "GO:2": 0.5,
+        "GO:3": 0.5,
     }
     # paralog_fraction rides through from the metrics table.
     assert bp.set_index("group_id")["paralog_fraction"].to_dict() == {"GO:2": 0.0, "GO:3": 1.0}
@@ -89,22 +97,26 @@ def test_breadth_is_counted_within_the_view_and_the_cut_is_the_views_own():
     assert cc["moonlighting_fraction"].iloc[0] == 0.0
 
 
-def test_plot_fraction_distributions_draws_the_three_panels(tmp_path):
+def test_plot_fraction_distributions_draws_the_three_panels():
     """Three panels, and the mode is marked on the breadth one."""
     pytest.importorskip("cnsplots")
-    import matplotlib
-    matplotlib.use("Agg")
+    import matplotlib as mpl
+
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
-    from coherence.fractions import MOONLIGHTING_QUANTILE
     from plot_fraction_distributions import plot_distributions
+
+    from coherence.fractions import MOONLIGHTING_QUANTILE
 
     assert MOONLIGHTING_QUANTILE == 0.75
 
-    terms = pd.DataFrame({
-        "paralog_fraction": [0.0, 0.5, 1.0, 0.25],
-        "moonlighting_fraction": [0.0, 1.0, 1.0, 0.5],
-        "moonlighting_cut_n_groups": [2.0, 2.0, 2.0, 2.0],
-    })
+    terms = pd.DataFrame(
+        {
+            "paralog_fraction": [0.0, 0.5, 1.0, 0.25],
+            "moonlighting_fraction": [0.0, 1.0, 1.0, 0.5],
+            "moonlighting_cut_n_groups": [2.0, 2.0, 2.0, 2.0],
+        }
+    )
     genes = pd.DataFrame({"n_groups": [1, 1, 2, 3, 4], "is_moonlighting": [False] * 2 + [True] * 3})
 
     plot_distributions(terms, genes)

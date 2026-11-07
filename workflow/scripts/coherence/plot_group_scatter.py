@@ -58,17 +58,17 @@ Version:  3.0.0
 import argparse
 import ast
 import math
-import sys
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
 import cnsplots as cns
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -139,10 +139,15 @@ def parse_groups_arg(raw: str, source: str) -> list[str]:
 def load_metrics(metrics_path: Path) -> pd.DataFrame:
     """Load the coherence metrics table and check the columns the titles need."""
     metrics = read_parquet(metrics_path)
-    for required in ["group_id", "median_pairwise_distance_z", "median_pairwise_distance_p_coherent"]:
+    for required in [
+        "group_id",
+        "median_pairwise_distance_z",
+        "median_pairwise_distance_p_coherent",
+    ]:
         if required not in metrics.columns:
             raise ValueError(
-                f"metrics table missing required column '{required}' (have: {list(metrics.columns)})"
+                f"metrics table missing required column '{required}' "
+                f"(have: {list(metrics.columns)})"
             )
     return metrics
 
@@ -167,13 +172,17 @@ def resolve_groups(
         # Group by group_id to handle same-name->multiple-ids case
         group_ids_matched = matched.groupby("group_id", sort=False)
         if group_ids_matched.ngroups > 1:
-            logger.info(f"Config entry '{name}' matches {group_ids_matched.ngroups} distinct group_ids")
+            logger.info(
+                f"Config entry '{name}' matches {group_ids_matched.ngroups} distinct group_ids"
+            )
         for group_id, group_df in group_ids_matched:
             group_name = group_df["group_name"].iloc[0]
             members = sorted(set(group_df["Systematic ID"].dropna()))
             resolved.append((str(group_id), str(group_name), members))
             prefix = "  " if group_ids_matched.ngroups > 1 else ""
-            logger.info(f"{prefix}Resolved '{name}' -> {group_id} ({group_name}): {len(members)} genes")
+            logger.info(
+                f"{prefix}Resolved '{name}' -> {group_id} ({group_name}): {len(members)} genes"
+            )
 
     return resolved
 
@@ -187,26 +196,34 @@ def metrics_caption(metrics_row: pd.Series | None) -> str:
     q_value_coherent = metrics_row.get("q_value_coherent", np.nan)
     if pd.notna(q_value_coherent):
         return f"z={metrics_row['median_pairwise_distance_z']:.2f}, q={q_value_coherent:.3g}"
-    return (f"z={metrics_row['median_pairwise_distance_z']:.2f}, "
-            f"p={metrics_row['median_pairwise_distance_p_coherent']:.3g}")
+    return (
+        f"z={metrics_row['median_pairwise_distance_z']:.2f}, "
+        f"p={metrics_row['median_pairwise_distance_p_coherent']:.3g}"
+    )
 
 
-def panel_title(group_id: str, group_name: str, n_members: int, metrics_row: pd.Series | None) -> str:
+def panel_title(
+    group_id: str, group_name: str, n_members: int, metrics_row: pd.Series | None
+) -> str:
     """Panel title: name, id, member count, and the coherence metrics."""
     # Three lines, not one: a one-line "name (id), n=..., z=..." runs to ~37
     # characters and overflows the panel, colliding with the panel label beside it.
-    name = group_name if len(group_name) <= _TITLE_NAME_WIDTH else group_name[: _TITLE_NAME_WIDTH - 1] + "…"
+    name = (
+        group_name
+        if len(group_name) <= _TITLE_NAME_WIDTH
+        else group_name[: _TITLE_NAME_WIDTH - 1] + "…"
+    )
     return f"{name}\n({group_id}), n={n_members}\n{metrics_caption(metrics_row)}"
 
 
-def draw_split_cloud(
-    fitting_df: pd.DataFrame, dr_threshold: float, member_color: str
-) -> None:
+def draw_split_cloud(fitting_df: pd.DataFrame, dr_threshold: float) -> None:
     """The genome cloud on the current axes, in one grey, with the dashed threshold line."""
     cns.scatterplot(fitting_df, "DR", "DL", ax=plt.gca(), color=FURNITURE_COLOR, legend=False)
     plt.axvline(
-        dr_threshold, color=FURNITURE_COLOR, linestyle="--",
-        linewidth=plt.rcParams["lines.linewidth"] * 0.8, zorder=0.5,
+        dr_threshold,
+        color=FURNITURE_COLOR,
+        linestyle="--",
+        zorder=0.5,
     )
 
 
@@ -229,8 +246,12 @@ def plot_group_scatter_figure(
     # is the one thing these panels exist to distinguish. grid_axes drops the
     # interior tick labels once the range is shared, so the comparison reads cleanly.
     axes = grid_axes(
-        n_rows, n_cols, labels=panel_labels(n_panels), shape=PanelShape.SQUARE,
-        share_x=True, share_y=True,
+        n_rows,
+        n_cols,
+        labels=panel_labels(n_panels),
+        shape=PanelShape.SQUARE,
+        share_x=True,
+        share_y=True,
     )
     for ax in axes[n_panels:]:
         # grid_axes fills every cell; fit_panels measures only visible axes, so
@@ -239,8 +260,12 @@ def plot_group_scatter_figure(
 
     if not resolved_groups:
         axes[0].text(
-            0.5, 0.5, "No groups resolved from config namelist",
-            ha="center", va="center", transform=axes[0].transAxes,
+            0.5,
+            0.5,
+            "No groups resolved from config namelist",
+            ha="center",
+            va="center",
+            transform=axes[0].transAxes,
         )
         axes[0].set_axis_off()
         fit_panels()
@@ -248,9 +273,9 @@ def plot_group_scatter_figure(
 
     member_color = house_colors((0,))[0]
     scored = metrics_df.set_index("group_id")
-    for ax, (group_id, group_name, members) in zip(axes, resolved_groups):
+    for ax, (group_id, group_name, members) in zip(axes, resolved_groups, strict=False):
         plt.sca(ax)
-        draw_split_cloud(fitting_df, dr_threshold, member_color)
+        draw_split_cloud(fitting_df, dr_threshold)
         highlighted = fitting_df[fitting_df["Systematic ID"].isin(members)]
         # The term's own genes are the ones asked to read against the cut, so they
         # carry the threshold split: scored members in red, not-scored ones in the
@@ -258,9 +283,11 @@ def plot_group_scatter_figure(
         scored_members = highlighted[highlighted["DR"] < dr_threshold]
         unscored_members = highlighted[highlighted["DR"] >= dr_threshold]
         if not unscored_members.empty:
-            cns.scatterplot(unscored_members, "DR", "DL", ax=ax,
-                            color=_UNSCORED_MEMBER_COLOR, legend=False)
-        cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
+            cns.scatterplot(
+                unscored_members, "DR", "DL", ax=ax, color=_UNSCORED_MEMBER_COLOR, legend=False
+            )
+        if not scored_members.empty:
+            cns.scatterplot(scored_members, "DR", "DL", ax=ax, color=member_color, legend=False)
 
         metrics_row = scored.loc[group_id] if group_id in scored.index else None
         ax.set(
@@ -316,13 +343,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metrics", type=Path, required=True, help="coherence_metrics.parquet")
     parser.add_argument("--source", type=str, required=True, help="Source name (e.g. go_cc)")
     parser.add_argument(
-        "--groups", type=str, default="",
-        help="List or dict literal of group names/ids (empty -> no groups, placeholder figure)"
+        "--groups",
+        type=str,
+        default="",
+        help="List or dict literal of group names/ids (empty -> no groups, placeholder figure)",
     )
-    parser.add_argument("--dr-threshold", type=float, default=_DR_THRESHOLD,
-                        help="The coherence scored/unscored cut, drawn as a dashed line")
+    parser.add_argument(
+        "--dr-threshold",
+        type=float,
+        default=_DR_THRESHOLD,
+        help="The coherence scored/unscored cut, drawn as a dashed line",
+    )
     parser.add_argument("--output-figure", type=Path, required=True, help="Output scatter PDF")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

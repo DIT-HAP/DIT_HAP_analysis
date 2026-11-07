@@ -1,12 +1,12 @@
 """Contract tests for coherence source adapters (unified long-table schema)."""
-import sys
+
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import pytest
-
 from workflow.src.coherence.sources import (
     LONG_TABLE_COLUMNS,
     load_gaf_namespace,
@@ -15,25 +15,37 @@ from workflow.src.coherence.sources import (
 )
 
 LONG_TABLE_COLUMNS_EXPECTED = [
-    "source", "group_id", "group_name", "Systematic ID", "Name", "n_annotated_members",
+    "source",
+    "group_id",
+    "group_name",
+    "Systematic ID",
+    "Name",
+    "n_annotated_members",
 ]
 
 # systematic id -> gene name, as PomBase's gene_IDs_names_products.tsv carries it.
 # Every gene the GAF fixture annotates is in here, so a go_cc / go_bp Name must come
 # from this table (and never fall back to the systematic id); SPBC3 is the one gene
 # left out, and it is the macrocomplex fixture's systematic-id fallback case.
-GENE_NAMES = {"SPAC1": "gene1", "SPAC2": "gene2", "SPAC3": "gene5",
-              "SPBC1": "gene3", "SPBC2": "gene4"}
+GENE_NAMES = {
+    "SPAC1": "gene1",
+    "SPAC2": "gene2",
+    "SPAC3": "gene5",
+    "SPBC1": "gene3",
+    "SPBC2": "gene4",
+}
 
 
 def _write_gene_metadata(pombase_dir: Path, names: dict[str, str]) -> None:
     """Write a minimal Gene_metadata/gene_IDs_names_products.tsv under `pombase_dir`."""
     directory = pombase_dir / "Gene_metadata"
     directory.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({
-        "gene_systematic_id": list(names),
-        "gene_name": [names[key] for key in names],
-    }).to_csv(directory / "gene_IDs_names_products.tsv", sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "gene_systematic_id": list(names),
+            "gene_name": [names[key] for key in names],
+        }
+    ).to_csv(directory / "gene_IDs_names_products.tsv", sep="\t", index=False)
 
 
 def _write_macrocomplex(tmp_path: Path) -> Path:
@@ -41,8 +53,13 @@ def _write_macrocomplex(tmp_path: Path) -> Path:
     df = pd.DataFrame(
         {
             "complex_term_id": ["GO:0001", "GO:0001", "GO:0002", "GO:0002", "GO:0002"],
-            "GO_term_name": ["alpha complex", "alpha complex", "beta complex",
-                             "beta complex", "beta complex"],
+            "GO_term_name": [
+                "alpha complex",
+                "alpha complex",
+                "beta complex",
+                "beta complex",
+                "beta complex",
+            ],
             "systematic_id": ["SPAC1", "SPAC2", "SPBC1", "SPBC2", "SPBC3"],
             "symbol": ["gene1", None, "gene3", "gene4", None],
         }
@@ -109,19 +126,43 @@ def _write_go_fixture(tmp_path: Path) -> Path:
     obo.write_text(
         "format-version: 1.2\n\n"
         "[Term]\nid: GO:0000100\nname: test cc complex\nnamespace: cellular_component\n\n"
-        "[Term]\nid: GO:0000101\nname: test cc subcomplex\nnamespace: cellular_component\nis_a: GO:0000100\n\n"
+        "[Term]\nid: GO:0000101\nname: test cc subcomplex\n"
+        "namespace: cellular_component\nis_a: GO:0000100\n\n"
         "[Term]\nid: GO:0000200\nname: test bp process\nnamespace: biological_process\n\n"
     )
     gaf = d / "gene_ontology_annotation.gaf.tsv"
     # GAF 2.1: 17 tab-separated columns; col2=DB_Object_ID(gene), col5=GO_ID, col9=Aspect.
     lines = ["!gaf-version: 2.1"]
+
     def row(gene, go, aspect):
-        cols = ["PomBase", gene, gene, "", go, "PMID:1", "IDA", "", aspect,
-                "", "", "gene", "taxon:4896", "20250101", "PomBase", "", ""]
+        cols = [
+            "PomBase",
+            gene,
+            gene,
+            "",
+            go,
+            "PMID:1",
+            "IDA",
+            "",
+            aspect,
+            "",
+            "",
+            "gene",
+            "taxon:4896",
+            "20250101",
+            "PomBase",
+            "",
+            "",
+        ]
         return "\t".join(cols)
-    lines += [row("SPAC1", "GO:0000100", "C"), row("SPAC2", "GO:0000100", "C"),
-              row("SPAC3", "GO:0000101", "C"),  # child-only annotation, should propagate to GO:0000100
-              row("SPBC1", "GO:0000200", "P"), row("SPBC2", "GO:0000200", "P")]
+
+    lines += [
+        row("SPAC1", "GO:0000100", "C"),
+        row("SPAC2", "GO:0000100", "C"),
+        row("SPAC3", "GO:0000101", "C"),  # child-only annotation, should propagate to GO:0000100
+        row("SPBC1", "GO:0000200", "P"),
+        row("SPBC2", "GO:0000200", "P"),
+    ]
     gaf.write_text("\n".join(lines) + "\n")
     _write_gene_metadata(tmp_path, GENE_NAMES)
     return tmp_path
@@ -164,9 +205,9 @@ def test_gaf_namespace_resolves_gene_names(tmp_path):
     # Both namespaces, because the fixture's genes are split across CC (SPAC*) and
     # BP (SPBC*), and each adapter only returns its own namespace's terms.
     out = pd.concat([load_source("go_cc", pombase_dir), load_source("go_bp", pombase_dir)])
-    names = dict(zip(out["Systematic ID"], out["Name"]))
+    names = dict(zip(out["Systematic ID"], out["Name"], strict=False))
     assert names["SPAC1"] == "gene1"
-    assert names["SPAC3"] == "gene5"   # present only via the metadata table
+    assert names["SPAC3"] == "gene5"  # present only via the metadata table
     assert names["SPBC2"] == "gene4"
     # The GAF fixture annotates no gene outside GENE_NAMES, so nothing falls back.
     assert not (out["Name"] == out["Systematic ID"]).any()
@@ -180,8 +221,13 @@ def test_gaf_namespace_rejects_unknown_namespace(tmp_path):
 
 def test_source_loaders_registry_has_every_configured_source():
     from workflow.src.coherence.sources import SOURCE_LOADERS
+
     assert set(SOURCE_LOADERS) == {
-        "go_macrocomplex", "go_cc", "go_bp", "kegg_brite", "kegg_pathway",
+        "go_macrocomplex",
+        "go_cc",
+        "go_bp",
+        "kegg_brite",
+        "kegg_pathway",
     }
 
 
@@ -206,25 +252,41 @@ def _write_kegg_dir(tmp_path: Path) -> Path:
     _write_gene_metadata(tmp_path, GENE_NAMES)
     kegg = tmp_path / "kegg"
     kegg.mkdir()
-    pd.DataFrame({
-        "Gene_Symbol": ["gene1", "SPAC2", "nosuchgene"],
-        "Pathway_ID": ["spo00010"] * 3,
-        "Pathway_Name": ["Glycolysis / Gluconeogenesis"] * 3,
-    }).to_csv(kegg / "pathway_gene_mapping.tsv", sep="\t", index=False)
-    pd.DataFrame({
-        "BRITE_ID": ["spo00001", "spo00001", "spo04131", "spo04131"],
-        # Two kingdom branches that both end at the same leaf label.
-        "Level_A": ["Metabolism", "Metabolism", "Ribosomal proteins", "Ribosomal proteins"],
-        "Level_B": ["Carbohydrate metabolism", "Carbohydrate metabolism",
-                    "Eukaryotes", "Archaea"],
-        "Level_C": ["Glycolysis / Gluconeogenesis", "Glycolysis / Gluconeogenesis",
-                    "Large subunit", "Large subunit"],
-        "Level_D": ["Glycolysis / Gluconeogenesis", "Glycolysis / Gluconeogenesis",
-                    "Large subunit", "Large subunit"],
-        # Non-empty everywhere, but the last two are kegg_parser's label fallback.
-        "Level_D_ID": ["spo00010", "spo00010", "Large subunit", "Large subunit"],
-        "Gene_Symbol": ["gene1", "gene3", "gene4", "gene4"],
-    }).to_csv(kegg / "brite_flat.tsv", sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "Gene_Symbol": ["gene1", "SPAC2", "nosuchgene"],
+            "Pathway_ID": ["spo00010"] * 3,
+            "Pathway_Name": ["Glycolysis / Gluconeogenesis"] * 3,
+        }
+    ).to_csv(kegg / "pathway_gene_mapping.tsv", sep="\t", index=False)
+    pd.DataFrame(
+        {
+            "BRITE_ID": ["spo00001", "spo00001", "spo04131", "spo04131"],
+            # Two kingdom branches that both end at the same leaf label.
+            "Level_A": ["Metabolism", "Metabolism", "Ribosomal proteins", "Ribosomal proteins"],
+            "Level_B": [
+                "Carbohydrate metabolism",
+                "Carbohydrate metabolism",
+                "Eukaryotes",
+                "Archaea",
+            ],
+            "Level_C": [
+                "Glycolysis / Gluconeogenesis",
+                "Glycolysis / Gluconeogenesis",
+                "Large subunit",
+                "Large subunit",
+            ],
+            "Level_D": [
+                "Glycolysis / Gluconeogenesis",
+                "Glycolysis / Gluconeogenesis",
+                "Large subunit",
+                "Large subunit",
+            ],
+            # Non-empty everywhere, but the last two are kegg_parser's label fallback.
+            "Level_D_ID": ["spo00010", "spo00010", "Large subunit", "Large subunit"],
+            "Gene_Symbol": ["gene1", "gene3", "gene4", "gene4"],
+        }
+    ).to_csv(kegg / "brite_flat.tsv", sep="\t", index=False)
     return kegg
 
 
@@ -242,7 +304,7 @@ def test_kegg_pathway_groups_by_pathway_and_drops_unmapped_genes(tmp_path):
 def test_kegg_brite_prefers_the_kegg_id_and_falls_back_to_the_path(tmp_path):
     kegg_dir = _write_kegg_dir(tmp_path)
     out = load_source("kegg_brite", tmp_path, kegg_dir)
-    ids = dict(zip(out["Systematic ID"], out["group_id"]))
+    ids = dict(zip(out["Systematic ID"], out["group_id"], strict=False))
     # spo00001 labels its node with a KEGG id, so that id IS the group id.
     assert ids["SPAC1"] == "spo00010"
     assert ids["SPBC1"] == "spo00010"

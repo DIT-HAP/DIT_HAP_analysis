@@ -36,9 +36,9 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 # 1. Standard Library Imports
-import sys
 from collections.abc import Sequence
 from pathlib import Path
+import sys
 
 # Add workflow/src to path for imports
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -49,10 +49,15 @@ if str(_SRC_DIR) not in sys.path:
 # 2. Data Processing Imports
 # 3. Third-party Imports
 import cnsplots as cns
+from loguru import logger
+from matplotlib.axes import Axes
+from matplotlib.path import Path as MplPath
 import numpy as np
 import pandas as pd
+
 from figures import (
     FURNITURE_COLOR,
+    HOUSE_SCATTER_S,
     PanelShape,
     apply_house_style,
     fit_panels,
@@ -60,9 +65,6 @@ from figures import (
     house_colors,
     save_dual,
 )
-from loguru import logger
-from matplotlib.axes import Axes
-from matplotlib.path import Path as MplPath
 from verification.core import (
     BASIC_BOXPLOT_CATEGORIES,
     BUCKET_COLUMN,
@@ -124,7 +126,6 @@ EMBEDDED_BOX_WIDTH_FACTOR = 0.5
 
 # A scatter point has to stay small enough that the 224-gene WT2nonWT group
 # reads as a distribution rather than a smear.
-SCATTER_MARKER_SIZE = 8
 SCATTER_ALPHA = 0.45
 
 # Category-summary layout. multipanel sizes panels in layout pixels (72/inch)
@@ -132,7 +133,11 @@ SCATTER_ALPHA = 0.45
 # own decorations need. ROW_LABEL_PAD_LEFT_PX is the width of the longest
 # label ("spores, germinated, divided or microcolonies  (n=76)", 50 chars at the
 # 7 pt house tick size).
-FIGURE_WIDTH_PX = 540  # the journal's one-page cap
+# FIGURE_WIDTH_PX is multipanel's wrap width, not a page cap. The donut (150 pt)
+# + long row-name pad + strip (120 pt) row was measured at 540 and wraps into an
+# extra row at 493, so this figure keeps the wider wrap and lets the measured
+# export bounds size the page.
+FIGURE_WIDTH_PX = 540
 # Row pitch per panel type. A strip plot only needs to separate its rows; a
 # violin has to show a density profile, which the strip pitch is too short for.
 STRIP_ROW_HEIGHT_PX = 20
@@ -143,7 +148,6 @@ ROW_LABEL_PAD_LEFT_PX = 200
 DONUT_PANEL_PX = 150
 DONUT_LEGEND_HEIGHT_PX = 30  # room for the legend under the ring
 PANEL_LABEL_PAD_PX = 26
-FIGURE_DECORATION_PX = 52
 
 
 def _dr_row_panel(
@@ -205,7 +209,9 @@ def _paint(artists: Sequence[object], colors: Sequence[str], *, what: str) -> No
     silently put a phenotype in another phenotype's colour.
     """
     if len(artists) != len(colors):
-        logger.warning(f"Expected {len(colors)} {what}, found {len(artists)}; leaving colours as drawn")
+        logger.warning(
+            f"Expected {len(colors)} {what}, found {len(artists)}; leaving colours as drawn"
+        )
         return
     for artist, color in zip(artists, colors, strict=True):
         if hasattr(artist, "set_facecolor"):
@@ -228,6 +234,7 @@ def _narrow_embedded_box(ax: Axes) -> None:
     artists (a patch and a Line2D), so narrowing only the rectangle leaves the
     median overhanging the box it is supposed to sit in.
     """
+
     def shrink(centre: float, values: np.ndarray) -> np.ndarray:
         return centre + (values - centre) * EMBEDDED_BOX_WIDTH_FACTOR
 
@@ -393,7 +400,7 @@ def render_dr_boxplot_panel(
     ax.set(xlabel=xlabel, ylabel="", title=title)
 
 
-def _donut_panel(panels, label: str) -> Axes:
+def _donut_panel(panels: cns.multipanel, label: str) -> Axes:
     """Add the phenotype donut's multipanel slot: house label padding, room for a bottom legend."""
     return panels.panel(
         label=label,
@@ -461,7 +468,7 @@ def render_dr_scatter_panel(
         ax.scatter(
             rows,
             position + jitter,
-            s=SCATTER_MARKER_SIZE,
+            s=HOUSE_SCATTER_S,
             alpha=SCATTER_ALPHA,
             color=colors_for_labels([label])[0],
         )
@@ -490,14 +497,13 @@ def render_category_summary_figure(
     apply_house_style()
 
     n_categories = len(order)
-    strip_height_px = n_categories * STRIP_ROW_HEIGHT_PX
 
-    cns.figure(width=FIGURE_WIDTH_PX, height=strip_height_px + FIGURE_DECORATION_PX)
-    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX)
+    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
 
     ax_donut = _donut_panel(panels, "A")
     render_composition_donut_panel(
-        ax_donut, merged,
+        ax_donut,
+        merged,
         category_column=CATEGORY_COLUMN,
         order=order,
         # The ring only covers genes the curated library classifies; genes
@@ -508,11 +514,16 @@ def render_category_summary_figure(
     )
 
     ax_strip = _dr_row_panel(
-        panels, "B", n_categories,
-        width=STRIP_PLOT_WIDTH_PX, pad_left=ROW_LABEL_PAD_LEFT_PX, row_height=STRIP_ROW_HEIGHT_PX,
+        panels,
+        "B",
+        n_categories,
+        width=STRIP_PLOT_WIDTH_PX,
+        pad_left=ROW_LABEL_PAD_LEFT_PX,
+        row_height=STRIP_ROW_HEIGHT_PX,
     )
     render_dr_scatter_panel(
-        ax_strip, merged,
+        ax_strip,
+        merged,
         category_column=CATEGORY_COLUMN,
         order=order,
         title="DR by deletion library category",
@@ -538,15 +549,18 @@ def render_category_boxplot_figure(
     basic = merged[merged[CATEGORY_COLUMN].isin(BASIC_BOXPLOT_CATEGORIES)]
     boxes = order_categories(basic[CATEGORY_WITH_ESSENTIALITY_COLUMN])
 
-    height_px = len(boxes) * VIOLIN_ROW_HEIGHT_PX
-    cns.figure(width=FIGURE_WIDTH_PX, height=height_px + FIGURE_DECORATION_PX)
-    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX)
+    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
     ax = _dr_row_panel(
-        panels, "", len(boxes),
-        width=DR_AXIS_WIDTH_PX, pad_left=ROW_LABEL_PAD_LEFT_PX, row_height=VIOLIN_ROW_HEIGHT_PX,
+        panels,
+        "",
+        len(boxes),
+        width=DR_AXIS_WIDTH_PX,
+        pad_left=ROW_LABEL_PAD_LEFT_PX,
+        row_height=VIOLIN_ROW_HEIGHT_PX,
     )
     render_dr_boxplot_panel(
-        ax, basic,
+        ax,
+        basic,
         category_column=CATEGORY_WITH_ESSENTIALITY_COLUMN,
         order=boxes,
         title="Deletion library categories",
@@ -576,17 +590,20 @@ def render_critical_group_figure(
         columns=[BUCKET_COLUMN, DR_COLUMN],
     )
     present = order_labels_present(order, long[BUCKET_COLUMN])
-    height_px = max(len(present) * VIOLIN_ROW_HEIGHT_PX, DONUT_PANEL_PX)
 
-    cns.figure(width=FIGURE_WIDTH_PX, height=height_px + FIGURE_DECORATION_PX)
-    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX)
+    panels = cns.multipanel(max_width=FIGURE_WIDTH_PX, unit="pt")
 
     ax_box = _dr_row_panel(
-        panels, "A", len(present),
-        width=DR_AXIS_WIDTH_PX, pad_left=ROW_LABEL_PAD_LEFT_PX, row_height=VIOLIN_ROW_HEIGHT_PX,
+        panels,
+        "A",
+        len(present),
+        width=DR_AXIS_WIDTH_PX,
+        pad_left=ROW_LABEL_PAD_LEFT_PX,
+        row_height=VIOLIN_ROW_HEIGHT_PX,
     )
     render_dr_boxplot_panel(
-        ax_box, long,
+        ax_box,
+        long,
         category_column=BUCKET_COLUMN,
         order=present,
         title=f"{group} — DR by verification result",
@@ -594,7 +611,8 @@ def render_critical_group_figure(
 
     ax_donut = _donut_panel(panels, "B")
     render_composition_donut_panel(
-        ax_donut, long,
+        ax_donut,
+        long,
         category_column=BUCKET_COLUMN,
         order=present,
         center_text=f"{len(long):,}\ngenes\nverified",
@@ -634,7 +652,9 @@ def render_depletion_curves_figure(
         logger.warning(f"No genes with per-timepoint data for {group}; nothing to plot")
         return
     if len(present) < len(genes):
-        logger.info(f"{len(genes) - len(present)} of {len(genes)} {group} genes have no per-timepoint data")
+        logger.info(
+            f"{len(genes) - len(present)} of {len(genes)} {group} genes have no per-timepoint data"
+        )
 
     grna_rows, grna_generations = grna_timepoints if grna_timepoints is not None else (None, None)
 
@@ -648,16 +668,14 @@ def render_depletion_curves_figure(
     for ax, gene in zip(axes, present, strict=False):
         dit_row = gene_timepoints.loc[gene]
         grna_row = (
-            grna_rows.loc[gene]
-            if grna_rows is not None and gene in grna_rows.index
-            else None
+            grna_rows.loc[gene] if grna_rows is not None and gene in grna_rows.index else None
         )
-        name = dit_row[GENE_NAME_COLUMN] if GENE_NAME_COLUMN in dit_row else gene
+        name = dit_row.get(GENE_NAME_COLUMN, gene)
         # Uncharacterised genes carry their systematic ID as the name, so the
         # parenthetical would just repeat the title.
         title = gene if str(name) == gene else f"{name} ({gene})"
         render_gene_depletion_curve_panel(ax, dit_row, grna_row, grna_generations, title)
-    for unused in axes[len(present):]:
+    for unused in axes[len(present) :]:
         unused.set_visible(False)
 
     fit_panels()

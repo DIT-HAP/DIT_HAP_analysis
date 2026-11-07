@@ -40,16 +40,16 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import json
-import sys
 from dataclasses import dataclass
+import json
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -65,6 +65,7 @@ from pcr_qc.spikein import DEFAULT_SPIKE_IN_SITES, build_spike_in_stats
 @dataclass(kw_only=True, frozen=True)
 class PrepareConfig:
     """Input raw-reads table, spike-in site coordinates, and the parquet + TSV outputs."""
+
     raw_reads: Path
     output_spike_in_stats: Path
     output_stats: Path
@@ -103,14 +104,24 @@ def run(config: PrepareConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare spike-in stats parquet intermediate")
-    parser.add_argument("--raw-reads", type=Path, required=True, help="Filtered raw-reads insertion table (tsv)")
-    parser.add_argument("--output-spike-in-stats", type=Path, required=True, help="Output spike_in_stats.parquet")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output spike_in_stats.tsv")
     parser.add_argument(
-        "--spike-in-sites-json", type=str, default=None,
+        "--raw-reads", type=Path, required=True, help="Filtered raw-reads insertion table (tsv)"
+    )
+    parser.add_argument(
+        "--output-spike-in-stats", type=Path, required=True, help="Output spike_in_stats.parquet"
+    )
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output spike_in_stats.tsv"
+    )
+    parser.add_argument(
+        "--spike-in-sites-json",
+        type=str,
+        default=None,
         help="JSON dict of {strain: {chr, coord, strand}} (default: the 5 hardcoded DY sites)",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -120,7 +131,9 @@ def main() -> int:
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
         spike_in_sites = (
-            json.loads(args.spike_in_sites_json) if args.spike_in_sites_json else DEFAULT_SPIKE_IN_SITES
+            json.loads(args.spike_in_sites_json)
+            if args.spike_in_sites_json
+            else DEFAULT_SPIKE_IN_SITES
         )
         config = PrepareConfig(
             raw_reads=args.raw_reads,

@@ -45,22 +45,28 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")  # headless: writes PDF/PNG only
+mpl.use("Agg")  # headless: writes PDF/PNG only
+from loguru import logger
 import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import apply_house_style, cluster_color, grid_axes, save_dual
+from figure_render.cluster_scatter import scatter_clusters
+from figures import (
+    apply_house_style,
+    cluster_color,
+    grid_axes,
+    save_dual,
+)
 from io_table import read_parquet
 from logging_setup import setup_logger
 
@@ -71,6 +77,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotGridConfig:
     """Label table + coordinates in; one PDF per k out (stem + _k<k>)."""
+
     labels: Path
     scaled: Path
     annotated: Path
@@ -86,32 +93,18 @@ class PlotGridConfig:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         if self.reference_k is not None and not self.curated.exists():
-            raise ValueError(f"--curated table not found: {self.curated} (required for the reference-k panel)")
+            raise ValueError(
+                f"--curated table not found: {self.curated} (required for the reference-k panel)"
+            )
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
 # HELPERS
 # =============================================================================
-def scatter_clusters(ax: plt.Axes, df: pd.DataFrame, colors: dict[int, str]) -> None:
-    """One method's DR/DL scatter on one axes: per-cluster color + centroid id chip."""
-    for cluster, cluster_df in df.groupby("cluster"):
-        ax.scatter(cluster_df["DR"], cluster_df["DL"], c=colors[int(cluster)], s=3, rasterized=True)
-        ax.annotate(
-            f"{cluster}",
-            (cluster_df["DR"].mean(), cluster_df["DL"].mean()),
-            fontweight="bold",
-            ha="center",
-            va="center",
-            bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.8),
-        )
-    ax.set_xlabel("DR")
-    ax.set_ylabel("DL")
-
-
 def curated_labels(curated: Path, annotated: pd.DataFrame) -> pd.Series:
     """The hand-curated clusters, DR-ascending-renumbered to 1..k like every method."""
-    from clustering.candidates import renumber_by_dr
+    from clustering.candidates import renumber_by_dr  # noqa: PLC0415
 
     table = pd.read_csv(curated, sep="\t").set_index("Systematic ID")["cluster"]
     labels = table.reindex(annotated.index).dropna().astype(int)
@@ -153,7 +146,7 @@ def run(config: PlotGridConfig) -> None:
         axes = grid_axes(row_num, col_num, labels=None)
         fig = plt.gcf()
         fig.subplots_adjust(top=0.88, hspace=0.45, wspace=0.25)
-        for name, ax in zip(names, axes):
+        for name, ax in zip(names, axes, strict=False):
             if name == "manual":
                 plot_df = scaled.loc[hand.index].assign(cluster=hand.to_numpy())
             else:
@@ -161,7 +154,7 @@ def run(config: PlotGridConfig) -> None:
                 plot_df = scaled.loc[df["gene"]].assign(cluster=df["cluster"].to_numpy())
             scatter_clusters(ax, plot_df, colors)
             ax.set_title(f"{name} (k={k}, n={len(plot_df)})")
-        for ax in axes[len(names):]:
+        for ax in axes[len(names) :]:
             ax.set_visible(False)
         fig.suptitle(f"{config.dataset} — all methods at k={k}")
         save_dual(config.output_stem.parent / f"{config.output_stem.name}_k{k}")
@@ -175,15 +168,42 @@ def run(config: PlotGridConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Plot one PDF per k with all methods side by side")
-    parser.add_argument("--labels", type=Path, required=True, help="grid_labels.parquet from compute_clustering_grid")
-    parser.add_argument("--scaled", type=Path, required=True, help="scaled_data.parquet from the spine")
-    parser.add_argument("--annotated", type=Path, required=True, help="annotated_data.parquet (raw DR/DL for the curated panel)")
-    parser.add_argument("--output-stem", type=Path, required=True, help="Output stem; pages land as <stem>_k<k>.pdf")
-    parser.add_argument("--dataset", type=str, required=True, help="Dataset name for the figure title")
-    parser.add_argument("--reference-k", type=int, default=None, help="Add the hand-curated panel at this k")
-    parser.add_argument("--curated", type=Path, default=None, help="manual_curated_clusters.tsv (Systematic ID, cluster)")
-    parser.add_argument("--col-num", type=int, default=3, help="Subplot columns per page (default 3)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        required=True,
+        help="grid_labels.parquet from compute_clustering_grid",
+    )
+    parser.add_argument(
+        "--scaled", type=Path, required=True, help="scaled_data.parquet from the spine"
+    )
+    parser.add_argument(
+        "--annotated",
+        type=Path,
+        required=True,
+        help="annotated_data.parquet (raw DR/DL for the curated panel)",
+    )
+    parser.add_argument(
+        "--output-stem", type=Path, required=True, help="Output stem; pages land as <stem>_k<k>.pdf"
+    )
+    parser.add_argument(
+        "--dataset", type=str, required=True, help="Dataset name for the figure title"
+    )
+    parser.add_argument(
+        "--reference-k", type=int, default=None, help="Add the hand-curated panel at this k"
+    )
+    parser.add_argument(
+        "--curated",
+        type=Path,
+        default=None,
+        help="manual_curated_clusters.tsv (Systematic ID, cluster)",
+    )
+    parser.add_argument(
+        "--col-num", type=int, default=3, help="Subplot columns per page (default 3)"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

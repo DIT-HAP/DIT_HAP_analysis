@@ -22,9 +22,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -48,7 +48,9 @@ from verification.core import (
 # =============================================================================
 @dataclass(kw_only=True, frozen=True)
 class DepletionCurveConfig:
-    """Merged parquet + timepoint inputs, figure output dir. grna_timepoints is optional (HD-only)."""
+    """Merged parquet + timepoint inputs, figure output dir. grna_timepoints is optional
+    (HD-only)."""
+
     merged: Path
     gene_timepoints: Path
     output_dir: Path
@@ -93,12 +95,31 @@ def run(config: DepletionCurveConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Verification DIT-HAP (+gRNA) depletion curves per critical group")
+    parser = argparse.ArgumentParser(
+        description="Verification DIT-HAP (+gRNA) depletion curves per critical group"
+    )
     parser.add_argument("--merged", type=Path, required=True, help="Input merged.parquet")
-    parser.add_argument("--gene-timepoints", type=Path, required=True, help="Gene-level fitting statistics with YES0-4")
-    parser.add_argument("--grna-timepoints", type=Path, default=None, help="Curated gRNA fitted-parameters TSV (optional; HD-only overlay)")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output dir for per-group depletion-curve figures")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--gene-timepoints",
+        type=Path,
+        required=True,
+        help="Gene-level fitting statistics with YES0-4",
+    )
+    parser.add_argument(
+        "--grna-timepoints",
+        type=Path,
+        default=None,
+        help="Curated gRNA fitted-parameters TSV (optional; HD-only overlay)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Output dir for per-group depletion-curve figures",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

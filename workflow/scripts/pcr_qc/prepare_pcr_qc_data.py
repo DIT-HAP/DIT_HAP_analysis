@@ -25,15 +25,14 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -55,6 +54,7 @@ class PCRQCConfig:
     same results/1a_pcr_qc/_work/ directory, so mkdir'ing its parent covers all
     three.
     """
+
     pbl_pbr: Path
     tech_rep_1: Path
     tech_rep_2: Path
@@ -64,8 +64,13 @@ class PCRQCConfig:
 
     def validate(self) -> None:
         """Raise ValueError if any input is missing, then ensure the output dir exists."""
-        for path in [self.pbl_pbr, self.tech_rep_1, self.tech_rep_2,
-                     self.bio_rep_1, self.bio_rep_2]:
+        for path in [
+            self.pbl_pbr,
+            self.tech_rep_1,
+            self.tech_rep_2,
+            self.bio_rep_1,
+            self.bio_rep_2,
+        ]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -83,15 +88,19 @@ def run(config: PCRQCConfig, *, output_pbl_pbr: Path, output_tech: Path, output_
     pbl_pbr = read_merged_reads(config.pbl_pbr)
 
     # Panel (b): technical replicate — same sample, two upstream projects.
-    tech = pd.merge(
-        read_merged_reads(config.tech_rep_1), read_merged_reads(config.tech_rep_2),
-        left_index=True, right_index=True, suffixes=("_1", "_2"),
+    tech = read_merged_reads(config.tech_rep_1).merge(
+        read_merged_reads(config.tech_rep_2),
+        left_index=True,
+        right_index=True,
+        suffixes=("_1", "_2"),
     )
 
     # Panel (c): biological replicate — two samples, one project.
-    bio = pd.merge(
-        read_merged_reads(config.bio_rep_1), read_merged_reads(config.bio_rep_2),
-        left_index=True, right_index=True, suffixes=("_1", "_2"),
+    bio = read_merged_reads(config.bio_rep_1).merge(
+        read_merged_reads(config.bio_rep_2),
+        left_index=True,
+        right_index=True,
+        suffixes=("_1", "_2"),
     )
 
     write_parquet(pbl_pbr, output_pbl_pbr)
@@ -110,15 +119,39 @@ def run(config: PCRQCConfig, *, output_pbl_pbr: Path, output_tech: Path, output_
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare PCR QC parquet intermediates")
-    parser.add_argument("--pbl-pbr", type=Path, required=True, help="Panel (a): merged reads TSV (PBL vs PBR)")
-    parser.add_argument("--tech-rep-1", type=Path, required=True, help="Panel (b): technical replicate 1 merged reads TSV")
-    parser.add_argument("--tech-rep-2", type=Path, required=True, help="Panel (b): technical replicate 2 merged reads TSV")
-    parser.add_argument("--bio-rep-1", type=Path, required=True, help="Panel (c): biological replicate 1 merged reads TSV")
-    parser.add_argument("--bio-rep-2", type=Path, required=True, help="Panel (c): biological replicate 2 merged reads TSV")
+    parser.add_argument(
+        "--pbl-pbr", type=Path, required=True, help="Panel (a): merged reads TSV (PBL vs PBR)"
+    )
+    parser.add_argument(
+        "--tech-rep-1",
+        type=Path,
+        required=True,
+        help="Panel (b): technical replicate 1 merged reads TSV",
+    )
+    parser.add_argument(
+        "--tech-rep-2",
+        type=Path,
+        required=True,
+        help="Panel (b): technical replicate 2 merged reads TSV",
+    )
+    parser.add_argument(
+        "--bio-rep-1",
+        type=Path,
+        required=True,
+        help="Panel (c): biological replicate 1 merged reads TSV",
+    )
+    parser.add_argument(
+        "--bio-rep-2",
+        type=Path,
+        required=True,
+        help="Panel (c): biological replicate 2 merged reads TSV",
+    )
     parser.add_argument("--output-pbl-pbr", type=Path, required=True, help="Output pbl_pbr.parquet")
     parser.add_argument("--output-tech", type=Path, required=True, help="Output tech.parquet")
     parser.add_argument("--output-bio", type=Path, required=True, help="Output bio.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

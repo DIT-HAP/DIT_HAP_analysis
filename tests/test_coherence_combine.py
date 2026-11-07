@@ -1,5 +1,5 @@
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "src"))
@@ -7,15 +7,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "workflow" / "scrip
 
 import pandas as pd
 import pytest
+
 from io_table import read_parquet, write_parquet
 
 
 def _metrics(source, rows, p=0.5):
     """A minimal per-source metrics frame: (group_id, z-score) rows for `source`."""
     return pd.DataFrame(
-        [{"source": source, "group_id": gid,
-          "median_pairwise_distance_z": z, "median_pairwise_distance_p_coherent": p, "q_value_coherent": p}
-         for gid, z in rows]
+        [
+            {
+                "source": source,
+                "group_id": gid,
+                "median_pairwise_distance_z": z,
+                "median_pairwise_distance_p_coherent": p,
+                "q_value_coherent": p,
+            }
+            for gid, z in rows
+        ]
     )
 
 
@@ -32,7 +40,9 @@ def test_combine_concatenates_and_sorts_by_zscore(tmp_path):
     assert len(combined) == 4
     assert set(combined["source"]) == {"go_cc", "go_bp"}
     # Sorted by median_pairwise_distance_z ascending (most coherent first).
-    assert list(combined["median_pairwise_distance_z"]) == sorted(combined["median_pairwise_distance_z"])
+    assert list(combined["median_pairwise_distance_z"]) == sorted(
+        combined["median_pairwise_distance_z"]
+    )
     assert combined.iloc[0]["group_id"] == "GO:9"
 
 
@@ -99,26 +109,42 @@ def test_combine_pools_the_incoherent_tail_separately(tmp_path):
 
     a = tmp_path / "a.parquet"
     b = tmp_path / "b.parquet"
-    frame_a = pd.DataFrame([
-        {"source": "go_cc", "group_id": "GO:1",
-         "median_pairwise_distance_z": 3.0,
-         "median_pairwise_distance_p_coherent": 0.99,
-         "median_pairwise_distance_p_incoherent": 0.001,
-         "q_value_coherent": 0.99, "q_value_incoherent": 0.001},
-        {"source": "go_cc", "group_id": "GO:2",
-         "median_pairwise_distance_z": 0.0,
-         "median_pairwise_distance_p_coherent": 0.5,
-         "median_pairwise_distance_p_incoherent": 0.5,
-         "q_value_coherent": 0.5, "q_value_incoherent": 0.5},
-    ])
-    frame_b = pd.DataFrame([
-        {"source": "go_bp", "group_id": f"GO:{i}",
-         "median_pairwise_distance_z": -1.0,
-         "median_pairwise_distance_p_coherent": 0.01,
-         "median_pairwise_distance_p_incoherent": 0.9,
-         "q_value_coherent": 0.01, "q_value_incoherent": 0.9}
-        for i in range(3, 9)
-    ])
+    frame_a = pd.DataFrame(
+        [
+            {
+                "source": "go_cc",
+                "group_id": "GO:1",
+                "median_pairwise_distance_z": 3.0,
+                "median_pairwise_distance_p_coherent": 0.99,
+                "median_pairwise_distance_p_incoherent": 0.001,
+                "q_value_coherent": 0.99,
+                "q_value_incoherent": 0.001,
+            },
+            {
+                "source": "go_cc",
+                "group_id": "GO:2",
+                "median_pairwise_distance_z": 0.0,
+                "median_pairwise_distance_p_coherent": 0.5,
+                "median_pairwise_distance_p_incoherent": 0.5,
+                "q_value_coherent": 0.5,
+                "q_value_incoherent": 0.5,
+            },
+        ]
+    )
+    frame_b = pd.DataFrame(
+        [
+            {
+                "source": "go_bp",
+                "group_id": f"GO:{i}",
+                "median_pairwise_distance_z": -1.0,
+                "median_pairwise_distance_p_coherent": 0.01,
+                "median_pairwise_distance_p_incoherent": 0.9,
+                "q_value_coherent": 0.01,
+                "q_value_incoherent": 0.9,
+            }
+            for i in range(3, 9)
+        ]
+    )
     write_parquet(frame_a, a)
     write_parquet(frame_b, b)
 

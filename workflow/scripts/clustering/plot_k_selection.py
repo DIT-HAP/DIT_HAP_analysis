@@ -34,21 +34,28 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Data Processing Imports
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")  # headless
-import pandas as pd
+mpl.use("Agg")  # headless
 from loguru import logger
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual
+from figures import (
+    FURNITURE_COLOR,
+    PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    save_dual,
+)
 from logging_setup import setup_logger
 
 # =============================================================================
@@ -81,6 +88,7 @@ SINGLE_LINE_PANELS = {"gap", "dr_share"}
 @dataclass(kw_only=True, slots=True, frozen=True)
 class KSelConfig:
     """Metrics table in, one QC page out."""
+
     metrics: Path
     output: Path
     k_reference: int | None = None
@@ -113,22 +121,27 @@ def run(config: KSelConfig) -> None:
     apply_house_style()
     axes = grid_axes(row_num, col_num, shape=PanelShape.WIDE)
 
-    for (column, title), ax in zip(PANELS, axes):
+    for (column, title), ax in zip(PANELS, axes, strict=False):
         if column in SINGLE_LINE_PANELS:
             subset = metrics[metrics["method"] == methods[0]].sort_values("k")
-            ax.plot(subset["k"], subset[column], marker="o", color="grey")
+            ax.plot(subset["k"], subset[column], marker="o")
             ax.set_title(title)
         else:
             for method in methods:
                 subset = metrics[metrics["method"] == method].sort_values("k")
                 ax.plot(subset["k"], subset[column], marker="o", label=method)
                 if column == "ari_mean":  # bootstrap spread as a band around the mean
-                    ax.fill_between(subset["k"], subset["ari_mean"] - subset["ari_sd"], subset["ari_mean"] + subset["ari_sd"], alpha=0.15)
+                    ax.fill_between(
+                        subset["k"],
+                        subset["ari_mean"] - subset["ari_sd"],
+                        subset["ari_mean"] + subset["ari_sd"],
+                        alpha=0.15,
+                    )
         ax.set_title(title)
         ax.set_xlabel("k")
         ax.set_ylabel("")
         if config.k_reference is not None:
-            ax.axvline(config.k_reference, color="grey", linestyle=":")
+            ax.axvline(config.k_reference, color=FURNITURE_COLOR, linestyle=":")
 
     for ax in axes[n_panels:]:  # hide the unused grid cells
         ax.set_visible(False)
@@ -155,11 +168,20 @@ def run(config: KSelConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Plot cluster-count QC panels per method")
-    parser.add_argument("--metrics", type=Path, required=True, help="k_selection_metrics.tsv from compute_clustering_grid")
+    parser.add_argument(
+        "--metrics",
+        type=Path,
+        required=True,
+        help="k_selection_metrics.tsv from compute_clustering_grid",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output k_selection.pdf")
-    parser.add_argument("--k-reference", type=int, default=None, help="Mark this k with a vertical guide line")
+    parser.add_argument(
+        "--k-reference", type=int, default=None, help="Mark this k with a vertical guide line"
+    )
     parser.add_argument("--col-num", type=int, default=2, help="Panel columns (default 2)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
@@ -168,7 +190,12 @@ def main() -> int:
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
     try:
-        config = KSelConfig(metrics=args.metrics, output=args.output, k_reference=args.k_reference, col_num=args.col_num)
+        config = KSelConfig(
+            metrics=args.metrics,
+            output=args.output,
+            k_reference=args.k_reference,
+            col_num=args.col_num,
+        )
         run(config)
     except ValueError as e:
         logger.error(f"Error: {e}")

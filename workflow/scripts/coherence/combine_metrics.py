@@ -68,14 +68,14 @@ Version:  1.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 from scipy.stats import false_discovery_control
 
 # 4. Local Imports
@@ -148,11 +148,11 @@ def run(metrics_paths: list[Path], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     combined = combine(metrics_paths)
     write_parquet(combined, output)
-    by_source = (
-        combined["source"].value_counts().to_dict() if "source" in combined.columns else {}
+    by_source = combined["source"].value_counts().to_dict() if "source" in combined.columns else {}
+    logger.success(
+        f"combined {len(metrics_paths)} sources -> {len(combined):,} groups "
+        f"({by_source}) -> {output}"
     )
-    logger.success(f"combined {len(metrics_paths)} sources -> {len(combined):,} groups "
-                   f"({by_source}) -> {output}")
 
 
 # =============================================================================
@@ -160,10 +160,22 @@ def run(metrics_paths: list[Path], output: Path) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Combine per-source coherence metrics into one cross-source table")
-    parser.add_argument("--metrics", type=Path, nargs="+", required=True, help="Per-source coherence_metrics.parquet paths")
-    parser.add_argument("--output", type=Path, required=True, help="Output combined/coherence_metrics.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="Combine per-source coherence metrics into one cross-source table"
+    )
+    parser.add_argument(
+        "--metrics",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="Per-source coherence_metrics.parquet paths",
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output combined/coherence_metrics.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

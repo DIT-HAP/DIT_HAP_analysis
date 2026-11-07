@@ -72,20 +72,20 @@ Version:  2.1.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+import textwrap
 from typing import Any
 
 # 2. Data Processing Imports
 import cnsplots as cns
-import numpy as np
-import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
 from matplotlib.axes import Axes
+import numpy as np
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -93,7 +93,14 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from coherence.palette import SOURCE_ORDER, source_colors
 from figure_render.histogram import draw_histogram_panel
-from figures import apply_house_style, apply_log_scale, house_colors, save_dual
+from figures import (
+    FIT_ANNOTATION_FONT_PT,
+    JOURNAL_WIDTH_PX,
+    apply_house_style,
+    apply_log_scale,
+    house_colors,
+    save_dual,
+)
 from io_table import read_file
 from logging_setup import setup_logger
 
@@ -151,8 +158,14 @@ _SIZE_SCALE = 20.0
 _COMPARISON_SIZE_BINS = 21
 _COMPARISON_Z_BINS = 20
 
-_REQUIRED_COLUMNS = ["n_scored_members", "median_pairwise_distance_z",
-                     "geom_median_DR", "geom_median_DL", "group_name", "q_value_coherent"]
+_REQUIRED_COLUMNS = [
+    "n_scored_members",
+    "median_pairwise_distance_z",
+    "geom_median_DR",
+    "geom_median_DL",
+    "group_name",
+    "q_value_coherent",
+]
 
 # Panels are lettered explicitly so the FDR panels' letters are predictable whatever
 # number of biology columns the table carries: row 1 is A/B/C, the biology panels sit
@@ -195,25 +208,20 @@ _FDR_PANELS = (
 _FDR_Q_FLOOR = 1e-12
 
 # The two FDR panels sit side by side and are sized so row 3 lines up with row 2:
-# same left edge and same total width as the three SQUARE panels above. Those
-# 3-column rows are what set the page's visual frame, and a row 3 that starts
-# further right or runs wider reads as belonging to a different figure. Measured
-# (go_macrocomplex, and identical for go_cc / go_bp): at width 159 with no left
-# margin, G's axes left edge is 25.0 px — exactly D's — and the row spans 734.6 px
-# against the SQUARE row's 735.6 px. The starting point was 200 px wide with a 14 px
-# left margin, which put G 28 px right of D and made the row 191 px too wide.
+# same left edge as the three SQUARE panels above. Those 3-column rows are what
+# set the page's visual frame, and a row 3 that starts further right reads as
+# belonging to a different figure. The left margin is 0 on purpose: multipanel
+# starts every row at the same x and each panel then adds its own margin_left, so
+# a nonzero one is exactly what pushed row 3 to the right. The right margin only
+# sets the G-to-H gap.
 #
-# Width is a measured constant rather than a derived one because a panel's footprint
+# Width and height are 150 pt, the top of the house panel band. The measured
+# alignment value was 159, but that exceeds the band; the row now ends slightly
+# before the SQUARE row above, which is the accepted trade-off.
+#
+# Width is a constant rather than a derivation because a panel's footprint
 # includes the label and axis reserves multipanel only knows after it has drawn.
-#
-# The left margin is 0 on purpose: multipanel starts every row at the same x and each
-# panel then adds its own margin_left, so a nonzero one is exactly what pushed row 3
-# to the right. The right margin only sets the G-to-H gap.
-#
-# Height equals width: a 159 px-tall panel holds the name-label stacks without
-# crowding (tightest inter-label gap 3.8 px, measured), and square matches the SQUARE
-# panels' own aspect instead of making row 3 the one row of letterbox panels.
-_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 159, 159
+_FDR_PANEL_WIDTH, _FDR_PANEL_HEIGHT = 150, 150
 _FDR_MARGIN_RIGHT = 14
 
 # --- Marginal distributions on the q-encoded FDR panel -----------------------
@@ -227,10 +235,10 @@ _FDR_MARGIN_RIGHT = 14
 # The top strip lives between the axes and the title (the title is given a pad
 # wide enough to clear it, and the panel label a matching pad_top); the right
 # strip lives in a margin_right of the same width.
-_JOINT_STRIP = 26             # marginal thickness, layout px (1 px = 1 pt)
-_JOINT_GAP = 3                # white space between the scatter and its strips
+_JOINT_STRIP = 26  # marginal thickness, layout px (1 px = 1 pt)
+_JOINT_GAP = 3  # white space between the scatter and its strips
 _JOINT_MARGIN = _JOINT_STRIP + _JOINT_GAP
-_JOINT_Q_BINS = 40            # q spans 0..1 by definition; 0.025-wide bins
+_JOINT_Q_BINS = 40  # q spans 0..1 by definition; 0.025-wide bins
 _JOINT_Z_BINS = 30
 # Gid on the two marginal axes, so a layout checker can recognise them as part
 # of the panel they annotate rather than as neighbouring panels.
@@ -261,11 +269,11 @@ _JOINT_HEADROOM = 1.08
 # px / 72 inches), so a line of text is _LABEL_FONT_SIZE / height in axes fraction and
 # the multipliers below are just line spacing and clearance in units of the font size
 # (1.6 and 1.2 reproduce the values that were hand-tuned at height 240).
-_LABEL_FONT_SIZE = 5
-_LABEL_WRAP_WIDTH = 35        # characters per line before wrapping
-_LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT   # one rendered line
-_LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT     # between two blocks
-_LABEL_ANCHOR_PAD = 0.035     # smallest gap between a point and its own label
+_LABEL_FONT_SIZE = FIT_ANNOTATION_FONT_PT
+_LABEL_WRAP_WIDTH = 35  # characters per line before wrapping
+_LABEL_LINE_HEIGHT = 1.6 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT  # one rendered line
+_LABEL_BLOCK_GAP = 1.2 * _LABEL_FONT_SIZE / _FDR_PANEL_HEIGHT  # between two blocks
+_LABEL_ANCHOR_PAD = 0.035  # smallest gap between a point and its own label
 
 # The y band each end's labels occupy. The incoherent (dispersed) end sits in the
 # upper band and the coherent (tight) end in the lower one, because the coherence
@@ -279,9 +287,9 @@ _LABEL_BANDS = {"incoherent": (0.52, 0.98), "coherent": (0.02, 0.48)}
 # estimate a candidate's footprint for the overlap test; matplotlib lays out the
 # text itself.
 _LABEL_CHAR_WIDTH = 0.017
-_POINT_RADIUS = 0.012         # drawn marker radius, same units
-_ANCHOR_PUSHES = (0.0, 0.08, 0.16, 0.24, 0.34)   # how far out from the point to try
-_ANCHOR_Y_STEPS = 24          # candidate rows within the end's band
+_POINT_RADIUS = 0.012  # drawn marker radius, same units
+_ANCHOR_PUSHES = (0.0, 0.08, 0.16, 0.24, 0.34)  # how far out from the point to try
+_ANCHOR_Y_STEPS = 24  # candidate rows within the end's band
 
 # Scoring, in strict priority order: a candidate must never overlap another label's
 # text, may cover a few markers rather than none, and only then is a leader that cuts
@@ -290,11 +298,11 @@ _ANCHOR_Y_STEPS = 24          # candidate rows within the end's band
 # one — and the point term saturates, so a candidate in a dense region is not scored
 # as impossible and the search does not abandon a clear row to escape it.
 _POINT_HIT_PENALTY = 20.0
-_POINT_HIT_CAP = 4            # x the penalty above = 80, below the label-overlap cost
+_POINT_HIT_CAP = 4  # x the penalty above = 80, below the label-overlap cost
 _LEADER_CROSS_PENALTY = 20.0  # x four other labels = 80, likewise
-_LABEL_HIT_PENALTY = 200.0    # text on text: the one outcome to avoid outright
-_OVERLAP_AREA_WEIGHT = 5.0    # tie-break between candidates that all collide
-_LEADER_PENALTY = 1.0         # per unit of leader length
+_LABEL_HIT_PENALTY = 200.0  # text on text: the one outcome to avoid outright
+_OVERLAP_AREA_WEIGHT = 5.0  # tie-break between candidates that all collide
+_LEADER_PENALTY = 1.0  # per unit of leader length
 
 # LabelSettings defaults, shared by the dataclass fields and argparse. They cannot
 # be read off the dataclass: with slots=True, `LabelSettings.q_max` is a
@@ -305,11 +313,10 @@ DEFAULT_LABEL_MAX = 5
 DEFAULT_COHERENT_Z = -2.0
 DEFAULT_INCOHERENT_Z = 1.0
 
-# Page width, in layout pixels. 500 is measured, not derived: the widest row (the two
-# FDR panels plus their margins) needs 481, and a fourth SQUARE panel on row 1 would
-# need 568. Anything in between keeps the 3 x 2 layout intact; anything larger and
-# multipanel silently packs that fourth panel onto row 1.
-_MAX_WIDTH = 500
+# Page width, in layout pixels: the Cell two-column cap. The widest row needs 481,
+# and a fourth SQUARE panel on row 1 would need 568; 493 sits between them and
+# keeps the 3 x 2 layout intact.
+_MAX_WIDTH = JOURNAL_WIDTH_PX
 
 
 # =============================================================================
@@ -318,16 +325,20 @@ _MAX_WIDTH = 500
 @dataclass(kw_only=True, slots=True, frozen=True)
 class LabelSettings:
     """Which groups the FDR panel names: the two cohort cuts and a per-side cap."""
-    q_max: float = DEFAULT_LABEL_Q_MAX     # q at or below this counts as significant
-    coherent_z: float = DEFAULT_COHERENT_Z     # coherent = q <= q_max AND z < this
+
+    q_max: float = DEFAULT_LABEL_Q_MAX  # q at or below this counts as significant
+    coherent_z: float = DEFAULT_COHERENT_Z  # coherent = q <= q_max AND z < this
     incoherent_z: float = DEFAULT_INCOHERENT_Z  # incoherent = z > this
-    quantile: float = DEFAULT_LABEL_QUANTILE   # per-side share of the eligible groups to name
-    max_labels: int = DEFAULT_LABEL_MAX    # hard cap per side, so a 1,400-group source cannot flood the margin
+    quantile: float = DEFAULT_LABEL_QUANTILE  # per-side share of the eligible groups to name
+    max_labels: int = (
+        DEFAULT_LABEL_MAX  # hard cap per side, so a 1,400-group source cannot flood the margin
+    )
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
     """Inputs and outputs for coherence visualization."""
+
     input_metrics: Path
     output: Path
     labels: LabelSettings = LabelSettings()
@@ -397,21 +408,20 @@ def spread_positions(values: list[float], low: float, high: float, gap: float) -
     return [min(max(value, low), high) for value in spread]
 
 
-def visible_fractions(
-    ax: Axes, table: pd.DataFrame, x_column: str
-) -> list[tuple[float, float]]:
+def visible_fractions(ax: Axes, table: pd.DataFrame, x_column: str) -> list[tuple[float, float]]:
     """Every drawn point as an axes-fraction (x, y) pair, for the placement search."""
     x_limits, y_limits = ax.get_xlim(), ax.get_ylim()
     x_span = x_limits[1] - x_limits[0]
     y_span = y_limits[1] - y_limits[0]
     return [
         ((x - x_limits[0]) / x_span, (z - y_limits[0]) / y_span)
-        for x, z in zip(table[x_column], table["median_pairwise_distance_z"])
+        for x, z in zip(table[x_column], table["median_pairwise_distance_z"], strict=False)
     ]
 
 
 def boxes_hit(
-    box: tuple[float, float, float, float], points: list[tuple[float, float]],
+    box: tuple[float, float, float, float],
+    points: list[tuple[float, float]],
 ) -> int:
     """How many drawn points fall inside (or under) an axes-fraction box."""
     x0, x1, y0, y1 = box
@@ -467,7 +477,9 @@ def place_label(
             score += _OVERLAP_AREA_WEIGHT * sum(overlap_area(box, other) for other in occupied)
             # A leader has to reach its label without cutting through another one, or
             # the panel reads as a tangle even when every box is clear of the rest.
-            score += _LEADER_CROSS_PENALTY * leader_crossings((point_x, point_y), (anchor_x, anchor_y), occupied)
+            score += _LEADER_CROSS_PENALTY * leader_crossings(
+                (point_x, point_y), (anchor_x, anchor_y), occupied
+            )
             if best_score is None or score < best_score:
                 best, best_score = (anchor_x, anchor_y, to_the_left), score
 
@@ -475,7 +487,11 @@ def place_label(
 
 
 def box_for(
-    anchor_x: float, anchor_y: float, width: float, height: float, to_the_left: bool,
+    anchor_x: float,
+    anchor_y: float,
+    width: float,
+    height: float,
+    to_the_left: bool,
 ) -> tuple[float, float, float, float]:
     """The (x0, x1, y0, y1) axes-fraction footprint of a label anchored at (x, y)."""
     left, right = (anchor_x - width, anchor_x) if to_the_left else (anchor_x, anchor_x + width)
@@ -483,7 +499,8 @@ def box_for(
 
 
 def overlap_area(
-    box: tuple[float, float, float, float], other: tuple[float, float, float, float],
+    box: tuple[float, float, float, float],
+    other: tuple[float, float, float, float],
 ) -> float:
     """Intersection area of two boxes, 0.0 when they are clear of each other."""
     dx = min(box[1], other[1]) - max(box[0], other[0])
@@ -534,7 +551,9 @@ def labelled_extremes(table: pd.DataFrame, side: str, settings: LabelSettings) -
         ]
         return eligible.head(label_count(len(eligible), settings.quantile, settings.max_labels))
     eligible = ordered[ordered["median_pairwise_distance_z"] > settings.incoherent_z]
-    return eligible.tail(label_count(len(eligible), settings.quantile, settings.max_labels)).iloc[::-1]
+    return eligible.tail(label_count(len(eligible), settings.quantile, settings.max_labels)).iloc[
+        ::-1
+    ]
 
 
 def label_block_lines(rows: pd.DataFrame) -> int:
@@ -545,7 +564,10 @@ def label_block_lines(rows: pd.DataFrame) -> int:
 
 
 def annotate_extremes(
-    ax: Axes, rows: pd.DataFrame, end: str, x_column: str,
+    ax: Axes,
+    rows: pd.DataFrame,
+    end: str,
+    x_column: str,
     points: list[tuple[float, float]],
 ) -> None:
     """Name each row with a leader line out of its own point."""
@@ -563,13 +585,17 @@ def annotate_extremes(
     entries = []
     for _, row in rows.iterrows():
         text = textwrap.fill(str(row["group_name"]), width=_LABEL_WRAP_WIDTH)
-        entries.append((
-            text,
-            max(len(line) for line in text.splitlines()) * _LABEL_CHAR_WIDTH,
-            ((row[x_column] - x_limits[0]) / x_span,
-             (row["median_pairwise_distance_z"] - y_limits[0]) / y_span),
-            (row[x_column], row["median_pairwise_distance_z"]),
-        ))
+        entries.append(
+            (
+                text,
+                max(len(line) for line in text.splitlines()) * _LABEL_CHAR_WIDTH,
+                (
+                    (row[x_column] - x_limits[0]) / x_span,
+                    (row["median_pairwise_distance_z"] - y_limits[0]) / y_span,
+                ),
+                (row[x_column], row["median_pairwise_distance_z"]),
+            )
+        )
 
     placements = place_all(entries, height, [band] * len(entries), points)
     if any_overlap(placements, entries, height):
@@ -579,20 +605,31 @@ def annotate_extremes(
         # rather than emitting a collision.
         rows_y = spread_positions(
             [point[1] for _, _, point, _ in entries],
-            band[0] + height / 2, band[1] - height / 2, height,
+            band[0] + height / 2,
+            band[1] - height / 2,
+            height,
         )
         placements = place_all(
             entries, height, [(y - height / 2, y + height / 2) for y in rows_y], points
         )
 
-    for (text, _, _, xy), (anchor_x, anchor_y, to_the_left) in zip(entries, placements):
+    for (text, _, _, xy), (anchor_x, anchor_y, to_the_left) in zip(
+        entries, placements, strict=False
+    ):
         ax.annotate(
             text,
-            xy=xy, xytext=(anchor_x, anchor_y), textcoords="axes fraction",
-            ha="right" if to_the_left else "left", va="center",
+            xy=xy,
+            xytext=(anchor_x, anchor_y),
+            textcoords="axes fraction",
+            ha="right" if to_the_left else "left",
+            va="center",
             fontsize=_LABEL_FONT_SIZE,
-            arrowprops={"arrowstyle": "-", "color": cns.GRAY, "linewidth": 0.6,
-                        "shrinkA": 2, "shrinkB": 3},
+            arrowprops={
+                "arrowstyle": "-",
+                "color": cns.GRAY,
+                "shrinkA": 2,
+                "shrinkB": 3,
+            },
         )
 
 
@@ -605,7 +642,7 @@ def place_all(
     """Run the placement search over every label, later ones avoiding earlier boxes."""
     occupied: list[tuple[float, float, float, float]] = []
     placements = []
-    for (_, width, point, _), band in zip(entries, bands):
+    for (_, width, point, _), band in zip(entries, bands, strict=False):
         anchor = place_label(point, width, height, band, occupied, points)
         occupied.append(box_for(anchor[0], anchor[1], width, height, anchor[2]))
         placements.append(anchor)
@@ -620,12 +657,10 @@ def any_overlap(
     """Whether the placed label boxes collide with each other anywhere."""
     boxes = [
         box_for(anchor[0], anchor[1], width, height, anchor[2])
-        for anchor, (_, width, _, _) in zip(placements, entries)
+        for anchor, (_, width, _, _) in zip(placements, entries, strict=False)
     ]
     return any(
-        overlap_area(a, b) > 0.0
-        for index, a in enumerate(boxes)
-        for b in boxes[index + 1:]
+        overlap_area(a, b) > 0.0 for index, a in enumerate(boxes) for b in boxes[index + 1 :]
     )
 
 
@@ -640,8 +675,15 @@ def _source_series(table: pd.DataFrame) -> list[str]:
 
 
 def draw_source_histogram(
-    ax: Axes, table: pd.DataFrame, column: str, *, bins: int, log_scale: bool,
-    colors: dict[str, str], series: list[str], legend: bool = False,
+    ax: Axes,
+    table: pd.DataFrame,
+    column: str,
+    *,
+    bins: int,
+    log_scale: bool,
+    colors: dict[str, str],
+    series: list[str],
+    legend: bool = False,
 ) -> None:
     """One step-histogram per source on SHARED bin edges."""
     # Shared edges come from the whole table, not per source: binning each source on
@@ -667,20 +709,31 @@ def draw_source_histogram(
         source_values = values.loc[values["source"] == source, column]
         if source_values.empty:
             continue
-        ax.hist(source_values, bins=edges, histtype="step", linewidth=1.0,
-                color=colors[source], label=source)
+        ax.hist(
+            source_values,
+            bins=edges,
+            histtype="step",
+            color=colors[source],
+            label=source,
+        )
 
     if log_scale:
         # The edges are already laid out in log10 space, so the axis is switched
         # afterwards rather than by a log flag that would re-bin them.
         apply_log_scale(ax, x=True, y=False)
     if legend:
-        ax.legend(frameon=False, fontsize=5, loc="upper right")
+        ax.legend(frameon=False, loc="upper right")
 
 
 def draw_source_scatter(
-    ax: Axes, table: pd.DataFrame, x_column: str, y_column: str, *,
-    by_source: bool, colors: dict[str, str], series: list[str],
+    ax: Axes,
+    table: pd.DataFrame,
+    x_column: str,
+    y_column: str,
+    *,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
 ) -> None:
     """Scatter `x_column`-vs-`y_column`, one series per source in comparison mode."""
     # Goes through cns.scatterplot once per source rather than ax.scatter, so the
@@ -697,8 +750,14 @@ def draw_source_scatter(
 
 
 def draw_joint_marginals(
-    ax: Axes, table: pd.DataFrame, x_column: str, y_column: str, *,
-    by_source: bool, colors: dict[str, str], series: list[str],
+    ax: Axes,
+    table: pd.DataFrame,
+    x_column: str,
+    y_column: str,
+    *,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
 ) -> None:
     """Attach histograms of the panel's x and y values above and to its right.
 
@@ -721,12 +780,8 @@ def draw_joint_marginals(
     gap_x = _JOINT_GAP / width_px
     gap_y = _JOINT_GAP / height_px
 
-    ax_top = fig.add_axes(
-        [box.x0, box.y1 + gap_y, box.width, strip_h], sharex=ax
-    )
-    ax_right = fig.add_axes(
-        [box.x1 + gap_x, box.y0, strip_w, box.height], sharey=ax
-    )
+    ax_top = fig.add_axes([box.x0, box.y1 + gap_y, box.width, strip_h], sharex=ax)
+    ax_right = fig.add_axes([box.x1 + gap_x, box.y0, strip_w, box.height], sharey=ax)
     # Tag both strips so the layout test can tell "a decoration inside its own
     # panel" (by design here) from "one panel bleeding into another".
     for marginal in (ax_top, ax_right):
@@ -749,14 +804,24 @@ def draw_joint_marginals(
             # silhouette stays a distribution while the split says which source
             # it came from.
             cns.histplot(
-                data=table, **{orientation: column},
-                hue="source", hue_order=series, palette=colors,
-                multiple="stack", bins=edges[orientation], ax=marginal, legend=False,
+                data=table,
+                **{orientation: column},
+                hue="source",
+                hue_order=series,
+                palette=colors,
+                multiple="stack",
+                bins=edges[orientation],
+                ax=marginal,
+                legend=False,
             )
         else:
             cns.histplot(
-                data=table, **{orientation: column},
-                bins=edges[orientation], color=color, ax=marginal, legend=False,
+                data=table,
+                **{orientation: column},
+                bins=edges[orientation],
+                color=color,
+                ax=marginal,
+                legend=False,
             )
         # The two strips are a distribution summary, not coordinates a reader
         # should try to read off: no ticks, no frame, no axis labels (seaborn
@@ -765,9 +830,7 @@ def draw_joint_marginals(
         marginal.patch.set_visible(False)
         marginal.set_xlabel("")
         marginal.set_ylabel("")
-        marginal.tick_params(
-            left=False, bottom=False, labelleft=False, labelbottom=False
-        )
+        marginal.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
         for spine in marginal.spines.values():
             spine.set_visible(False)
 
@@ -783,6 +846,225 @@ def draw_joint_marginals(
     ax_right.set_xlim(0.0, right_max * _JOINT_HEADROOM if right_max else 1.0)
 
 
+def _draw_empty_page() -> None:
+    """The placeholder page drawn when no group passed the size filter."""
+    ax = cns.multipanel(max_width=JOURNAL_WIDTH_PX, unit="pt").panel(
+        width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT
+    )
+    ax.text(0.5, 0.5, "No groups passed the size filter", ha="center", va="center")
+    ax.set_axis_off()
+
+
+def _draw_size_panel(
+    multipanel: Any,
+    table: pd.DataFrame,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
+) -> None:
+    """Panel A: the distribution of scored group sizes."""
+    ax = multipanel.panel("A", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
+    if by_source:
+        # The one legend for the whole figure: the key is read once, at the top.
+        draw_source_histogram(
+            ax,
+            table,
+            "n_scored_members",
+            bins=_COMPARISON_SIZE_BINS,
+            log_scale=True,
+            colors=colors,
+            series=series,
+            legend=True,
+        )
+        ax.set(
+            xlabel="Group size\n(DR<threshold members)",
+            ylabel="Number of groups",
+            title="Group size distribution",
+        )
+    else:
+        draw_histogram_panel(
+            ax,
+            table["n_scored_members"],
+            bins=21,
+            log_scale=True,
+            xlabel="Group size\n(DR<threshold members)",
+            ylabel="Number of groups",
+            title="Group size distribution",
+        )
+
+
+def _draw_z_panel(
+    multipanel: Any,
+    table: pd.DataFrame,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
+) -> None:
+    """Panel B: the coherence z-scores, with the null at zero marked."""
+    ax = multipanel.panel("B", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
+    if by_source:
+        draw_source_histogram(
+            ax,
+            table,
+            "median_pairwise_distance_z",
+            bins=_COMPARISON_Z_BINS,
+            log_scale=False,
+            colors=colors,
+            series=series,
+        )
+        ax.set(
+            xlabel="MPD z-score\n(negative = coherent)",
+            ylabel="Number of groups",
+            title="Coherence z-scores",
+        )
+    else:
+        draw_histogram_panel(
+            ax,
+            table["median_pairwise_distance_z"],
+            bins=20,
+            xlabel="MPD z-score\n(negative = coherent)",
+            ylabel="Number of groups",
+            title="Coherence z-scores",
+        )
+    # z = 0 is the null: at or above it the group is no tighter than a random
+    # draw of the same size. Drawn after the histogram so it reads on top.
+    ax.axvline(0.0, color=cns.GRAY, linestyle="--")
+
+
+def _draw_source_centroids(
+    ax: Axes, table: pd.DataFrame, series: list[str], colors: dict[str, str]
+) -> None:
+    """Panel C in comparison mode: one flat colour per source, no colourbar."""
+    # Point size still carries group size, so the two encodings stay the same
+    # shape as the per-source figure's C panel — only colour changes meaning.
+    for source in series:
+        rows = table[table["source"] == source]
+        ax.scatter(
+            rows["geom_median_DR"],
+            rows["geom_median_DL"],
+            s=point_sizes(rows["n_scored_members"]),
+            color=colors[source],
+            alpha=1.0,
+            edgecolors=cns.GRAY,
+        )
+
+
+def _draw_z_centroids(ax: Axes, table: pd.DataFrame) -> None:
+    """Panel C in single-series mode: z-score as a diverging colour map."""
+    # z-score is signed and 0 is its meaningful midpoint, so a diverging map is the
+    # right encoding, with vmin/vmax set symmetrically or the midpoint colour lands
+    # at an arbitrary value. cnsplots ships this one (BuRd_custom) as its diverging
+    # map; it runs blue at the low end, which puts coherent (negative z) on the cool
+    # end. A plain matplotlib name like coolwarm would work but is not the
+    # package's own scale.
+    #
+    # The limits are a percentile, not max|z| — see _PANEL_C_PERCENTILE. The
+    # house colourbar contract keeps square ends, so the clipped tails are not
+    # marked by triangular caps; the clipping is stated in the figure caption.
+    #
+    # The edge is not decoration: a diverging map spends its midpoint on white, and
+    # most groups sit at z ~ 0, so without a hairline outline they vanish into the
+    # page.
+    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
+    z_limits = float(np.nanpercentile(np.abs(z_values), _PANEL_C_PERCENTILE))
+    if not z_limits:
+        z_limits = 1.0
+    scatter = ax.scatter(
+        table["geom_median_DR"],
+        table["geom_median_DL"],
+        c=table["median_pairwise_distance_z"],
+        s=point_sizes(table["n_scored_members"]),
+        cmap=cns.palettes(_DIVERGING_CMAP),
+        vmin=-z_limits,
+        vmax=z_limits,
+        edgecolors=cns.GRAY,
+    )
+    colorbar_ax = ax.inset_axes(_CBAR_BOUNDS)
+    colorbar = ax.figure.colorbar(scatter, cax=colorbar_ax, extend="neither")
+    colorbar.set_label("z-score")
+
+
+def _draw_size_legend(ax: Axes) -> None:
+    """The group-size key, built from invisible handles and taken to the margin."""
+    legend_handles = [
+        ax.scatter(
+            [],
+            [],
+            s=float(np.log1p(value) * _SIZE_SCALE),
+            color=cns.GRAY,
+            alpha=0.7,
+            edgecolors="none",
+        )
+        for value in _SIZE_LEGEND_VALUES
+    ]
+    ax.legend(
+        legend_handles,
+        [str(value) for value in _SIZE_LEGEND_VALUES],
+        frameon=False,
+    )
+    # Keyword-only: written positionally this silently sets the legend TITLE.
+    cns.take_legend_out("Group size", ax=ax)
+
+
+def _draw_centroid_panel(
+    multipanel: Any,
+    table: pd.DataFrame,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
+) -> None:
+    """Panel C: group centroid positions, coloured by z-score or by source."""
+    ax = multipanel.panel(
+        "C",
+        width=_SQUARE_WIDTH,
+        height=_SQUARE_HEIGHT,
+        margin_right=_CENTROID_MARGIN_RIGHT,
+        margin_bottom=_ROW_GAP,
+    )
+    if by_source:
+        # One flat colour per source; the z-score map and its colourbar are dropped.
+        _draw_source_centroids(ax, table, series, colors)
+    else:
+        _draw_z_centroids(ax, table)
+    ax.set(xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions")
+    _draw_size_legend(ax)
+
+
+def _draw_biology_panels(
+    multipanel: Any,
+    table: pd.DataFrame,
+    by_source: bool,
+    colors: dict[str, str],
+    series: list[str],
+) -> int:
+    """Draw one z-scored scatter per biology column and return how many were drawn."""
+    # Every biology panel plots z-score on y, so they share one y range: with
+    # autoscaled panels a group at z=-6 renders exactly like one at z=-1, and the
+    # panels only mean anything compared against each other. Their x variables are
+    # different quantities on different scales, so x stays per-panel.
+    biology = biology_panels(table)
+    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
+    shared_z_limits = (float(np.nanmin(z_values)), float(np.nanmax(z_values)))
+
+    for letter, (column, xlabel, title) in zip(_BIOLOGY_LETTERS, biology, strict=False):
+        ax = multipanel.panel(
+            letter, width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP
+        )
+        draw_source_scatter(
+            ax,
+            table,
+            column,
+            "median_pairwise_distance_z",
+            by_source=by_source,
+            colors=colors,
+            series=series,
+        )
+        ax.set(xlabel=xlabel, ylabel="z-score", title=title)
+        ax.set_ylim(*shared_z_limits)
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--")
+    return len(biology)
+
+
 def plot_coherence(
     table: pd.DataFrame, settings: LabelSettings | None = None, color_by: str = "none"
 ) -> None:
@@ -796,9 +1078,7 @@ def plot_coherence(
     settings = settings or LabelSettings()
 
     if table.empty:
-        ax = cns.multipanel().panel(width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT)
-        ax.text(0.5, 0.5, "No groups passed the size filter", ha="center", va="center")
-        ax.set_axis_off()
+        _draw_empty_page()
         return
 
     # Comparison mode: one flat colour per source, replacing panel C's z-score map.
@@ -817,133 +1097,24 @@ def plot_coherence(
     # row 1 (A, B, C plus C's legend margin) is 413 layout px, and a fourth SQUARE
     # panel would need ~122 more, so 500 wraps it. Raise max_width past ~535 and
     # multipanel silently packs four panels onto row 1 and the grid becomes 4 x 2.
-    multipanel = cns.multipanel(max_width=_MAX_WIDTH)
+    multipanel = cns.multipanel(max_width=_MAX_WIDTH, unit="pt")
 
-    ax_size = multipanel.panel("A", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
-    if by_source:
-        # The one legend for the whole figure: the key is read once, at the top.
-        draw_source_histogram(
-            ax_size, table, "n_scored_members", bins=_COMPARISON_SIZE_BINS, log_scale=True,
-            colors=colors, series=series, legend=True,
-        )
-        ax_size.set(
-            xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
-            title="Group size distribution",
-        )
-    else:
-        draw_histogram_panel(
-            ax_size, table["n_scored_members"], bins=21, log_scale=True,
-            xlabel="Group size\n(DR<threshold members)", ylabel="Number of groups",
-            title="Group size distribution",
-        )
+    _draw_size_panel(multipanel, table, by_source, colors, series)
+    _draw_z_panel(multipanel, table, by_source, colors, series)
+    _draw_centroid_panel(multipanel, table, by_source, colors, series)
 
-    ax_z = multipanel.panel("B", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP)
-    if by_source:
-        draw_source_histogram(
-            ax_z, table, "median_pairwise_distance_z", bins=_COMPARISON_Z_BINS,
-            log_scale=False, colors=colors, series=series,
-        )
-        ax_z.set(
-            xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
-            title="Coherence z-scores",
-        )
-    else:
-        draw_histogram_panel(
-            ax_z, table["median_pairwise_distance_z"], bins=20,
-            xlabel="MPD z-score\n(negative = coherent)", ylabel="Number of groups",
-            title="Coherence z-scores",
-        )
-    # z = 0 is the null: at or above it the group is no tighter than a random
-    # draw of the same size. Drawn after the histogram so it reads on top.
-    ax_z.axvline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
-
-    ax_centroid = multipanel.panel(
-        "C", width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT,
-        margin_right=_CENTROID_MARGIN_RIGHT, margin_bottom=_ROW_GAP,
-    )
-    sizes = point_sizes(table["n_scored_members"])
-    # z-score is signed and 0 is its meaningful midpoint, so a diverging map is the
-    # right encoding, with vmin/vmax set symmetrically or the midpoint colour lands
-    # at an arbitrary value. cnsplots ships this one (BuRd_custom) as its diverging
-    # map; it runs blue at the low end, which puts coherent (negative z) on the cool
-    # end. A plain matplotlib name like coolwarm would work but is not the
-    # package's own scale.
-    #
-    # The limits are a percentile, not max|z| — see _PANEL_C_PERCENTILE. The
-    # colourbar gets `extend="both"` so the clipped tails are visible as such.
-    #
-    # The edge is not decoration: a diverging map spends its midpoint on white, and
-    # most groups sit at z ~ 0, so without a hairline outline they vanish into the
-    # page.
-    if by_source:
-        # One flat colour per source; the z-score map and its colourbar are dropped.
-        # Point size still carries group size, so the two encodings stay the same
-        # shape as the per-source figure's C panel — only colour changes meaning.
-        for source in series:
-            rows = table[table["source"] == source]
-            ax_centroid.scatter(
-                rows["geom_median_DR"], rows["geom_median_DL"],
-                s=point_sizes(rows["n_scored_members"]), color=colors[source],
-                alpha=1.0, edgecolors=cns.GRAY, linewidths=0.3,
-            )
-    else:
-        z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
-        z_limits = float(np.nanpercentile(np.abs(z_values), _PANEL_C_PERCENTILE))
-        if not z_limits:
-            z_limits = 1.0
-        scatter = ax_centroid.scatter(
-            table["geom_median_DR"], table["geom_median_DL"],
-            c=table["median_pairwise_distance_z"], s=sizes,
-            cmap=cns.palettes(_DIVERGING_CMAP), vmin=-z_limits, vmax=z_limits,
-            alpha=1.0, edgecolors=cns.GRAY, linewidths=0.3,
-        )
-    ax_centroid.set(
-        xlabel="typical DR", ylabel="typical DL/10", title="Group centroid positions"
-    )
-
-    if not by_source:
-        colorbar_ax = ax_centroid.inset_axes(_CBAR_BOUNDS)
-        colorbar = ax_centroid.figure.colorbar(scatter, cax=colorbar_ax, extend="both")
-        colorbar.ax.tick_params(length=0, pad=1)
-        colorbar.set_label("z-score", labelpad=1)
-
-    legend_handles = [
-        ax_centroid.scatter([], [], s=float(np.log1p(value) * _SIZE_SCALE),
-                            color=cns.GRAY, alpha=0.7, edgecolors="none")
-        for value in _SIZE_LEGEND_VALUES
-    ]
-    ax_centroid.legend(
-        legend_handles, [str(value) for value in _SIZE_LEGEND_VALUES], frameon=False,
-    )
-    # Keyword-only: written positionally this silently sets the legend TITLE.
-    cns.take_legend_out("Group size", ax=ax_centroid)
-
-    # Every biology panel plots z-score on y, so they share one y range: with
-    # autoscaled panels a group at z=-6 renders exactly like one at z=-1, and the
-    # panels only mean anything compared against each other. Their x variables are
-    # different quantities on different scales, so x stays per-panel.
-    biology = biology_panels(table)
-    z_values = table["median_pairwise_distance_z"].to_numpy(dtype=float)
-    shared_z_limits = (float(np.nanmin(z_values)), float(np.nanmax(z_values)))
-
-    for letter, (column, xlabel, title) in zip(_BIOLOGY_LETTERS, biology):
-        ax = multipanel.panel(
-            letter, width=_SQUARE_WIDTH, height=_SQUARE_HEIGHT, margin_bottom=_ROW_GAP
-        )
-        draw_source_scatter(
-            ax, table, column, "median_pairwise_distance_z",
-            by_source=by_source, colors=colors, series=series,
-        )
-        ax.set(xlabel=xlabel, ylabel="z-score", title=title)
-        ax.set_ylim(*shared_z_limits)
-        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
+    n_biology = _draw_biology_panels(multipanel, table, by_source, colors, series)
 
     # The FDR row follows whichever biology panels were drawn, so its letters depend
     # on how many there are.
     draw_fdr_panels(
-        multipanel, table, settings,
-        first_letter=chr(ord(_BIOLOGY_LETTERS[0]) + len(biology)),
-        by_source=by_source, colors=colors, series=series,
+        multipanel,
+        table,
+        settings,
+        first_letter=chr(ord(_BIOLOGY_LETTERS[0]) + n_biology),
+        by_source=by_source,
+        colors=colors,
+        series=series,
     )
 
 
@@ -955,8 +1126,12 @@ def fdr_axis(q_values: pd.Series, encoding: str, q_max: float) -> tuple[pd.Serie
 
 
 def draw_fdr_panels(
-    multipanel: Any, table: pd.DataFrame, settings: LabelSettings, first_letter: str,
-    by_source: bool = False, colors: dict[str, str] | None = None,
+    multipanel: Any,
+    table: pd.DataFrame,
+    settings: LabelSettings,
+    first_letter: str,
+    by_source: bool = False,
+    colors: dict[str, str] | None = None,
     series: list[str] | None = None,
 ) -> None:
     """Draw the FDR-versus-coherence scatter once per x encoding, side by side."""
@@ -970,7 +1145,8 @@ def draw_fdr_panels(
         joint = encoding == "_q"
         ax = multipanel.panel(
             chr(ord(first_letter) + offset),
-            width=_FDR_PANEL_WIDTH, height=_FDR_PANEL_HEIGHT,
+            width=_FDR_PANEL_WIDTH,
+            height=_FDR_PANEL_HEIGHT,
             margin_right=_FDR_MARGIN_RIGHT + (_JOINT_MARGIN if joint else 0),
             # The label has to clear the strip AND the title that sits above it;
             # pad_top is part of the panel's initial geometry, so the reservation
@@ -980,8 +1156,13 @@ def draw_fdr_panels(
         x_values, cutoff = fdr_axis(table["q_value_coherent"], encoding, settings.q_max)
         plotted = table.assign(**{encoding: x_values})
         draw_source_scatter(
-            ax, plotted, encoding, "median_pairwise_distance_z",
-            by_source=by_source, colors=colors, series=series,
+            ax,
+            plotted,
+            encoding,
+            "median_pairwise_distance_z",
+            by_source=by_source,
+            colors=colors,
+            series=series,
         )
         ax.set(xlabel=xlabel, ylabel="z-score")
         if joint:
@@ -997,8 +1178,8 @@ def draw_fdr_panels(
             joint_table = plotted
         else:
             ax.set_title("Coherence vs significance")
-        ax.axhline(0.0, color=cns.GRAY, linestyle="--", linewidth=1.0)
-        ax.axvline(cutoff, color=cns.GRAY, linestyle=":", linewidth=1.0)
+        ax.axhline(0.0, color=cns.GRAY, linestyle="--")
+        ax.axvline(cutoff, color=cns.GRAY, linestyle=":")
 
         # Each end is named beside its own points: the incoherent ones sit in the
         # upper band and the coherent ones in the lower, because the coherence
@@ -1016,8 +1197,13 @@ def draw_fdr_panels(
         # savefig renders — already knows every panel's rectangle, and this call is
         # the last thing plot_coherence does, so get_position() is final.
         draw_joint_marginals(
-            joint_ax, joint_table, "_q", "median_pairwise_distance_z",
-            by_source=by_source, colors=colors, series=series,
+            joint_ax,
+            joint_table,
+            "_q",
+            "median_pairwise_distance_z",
+            by_source=by_source,
+            colors=colors,
+            series=series,
         )
 
 
@@ -1064,26 +1250,70 @@ def run(config: PlotConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Generate coherence visualization")
-    parser.add_argument("--input", dest="input_metrics", type=Path, required=True,
-                        help="Input coherence metrics table (per-source Parquet, or the cross-source combined Parquet)")
-    parser.add_argument("--color-by", dest="color_by", choices=("none", "source"), default="none",
-                        help="'none' = the single-series figure (z as colour); 'source' = the cross-source comparison, one colour per source")
-    parser.add_argument("--dedup-series", dest="dedup_series", type=Path, default=None,
-                        help="Optional de-duplicated representatives TSV, appended as a `dedup` series (comparison mode)")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="Output coherence figure PDF")
-    parser.add_argument("--label-q-max", type=float, default=DEFAULT_LABEL_Q_MAX,
-                        help="FDR panel: q at or below this counts as significant")
-    parser.add_argument("--label-coherent-z", type=float, default=DEFAULT_COHERENT_Z,
-                        help="FDR panel: the coherent cohort is z below this (and q <= --label-q-max)")
-    parser.add_argument("--label-incoherent-z", type=float, default=DEFAULT_INCOHERENT_Z,
-                        help="FDR panel: the incoherent cohort is z above this")
-    parser.add_argument("--label-quantile", type=float, default=DEFAULT_LABEL_QUANTILE,
-                        help="FDR panel: per-side share of significant groups to name")
-    parser.add_argument("--label-max", type=int, default=DEFAULT_LABEL_MAX,
-                        help="FDR panel: hard cap on names per side")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--input",
+        dest="input_metrics",
+        type=Path,
+        required=True,
+        help=(
+            "Input coherence metrics table "
+            "(per-source Parquet, or the cross-source combined Parquet)"
+        ),
+    )
+    parser.add_argument(
+        "--color-by",
+        dest="color_by",
+        choices=("none", "source"),
+        default="none",
+        help=(
+            "'none' = the single-series figure (z as colour); "
+            "'source' = the cross-source comparison, one colour per source"
+        ),
+    )
+    parser.add_argument(
+        "--dedup-series",
+        dest="dedup_series",
+        type=Path,
+        default=None,
+        help=(
+            "Optional de-duplicated representatives TSV, "
+            "appended as a `dedup` series (comparison mode)"
+        ),
+    )
+    parser.add_argument("--output", type=Path, required=True, help="Output coherence figure PDF")
+    parser.add_argument(
+        "--label-q-max",
+        type=float,
+        default=DEFAULT_LABEL_Q_MAX,
+        help="FDR panel: q at or below this counts as significant",
+    )
+    parser.add_argument(
+        "--label-coherent-z",
+        type=float,
+        default=DEFAULT_COHERENT_Z,
+        help="FDR panel: the coherent cohort is z below this (and q <= --label-q-max)",
+    )
+    parser.add_argument(
+        "--label-incoherent-z",
+        type=float,
+        default=DEFAULT_INCOHERENT_Z,
+        help="FDR panel: the incoherent cohort is z above this",
+    )
+    parser.add_argument(
+        "--label-quantile",
+        type=float,
+        default=DEFAULT_LABEL_QUANTILE,
+        help="FDR panel: per-side share of significant groups to name",
+    )
+    parser.add_argument(
+        "--label-max",
+        type=int,
+        default=DEFAULT_LABEL_MAX,
+        help="FDR panel: hard cap on names per side",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

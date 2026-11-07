@@ -35,7 +35,8 @@ Usage
         --fitting-results .../insertion_level/fitting_results.tsv \\
         --annotations .../insertion_level/annotations.tsv.gz \\
         --gene-level .../gene_level/fitting_results.tsv \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --annotation-reference
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output-annotations results/2a_coverage/HD_DIT_HAP/_work/annotations.parquet \\
         --output-gene-result results/2a_coverage/HD_DIT_HAP/_work/gene_result.parquet
 
@@ -49,9 +50,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -71,6 +72,7 @@ from release_schema import read_gene_level
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PrepareConfig:
     """Inputs and parquet outputs for the coverage data preparation."""
+
     fitting_results: Path
     annotations: Path
     gene_level: Path
@@ -80,7 +82,12 @@ class PrepareConfig:
 
     def validate(self) -> None:
         """Raise ValueError if any required input is missing, then ensure output dirs exist."""
-        for path in [self.fitting_results, self.annotations, self.gene_level, self.annotation_reference]:
+        for path in [
+            self.fitting_results,
+            self.annotations,
+            self.gene_level,
+            self.annotation_reference,
+        ]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for out in [self.output_annotations, self.output_gene_result]:
@@ -92,7 +99,9 @@ class PrepareConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: PrepareConfig) -> None:
-    """Load -> take the gene universe from the annotation reference -> left join this dataset's DR/DL -> write parquet."""
+    """Load -> take the gene universe from the annotation reference -> left join this dataset's
+    DR/DL
+    -> write parquet."""
     config.validate()
 
     # DR/DL come from the dataset's own gene-level table — the annotation reference's
@@ -123,7 +132,9 @@ def run(config: PrepareConfig) -> None:
 
     # Genes absent from the deletion library (no deletion-library call was ever made for
     # them) are labeled "Not_determined" rather than left null.
-    gene_result_full["deletion_essentiality"] = gene_result_full["deletion_essentiality"].fillna("Not_determined")
+    gene_result_full["deletion_essentiality"] = gene_result_full["deletion_essentiality"].fillna(
+        "Not_determined"
+    )
     n_not_determined = (gene_result_full["deletion_essentiality"] == "Not_determined").sum()
     logger.info(
         f"Assigned essentiality from the annotation reference: "
@@ -137,10 +148,16 @@ def run(config: PrepareConfig) -> None:
     )
 
     if "characterisation_status" in gene_result_full.columns:
-        logger.info(f"characterisation_status annotated: {gene_result_full['characterisation_status'].notna().sum():,} genes")
+        logger.info(
+            f"characterisation_status annotated: "
+            f"{gene_result_full['characterisation_status'].notna().sum():,} genes"
+        )
     if "FYPOviability" in gene_result_full.columns:
         n_missing_viability = gene_result_full["FYPOviability"].isna().sum()
-        logger.info(f"FYPOviability null count: {n_missing_viability:,} (PomBase's own 'unknown' category covers the rest)")
+        logger.info(
+            f"FYPOviability null count: {n_missing_viability:,} "
+            f"(PomBase's own 'unknown' category covers the rest)"
+        )
 
     write_parquet(annotations, config.output_annotations)
     write_parquet(gene_result_full, config.output_gene_result)
@@ -156,13 +173,30 @@ def run(config: PrepareConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Prepare coverage parquet intermediates")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv")
-    parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)")
-    parser.add_argument("--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv")
-    parser.add_argument("--annotation-reference", type=Path, required=True, help="Gene annotation reference parquet (1c_annotate.smk)")
-    parser.add_argument("--output-annotations", type=Path, required=True, help="Output annotations.parquet")
-    parser.add_argument("--output-gene-result", type=Path, required=True, help="Output gene_result.parquet")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--annotations", type=Path, required=True, help="Insertion-level annotations.tsv(.gz)"
+    )
+    parser.add_argument(
+        "--gene-level", type=Path, required=True, help="Gene-level fitting_results.tsv"
+    )
+    parser.add_argument(
+        "--annotation-reference",
+        type=Path,
+        required=True,
+        help="Gene annotation reference parquet (1c_annotate.smk)",
+    )
+    parser.add_argument(
+        "--output-annotations", type=Path, required=True, help="Output annotations.parquet"
+    )
+    parser.add_argument(
+        "--output-gene-result", type=Path, required=True, help="Output gene_result.parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

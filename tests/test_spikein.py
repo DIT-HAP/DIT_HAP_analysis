@@ -1,13 +1,12 @@
 """Tests for spike-in analysis core computations."""
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
-
 from workflow.src.pcr_qc.spikein import (
     SPIKE_IN_RATIO,
     assign_ratio_by_order,
@@ -49,8 +48,13 @@ def test_assign_ratio_by_order_monotone_reads():
 def test_build_spike_sites_df_shape():
     """build_spike_sites_df returns one row per spike-in site with expected columns."""
     mock_index = pd.MultiIndex.from_tuples(
-        [("I", 3749394, "-"), ("II", 3344505, "-"), ("II", 185161, "-"),
-         ("II", 1157130, "-"), ("II", 3065244, "-")],
+        [
+            ("I", 3749394, "-"),
+            ("II", 3344505, "-"),
+            ("II", 185161, "-"),
+            ("II", 1157130, "-"),
+            ("II", 3065244, "-"),
+        ],
         names=["Chr", "Coordinate", "Strand"],
     )
     reads = np.array([10.0, 20.0, 40.0, 80.0, 160.0, 320.0])

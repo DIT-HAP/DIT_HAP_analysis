@@ -53,9 +53,9 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -90,18 +90,26 @@ def run(config: HandRegionsConfig) -> int:
     hand.to_csv(config.output, index=False, sep="\t")
 
     mapped = hand["sid"].notna()
-    logger.info(f"{len(hand)} spreadsheet rows: {int(mapped.sum())} mapped to a Systematic ID, "
-                f"{int(hand['n_regions'].gt(0).sum())} with a usable region")
+    logger.info(
+        f"{len(hand)} spreadsheet rows: {int(mapped.sum())} mapped to a Systematic ID, "
+        f"{int(hand['n_regions'].gt(0).sum())} with a usable region"
+    )
     for term, group in hand.groupby("term", sort=False):
-        logger.info(f"  {term:<5} {len(group):>3} rows, {int(group['sid'].notna().sum()):>3} mapped")
+        logger.info(
+            f"  {term:<5} {len(group):>3} rows, {int(group['sid'].notna().sum()):>3} mapped"
+        )
     if not mapped.all():
-        logger.warning(f"{int((~mapped).sum())} rows have no Systematic ID: "
-                       f"{sorted(hand.loc[~mapped, 'Gene'].tolist())}")
+        logger.warning(
+            f"{int((~mapped).sum())} rows have no Systematic ID: "
+            f"{sorted(hand.loc[~mapped, 'Gene'].tolist())}"
+        )
 
     checked = hand["bp_check"].ne("")
     agreed = hand["bp_check"].eq("ok")
-    logger.info(f"bp check: {int(agreed.sum())}/{int(checked.sum())} rows reproduce the recorded "
-                f"stop-codon distance within 3 bp")
+    logger.info(
+        f"bp check: {int(agreed.sum())}/{int(checked.sum())} rows reproduce the recorded "
+        f"stop-codon distance within 3 bp"
+    )
     for _, row in hand[hand["bp_check"].str.startswith("off")].iterrows():
         logger.info(f"  off: {row['Gene']} ({row['term']}) {row['bp_check']} {row['comment']}")
     logger.info(f"wrote {config.output}")
@@ -113,14 +121,23 @@ def run(config: HandRegionsConfig) -> int:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Build the hand-curated non-essential regions for 4a")
+    parser = argparse.ArgumentParser(
+        description="Build the hand-curated non-essential regions for 4a"
+    )
     parser.add_argument("--xlsx", type=Path, required=True, help="Curated candidates spreadsheet")
-    parser.add_argument("--peptide-stats", type=Path, required=True,
-                        help="PomBase Protein_features/peptide_stats.tsv")
-    parser.add_argument("--gene-level", type=Path, required=True,
-                        help="Release gene_level/fitting_results.tsv")
+    parser.add_argument(
+        "--peptide-stats",
+        type=Path,
+        required=True,
+        help="PomBase Protein_features/peptide_stats.tsv",
+    )
+    parser.add_argument(
+        "--gene-level", type=Path, required=True, help="Release gene_level/fitting_results.tsv"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output TSV path")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

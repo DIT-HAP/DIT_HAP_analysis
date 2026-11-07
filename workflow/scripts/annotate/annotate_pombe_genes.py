@@ -19,7 +19,8 @@ no annotations.
 Input
 -----
 - Any tsv/csv/xlsx table with a column of pombe systematic IDs
-- results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet (built by build_annotation_reference.py)
+- results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet (built by
+build_annotation_reference.py)
 
 Output
 ------
@@ -30,14 +31,16 @@ Usage
     python annotate_pombe_genes.py \\
         --input my_gene_list.tsv \\
         --gene-column gene_systematic_id \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --annotation-reference
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --output my_gene_list.annotated.tsv
 
     # only some annotation columns, and drop rows that have no annotation
     python annotate_pombe_genes.py \\
         --input results/3b_clustering/HD_DIT_HAP/kmeans_direct9/final_clusters.tsv \\
         --gene-column Gene_id \\
-        --annotation-reference results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --annotation-reference
+        results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --columns gene_name Sc_ortholog_name Sc_essentiality \\
         --drop-unmatched \\
         --output annotated_clusters.tsv
@@ -52,15 +55,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -127,9 +130,15 @@ def report_match(table: pd.DataFrame, reference: pd.DataFrame, gene_column: str)
         return
 
     shown = ", ".join(unmatched[:_MAX_REPORTED_UNMATCHED])
-    suffix = f" (+{len(unmatched) - _MAX_REPORTED_UNMATCHED} more)" if len(unmatched) > _MAX_REPORTED_UNMATCHED else ""
+    suffix = (
+        f" (+{len(unmatched) - _MAX_REPORTED_UNMATCHED} more)"
+        if len(unmatched) > _MAX_REPORTED_UNMATCHED
+        else ""
+    )
     logger.warning(f"{len(unmatched):,} gene id(s) had no annotation: {shown}{suffix}")
-    logger.warning("Check --gene-column, and whether these are current systematic IDs of coding genes")
+    logger.warning(
+        "Check --gene-column, and whether these are current systematic IDs of coding genes"
+    )
 
 
 # =============================================================================
@@ -168,8 +177,12 @@ def run(config: AnnotateConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Append annotation columns to a table of pombe genes")
-    parser.add_argument("--input", type=Path, required=True, dest="input_table", help="Input table (tsv/csv/xlsx)")
+    parser = argparse.ArgumentParser(
+        description="Append annotation columns to a table of pombe genes"
+    )
+    parser.add_argument(
+        "--input", type=Path, required=True, dest="input_table", help="Input table (tsv/csv/xlsx)"
+    )
     parser.add_argument(
         "--gene-column", required=True, help="Name of the column holding pombe systematic IDs"
     )
@@ -179,16 +192,23 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Annotation reference parquet (see build_annotation_reference.py)",
     )
-    parser.add_argument("--output", type=Path, required=True, help="Output annotated table (tsv/csv/xlsx)")
     parser.add_argument(
-        "--columns", nargs="+", default=None, help="Only append these annotation columns (default: all)"
+        "--output", type=Path, required=True, help="Output annotated table (tsv/csv/xlsx)"
+    )
+    parser.add_argument(
+        "--columns",
+        nargs="+",
+        default=None,
+        help="Only append these annotation columns (default: all)",
     )
     parser.add_argument(
         "--drop-unmatched",
         action="store_true",
         help="Drop rows with no annotation (default: keep them with empty annotation columns)",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -41,15 +41,15 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-# 2. Data Processing Imports
-import pandas as pd
+import sys
 
 # 3. Third-party Imports
 from loguru import logger
+
+# 2. Data Processing Imports
+import pandas as pd
 
 # 4. Local Imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -64,6 +64,7 @@ from logging_setup import setup_logger
 @dataclass(kw_only=True, slots=True, frozen=True)
 class FinalizeConfig:
     """Grid label table + annotated table in; the selected (method, k) out."""
+
     labels: Path
     metrics: Path
     annotated: Path
@@ -86,7 +87,8 @@ class FinalizeConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: FinalizeConfig) -> None:
-    """Pick (method, k) labels from the grid, rename to `cluster`, write final_clusters.tsv + metrics.tsv."""
+    """Pick (method, k) labels from the grid, rename to `cluster`, write final_clusters.tsv +
+    metrics.tsv."""
     config.validate()
 
     labels = pd.read_parquet(config.labels)
@@ -121,14 +123,30 @@ def run(config: FinalizeConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Emit the selected (method, k) final_clusters.tsv")
-    parser.add_argument("--labels", type=Path, required=True, help="grid_labels.parquet from compute_clustering_grid")
-    parser.add_argument("--metrics", type=Path, required=True, help="k_selection_metrics.tsv from compute_clustering_grid")
-    parser.add_argument("--annotated", type=Path, required=True, help="annotated_data.parquet from the spine")
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        required=True,
+        help="grid_labels.parquet from compute_clustering_grid",
+    )
+    parser.add_argument(
+        "--metrics",
+        type=Path,
+        required=True,
+        help="k_selection_metrics.tsv from compute_clustering_grid",
+    )
+    parser.add_argument(
+        "--annotated", type=Path, required=True, help="annotated_data.parquet from the spine"
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output final_clusters.tsv")
     parser.add_argument("--metrics-output", type=Path, required=True, help="Output metrics.tsv")
-    parser.add_argument("--method", type=str, required=True, help="Selected method name (e.g. kmeans, HC_ward)")
+    parser.add_argument(
+        "--method", type=str, required=True, help="Selected method name (e.g. kmeans, HC_ward)"
+    )
     parser.add_argument("--k", type=int, required=True, help="Selected cluster count")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

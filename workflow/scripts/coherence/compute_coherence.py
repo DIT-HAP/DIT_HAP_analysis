@@ -74,14 +74,15 @@ Version:  3.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+
+from loguru import logger
 
 # 2. Third-party Imports
 import numpy as np
 import pandas as pd
-from loguru import logger
 from scipy.stats import false_discovery_control
 
 # 3. Local Imports
@@ -142,6 +143,7 @@ _FEATURE_CV_COLUMNS = {
 @dataclass(kw_only=True, slots=True, frozen=True)
 class CoherenceConfig:
     """Inputs, outputs, and parameters for the gene-group coherence analysis."""
+
     fitting_results: Path
     annotation: Path
     source: str
@@ -160,23 +162,34 @@ class CoherenceConfig:
 
     def validate(self) -> None:
         """Raise ValueError if inputs are missing or params invalid, then make output dirs."""
-        required = [self.fitting_results, self.annotation]
-        if self.features is not None:
-            required.append(self.features)
-        if self.null_cache is not None:
-            required.append(self.null_cache)
-        for path in required:
+        for path in _required_input_paths(self):
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        if self.min_size < 2:
-            raise ValueError(f"min_size must be >= 2 (pairwise distances need 2 points): {self.min_size}")
-        if self.max_size < self.min_size:
-            raise ValueError(f"max_size ({self.max_size}) must be >= min_size ({self.min_size})")
-        if self.max_term_genes < self.min_size:
-            raise ValueError(f"max_term_genes ({self.max_term_genes}) must be >= min_size ({self.min_size})")
-        if self.n_permutations < 1:
-            raise ValueError(f"n_permutations must be >= 1: {self.n_permutations}")
+        _validate_params(self)
         self.output.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _required_input_paths(config: CoherenceConfig) -> list[Path]:
+    """Every input file that must exist, optional ones included when configured."""
+    required = [config.fitting_results, config.annotation]
+    required.extend(path for path in (config.features, config.null_cache) if path is not None)
+    return required
+
+
+def _validate_params(config: CoherenceConfig) -> None:
+    """Raise ValueError when a size or permutation parameter is out of range."""
+    if config.min_size < 2:
+        raise ValueError(
+            f"min_size must be >= 2 (pairwise distances need 2 points): {config.min_size}"
+        )
+    if config.max_size < config.min_size:
+        raise ValueError(f"max_size ({config.max_size}) must be >= min_size ({config.min_size})")
+    if config.max_term_genes < config.min_size:
+        raise ValueError(
+            f"max_term_genes ({config.max_term_genes}) must be >= min_size ({config.min_size})"
+        )
+    if config.n_permutations < 1:
+        raise ValueError(f"n_permutations must be >= 1: {config.n_permutations}")
 
 
 # =============================================================================
@@ -222,7 +235,9 @@ def group_annotations(long_table: pd.DataFrame, features: pd.DataFrame | None) -
     for column, candidates in _FEATURE_CV_COLUMNS.items():
         source_column = first_present_column(features, candidates)
         if source_column is None:
-            logger.warning(f"No feature column found for {column} (tried {candidates}); column omitted")
+            logger.warning(
+                f"No feature column found for {column} (tried {candidates}); column omitted"
+            )
             continue
         annotations[column] = pd.Series(member_feature_cv(long_table, features, source_column))
         # Which candidate the CV was actually taken over. The candidates are tried
@@ -394,8 +409,12 @@ def run(config: CoherenceConfig) -> None:
     features = pd.read_csv(config.features, sep="\t") if config.features is not None else None
     annotations = group_annotations(long_table, features)
     table = compute_coherence_table(
-        groups, background_points, background_index,
-        config.n_permutations, config.random_state, annotations,
+        groups,
+        background_points,
+        background_index,
+        config.n_permutations,
+        config.random_state,
+        annotations,
         measured_member_counts(long_table, set(fitting["Systematic ID"])),
         paralog_ids=paralog_ids_from_features(features) if features is not None else None,
         null_cache=null_cache,
@@ -406,12 +425,10 @@ def run(config: CoherenceConfig) -> None:
 
     # Not the `coherent` cohort (config.coherence.coherent_*), which is defined on the
     # z/q pair; this is the raw sign split, kept as a sanity number in the log.
-    n_tighter = (
-        int((table[f"{_PRIMARY_METHOD}_z"] < 0).sum()) if not table.empty else 0
-    )
+    n_tighter = int((table[f"{_PRIMARY_METHOD}_z"] < 0).sum()) if not table.empty else 0
     logger.success(
-        f"[{config.source}] Coherence: {len(table):,} groups scored, {n_tighter:,} tighter than random (z<0); "
-        f"wrote {config.output}"
+        f"[{config.source}] Coherence: {len(table):,} groups scored, "
+        f"{n_tighter:,} tighter than random (z<0); wrote {config.output}"
     )
 
 
@@ -421,33 +438,66 @@ def run(config: CoherenceConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(description="Compute gene-group coherence metrics")
-    parser.add_argument("--fitting-results", type=Path, required=True,
-                        help="Upstream fitting_results.tsv (systematic id as index col 0)")
-    parser.add_argument("--annotation", type=Path, required=True,
-                        help="Prepared group_annotation_long.tsv (long-table from prepare_annotation.py)")
-    parser.add_argument("--source", type=str, required=True,
-                        help="Grouping-database source name (fan-out dimension)")
-    parser.add_argument("--min-size", type=int, default=3,
-                        help="Minimum DR<threshold members per group")
-    parser.add_argument("--max-size", type=int, default=300,
-                        help="Maximum DR<threshold members per group")
-    parser.add_argument("--max-term-genes", type=int, default=500,
-                        help="Drop groups whose total annotated membership (n_annotated_members) exceeds this")
-    parser.add_argument("--dr-threshold", type=float, default=-0.3,
-                        help="Keep genes with DR < this (negative = depleted)")
-    parser.add_argument("--n-permutations", type=int, default=1000,
-                        help="Permutation null draws")
-    parser.add_argument("--random-state", type=int, default=42,
-                        help="Permutation RNG seed")
-    parser.add_argument("--features", type=Path, default=None,
-                        help="Optional gene features TSV; adds the abundance/conservation CV and paralog-fraction columns")
-    parser.add_argument("--null-cache", type=Path, default=None,
-                        help="Optional global null cache (.npz) keyed by n_scored_members; "
-                             "replaces the per-group permutation loop")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="Output coherence metrics Parquet")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--fitting-results",
+        type=Path,
+        required=True,
+        help="Upstream fitting_results.tsv (systematic id as index col 0)",
+    )
+    parser.add_argument(
+        "--annotation",
+        type=Path,
+        required=True,
+        help="Prepared group_annotation_long.tsv (long-table from prepare_annotation.py)",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        required=True,
+        help="Grouping-database source name (fan-out dimension)",
+    )
+    parser.add_argument(
+        "--min-size", type=int, default=3, help="Minimum DR<threshold members per group"
+    )
+    parser.add_argument(
+        "--max-size", type=int, default=300, help="Maximum DR<threshold members per group"
+    )
+    parser.add_argument(
+        "--max-term-genes",
+        type=int,
+        default=500,
+        help="Drop groups whose total annotated membership (n_annotated_members) exceeds this",
+    )
+    parser.add_argument(
+        "--dr-threshold",
+        type=float,
+        default=-0.3,
+        help="Keep genes with DR < this (negative = depleted)",
+    )
+    parser.add_argument("--n-permutations", type=int, default=1000, help="Permutation null draws")
+    parser.add_argument("--random-state", type=int, default=42, help="Permutation RNG seed")
+    parser.add_argument(
+        "--features",
+        type=Path,
+        default=None,
+        help=(
+            "Optional gene features TSV; adds the abundance/conservation CV "
+            "and paralog-fraction columns"
+        ),
+    )
+    parser.add_argument(
+        "--null-cache",
+        type=Path,
+        default=None,
+        help="Optional global null cache (.npz) keyed by n_scored_members; "
+        "replaces the per-group permutation loop",
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output coherence metrics Parquet"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 

@@ -55,9 +55,9 @@ Version:  2.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 # 2. Third-party Imports
 from loguru import logger
@@ -76,6 +76,7 @@ from utr.core import UTR_DISTANCE_THRESHOLD, classify_utr_insertions
 @dataclass(kw_only=True, frozen=True)
 class UTRConfig:
     """Inputs, outputs, and threshold for the UTR insertion classification."""
+
     fitting_results: Path
     annotations: Path
     gene_result: Path
@@ -83,7 +84,9 @@ class UTRConfig:
     distance_threshold: int = UTR_DISTANCE_THRESHOLD
 
     def validate(self) -> None:
-        """Raise ValueError if any input is missing or the threshold is invalid, then ensure the output dir exists."""
+        """Raise ValueError if any input is missing or the threshold is invalid, then ensure the
+        output
+        dir exists."""
         for path in [self.fitting_results, self.annotations, self.gene_result]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
@@ -104,7 +107,9 @@ def run(config: UTRConfig) -> None:
     annotations = read_parquet(config.annotations)
     gene_result = read_parquet(config.gene_result)
 
-    stats = classify_utr_insertions(fitting_results, annotations, gene_result, config.distance_threshold)
+    stats = classify_utr_insertions(
+        fitting_results, annotations, gene_result, config.distance_threshold
+    )
     stats.to_csv(config.output_stats, sep="\t", index=False)
 
     n5 = int((stats["UTR_type"] == "5UTR").sum())
@@ -120,13 +125,33 @@ def run(config: UTRConfig) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Classify intergenic insertions near gene boundaries as 5'/3' UTR insertions")
-    parser.add_argument("--fitting-results", type=Path, required=True, help="Insertion-level fitting_results.parquet")
-    parser.add_argument("--annotations", type=Path, required=True, help="Insertion-level annotations.parquet")
-    parser.add_argument("--gene-result", type=Path, required=True, help="Gene-level gene_result.parquet")
-    parser.add_argument("--distance-threshold", type=int, default=UTR_DISTANCE_THRESHOLD, help="UTR distance threshold in bp (default: 400)")
-    parser.add_argument("--output-stats", type=Path, required=True, help="Output per-insertion UTR stats TSV")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser = argparse.ArgumentParser(
+        description="Classify intergenic insertions near gene boundaries as 5'/3' UTR insertions"
+    )
+    parser.add_argument(
+        "--fitting-results",
+        type=Path,
+        required=True,
+        help="Insertion-level fitting_results.parquet",
+    )
+    parser.add_argument(
+        "--annotations", type=Path, required=True, help="Insertion-level annotations.parquet"
+    )
+    parser.add_argument(
+        "--gene-result", type=Path, required=True, help="Gene-level gene_result.parquet"
+    )
+    parser.add_argument(
+        "--distance-threshold",
+        type=int,
+        default=UTR_DISTANCE_THRESHOLD,
+        help="UTR distance threshold in bp (default: 400)",
+    )
+    parser.add_argument(
+        "--output-stats", type=Path, required=True, help="Output per-insertion UTR stats TSV"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
     return parser.parse_args()
 
 
