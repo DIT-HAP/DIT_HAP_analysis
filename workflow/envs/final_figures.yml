@@ -1,0 +1,26 @@
+name: final_figures
+# Final publication figures (7a_figures.smk). Deliberately its own environment
+# rather than an edit of cnsplots.yml: adding pypdf/poppler there would change
+# that file's hash and force every plotting stage in the pipeline to rebuild its
+# conda env. The plotting stack mirrors cnsplots.yml; the two additions are
+#   pypdf     vector overlay of the externally drawn schematic panels
+#   poppler   pdftocairo, which rasterizes the assembled PDF for the review PNG
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas>=2.2,<2.4
+  - matplotlib>=3.10,<3.11
+  - numpy>=2.4,<2.5
+  - seaborn>=0.13.2,<0.14
+  - pycomplexheatmap>=1.8.4,<1.9
+  - statannotations>=0.7.2,<0.8
+  - pyarrow
+  - pytest>=9.0
+  - loguru
+  - poppler
+  - pip:
+    - cnsplots==0.8.0
+    - pypdf>=6,<8

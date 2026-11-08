@@ -39,6 +39,7 @@ wildcard_constraints:
 #   4  structure inside the gene                    (4a domain_differences, 4b utr, 4c noncoding_rna)
 #   5  prediction                                   (5a ml)
 #   6  comparison against external studies          (6a comparison)
+#   7  publication figures                          (7a figures)
 #
 # Every prefixed stage carries the same prefix into results/, so `ls results/`
 # reads in the same analysis order as `ls workflow/rules/`: results/1a_pcr_qc/,
@@ -46,7 +47,7 @@ wildcard_constraints:
 # the verb), results/2a_coverage/, results/2b_verification/, results/3a_coherence/,
 # results/3b_clustering/, results/3c_enrichment/,
 # results/4a_domain_differences/, results/4b_utr/, results/4c_noncoding_rna/,
-# results/5a_ml/, results/6a_comparison/.
+# results/5a_ml/, results/6a_comparison/, results/7a_figures/.
 # The prefix stops at the rule file and the results/logs directories: the script
 # and library directories keep the unprefixed stage name (workflow/scripts/
 # coherence/, workflow/src/coherence/).
@@ -67,6 +68,7 @@ include: "workflow/rules/4b_utr.smk"
 include: "workflow/rules/4c_noncoding_rna.smk"
 include: "workflow/rules/5a_ml.smk"
 include: "workflow/rules/6a_comparison.smk"
+include: "workflow/rules/7a_figures.smk"
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -180,5 +182,9 @@ rule all:
         # f"results/4a_domain_differences/{_DATASET}/domain_segments.tsv",
         # f"results/4a_domain_differences/{_DATASET}/domain_summary.tsv",
         # f"results/4a_domain_differences/{_DATASET}/domain_segments.pdf",
+        # Publication figures (7a_figures.smk). Deliberately out of `rule all`:
+        # Figure 1 depends on the LFC coverage chain, so a full run would build
+        # that chain's own three figures just to draw one panel.
+        # "results/7a_figures/figure1.pdf",
     message:
         "*** DIT-HAP analysis complete"
