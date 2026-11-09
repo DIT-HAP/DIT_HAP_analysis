@@ -4,23 +4,30 @@
 Figure S1 — Library-prep reproducibility: PBL/PBR, technical and biological replicates
 ======================================================================================
 
-Three density scatter panels, taken from the 1a_pcr_qc stage:
+Three density scatter panels from the 1a_pcr_qc stage, plus the distribution of
+insertions per gene for HD_DIT_HAP:
 
   A  PBL versus PBR reads of one library (the two primers agree);
   B  technical replicate — one sample processed in two upstream projects;
-  C  biological replicate — two samples within one project.
+  C  biological replicate — two samples within one project;
+  D  how many insertions each coding gene carries (histogram of counts).
 
-The 1a_pcr_qc stage first drew these three panels inside its 2x2 QC figure.
-This script re-renders them on a publication canvas and nothing else: it
-imports no stage module from ``workflow/src`` and carries its own copy of the
-density colouring, log axes and n/r/P annotation, so retuning Figure S1 cannot
-change another stage's output.
+The 1a_pcr_qc stage first drew panels A-C inside its 2x2 QC figure. This script
+re-renders them on a publication canvas: it imports no stage module from
+``workflow/src`` and carries its own copy of the density colouring, log axes
+and n/r/P annotation, so retuning Figure S1 cannot change another stage's
+output. Panel D is new here: it counts in-gene insertions per gene straight
+from the released insertion annotations. Genes with no in-gene insertion are
+absent from that table, so the distribution covers only the genes that carry at
+least one.
 
 Input
 -----
 - results/1a_pcr_qc/_work/pbl_pbr.parquet   Columns: PBL, PBR
 - results/1a_pcr_qc/_work/tech.parquet      Columns: Reads_1, Reads_2
 - results/1a_pcr_qc/_work/bio.parquet       Columns: Reads_1, Reads_2
+- <HD_DIT_HAP release>/insertion_level/annotations.tsv.gz
+  Columns: Type, Systematic ID (panel D)
 
 Output
 ------
@@ -33,6 +40,7 @@ Usage
         --pbl-pbr results/1a_pcr_qc/_work/pbl_pbr.parquet \\
         --tech results/1a_pcr_qc/_work/tech.parquet \\
         --bio results/1a_pcr_qc/_work/bio.parquet \\
+        --annotations <release>/insertion_level/annotations.tsv.gz \\
         --output-pdf results/7a_figures/figure_s1.pdf \\
         --output-review results/7a_figures/figure_s1.review.png
 
@@ -65,7 +73,7 @@ from scipy.interpolate import RegularGridInterpolator
 from scipy.stats import gaussian_kde, pearsonr
 
 # =============================================================================
-# 2. CONSTANTS (house style, layout, density rendering)
+# 2. CONSTANTS (house style, layout, draw vocabulary)
 # =============================================================================
 # --- House style (self-contained copy; see docs/figures.md) -----------------
 HOUSE_PALETTE = "Cell"
@@ -79,6 +87,8 @@ FONT_SANS_SERIF = (
 )
 HOUSE_FIGURE_DPI = 360
 FURNITURE_COLOR = cns.GRAY  # guides and annotations, never data
+# Panel D has one bar series; palette position 2 is the greyscale-safe series slot.
+COUNT_BAR_COLOR = cns.get_hexcolors_from_apalette([2], HOUSE_PALETTE)[0]
 
 # --- Canvas and panel geometry, in points -----------------------------------
 CANVAS_WIDTH_PT = 493.0
@@ -94,6 +104,13 @@ BELOW_DECORATION_PT = 30.0  # x ticks + xlabel
 PANEL_SIZE_PT = 120.0
 PANEL_PITCH_PT = 160.0
 PANEL_FIRST_X_PT = 30.0
+
+# Panel D sits on a second row at the house SQUARE footprint, the same 100 pt
+# side as the panel contract's baseline.
+ROW_GAP_PT = 10.0
+PANEL_D_X_PT = 30.0
+PANEL_D_WIDTH_PT = 100.0
+PANEL_D_HEIGHT_PT = 100.0
 
 # --- Density scatter --------------------------------------------------------
 # Point size and alpha are the dense-cloud exception from the house style:
@@ -114,8 +131,28 @@ DENSITY_SEED = 0  # fixed so repeat renders are identical
 # --- Statistics annotation --------------------------------------------------
 STATS_X = 0.05
 STATS_Y = 0.95
-P_UNDERFLOW = 1e-9  # below this the text reports "P < 1E-9" instead of an exponent
+P_UNDERFLOW_EXPONENT = -9  # below 1E-9 the text reports "P < 1E-9" instead of an exponent
+P_UNDERFLOW = 10.0**P_UNDERFLOW_EXPONENT
+P_UNDERFLOW_TEXT = rf"$P<1\mathrm{{E}}{{{P_UNDERFLOW_EXPONENT}}}$"
 MINOR_TICK_LENGTH_RATIO = 0.57  # minor vs major tick length
+
+# --- Panel D vocabulary -----------------------------------------------------
+# Counts are taken where the release annotation says the insertion lands in a
+# coding gene; a gene absent from that table has no in-gene insertion and is
+# therefore outside the distribution. The linear bins stop at COUNT_TAIL_START
+# and everything above shares one bar, labelled so the last bar is not read as
+# another bin-width.
+ANNOTATION_TYPE_COLUMN = "Type"
+ANNOTATION_GENE_COLUMN = "Systematic ID"
+ANNOTATION_COLUMNS = (ANNOTATION_TYPE_COLUMN, ANNOTATION_GENE_COLUMN)
+GENE_TYPE = "Coding gene"
+COUNT_BIN_WIDTH = 25
+COUNT_TAIL_START = 300  # the last linear bin edge
+COUNT_TAIL_LABEL = f"≥{COUNT_TAIL_START}"
+COUNT_LABEL_EVERY = 3  # 13 bin edges do not fit under a 100 pt axes
+COUNT_X_LABEL = "Insertions per gene"
+COUNT_Y_LABEL = "Number of genes"
+COUNT_PANEL_LETTER = "D"
 
 
 # --- Panel vocabulary -------------------------------------------------------
@@ -157,25 +194,29 @@ class FigureS1Config:
     pbl_pbr: Path
     tech: Path
     bio: Path
+    annotations: Path
     output_pdf: Path
     output_review: Path
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        for path in [self.pbl_pbr, self.tech, self.bio]:
+        inputs = [self.pbl_pbr, self.tech, self.bio, self.annotations]
+        for path in inputs:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for output in [self.output_pdf, self.output_review]:
             output.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class Layout:
-    """Resolved point geometry of the panel row."""
+    """Resolved point geometry of the two panel rows."""
 
     canvas_height_pt: float
     panel_xs_pt: tuple[float, ...]
     panel_rects: tuple[tuple[float, float, float, float], ...]
+    panel_d_top_pt: float
+    panel_d_rect: tuple[float, float, float, float]
 
 
 # =============================================================================
@@ -187,15 +228,41 @@ def build_scatter_frame(table: pd.DataFrame, spec: ScatterSpec) -> pd.DataFrame:
     return table.loc[is_positive, [spec.x, spec.y]]
 
 
+def build_insertion_counts(annotations: pd.DataFrame) -> pd.Series:
+    """Count in-gene insertions per gene."""
+    is_in_gene = annotations[ANNOTATION_TYPE_COLUMN] == GENE_TYPE
+    return annotations.loc[is_in_gene, ANNOTATION_GENE_COLUMN].value_counts()
+
+
+def build_count_histogram(counts: pd.Series) -> pd.DataFrame:
+    """Bin per-gene insertion counts; the long tail shares one labelled bar."""
+    linear_edges = range(0, COUNT_TAIL_START, COUNT_BIN_WIDTH)
+    labels = [str(edge) for edge in linear_edges] + [COUNT_TAIL_LABEL]
+    edges = [*linear_edges, COUNT_TAIL_START, np.inf]
+    binned = pd.cut(counts, bins=edges, right=False, labels=labels)
+    return binned.value_counts(sort=False).rename_axis("bin_label").reset_index(name="n_genes")
+
+
 def build_layout() -> Layout:
-    """Derive the canvas height and the three panel boxes from the row geometry."""
-    canvas_height = PANEL_LETTER_ROOM_PT + PANEL_SIZE_PT + BELOW_DECORATION_PT + BOTTOM_MARGIN_PT
+    """Derive the canvas height and every panel box from the two-row geometry."""
+    row_a_bottom = PANEL_LETTER_ROOM_PT + PANEL_SIZE_PT + BELOW_DECORATION_PT
+    panel_d_top = row_a_bottom + ROW_GAP_PT + PANEL_LETTER_ROOM_PT
+    canvas_height = panel_d_top + PANEL_D_HEIGHT_PT + BELOW_DECORATION_PT + BOTTOM_MARGIN_PT
+
     panel_xs = tuple(PANEL_FIRST_X_PT + index * PANEL_PITCH_PT for index in range(len(PANEL_SPECS)))
     panel_rects = tuple(
         _axes_rect(x_pt, PANEL_LETTER_ROOM_PT, PANEL_SIZE_PT, PANEL_SIZE_PT, canvas_height)
         for x_pt in panel_xs
     )
-    return Layout(canvas_height_pt=canvas_height, panel_xs_pt=panel_xs, panel_rects=panel_rects)
+    return Layout(
+        canvas_height_pt=canvas_height,
+        panel_xs_pt=panel_xs,
+        panel_rects=panel_rects,
+        panel_d_top_pt=panel_d_top,
+        panel_d_rect=_axes_rect(
+            PANEL_D_X_PT, panel_d_top, PANEL_D_WIDTH_PT, PANEL_D_HEIGHT_PT, canvas_height
+        ),
+    )
 
 
 def _axes_rect(
@@ -228,24 +295,36 @@ def apply_house_style() -> None:
     cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=DENSITY_CMAP)
 
 
-def draw_figure(frames: tuple[pd.DataFrame, ...], layout: Layout) -> Figure:
-    """Draw the three panels and their letters on one canvas."""
+def draw_figure(
+    frames: tuple[pd.DataFrame, ...], count_histogram: pd.DataFrame, layout: Layout
+) -> Figure:
+    """Draw the three scatter panels, panel D, and every panel letter."""
     fig = cns.figure(width=CANVAS_WIDTH_PT, height=layout.canvas_height_pt, unit="pt")
     panels = zip(PANEL_LETTERS, PANEL_SPECS, frames, strict=True)
 
     for index, (letter, spec, frame) in enumerate(panels):
         ax = fig.add_axes(layout.panel_rects[index])
         render_replicate_panel(ax, frame, spec)
-        add_panel_letter(fig, letter, layout.panel_xs_pt[index], layout.canvas_height_pt)
+        add_panel_letter(
+            fig, letter, layout.panel_xs_pt[index], PANEL_LETTER_ROOM_PT, layout.canvas_height_pt
+        )
+
+    ax_d = fig.add_axes(layout.panel_d_rect)
+    render_insertion_count_panel(ax_d, count_histogram)
+    add_panel_letter(
+        fig, COUNT_PANEL_LETTER, PANEL_D_X_PT, layout.panel_d_top_pt, layout.canvas_height_pt
+    )
 
     return fig
 
 
-def add_panel_letter(fig: Figure, label: str, x_pt: float, canvas_height_pt: float) -> None:
+def add_panel_letter(
+    fig: Figure, label: str, x_pt: float, y_top_pt: float, canvas_height_pt: float
+) -> None:
     """Place a bold panel letter just above the panel's top-left corner."""
     fig.text(
         x_pt / CANVAS_WIDTH_PT,
-        1.0 - (PANEL_LETTER_ROOM_PT - PANEL_LETTER_GAP_PT) / canvas_height_pt,
+        1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
         label,
         ha="left",
         va="bottom",
@@ -268,6 +347,15 @@ def render_replicate_panel(ax: Axes, frame: pd.DataFrame, spec: ScatterSpec) -> 
     ax.set_xlabel(spec.xlabel)
     ax.set_ylabel(spec.ylabel)
     apply_log_scale(ax)
+
+
+def render_insertion_count_panel(ax: Axes, frame: pd.DataFrame) -> None:
+    """Draw the per-gene insertion count histogram, one bar per count bin."""
+    cns.barplot(data=frame, x="bin_label", y="n_genes", color=COUNT_BAR_COLOR, ax=ax)
+    # Keep every other bin edge, last one included, so the labels cannot collide.
+    ax.set_xticks(ax.get_xticks()[::COUNT_LABEL_EVERY])
+    ax.set_xlabel(COUNT_X_LABEL)
+    ax.set_ylabel(COUNT_Y_LABEL)
 
 
 def draw_density_scatter(ax: Axes, x: np.ndarray, y: np.ndarray, density: np.ndarray) -> None:
@@ -318,7 +406,7 @@ def draw_identity_line(ax: Axes, x: np.ndarray, y: np.ndarray) -> None:
 def annotate_fit_stats(ax: Axes, log_x: np.ndarray, log_y: np.ndarray) -> None:
     """Write n, Pearson r and its P value in the panel's top-left corner."""
     r, p = pearsonr(log_x, log_y)
-    p_text = r"$P<1\mathrm{E}{-}9$" if p < P_UNDERFLOW else _p_value_text(p)
+    p_text = P_UNDERFLOW_TEXT if p < P_UNDERFLOW else _p_value_text(p)
     text = f"$n={log_x.size}$\n$r={r:.2f}$\n{p_text}"
     ax.text(STATS_X, STATS_Y, text, transform=ax.transAxes, ha="left", va="top")
 
@@ -418,6 +506,15 @@ def read_panel_tables(config: FigureS1Config) -> tuple[pd.DataFrame, ...]:
     return tuple(tables)
 
 
+def read_tsv_columns(path: Path, required: tuple[str, ...]) -> pd.DataFrame:
+    """Read only the required TSV columns and fail once if any is missing."""
+    table = pd.read_csv(path, sep="\t", usecols=lambda column: column in required)
+    missing_columns = set(required) - set(table.columns)
+    if missing_columns:
+        raise ValueError(f"{path} is missing required columns: {sorted(missing_columns)}")
+    return table
+
+
 def run(config: FigureS1Config) -> None:
     """Build Figure S1 end to end: canvas PDF and review raster."""
     config.validate()
@@ -427,9 +524,12 @@ def run(config: FigureS1Config) -> None:
     frames = tuple(
         build_scatter_frame(table, spec) for table, spec in zip(tables, PANEL_SPECS, strict=True)
     )
+    annotations = read_tsv_columns(config.annotations, ANNOTATION_COLUMNS)
+    gene_counts = build_insertion_counts(annotations)
+    count_histogram = build_count_histogram(gene_counts)
 
     layout = build_layout()
-    figure = draw_figure(frames, layout)
+    figure = draw_figure(frames, count_histogram, layout)
     # cnsplots sets savefig.bbox to "tight"; pin the page to the designed canvas
     # for the same reason Figure 1 does.
     figure.savefig(
@@ -452,6 +552,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pbl-pbr", type=Path, required=True, help="PBL vs PBR parquet")
     parser.add_argument("--tech", type=Path, required=True, help="Technical replicate parquet")
     parser.add_argument("--bio", type=Path, required=True, help="Biological replicate parquet")
+    parser.add_argument(
+        "--annotations", type=Path, required=True, help="Panel D insertion annotations TSV"
+    )
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
     parser.add_argument(
@@ -474,6 +577,7 @@ def main() -> int:
         pbl_pbr=args.pbl_pbr,
         tech=args.tech,
         bio=args.bio,
+        annotations=args.annotations,
         output_pdf=args.output_pdf,
         output_review=args.output_review,
     )

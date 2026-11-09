@@ -79,19 +79,32 @@ def _replicate_table(x: str, y: str) -> pd.DataFrame:
     return pd.concat([table, pd.DataFrame({x: [0], y: [5]})], ignore_index=True)
 
 
+def _annotation_table() -> pd.DataFrame:
+    """Two genes share three in-gene insertions; intergenic rows must not count."""
+    return pd.DataFrame(
+        {
+            "Type": ["Coding gene", "Coding gene", "Coding gene", "Intergenic region"],
+            "Systematic ID": ["G1", "G1", "G2", "G1"],
+        }
+    )
+
+
 @pytest.fixture
 def figure_s1_inputs(tmp_path: Path) -> figure_s1.FigureS1Config:
     """Write fixture parquets and return a Figure S1 config pointing at them."""
     pbl_pbr = tmp_path / "pbl_pbr.parquet"
     tech = tmp_path / "tech.parquet"
     bio = tmp_path / "bio.parquet"
+    annotations = tmp_path / "annotations.tsv"
     _replicate_table("PBL", "PBR").to_parquet(pbl_pbr)
     _replicate_table("Reads_1", "Reads_2").to_parquet(tech)
     _replicate_table("Reads_1", "Reads_2").to_parquet(bio)
+    _annotation_table().to_csv(annotations, sep="\t", index=False)
     return figure_s1.FigureS1Config(
         pbl_pbr=pbl_pbr,
         tech=tech,
         bio=bio,
+        annotations=annotations,
         output_pdf=tmp_path / "out" / "figure_s1.pdf",
         output_review=tmp_path / "out" / "figure_s1.review.png",
     )
@@ -173,22 +186,54 @@ def test_build_spikein_frame_drops_reference_and_relabels_sites():
 # =============================================================================
 # Figure S1
 # =============================================================================
-def test_build_layout_s1_places_three_panels_across_the_page():
-    """Three equally sized panels share one top edge and stay inside the canvas."""
+def test_build_layout_s1_stacks_panel_d_below_the_scatter_row():
+    """A-C share one row; D sits below them and spans the page width."""
     layout = figure_s1.build_layout()
 
     assert len(layout.panel_rects) == len(figure_s1.PANEL_SPECS)
     assert layout.panel_xs_pt == tuple(sorted(layout.panel_xs_pt))
     assert layout.panel_rects[0][1] == layout.panel_rects[2][1]  # one common top edge
     assert layout.panel_rects[0][2] == layout.panel_rects[2][2]
+    assert layout.panel_d_rect[1] < layout.panel_rects[0][1]  # D is below the row
+    assert layout.panel_d_rect[0] == pytest.approx(layout.panel_rects[0][0])  # aligned with A
+    assert layout.panel_d_rect[2] * figure_s1.CANVAS_WIDTH_PT == pytest.approx(
+        figure_s1.PANEL_D_WIDTH_PT
+    )
+
+    row_a_height = (
+        figure_s1.PANEL_LETTER_ROOM_PT + figure_s1.PANEL_SIZE_PT + figure_s1.BELOW_DECORATION_PT
+    )
     assert layout.canvas_height_pt == pytest.approx(
-        figure_s1.PANEL_LETTER_ROOM_PT
-        + figure_s1.PANEL_SIZE_PT
+        row_a_height
+        + figure_s1.ROW_GAP_PT
+        + figure_s1.PANEL_LETTER_ROOM_PT
+        + figure_s1.PANEL_D_HEIGHT_PT
         + figure_s1.BELOW_DECORATION_PT
         + figure_s1.BOTTOM_MARGIN_PT
     )
     right_edge_pt = max(layout.panel_xs_pt) + figure_s1.PANEL_SIZE_PT
     assert right_edge_pt < figure_s1.CANVAS_WIDTH_PT
+    assert figure_s1.PANEL_D_X_PT + figure_s1.PANEL_D_WIDTH_PT < figure_s1.CANVAS_WIDTH_PT
+
+
+def test_build_insertion_counts_s1_counts_only_in_gene_rows():
+    """Intergenic rows never reach the count; a gene absent from the table has no row."""
+    counts = figure_s1.build_insertion_counts(_annotation_table())
+
+    assert counts.to_dict() == {"G1": 2, "G2": 1}
+
+
+def test_build_count_histogram_s1_orders_bins_and_lumps_the_tail():
+    """Bins run left to right in count order; the last bar holds every count >= 300."""
+    counts = pd.Series([0, 10, 25, 299, 300, 1254])
+    frame = figure_s1.build_count_histogram(counts)
+
+    expected_labels = [str(edge) for edge in range(0, 300, 25)] + ["≥300"]
+    assert frame["bin_label"].tolist() == expected_labels
+    assert frame["n_genes"].tolist()[0] == 2
+    assert frame["n_genes"].tolist()[1] == 1
+    assert frame["n_genes"].tolist()[-1] == 2
+    assert frame["n_genes"].sum() == len(counts)
 
 
 def test_build_scatter_frame_s1_drops_non_positive_pairs():
@@ -252,4 +297,5 @@ def test_figure_s1_run_assembles_one_page(figure_s1_inputs: figure_s1.FigureS1Co
     text = page.extract_text() or ""
     assert "PBL Reads" in text
     assert "Reads of Biological Replicate 1" in text
+    assert "Insertions per gene" in text
     assert figure_s1_inputs.output_review.exists()

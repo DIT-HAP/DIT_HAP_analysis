@@ -17,7 +17,8 @@
 # Figure 1: a (schematic, external vector PDF) + b (LFC coverage by FYPO class,
 # Traditional Tn-Seq vs DIT-HAP) + c (spike-in dilution linearity).
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
-# first three panels of the 1a_pcr_qc QC figure re-rendered for print.
+# first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
+# d the per-gene insertion count distribution of HD_DIT_HAP.
 
 _FIGURES = "results/7a_figures"
 
@@ -64,6 +65,12 @@ rule plot_figure_s1:
         pbl_pbr="results/1a_pcr_qc/_work/pbl_pbr.parquet",
         tech="results/1a_pcr_qc/_work/tech.parquet",
         bio="results/1a_pcr_qc/_work/bio.parquet",
+        # Panel D: the HD_DIT_HAP release's per-insertion annotations (only the
+        # Type and Systematic ID columns are read).
+        annotations=(
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/insertion_level/annotations.tsv.gz"
+        ),
     output:
         pdf=f"{_FIGURES}/figure_s1.pdf",
         review=f"{_FIGURES}/figure_s1.review.png",
@@ -79,6 +86,7 @@ rule plot_figure_s1:
             --pbl-pbr {input.pbl_pbr} \
             --tech {input.tech} \
             --bio {input.bio} \
+            --annotations {input.annotations} \
             --output-pdf {output.pdf} \
             --output-review {output.review} &> {log}
         """

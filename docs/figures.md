@@ -122,15 +122,18 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ---
 
-## Figure S1 — 文库制备重复性：PBL/PBR、技术重复、生物学重复
+## Figure S1 — 文库制备重复性 + 每基因插入条数分布
 
-**画布**：493 × 162 pt（Cell 双栏宽）：
+**画布**：493 × 312 pt（Cell 双栏宽）：
 
 ```
-10（字母带） + 120（面板高） + 30（x 刻度 + xlabel） + 2（底边）
+10（字母带） + 120（面板高） + 30（x 刻度 + xlabel）       A–C 行
++ 10（行距）
++ 10（字母带） + 100（面板高） + 30（x 刻度 + xlabel）     D 行
++ 2（底边）
 ```
 
-三个 120 pt 方形面板并排，间距 40 pt（`PANEL_PITCH_PT = 160`）。没有外部矢量面板，因此不需要 pypdf 叠加。
+A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160`）；D 在第二行左起，用 house 的 SQUARE 尺寸 100 × 100 pt（单 panel 必须落在 80–150 pt 内，不能通栏）。没有外部矢量面板，因此不需要 pypdf 叠加。
 
 **产物**：
 
@@ -142,6 +145,8 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 **为什么复制而不是复用**：这三张图原本由 `workflow/scripts/pcr_qc/plot_pcr_qc.py` 画在 1a 的 2×2 图里。本脚本自带一份密度着色、对数轴与 n/r/P 标注的实现（KDE 部分对应 `workflow/src/figure_render/_point_density.py`，其余对应 `_scatter.py` 的密度路径），不 import 任何 stage 模块——改 S1 的版式不会动 1a 的 QC 图。
 
 **输入为什么是 `_work/` 下的 parquet**：1a_pcr_qc 对 A–C 三个面板只发布了一张 2×2 PDF，没有发布表；`pbl_pbr / tech / bio.parquet` 就是它准备的表，rule 把它们声明为 input，1a 重算时 S1 会自动跟着重建。
+
+**D 面板的输入**：HD_DIT_HAP release 的 `insertion_level/annotations.tsv.gz`，只读 `Type`、`Systematic ID` 两列；路径在 `7a_figures.smk` 里由 `DATASETS` 拼出。没有基因内插入的 56 个基因不出现在注释表里，因此分布覆盖的是有 ≥1 条插入的 5,070 个基因。（把 1b 的 5,126 基因全集也接进来会让 8 个特征收集任务重跑，为 1.1% 的零值不值得。）
 
 ---
 
@@ -178,6 +183,19 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 | 版式 | axes `x=350`，其余同 A；字母 C 在 `(350, 10)` |
 | 产物 | 并入 `figure_s1.pdf` |
 
+### Panel D — 每个基因的插入条数分布
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `…/HD_DIT_HAP/release/insertion_level/annotations.tsv.gz`（release 的逐插入注释表） |
+| 必需列 | `Type`、`Systematic ID`（缺列在 I/O 边界直接报错） |
+| 变换 | 只数 `Type == "Coding gene"` 的插入行；按 `Systematic ID` 计数得到 5,070 个基因的条数（中位 62，四分位 36–98，最大 1,254）；再按 25 条一档分箱，0–299 共 12 档，≥300 合并为最后一档（46 个基因）。第一档的刻度是 bin 左边界 `0`，实际装的是 1–24 条（零插入基因不在表里） |
+| 画法 | `cns.barplot(x="bin_label", y="n_genes", color=palette[2])`，柱色为 house palette 第 2 位（灰度可分）；13 个刻度在 100 pt 里放不下，`ax.set_xticks(...[::3])` 隔两档显示（0 / 75 / 150 / 225 / ≥300）；x `Insertions per gene`、y `Number of genes` |
+| 版式 | axes `x=30, y_top=180, w=100, h=100` pt（house SQUARE）；字母 D 在 `(30, 180)` |
+| 产物 | 并入 `figure_s1.pdf` |
+
+**为什么是普通直方图而不是累计曲线**：横轴跨 0–1254，中位 62、99% 的基因 ≤ 290；线性横轴上的累计曲线会把 99% 的曲线挤进左侧 24% 的宽度。普通直方图能直接读出众数（25–75）与长尾，最后一档标成 `≥300`，避免被误读成又一个 25 宽的 bin。
+
 ---
 
 ### 可调旋钮（全部在 `workflow/scripts/figures/figure_s1.py` 顶部）
@@ -190,6 +208,9 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 | `PANEL_FIRST_X_PT` | 30 | 第一个面板的横轴位置（给 y 刻度留左边距） |
 | `BELOW_DECORATION_PT` | 30 | x 刻度 + xlabel 所占高度 |
 | `PANEL_LETTER_ROOM_PT` | 10 | 面板上方给字母的净空 |
+| `ROW_GAP_PT` | 10 | A–C 行与 D 行之间 |
+| `PANEL_D_X_PT` / `PANEL_D_WIDTH_PT` / `PANEL_D_HEIGHT_PT` | 30 / 100 / 100 | D 的位置与大小（80–150 pt 契约） |
+| `COUNT_BIN_WIDTH` / `COUNT_TAIL_START` | 25 / 300 | 直方图档宽与最后一档的起点 |
 | `DENSITY_SCATTER_S` / `DENSITY_SCATTER_ALPHA` | 1.5 / 0.6 | 点大小与透明度（密云例外） |
 | `DENSITY_CBAR_BOUNDS` | (0.82, 0.02, 0.035, 0.30) | 密度色条在 axes 分数坐标中的位置与大小 |
 
