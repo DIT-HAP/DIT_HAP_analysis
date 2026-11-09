@@ -100,7 +100,7 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ### 面板字母
 
-三个字母都是手摆（不用 `mp.panel` 自动标签）：8 pt 粗体 Arial，`fig.text(x, 1 − (y_top − 2)/画布高, va="bottom", ha="left")`，即每个面板左上角上方 2 pt。A 在 `(0, 10)`，B 在 `(130, 149.217)`，C 在 `(300, 149.217)`。
+三个字母都是手摆（不用 `mp.panel` 自动标签）：8 pt 粗体 Arial。**x 不写死**，而是先 `fig.canvas.draw()`，再从每个面板 axes 的 tight bbox 左缘（含 y 刻度标签与 ylabel）量得，往左退 2 pt 并夹在画布内；y 仍是面板顶部上方 2 pt（`fig.text(x/493, 1 − (y_top − 2)/画布高, va="bottom", ha="left")`）。这样字母永远贴在 y 轴标签外侧，刻度标签变宽也不会把它顶开。A 面板没有坐标轴装饰，量得 x = 0。
 
 ---
 
@@ -158,7 +158,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `PBL`、`PBR`（缺列在 I/O 边界直接报错） |
 | 变换 | 只保留两列都 > 0 的行（对数轴画不出 0）：164,820 → 108,717 行 |
 | 画法 | 在 log10 空间做 2D 核密度（`gaussian_kde`，>5000 点时固定种子抽 5,000 点、128×128 网格插值），逐点按密度排序后 `ax.scatter(s=1.5, alpha=0.6, linewidths=0, rasterized=True)`，viridis 着色并归一化到 [0,1]；灰色虚线 x=y；左上 `n / r / P`（log10 空间 Pearson，`P < 1e-9` 显示为 `P < 1E-9`，否则 `P = mantissa E±exp`）；右下 inset 密度色条（0→low、1→high，标题 Density）；双对数轴（本图中 matplotlib 只给 y 轴次刻度，按 house 规则两侧一并关闭，与 1a 的 QC 图一致） |
-| 版式 | axes `x=30, y_top=10, w=120, h=120` pt；字母 A 在 `(30, 10)` |
+| 版式 | axes `x=30, y_top=10, w=120, h=120` pt；字母 A 贴该面板 y 轴标签左侧（x 由 tight bbox 量得，约 5），`y_top=10` |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel B — 技术重复
@@ -169,7 +169,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Reads_1`、`Reads_2` |
 | 变换 | 两列都 > 0：152,276 → 117,297 行 |
 | 画法 | 与 A 相同；轴标签 `Reads of Technical Replicate 1 / 2` |
-| 版式 | axes `x=190`，其余同 A；字母 B 在 `(190, 10)` |
+| 版式 | axes `x=190`，其余同 A；字母 B 贴在 `Reads of Technical Replicate 2` 左侧（约 165），`y_top=10` |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel C — 生物学重复
@@ -180,7 +180,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Reads_1`、`Reads_2` |
 | 变换 | 两列都 > 0：125,566 → 92,704 行 |
 | 画法 | 与 A 相同；轴标签 `Reads of Biological Replicate 1 / 2` |
-| 版式 | axes `x=350`，其余同 A；字母 C 在 `(350, 10)` |
+| 版式 | axes `x=350`，其余同 A；字母 C 贴在 `Reads of Biological Replicate 2` 左侧（约 325），`y_top=10` |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel D — 每个基因的插入条数分布
@@ -191,7 +191,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Type`、`Systematic ID`（缺列在 I/O 边界直接报错） |
 | 变换 | 只数 `Type == "Coding gene"` 的插入行；按 `Systematic ID` 计数得到 5,070 个基因的条数（中位 62，四分位 36–98，最大 1,254）；再按 25 条一档分箱，0–299 共 12 档，≥300 合并为最后一档（46 个基因）。第一档的刻度是 bin 左边界 `0`，实际装的是 1–24 条（零插入基因不在表里） |
 | 画法 | `cns.barplot(x="bin_label", y="n_genes", color=palette[2])`，柱色为 house palette 第 2 位（灰度可分）；13 个刻度在 100 pt 里放不下，`ax.set_xticks(...[::3])` 隔两档显示（0 / 75 / 150 / 225 / ≥300）；x `Insertions per gene`、y `Number of genes` |
-| 版式 | axes `x=30, y_top=180, w=100, h=100` pt（house SQUARE）；字母 D 在 `(30, 180)` |
+| 版式 | axes `x=30, y_top=180, w=100, h=100` pt（house SQUARE）；字母 D 贴在 `Number of genes` 左侧（约 0），`y_top=180` |
 | 产物 | 并入 `figure_s1.pdf` |
 
 **为什么是普通直方图而不是累计曲线**：横轴跨 0–1254，中位 62、99% 的基因 ≤ 290；线性横轴上的累计曲线会把 99% 的曲线挤进左侧 24% 的宽度。普通直方图能直接读出众数（25–75）与长尾，最后一档标成 `≥300`，避免被误读成又一个 25 宽的 bin。

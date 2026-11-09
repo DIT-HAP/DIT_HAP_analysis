@@ -53,6 +53,7 @@ Version:  1.0.0
 # 1. IMPORTS (Standard Library -> Third-Party)
 # =============================================================================
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -213,7 +214,6 @@ class Layout:
     """Resolved point geometry of the two panel rows."""
 
     canvas_height_pt: float
-    panel_xs_pt: tuple[float, ...]
     panel_rects: tuple[tuple[float, float, float, float], ...]
     panel_d_top_pt: float
     panel_d_rect: tuple[float, float, float, float]
@@ -256,7 +256,6 @@ def build_layout() -> Layout:
     )
     return Layout(
         canvas_height_pt=canvas_height,
-        panel_xs_pt=panel_xs,
         panel_rects=panel_rects,
         panel_d_top_pt=panel_d_top,
         panel_d_rect=_axes_rect(
@@ -301,36 +300,46 @@ def draw_figure(
     """Draw the three scatter panels, panel D, and every panel letter."""
     fig = cns.figure(width=CANVAS_WIDTH_PT, height=layout.canvas_height_pt, unit="pt")
     panels = zip(PANEL_LETTERS, PANEL_SPECS, frames, strict=True)
+    letters: list[tuple[Axes, str, float]] = []
 
     for index, (letter, spec, frame) in enumerate(panels):
         ax = fig.add_axes(layout.panel_rects[index])
         render_replicate_panel(ax, frame, spec)
-        add_panel_letter(
-            fig, letter, layout.panel_xs_pt[index], PANEL_LETTER_ROOM_PT, layout.canvas_height_pt
-        )
+        letters.append((ax, letter, PANEL_LETTER_ROOM_PT))
 
     ax_d = fig.add_axes(layout.panel_d_rect)
     render_insertion_count_panel(ax_d, count_histogram)
-    add_panel_letter(
-        fig, COUNT_PANEL_LETTER, PANEL_D_X_PT, layout.panel_d_top_pt, layout.canvas_height_pt
-    )
+    letters.append((ax_d, COUNT_PANEL_LETTER, layout.panel_d_top_pt))
 
+    place_panel_letters(fig, letters, layout.canvas_height_pt)
     return fig
 
 
-def add_panel_letter(
-    fig: Figure, label: str, x_pt: float, y_top_pt: float, canvas_height_pt: float
+def place_panel_letters(
+    fig: Figure,
+    letters: Sequence[tuple[Axes, str, float]],
+    canvas_height_pt: float,
 ) -> None:
-    """Place a bold panel letter just above the panel's top-left corner."""
-    fig.text(
-        x_pt / CANVAS_WIDTH_PT,
-        1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
-        label,
-        ha="left",
-        va="bottom",
-        fontweight="bold",
-        fontsize=PANEL_LETTER_FONT_PT,
-    )
+    """Place each panel letter just above and left of its panel's y-axis decoration.
+
+    The x comes from the axes' tight bbox, so the letter clears the y tick labels
+    and the ylabel whatever they measure rather than sitting on the spine.
+    """
+    fig.canvas.draw()
+
+    for ax, label, y_top_pt in letters:
+        bbox = ax.get_tightbbox()
+        assert bbox is not None
+        left_pt = max(0.0, bbox.x0 * 72 / fig.dpi - PANEL_LETTER_GAP_PT)
+        fig.text(
+            left_pt / CANVAS_WIDTH_PT,
+            1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
+            label,
+            ha="left",
+            va="bottom",
+            fontweight="bold",
+            fontsize=PANEL_LETTER_FONT_PT,
+        )
 
 
 def render_replicate_panel(ax: Axes, frame: pd.DataFrame, spec: ScatterSpec) -> None:

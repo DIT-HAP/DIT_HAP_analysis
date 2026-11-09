@@ -191,7 +191,8 @@ def test_build_layout_s1_stacks_panel_d_below_the_scatter_row():
     layout = figure_s1.build_layout()
 
     assert len(layout.panel_rects) == len(figure_s1.PANEL_SPECS)
-    assert layout.panel_xs_pt == tuple(sorted(layout.panel_xs_pt))
+    panel_xs_pt = [rect[0] * figure_s1.CANVAS_WIDTH_PT for rect in layout.panel_rects]
+    assert panel_xs_pt == sorted(panel_xs_pt)
     assert layout.panel_rects[0][1] == layout.panel_rects[2][1]  # one common top edge
     assert layout.panel_rects[0][2] == layout.panel_rects[2][2]
     assert layout.panel_d_rect[1] < layout.panel_rects[0][1]  # D is below the row
@@ -211,7 +212,7 @@ def test_build_layout_s1_stacks_panel_d_below_the_scatter_row():
         + figure_s1.BELOW_DECORATION_PT
         + figure_s1.BOTTOM_MARGIN_PT
     )
-    right_edge_pt = max(layout.panel_xs_pt) + figure_s1.PANEL_SIZE_PT
+    right_edge_pt = max(panel_xs_pt) + figure_s1.PANEL_SIZE_PT
     assert right_edge_pt < figure_s1.CANVAS_WIDTH_PT
     assert figure_s1.PANEL_D_X_PT + figure_s1.PANEL_D_WIDTH_PT < figure_s1.CANVAS_WIDTH_PT
 

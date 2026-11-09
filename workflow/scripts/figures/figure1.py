@@ -56,6 +56,7 @@ Version:  1.0.0
 # 1. IMPORTS (Standard Library -> Third-Party)
 # =============================================================================
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -264,30 +265,51 @@ def apply_house_style() -> None:
 def draw_figure(coverage: pd.DataFrame, spikein: pd.DataFrame, layout: Layout) -> Figure:
     """Draw the canvas: panels B and C, with panel A's region left blank."""
     fig = cns.figure(width=CANVAS_WIDTH_PT, height=layout.canvas_height_pt, unit="pt")
-    fig.add_axes(layout.schematic_rect).set_axis_off()
+    schematic_ax = fig.add_axes(layout.schematic_rect)
+    schematic_ax.set_axis_off()
 
-    render_coverage_panel(fig.add_axes(layout.panel_b_rect), coverage)
-    render_spikein_panel(fig.add_axes(layout.panel_c_rect), spikein)
+    coverage_ax = fig.add_axes(layout.panel_b_rect)
+    render_coverage_panel(coverage_ax, coverage)
+    spikein_ax = fig.add_axes(layout.panel_c_rect)
+    render_spikein_panel(spikein_ax, spikein)
 
-    add_panel_letter(fig, "A", 0.0, PANEL_LETTER_ROOM_PT, layout.canvas_height_pt)
-    add_panel_letter(fig, "B", PANEL_B_X_PT, layout.row_top_pt, layout.canvas_height_pt)
-    add_panel_letter(fig, "C", PANEL_C_X_PT, layout.row_top_pt, layout.canvas_height_pt)
+    place_panel_letters(
+        fig,
+        (
+            (schematic_ax, "A", PANEL_LETTER_ROOM_PT),
+            (coverage_ax, "B", layout.row_top_pt),
+            (spikein_ax, "C", layout.row_top_pt),
+        ),
+        layout.canvas_height_pt,
+    )
     return fig
 
 
-def add_panel_letter(
-    fig: Figure, label: str, x_pt: float, y_top_pt: float, canvas_height_pt: float
+def place_panel_letters(
+    fig: Figure,
+    letters: Sequence[tuple[Axes, str, float]],
+    canvas_height_pt: float,
 ) -> None:
-    """Place a bold panel letter just above the panel's top-left corner."""
-    fig.text(
-        x_pt / CANVAS_WIDTH_PT,
-        1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
-        label,
-        ha="left",
-        va="bottom",
-        fontweight="bold",
-        fontsize=PANEL_LETTER_FONT_PT,
-    )
+    """Place each panel letter just above and left of its panel's y-axis decoration.
+
+    The x comes from the axes' tight bbox, so the letter clears the y tick labels
+    and the ylabel whatever they measure rather than sitting on the spine.
+    """
+    fig.canvas.draw()
+
+    for ax, label, y_top_pt in letters:
+        bbox = ax.get_tightbbox()
+        assert bbox is not None
+        left_pt = max(0.0, bbox.x0 * 72 / fig.dpi - PANEL_LETTER_GAP_PT)
+        fig.text(
+            left_pt / CANVAS_WIDTH_PT,
+            1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
+            label,
+            ha="left",
+            va="bottom",
+            fontweight="bold",
+            fontsize=PANEL_LETTER_FONT_PT,
+        )
 
 
 def render_coverage_panel(ax: Axes, frame: pd.DataFrame) -> None:
