@@ -186,5 +186,6 @@ rule all:
         # Figure 1 depends on the LFC coverage chain, so a full run would build
         # that chain's own three figures just to draw one panel.
         # "results/7a_figures/figure1.pdf",
+        # "results/7a_figures/figure_s1.pdf",
     message:
         "*** DIT-HAP analysis complete"

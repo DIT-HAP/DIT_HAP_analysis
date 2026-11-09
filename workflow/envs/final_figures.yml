@@ -17,6 +17,7 @@ dependencies:
   - seaborn>=0.13.2,<0.14
   - pycomplexheatmap>=1.8.4,<1.9
   - statannotations>=0.7.2,<0.8
+  - scipy>=1.13,<2
   - pyarrow
   - pytest>=9.0
   - loguru

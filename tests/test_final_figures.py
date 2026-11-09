@@ -1,8 +1,9 @@
-"""Tests for the final-figure stage: Figure 1's frames, layout and PDF assembly."""
+"""Tests for the final-figure stage: layout, frames, and PDF assembly per figure."""
 
 from pathlib import Path
 import shutil
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -12,6 +13,7 @@ pytest.importorskip("pypdf")
 import cnsplots as cns
 from matplotlib.transforms import Bbox
 from pypdf import PdfReader
+from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
@@ -63,6 +65,36 @@ def _write_schematic(path: Path) -> None:
     # cnsplots sets savefig.bbox="tight"; pin the page to the canvas so the
     # assembly sees the size this fixture advertises.
     fig.savefig(path, format="pdf", bbox_inches=Bbox.from_bounds(0.0, 0.0, *fig.get_size_inches()))
+
+
+def _replicate_table(x: str, y: str) -> pd.DataFrame:
+    """A strictly positive pair of read-count columns plus one unplottable row.
+
+    Independent draws, because the density estimate needs a two-dimensional
+    cloud: collinear points give gaussian_kde a singular covariance.
+    """
+    rng = np.random.default_rng(0)
+    table = pd.DataFrame({x: rng.integers(1, 1000, size=40), y: rng.integers(1, 1000, size=40)})
+    # Zero on either side cannot appear on a log axis; the panel must drop it.
+    return pd.concat([table, pd.DataFrame({x: [0], y: [5]})], ignore_index=True)
+
+
+@pytest.fixture
+def figure_s1_inputs(tmp_path: Path) -> figure_s1.FigureS1Config:
+    """Write fixture parquets and return a Figure S1 config pointing at them."""
+    pbl_pbr = tmp_path / "pbl_pbr.parquet"
+    tech = tmp_path / "tech.parquet"
+    bio = tmp_path / "bio.parquet"
+    _replicate_table("PBL", "PBR").to_parquet(pbl_pbr)
+    _replicate_table("Reads_1", "Reads_2").to_parquet(tech)
+    _replicate_table("Reads_1", "Reads_2").to_parquet(bio)
+    return figure_s1.FigureS1Config(
+        pbl_pbr=pbl_pbr,
+        tech=tech,
+        bio=bio,
+        output_pdf=tmp_path / "out" / "figure_s1.pdf",
+        output_review=tmp_path / "out" / "figure_s1.review.png",
+    )
 
 
 @pytest.fixture
@@ -139,6 +171,45 @@ def test_build_spikein_frame_drops_reference_and_relabels_sites():
 
 
 # =============================================================================
+# Figure S1
+# =============================================================================
+def test_build_layout_s1_places_three_panels_across_the_page():
+    """Three equally sized panels share one top edge and stay inside the canvas."""
+    layout = figure_s1.build_layout()
+
+    assert len(layout.panel_rects) == len(figure_s1.PANEL_SPECS)
+    assert layout.panel_xs_pt == tuple(sorted(layout.panel_xs_pt))
+    assert layout.panel_rects[0][1] == layout.panel_rects[2][1]  # one common top edge
+    assert layout.panel_rects[0][2] == layout.panel_rects[2][2]
+    assert layout.canvas_height_pt == pytest.approx(
+        figure_s1.PANEL_LETTER_ROOM_PT
+        + figure_s1.PANEL_SIZE_PT
+        + figure_s1.BELOW_DECORATION_PT
+        + figure_s1.BOTTOM_MARGIN_PT
+    )
+    right_edge_pt = max(layout.panel_xs_pt) + figure_s1.PANEL_SIZE_PT
+    assert right_edge_pt < figure_s1.CANVAS_WIDTH_PT
+
+
+def test_build_scatter_frame_s1_drops_non_positive_pairs():
+    """A zero read count cannot be drawn on a log axis and is removed."""
+    spec = figure_s1.PANEL_SPECS[0]
+    frame = figure_s1.build_scatter_frame(_replicate_table("PBL", "PBR"), spec)
+
+    assert (frame[["PBL", "PBR"]] > 0).all().all()
+    assert len(frame) == 40
+
+
+def test_read_panel_tables_s1_rejects_missing_column(figure_s1_inputs):
+    """A tech table without Reads_2 fails at the boundary, not inside the KDE."""
+    table = pd.read_parquet(figure_s1_inputs.tech)[["Reads_1"]]
+    table.to_parquet(figure_s1_inputs.tech)
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        figure_s1.read_panel_tables(figure_s1_inputs)
+
+
+# =============================================================================
 # End-to-end assembly
 # =============================================================================
 def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1Config):
@@ -161,3 +232,24 @@ def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1C
     assert "Covered genes (%)" in text  # the matplotlib canvas survived
     assert figure1_inputs.canvas_pdf.exists()
     assert figure1_inputs.output_review.exists()
+
+
+def test_figure_s1_run_assembles_one_page(figure_s1_inputs: figure_s1.FigureS1Config):
+    """Figure S1 is one page of the designed size carrying all three panels' labels."""
+    if shutil.which("pdftocairo") is None:
+        pytest.skip("pdftocairo (poppler) is not installed")
+
+    figure_s1.run(figure_s1_inputs)
+
+    reader = PdfReader(str(figure_s1_inputs.output_pdf))
+    assert len(reader.pages) == 1
+
+    layout = figure_s1.build_layout()
+    page = reader.pages[0]
+    assert float(page.mediabox.width) == pytest.approx(figure_s1.CANVAS_WIDTH_PT, abs=0.01)
+    assert float(page.mediabox.height) == pytest.approx(layout.canvas_height_pt, abs=0.01)
+
+    text = page.extract_text() or ""
+    assert "PBL Reads" in text
+    assert "Reads of Biological Replicate 1" in text
+    assert figure_s1_inputs.output_review.exists()

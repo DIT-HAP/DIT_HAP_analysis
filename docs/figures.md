@@ -24,7 +24,7 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
   -R plot_figure1 -- results/7a_figures/figure1.pdf
 ```
 
-`-R` 是必须的：脚本不在 rule 的 `input` 里，改脚本不会触发重跑；`--` 之前不能跟目标（会被 `--forcerun` 吃掉）。
+`-R` 是必须的：脚本不在 rule 的 `input` 里，改脚本不会触发重跑；`--` 之前不能跟目标（会被 `--forcerun` 吃掉）。其它图把 `plot_figure1` 与目标路径换成对应的（如 `plot_figure_s1` / `results/7a_figures/figure_s1.pdf`）。
 
 ---
 
@@ -122,6 +122,81 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ---
 
+## Figure S1 — 文库制备重复性：PBL/PBR、技术重复、生物学重复
+
+**画布**：493 × 162 pt（Cell 双栏宽）：
+
+```
+10（字母带） + 120（面板高） + 30（x 刻度 + xlabel） + 2（底边）
+```
+
+三个 120 pt 方形面板并排，间距 40 pt（`PANEL_PITCH_PT = 160`）。没有外部矢量面板，因此不需要 pypdf 叠加。
+
+**产物**：
+
+| 文件 | 说明 |
+|---|---|
+| `results/7a_figures/figure_s1.pdf` | 最终矢量图（单页） |
+| `results/7a_figures/figure_s1.review.png` | 360 dpi 评审位图 |
+
+**为什么复制而不是复用**：这三张图原本由 `workflow/scripts/pcr_qc/plot_pcr_qc.py` 画在 1a 的 2×2 图里。本脚本自带一份密度着色、对数轴与 n/r/P 标注的实现（KDE 部分对应 `workflow/src/figure_render/_point_density.py`，其余对应 `_scatter.py` 的密度路径），不 import 任何 stage 模块——改 S1 的版式不会动 1a 的 QC 图。
+
+**输入为什么是 `_work/` 下的 parquet**：1a_pcr_qc 对 A–C 三个面板只发布了一张 2×2 PDF，没有发布表；`pbl_pbr / tech / bio.parquet` 就是它准备的表，rule 把它们声明为 input，1a 重算时 S1 会自动跟着重建。
+
+---
+
+### Panel A — PBL vs PBR（同一文库两个引物）
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `results/1a_pcr_qc/_work/pbl_pbr.parquet` |
+| 必需列 | `PBL`、`PBR`（缺列在 I/O 边界直接报错） |
+| 变换 | 只保留两列都 > 0 的行（对数轴画不出 0）：164,820 → 108,717 行 |
+| 画法 | 在 log10 空间做 2D 核密度（`gaussian_kde`，>5000 点时固定种子抽 5,000 点、128×128 网格插值），逐点按密度排序后 `ax.scatter(s=1.5, alpha=0.6, linewidths=0, rasterized=True)`，viridis 着色并归一化到 [0,1]；灰色虚线 x=y；左上 `n / r / P`（log10 空间 Pearson，`P < 1e-9` 显示为 `P < 1E-9`，否则 `P = mantissa E±exp`）；右下 inset 密度色条（0→low、1→high，标题 Density）；双对数轴（本图中 matplotlib 只给 y 轴次刻度，按 house 规则两侧一并关闭，与 1a 的 QC 图一致） |
+| 版式 | axes `x=30, y_top=10, w=120, h=120` pt；字母 A 在 `(30, 10)` |
+| 产物 | 并入 `figure_s1.pdf` |
+
+### Panel B — 技术重复
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `results/1a_pcr_qc/_work/tech.parquet`（同一份样品在两个上游项目各跑一次，按 (Chr, Coordinate, Strand) 合并） |
+| 必需列 | `Reads_1`、`Reads_2` |
+| 变换 | 两列都 > 0：152,276 → 117,297 行 |
+| 画法 | 与 A 相同；轴标签 `Reads of Technical Replicate 1 / 2` |
+| 版式 | axes `x=190`，其余同 A；字母 B 在 `(190, 10)` |
+| 产物 | 并入 `figure_s1.pdf` |
+
+### Panel C — 生物学重复
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `results/1a_pcr_qc/_work/bio.parquet`（同一项目内两个样品） |
+| 必需列 | `Reads_1`、`Reads_2` |
+| 变换 | 两列都 > 0：125,566 → 92,704 行 |
+| 画法 | 与 A 相同；轴标签 `Reads of Biological Replicate 1 / 2` |
+| 版式 | axes `x=350`，其余同 A；字母 C 在 `(350, 10)` |
+| 产物 | 并入 `figure_s1.pdf` |
+
+---
+
+### 可调旋钮（全部在 `workflow/scripts/figures/figure_s1.py` 顶部）
+
+| 常量 | 当前值 | 作用 |
+|---|---:|---|
+| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏） |
+| `PANEL_SIZE_PT` | 120 | 每个方形面板的边长 |
+| `PANEL_PITCH_PT` | 160 | 面板起点间距（= 边长 + 40 pt 放刻度与 ylabel） |
+| `PANEL_FIRST_X_PT` | 30 | 第一个面板的横轴位置（给 y 刻度留左边距） |
+| `BELOW_DECORATION_PT` | 30 | x 刻度 + xlabel 所占高度 |
+| `PANEL_LETTER_ROOM_PT` | 10 | 面板上方给字母的净空 |
+| `DENSITY_SCATTER_S` / `DENSITY_SCATTER_ALPHA` | 1.5 / 0.6 | 点大小与透明度（密云例外） |
+| `DENSITY_CBAR_BOUNDS` | (0.82, 0.02, 0.035, 0.30) | 密度色条在 axes 分数坐标中的位置与大小 |
+
+改 `PANEL_SIZE_PT` 后画布高度自动重算；改 `PANEL_PITCH_PT` 时注意 `PANEL_FIRST_X_PT + 2 × PITCH + SIZE` 必须 < 493。
+
+---
+
 ## Supplementary figures
 
-（待加入：`plot_figure_s1` 等。每个 S 图同样一条 rule、一节说明。）
+（其余 S 图待加入：每个 S 图同样一条 rule、一节说明。）
