@@ -21,6 +21,12 @@ from the released insertion annotations. Genes with no in-gene insertion are
 absent from that table, so the distribution covers only the genes that carry at
 least one.
 
+The page is a ``cns.multipanel`` flow: A-C fill the first row, ``mp.newline()``
+puts D at the left of the second. Each panel's box is its axes size plus the
+y-axis decoration multipanel measures at render time, so a longer ylabel pushes
+its own panel right instead of overlapping the previous one; the panel letters
+are placed by multipanel at the left edge of each panel's column.
+
 Input
 -----
 - results/1a_pcr_qc/_work/pbl_pbr.parquet   Columns: PBL, PBR
@@ -53,7 +59,6 @@ Version:  1.0.0
 # 1. IMPORTS (Standard Library -> Third-Party)
 # =============================================================================
 import argparse
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -64,10 +69,8 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
-from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from matplotlib.ticker import NullLocator
-from matplotlib.transforms import Bbox
 import numpy as np
 import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
@@ -93,25 +96,15 @@ COUNT_BAR_COLOR = cns.get_hexcolors_from_apalette([2], HOUSE_PALETTE)[0]
 
 # --- Canvas and panel geometry, in points -----------------------------------
 CANVAS_WIDTH_PT = 493.0
-BOTTOM_MARGIN_PT = 2.0
-PANEL_LETTER_ROOM_PT = 10.0  # clear band above the row for its letters
-PANEL_LETTER_GAP_PT = 2.0
-PANEL_LETTER_FONT_PT = 8.0
-BELOW_DECORATION_PT = 30.0  # x ticks + xlabel
-
 # Three square panels across the page. 120 pt sits above the house 100 pt
-# legible floor, and the pitch leaves each panel its own y tick labels and
-# ylabel.
+# legible floor; the flow adds each panel's measured y-axis decoration and its
+# right margin, so the three footprints total ~477 pt of the 493 pt page.
 PANEL_SIZE_PT = 120.0
-PANEL_PITCH_PT = 160.0
-PANEL_FIRST_X_PT = 30.0
-
-# Panel D sits on a second row at the house SQUARE footprint, the same 100 pt
-# side as the panel contract's baseline.
+BELOW_DECORATION_PT = 30.0  # x ticks + xlabel
+# Panel D sits on a second row, left-aligned under A, at the house SQUARE
+# footprint (100 pt is the panel contract's baseline).
 ROW_GAP_PT = 10.0
-PANEL_D_X_PT = 30.0
-PANEL_D_WIDTH_PT = 100.0
-PANEL_D_HEIGHT_PT = 100.0
+PANEL_D_SIZE_PT = 100.0
 
 # --- Density scatter --------------------------------------------------------
 # Point size and alpha are the dense-cloud exception from the house style:
@@ -209,16 +202,6 @@ class FigureS1Config:
             output.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True, frozen=True)
-class Layout:
-    """Resolved point geometry of the two panel rows."""
-
-    canvas_height_pt: float
-    panel_rects: tuple[tuple[float, float, float, float], ...]
-    panel_d_top_pt: float
-    panel_d_rect: tuple[float, float, float, float]
-
-
 # =============================================================================
 # 4. DATA PREPARATION (pure; schemas are validated at the I/O boundary)
 # =============================================================================
@@ -243,40 +226,6 @@ def build_count_histogram(counts: pd.Series) -> pd.DataFrame:
     return binned.value_counts(sort=False).rename_axis("bin_label").reset_index(name="n_genes")
 
 
-def build_layout() -> Layout:
-    """Derive the canvas height and every panel box from the two-row geometry."""
-    row_a_bottom = PANEL_LETTER_ROOM_PT + PANEL_SIZE_PT + BELOW_DECORATION_PT
-    panel_d_top = row_a_bottom + ROW_GAP_PT + PANEL_LETTER_ROOM_PT
-    canvas_height = panel_d_top + PANEL_D_HEIGHT_PT + BELOW_DECORATION_PT + BOTTOM_MARGIN_PT
-
-    panel_xs = tuple(PANEL_FIRST_X_PT + index * PANEL_PITCH_PT for index in range(len(PANEL_SPECS)))
-    panel_rects = tuple(
-        _axes_rect(x_pt, PANEL_LETTER_ROOM_PT, PANEL_SIZE_PT, PANEL_SIZE_PT, canvas_height)
-        for x_pt in panel_xs
-    )
-    return Layout(
-        canvas_height_pt=canvas_height,
-        panel_rects=panel_rects,
-        panel_d_top_pt=panel_d_top,
-        panel_d_rect=_axes_rect(
-            PANEL_D_X_PT, panel_d_top, PANEL_D_WIDTH_PT, PANEL_D_HEIGHT_PT, canvas_height
-        ),
-    )
-
-
-def _axes_rect(
-    x_pt: float, y_top_pt: float, width_pt: float, height_pt: float, canvas_height_pt: float
-) -> tuple[float, float, float, float]:
-    """Convert a top-left point box into matplotlib figure fractions."""
-    bottom_pt = canvas_height_pt - y_top_pt - height_pt
-    return (
-        x_pt / CANVAS_WIDTH_PT,
-        bottom_pt / canvas_height_pt,
-        width_pt / CANVAS_WIDTH_PT,
-        height_pt / canvas_height_pt,
-    )
-
-
 # =============================================================================
 # 5. RENDERING
 # =============================================================================
@@ -294,52 +243,32 @@ def apply_house_style() -> None:
     cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=DENSITY_CMAP)
 
 
-def draw_figure(
-    frames: tuple[pd.DataFrame, ...], count_histogram: pd.DataFrame, layout: Layout
-) -> Figure:
-    """Draw the three scatter panels, panel D, and every panel letter."""
-    fig = cns.figure(width=CANVAS_WIDTH_PT, height=layout.canvas_height_pt, unit="pt")
-    panels = zip(PANEL_LETTERS, PANEL_SPECS, frames, strict=True)
-    letters: list[tuple[Axes, str, float]] = []
+def draw_figure(frames: tuple[pd.DataFrame, ...], count_histogram: pd.DataFrame) -> cns.multipanel:
+    """Draw the three replicate panels, panel D below them, and every panel letter.
 
-    for index, (letter, spec, frame) in enumerate(panels):
-        ax = fig.add_axes(layout.panel_rects[index])
-        render_replicate_panel(ax, frame, spec)
-        letters.append((ax, letter, PANEL_LETTER_ROOM_PT))
-
-    ax_d = fig.add_axes(layout.panel_d_rect)
-    render_insertion_count_panel(ax_d, count_histogram)
-    letters.append((ax_d, COUNT_PANEL_LETTER, layout.panel_d_top_pt))
-
-    place_panel_letters(fig, letters, layout.canvas_height_pt)
-    return fig
-
-
-def place_panel_letters(
-    fig: Figure,
-    letters: Sequence[tuple[Axes, str, float]],
-    canvas_height_pt: float,
-) -> None:
-    """Place each panel letter just above and left of its panel's y-axis decoration.
-
-    The x comes from the axes' tight bbox, so the letter clears the y tick labels
-    and the ylabel whatever they measure rather than sitting on the spine.
+    Returns the multipanel itself, not just its figure: cnsplots keeps the
+    measured-layout draw callback as a weak reference, so the caller must hold
+    the object until the file is written or the panels stay unmeasured.
     """
-    fig.canvas.draw()
+    mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
 
-    for ax, label, y_top_pt in letters:
-        bbox = ax.get_tightbbox()
-        assert bbox is not None
-        left_pt = max(0.0, bbox.x0 * 72 / fig.dpi - PANEL_LETTER_GAP_PT)
-        fig.text(
-            left_pt / CANVAS_WIDTH_PT,
-            1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
-            label,
-            ha="left",
-            va="bottom",
-            fontweight="bold",
-            fontsize=PANEL_LETTER_FONT_PT,
+    panels = zip(PANEL_LETTERS, PANEL_SPECS, frames, strict=True)
+    for letter, spec, frame in panels:
+        ax = mp.panel(
+            letter, width=PANEL_SIZE_PT, height=PANEL_SIZE_PT, margin_bottom=BELOW_DECORATION_PT
         )
+        render_replicate_panel(ax, frame, spec)
+
+    mp.newline()  # starts panel D's row at the page's left edge, under A
+    ax_d = mp.panel(
+        COUNT_PANEL_LETTER,
+        width=PANEL_D_SIZE_PT,
+        height=PANEL_D_SIZE_PT,
+        margin_top=ROW_GAP_PT,
+        margin_bottom=BELOW_DECORATION_PT,
+    )
+    render_insertion_count_panel(ax_d, count_histogram)
+    return mp
 
 
 def render_replicate_panel(ax: Axes, frame: pd.DataFrame, spec: ScatterSpec) -> None:
@@ -524,8 +453,8 @@ def read_tsv_columns(path: Path, required: tuple[str, ...]) -> pd.DataFrame:
     return table
 
 
-def run(config: FigureS1Config) -> None:
-    """Build Figure S1 end to end: canvas PDF and review raster."""
+def run(config: FigureS1Config) -> tuple[float, float]:
+    """Build Figure S1 end to end and return the page's (width, height) in points."""
     config.validate()
     apply_house_style()
 
@@ -537,22 +466,19 @@ def run(config: FigureS1Config) -> None:
     gene_counts = build_insertion_counts(annotations)
     count_histogram = build_count_histogram(gene_counts)
 
-    layout = build_layout()
-    figure = draw_figure(frames, count_histogram, layout)
-    # cnsplots sets savefig.bbox to "tight"; pin the page to the designed canvas
-    # for the same reason Figure 1 does.
-    figure.savefig(
-        config.output_pdf,
-        format="pdf",
-        bbox_inches=Bbox.from_bounds(0.0, 0.0, *figure.get_size_inches()),
-    )
+    mp = draw_figure(frames, count_histogram)
+    assert mp.fig is not None
+    # cnsplots sets savefig.bbox to "tight"; pass bbox_inches=None so the page
+    # keeps the multipanel canvas instead of cropping to the drawn artists.
+    cns.savefig(config.output_pdf, fig=mp.fig, bbox_inches=None)
     rasterize_review(config.output_pdf, config.output_review)
 
+    width_pt, height_pt = mp.fig.get_size_inches() * 72
     logger.success(
-        f"Wrote {config.output_pdf} "
-        f"({CANVAS_WIDTH_PT:.0f} x {layout.canvas_height_pt:.2f} pt) "
+        f"Wrote {config.output_pdf} ({width_pt:.0f} x {height_pt:.2f} pt) "
         f"and {config.output_review}"
     )
+    return width_pt, height_pt
 
 
 def parse_args() -> argparse.Namespace:

@@ -18,9 +18,10 @@ from workflow.scripts.figures.figure1 import (
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
     Figure1Config,
+    axes_box_pt,
     build_coverage_frame,
-    build_layout,
     build_spikein_frame,
+    draw_figure,
     run,
 )
 
@@ -132,18 +133,45 @@ def figure1_inputs(tmp_path: Path) -> Figure1Config:
 # =============================================================================
 # Layout
 # =============================================================================
-def test_build_layout_stacks_schematic_above_the_panel_row():
-    """A spans the canvas width above a B/C row whose axes share one top edge."""
-    layout = build_layout(453.72, 113.4)
+def _panel_boxes(mp: cns.multipanel, labels: tuple[str, ...]) -> dict[str, tuple[float, ...]]:
+    """Settle the flow layout and return each panel's point box by label."""
+    mp.fig.canvas.draw()
+    boxes = {}
+    for label in labels:
+        ax = mp.get_axes(label)
+        assert ax is not None
+        boxes[label] = axes_box_pt(ax, mp.fig)
+    return boxes
 
-    assert layout.schematic_height_pt == pytest.approx(493.0 * 113.4 / 453.72)
-    assert layout.schematic_rect[0] == 0.0
-    assert layout.schematic_rect[2] == pytest.approx(1.0)  # full canvas width
-    assert layout.schematic_rect[1] > layout.panel_b_rect[1]  # A sits above B
-    assert layout.panel_b_rect[0] < layout.panel_c_rect[0]
-    assert layout.panel_b_rect[1] == layout.panel_c_rect[1]
-    assert layout.panel_b_rect[3] == layout.panel_c_rect[3]
-    assert layout.canvas_height_pt > layout.schematic_height_pt + 80.0
+
+def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
+    """Left edge of the panel letter multipanel drew for a panel, in points."""
+    ax = mp.get_axes(label)
+    assert ax is not None
+    text = next(text for text in ax.texts if text.get_text() == label)
+    return text.get_window_extent(mp.fig.canvas.get_renderer()).x0 * 72 / mp.fig.dpi
+
+
+def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
+    """A spans the page; B and C open a row at the left and leave the right blank."""
+    coverage = build_coverage_frame(_coverage_table())
+    spikein = build_spikein_frame(_spikein_table())
+    mp, schematic_ax = draw_figure(coverage, spikein, schematic_height_pt=120.0)
+
+    boxes = _panel_boxes(mp, ("B", "C"))  # also settles the flow layout
+    a_x, a_top, a_width, a_height = axes_box_pt(schematic_ax, mp.fig)
+    c_x, c_top, c_width, c_height = boxes["C"]
+    _, b_top, _, b_height = boxes["B"]
+
+    assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
+    assert 0 < a_x <= 10  # only the panel letter's column sits left of A
+    assert a_x + a_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
+    assert b_top == pytest.approx(c_top)  # one common row
+    assert b_height == pytest.approx(c_height)
+    assert b_top > a_top + a_height  # the row sits below A
+    assert c_x > boxes["B"][0]
+    assert c_x + c_width < CANVAS_WIDTH_PT * 0.8  # left-aligned, right side empty
+    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "B"), abs=0.5)
 
 
 # =============================================================================
@@ -186,35 +214,32 @@ def test_build_spikein_frame_drops_reference_and_relabels_sites():
 # =============================================================================
 # Figure S1
 # =============================================================================
-def test_build_layout_s1_stacks_panel_d_below_the_scatter_row():
-    """A-C share one row; D sits below them and spans the page width."""
-    layout = figure_s1.build_layout()
-
-    assert len(layout.panel_rects) == len(figure_s1.PANEL_SPECS)
-    panel_xs_pt = [rect[0] * figure_s1.CANVAS_WIDTH_PT for rect in layout.panel_rects]
-    assert panel_xs_pt == sorted(panel_xs_pt)
-    assert layout.panel_rects[0][1] == layout.panel_rects[2][1]  # one common top edge
-    assert layout.panel_rects[0][2] == layout.panel_rects[2][2]
-    assert layout.panel_d_rect[1] < layout.panel_rects[0][1]  # D is below the row
-    assert layout.panel_d_rect[0] == pytest.approx(layout.panel_rects[0][0])  # aligned with A
-    assert layout.panel_d_rect[2] * figure_s1.CANVAS_WIDTH_PT == pytest.approx(
-        figure_s1.PANEL_D_WIDTH_PT
+def _figure_s1_frames() -> tuple[pd.DataFrame, ...]:
+    """One strictly positive pair per panel, in PANEL_SPECS order."""
+    pairs = (("PBL", "PBR"), ("Reads_1", "Reads_2"), ("Reads_1", "Reads_2"))
+    tables = [_replicate_table(x, y) for x, y in pairs]
+    return tuple(
+        figure_s1.build_scatter_frame(table, spec)
+        for table, spec in zip(tables, figure_s1.PANEL_SPECS, strict=True)
     )
 
-    row_a_height = (
-        figure_s1.PANEL_LETTER_ROOM_PT + figure_s1.PANEL_SIZE_PT + figure_s1.BELOW_DECORATION_PT
+
+def test_draw_s1_figure_left_aligns_panel_labels_across_rows():
+    """A-C share one row; D opens the second row with its letter under A's."""
+    histogram = figure_s1.build_count_histogram(
+        figure_s1.build_insertion_counts(_annotation_table())
     )
-    assert layout.canvas_height_pt == pytest.approx(
-        row_a_height
-        + figure_s1.ROW_GAP_PT
-        + figure_s1.PANEL_LETTER_ROOM_PT
-        + figure_s1.PANEL_D_HEIGHT_PT
-        + figure_s1.BELOW_DECORATION_PT
-        + figure_s1.BOTTOM_MARGIN_PT
-    )
-    right_edge_pt = max(panel_xs_pt) + figure_s1.PANEL_SIZE_PT
-    assert right_edge_pt < figure_s1.CANVAS_WIDTH_PT
-    assert figure_s1.PANEL_D_X_PT + figure_s1.PANEL_D_WIDTH_PT < figure_s1.CANVAS_WIDTH_PT
+    mp = figure_s1.draw_figure(_figure_s1_frames(), histogram)
+    boxes = _panel_boxes(mp, ("A", "B", "C", "D"))
+
+    _, a_top, _, a_height = boxes["A"]
+    assert boxes["B"][1] == pytest.approx(a_top)  # one common top edge
+    assert boxes["C"][1] == pytest.approx(a_top)
+    assert boxes["A"][0] < boxes["B"][0] < boxes["C"][0]
+    assert boxes["D"][1] > a_top + a_height  # D starts the second row
+    assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(figure_s1.CANVAS_WIDTH_PT)
+    assert boxes["D"][0] + boxes["D"][2] < figure_s1.CANVAS_WIDTH_PT  # right side empty
+    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "D"), abs=0.5)
 
 
 def test_build_insertion_counts_s1_counts_only_in_gene_rows():
@@ -263,15 +288,15 @@ def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1C
     if shutil.which("pdftocairo") is None:
         pytest.skip("pdftocairo (poppler) is not installed")
 
-    run(figure1_inputs)
+    width_pt, height_pt = run(figure1_inputs)
 
     reader = PdfReader(str(figure1_inputs.output_pdf))
     assert len(reader.pages) == 1
 
-    layout = build_layout(200.0, 50.0)
     page = reader.pages[0]
-    assert float(page.mediabox.width) == pytest.approx(CANVAS_WIDTH_PT, abs=0.01)
-    assert float(page.mediabox.height) == pytest.approx(layout.canvas_height_pt, abs=0.01)
+    assert width_pt == pytest.approx(CANVAS_WIDTH_PT, abs=0.01)
+    assert float(page.mediabox.width) == pytest.approx(width_pt, abs=0.01)
+    assert float(page.mediabox.height) == pytest.approx(height_pt, abs=0.01)
 
     text = page.extract_text() or ""
     assert "SCHEMATIC" in text  # the overlaid external page survived
@@ -285,15 +310,15 @@ def test_figure_s1_run_assembles_one_page(figure_s1_inputs: figure_s1.FigureS1Co
     if shutil.which("pdftocairo") is None:
         pytest.skip("pdftocairo (poppler) is not installed")
 
-    figure_s1.run(figure_s1_inputs)
+    width_pt, height_pt = figure_s1.run(figure_s1_inputs)
 
     reader = PdfReader(str(figure_s1_inputs.output_pdf))
     assert len(reader.pages) == 1
 
-    layout = figure_s1.build_layout()
     page = reader.pages[0]
-    assert float(page.mediabox.width) == pytest.approx(figure_s1.CANVAS_WIDTH_PT, abs=0.01)
-    assert float(page.mediabox.height) == pytest.approx(layout.canvas_height_pt, abs=0.01)
+    assert width_pt == pytest.approx(figure_s1.CANVAS_WIDTH_PT, abs=0.01)
+    assert float(page.mediabox.width) == pytest.approx(width_pt, abs=0.01)
+    assert float(page.mediabox.height) == pytest.approx(height_pt, abs=0.01)
 
     text = page.extract_text() or ""
     assert "PBL Reads" in text

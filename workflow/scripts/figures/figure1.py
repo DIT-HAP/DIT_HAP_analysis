@@ -22,6 +22,13 @@ left blank and ``pypdf`` then scales the schematic page into that region and
 merges the two pages. The review PNG is rasterized from the merged PDF, not
 from the canvas, so it shows the same picture the PDF does.
 
+The page is a ``cns.multipanel`` flow: A's reserved box fills the first row,
+``mp.newline()`` puts B and C at the left of the second, and the unused right
+half of that row stays blank. Each panel's box is its axes size plus whatever
+y-axis decoration multipanel measures at render time, so B and C keep their own
+labels clear instead of overlapping; the letters are placed by multipanel at the
+left edge of each panel's column.
+
 Input
 -----
 - results/2a_coverage/cross_dataset/lfc_coverage_comparison.tsv
@@ -56,7 +63,6 @@ Version:  1.0.0
 # 1. IMPORTS (Standard Library -> Third-Party)
 # =============================================================================
 import argparse
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -68,7 +74,6 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
-from matplotlib.transforms import Bbox
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
 
@@ -97,24 +102,24 @@ ACCENT_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
 FOCUS_BAND_ALPHA = 0.08
 
 # --- Canvas and panel geometry, in points -----------------------------------
-# 493 pt is the Cell two-column width. Panel A is the full width, so it sets
-# the canvas width; every other box is placed explicitly below.
+# 493 pt is the Cell two-column width, which multipanel takes as the page width.
 CANVAS_WIDTH_PT = 493.0
-BOTTOM_MARGIN_PT = 2.0
-PANEL_LETTER_ROOM_PT = 10.0  # clear band above each row for its letter
-PANEL_LETTER_GAP_PT = 2.0
-PANEL_LETTER_FONT_PT = 8.0
 ROW_GAP_PT = 6.0  # between panel A and the bottom row
 
-SCHEMATIC_WIDTH_PT = CANVAS_WIDTH_PT
+# Panel A alone spans the page. multipanel reserves each panel's letter column
+# on the left, and A is the only panel that must reach the right edge, so its
+# axes width gives that column back: 6 pt is the rendered width of a bold 8 pt
+# "A". The schematic is then scaled into the axes box after the page is saved.
+SCHEMATIC_LABEL_COLUMN_PT = 6.0
+SCHEMATIC_WIDTH_PT = CANVAS_WIDTH_PT - SCHEMATIC_LABEL_COLUMN_PT
+# multipanel's pad_top is in display pixels (figure_dpi / 72 per point), so the
+# letter band above A is the label's own height plus this clearance.
+PANEL_LETTER_PAD_TOP_PX = round(2.8 * HOUSE_FIGURE_DPI / 72)
 
-# Bottom row. The user tunes these after seeing a render; the values here are
-# the first cut from docs/figures.md.
+# Bottom row.
 ROW_PANEL_HEIGHT_PT = 80.0
 ROW_BELOW_DECORATION_PT = 42.0  # x ticks + xlabel + panel B's legend
-PANEL_B_X_PT = 130.0
 PANEL_B_WIDTH_PT = 120.0
-PANEL_C_X_PT = 300.0
 PANEL_C_WIDTH_PT = 110.0
 
 # --- Panel B vocabulary -----------------------------------------------------
@@ -173,18 +178,6 @@ class Figure1Config:
             output.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True)
-class Layout:
-    """Resolved point geometry, derived from the schematic's page aspect."""
-
-    canvas_height_pt: float
-    schematic_height_pt: float
-    row_top_pt: float
-    schematic_rect: tuple[float, float, float, float]
-    panel_b_rect: tuple[float, float, float, float]
-    panel_c_rect: tuple[float, float, float, float]
-
-
 # =============================================================================
 # 4. DATA PREPARATION (pure; schemas are validated at the I/O boundary)
 # =============================================================================
@@ -210,41 +203,6 @@ def build_spikein_frame(spikein: pd.DataFrame) -> pd.DataFrame:
     return frame.sort_values("Name", kind="stable")
 
 
-def build_layout(schematic_width_pt: float, schematic_height_pt: float) -> Layout:
-    """Derive the canvas height and every axes box from the schematic's aspect."""
-    schematic_height = SCHEMATIC_WIDTH_PT * schematic_height_pt / schematic_width_pt
-    row_top = PANEL_LETTER_ROOM_PT + schematic_height + ROW_GAP_PT + PANEL_LETTER_ROOM_PT
-    canvas_height = row_top + ROW_PANEL_HEIGHT_PT + ROW_BELOW_DECORATION_PT + BOTTOM_MARGIN_PT
-
-    return Layout(
-        canvas_height_pt=canvas_height,
-        schematic_height_pt=schematic_height,
-        row_top_pt=row_top,
-        schematic_rect=_axes_rect(
-            0.0, PANEL_LETTER_ROOM_PT, SCHEMATIC_WIDTH_PT, schematic_height, canvas_height
-        ),
-        panel_b_rect=_axes_rect(
-            PANEL_B_X_PT, row_top, PANEL_B_WIDTH_PT, ROW_PANEL_HEIGHT_PT, canvas_height
-        ),
-        panel_c_rect=_axes_rect(
-            PANEL_C_X_PT, row_top, PANEL_C_WIDTH_PT, ROW_PANEL_HEIGHT_PT, canvas_height
-        ),
-    )
-
-
-def _axes_rect(
-    x_pt: float, y_top_pt: float, width_pt: float, height_pt: float, canvas_height_pt: float
-) -> tuple[float, float, float, float]:
-    """Convert a top-left point box into matplotlib figure fractions."""
-    bottom_pt = canvas_height_pt - y_top_pt - height_pt
-    return (
-        x_pt / CANVAS_WIDTH_PT,
-        bottom_pt / canvas_height_pt,
-        width_pt / CANVAS_WIDTH_PT,
-        height_pt / canvas_height_pt,
-    )
-
-
 # =============================================================================
 # 5. RENDERING
 # =============================================================================
@@ -262,54 +220,54 @@ def apply_house_style() -> None:
     cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=DENSITY_CMAP)
 
 
-def draw_figure(coverage: pd.DataFrame, spikein: pd.DataFrame, layout: Layout) -> Figure:
-    """Draw the canvas: panels B and C, with panel A's region left blank."""
-    fig = cns.figure(width=CANVAS_WIDTH_PT, height=layout.canvas_height_pt, unit="pt")
-    schematic_ax = fig.add_axes(layout.schematic_rect)
-    schematic_ax.set_axis_off()
+def draw_figure(
+    coverage: pd.DataFrame, spikein: pd.DataFrame, schematic_height_pt: float
+) -> tuple[cns.multipanel, Axes]:
+    """Draw the page: A's reserved schematic box, then B and C left-aligned below.
 
-    coverage_ax = fig.add_axes(layout.panel_b_rect)
-    render_coverage_panel(coverage_ax, coverage)
-    spikein_ax = fig.add_axes(layout.panel_c_rect)
-    render_spikein_panel(spikein_ax, spikein)
-
-    place_panel_letters(
-        fig,
-        (
-            (schematic_ax, "A", PANEL_LETTER_ROOM_PT),
-            (coverage_ax, "B", layout.row_top_pt),
-            (spikein_ax, "C", layout.row_top_pt),
-        ),
-        layout.canvas_height_pt,
-    )
-    return fig
-
-
-def place_panel_letters(
-    fig: Figure,
-    letters: Sequence[tuple[Axes, str, float]],
-    canvas_height_pt: float,
-) -> None:
-    """Place each panel letter just above and left of its panel's y-axis decoration.
-
-    The x comes from the axes' tight bbox, so the letter clears the y tick labels
-    and the ylabel whatever they measure rather than sitting on the spine.
+    Returns the multipanel itself, not just its figure: cnsplots keeps the
+    measured-layout draw callback as a weak reference, so the caller must hold
+    the object until the page is written or the panels stay unmeasured.
     """
-    fig.canvas.draw()
+    mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
 
-    for ax, label, y_top_pt in letters:
-        bbox = ax.get_tightbbox()
-        assert bbox is not None
-        left_pt = max(0.0, bbox.x0 * 72 / fig.dpi - PANEL_LETTER_GAP_PT)
-        fig.text(
-            left_pt / CANVAS_WIDTH_PT,
-            1.0 - (y_top_pt - PANEL_LETTER_GAP_PT) / canvas_height_pt,
-            label,
-            ha="left",
-            va="bottom",
-            fontweight="bold",
-            fontsize=PANEL_LETTER_FONT_PT,
-        )
+    schematic_ax = mp.panel(
+        "A",
+        width=SCHEMATIC_WIDTH_PT,
+        height=schematic_height_pt,
+        pad_top=PANEL_LETTER_PAD_TOP_PX,
+        margin_bottom=ROW_GAP_PT,
+    )
+    hide_schematic_axes(schematic_ax)
+
+    mp.newline()  # starts B's row at the page's left edge, under A
+    coverage_ax = mp.panel(
+        "B",
+        width=PANEL_B_WIDTH_PT,
+        height=ROW_PANEL_HEIGHT_PT,
+        margin_bottom=ROW_BELOW_DECORATION_PT,
+    )
+    render_coverage_panel(coverage_ax, coverage)
+    spikein_ax = mp.panel(
+        "C",
+        width=PANEL_C_WIDTH_PT,
+        height=ROW_PANEL_HEIGHT_PT,
+        margin_bottom=ROW_BELOW_DECORATION_PT,
+    )
+    render_spikein_panel(spikein_ax, spikein)
+    return mp, schematic_ax
+
+
+def hide_schematic_axes(ax: Axes) -> None:
+    """Blank panel A: its content arrives as vector PDF after the page is saved.
+
+    The empty tick sets matter: multipanel measures y-axis decoration even on an
+    axis-off axes, and the placeholder ticks would widen A's left reserve until
+    its box ran off the right edge of the page.
+    """
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_axis_off()
 
 
 def render_coverage_panel(ax: Axes, frame: pd.DataFrame) -> None:
@@ -402,21 +360,35 @@ def page_size_pt(pdf: Path) -> tuple[float, float]:
     return float(page.mediabox.width), float(page.mediabox.height)
 
 
+def axes_box_pt(ax: Axes, figure: Figure) -> tuple[float, float, float, float]:
+    """Return an axes box as (x, y from the page top, width, height) in points."""
+    width_in, height_in = figure.get_size_inches()
+    width_pt, height_pt = width_in * 72, height_in * 72
+    box = ax.get_position()
+    return box.x0 * width_pt, (1 - box.y1) * height_pt, box.width * width_pt, box.height * height_pt
+
+
 def overlay_schematic(
-    canvas_pdf: Path, schematic_pdf: Path, output_pdf: Path, layout: Layout
+    canvas_pdf: Path,
+    schematic_pdf: Path,
+    output_pdf: Path,
+    box_pt: tuple[float, float, float, float],
 ) -> None:
     """Scale the schematic uniformly into panel A's box and merge it onto the canvas."""
+    x_pt, y_top_pt, box_width_pt, box_height_pt = box_pt
+    _, canvas_height_pt = page_size_pt(canvas_pdf)
     writer = PdfWriter(clone_from=str(canvas_pdf))
     canvas_page = writer.pages[0]
     schematic_page = PdfReader(str(schematic_pdf)).pages[0]
 
     source_width = float(schematic_page.mediabox.width)
     source_height = float(schematic_page.mediabox.height)
-    scale = min(SCHEMATIC_WIDTH_PT / source_width, layout.schematic_height_pt / source_height)
+    scale = min(box_width_pt / source_width, box_height_pt / source_height)
 
-    x_pt = (SCHEMATIC_WIDTH_PT - source_width * scale) / 2
-    y_top_to_bottom = layout.canvas_height_pt - PANEL_LETTER_ROOM_PT - layout.schematic_height_pt
-    y_pt = y_top_to_bottom + (layout.schematic_height_pt - source_height * scale) / 2
+    x_pt += (box_width_pt - source_width * scale) / 2
+    y_from_top = y_top_pt + (box_height_pt - source_height * scale) / 2
+    # PDF coordinates count from the page's bottom edge.
+    y_pt = canvas_height_pt - y_from_top - source_height * scale
 
     canvas_page.merge_transformed_page(
         schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
@@ -452,8 +424,8 @@ def read_tsv(path: Path, required_columns: tuple[str, ...]) -> pd.DataFrame:
     return table
 
 
-def run(config: Figure1Config) -> None:
-    """Build Figure 1 end to end: canvas, vector overlay, review raster."""
+def run(config: Figure1Config) -> tuple[float, float]:
+    """Build Figure 1 end to end and return the page's (width, height) in points."""
     config.validate()
     apply_house_style()
 
@@ -461,24 +433,29 @@ def run(config: Figure1Config) -> None:
     spikein = build_spikein_frame(read_tsv(config.spikein, SPIKEIN_COLUMNS))
 
     schematic_width, schematic_height = page_size_pt(config.schematic)
-    layout = build_layout(schematic_width, schematic_height)
+    schematic_box_height = SCHEMATIC_WIDTH_PT * schematic_height / schematic_width
 
-    figure = draw_figure(coverage, spikein, layout)
+    mp, schematic_ax = draw_figure(coverage, spikein, schematic_box_height)
+    assert mp.fig is not None
+    # Settle multipanel's measured layout, then save the designed canvas:
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
-    # drawn artists and break the point-exact overlay below. Save the designed
-    # canvas instead.
-    figure.savefig(
+    # drawn artists and shift panel A's box away from the overlay below.
+    mp.fig.canvas.draw()
+    cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
+    overlay_schematic(
         config.canvas_pdf,
-        format="pdf",
-        bbox_inches=Bbox.from_bounds(0.0, 0.0, *figure.get_size_inches()),
+        config.schematic,
+        config.output_pdf,
+        axes_box_pt(schematic_ax, mp.fig),
     )
-    overlay_schematic(config.canvas_pdf, config.schematic, config.output_pdf, layout)
     rasterize_review(config.output_pdf, config.output_review)
 
+    width_pt, height_pt = mp.fig.get_size_inches() * 72
     logger.success(
-        f"Wrote {config.output_pdf} ({CANVAS_WIDTH_PT:.0f} x {layout.canvas_height_pt:.2f} pt) "
+        f"Wrote {config.output_pdf} ({width_pt:.0f} x {height_pt:.2f} pt) "
         f"and {config.output_review}"
     )
+    return width_pt, height_pt
 
 
 def parse_args() -> argparse.Namespace:

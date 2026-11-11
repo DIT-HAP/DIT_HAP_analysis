@@ -30,12 +30,14 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ## Figure 1 — DIT-HAP 流程、覆盖度与 spike-in 线性
 
-**画布**：493 × 273.217 pt（Cell 双栏宽）。高度由 A 面板的比例推出：
+**画布**：493 × 266.918 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两行 `mp.newline()` 隔开；高度是两行总高，由 A 面板的比例推出：
 
 ```
-10（A 字母带） + 123.217（= 493 × 113.4 / 453.72） + 6（行距）
-+ 10（B/C 字母带） + 80（面板高） + 42（下方装饰） + 2（底边）
+A 行：10（字母带 = 7.2 标签高 + 2.8 净空） + 121.718（= 487 × 113.4 / 453.72） + 6（行距）
+B/C 行：7.2（字母带） + 80（面板高） + 42（下方装饰）
 ```
+
+**版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C 从左往右流式排列、行首贴页面左边，第二行没占满的右侧就留白；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A 与 B 的字母因此都在 x = 0。
 
 **产物**：
 
@@ -54,9 +56,9 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 | 要素 | 内容 |
 |---|---|
 | 输入 | `resources/figures/figure1a.pdf`（单页，页面框即内容框，453.72 × 113.4 pt） |
-| 变换 | 等比缩放到 493 pt 宽（×1.0865），高 123.217 pt；在预留区内水平/垂直居中（本例正好铺满，无偏移） |
-| 画法 | matplotlib 只建一个空 axes（`set_axis_off()`）；`pypdf` 的 `PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点是 PDF 左下角 |
-| 版式 | 预留框 `x=0, y_top=10, w=493, h=123.217`；不裁边、不补白边 |
+| 变换 | 等比缩放（×1.0733，几乎满框）到预留的 axes 框；框的宽高比按示意图页面比例设定，因此正好铺满，无偏移 |
+| 画法 | multipanel 建一个空 axes（`set_xticks([]) + set_yticks([]) + set_axis_off()`，清刻度是为了让 multipanel 量到 0 宽的左装饰）；`pypdf` 的 `PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点是 PDF 左下角 |
+| 版式 | 预留框 `x=5.775, y_top=10, w=487, h=121.718`（487 = 493 − 6 pt，6 pt 是字母 "A" 占的那一列）；不裁边、不补白边 |
 | 产物 | 并入 `figure1.pdf` |
 
 可编辑母版是 `resources/figures/figure1a.svg`；**管线只读 PDF**。SVG 换新后需重新导出 PDF（当前 PDF 由 PDFKit 生成，文字保持矢量）。
@@ -74,7 +76,7 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 | 画法 | `cns.barplot(x="coverage_pct", y="class_label", orient="h", hue="dataset_label", hue_order=[Traditional Tn-Seq, DIT-HAP], palette=SERIES_COLORS[2,3], order=类顺序)`；柱端 `ax.bar_label` 标 `n_lfc` 千分位整数，无星号、无脚注 |
 | 高亮 | Inviable 组（索引 0）画 `axhspan(-0.5, 0.5)`，accent 色（palette 0）8% alpha；该组刻度文字同色加粗 |
 | 轴 | x `Covered genes (%)`，刻度 0/20/40/60/80/100，上限 112 只给柱端数字留头空；y `FYPO viability class` |
-| 版式 | axes `x=130, y_top=149.217, w=120, h=80` pt；图例 `bbox_to_anchor=(0.5, -0.34)`、两列、无边框 |
+| 版式 | axes `w=120, h=80` pt，由 flow 排到 `x≈55.7, y_top≈144.9`（x 含实测 ylabel 宽度）；图例 `bbox_to_anchor=(0.5, -0.34)`、两列、无边框 |
 | 产物 | 并入 `figure1.pdf` |
 
 数据口径：`n_lfc` = 至少一个通过 hard filter + 重复合并（`release/insertion_level/LFC.tsv`）且满足 `IN_GENE_FILTER` 的插入所覆盖的基因数；分母为 `gene_result` 的 5,126 个蛋白编码基因。无置信区间、无 p 值（2026-11-07 用户决定）。
@@ -91,7 +93,7 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 | 画法 | `cns.regplot(x="Relative_Dilution_Ratio", y="Relative_Read_Ratio", color="Name", add_equation=True)`——`color=` 而不是 `hue=`：每个位点一个图例项，但全局只拟合一条线。cnsplots 自带左上 `r / P` 标注与右下拟合方程 + R² |
 | 图例 | `cns.take_legend_out(title="Spike-in")`，右侧竖排 #1–#5 |
 | 轴 | `log₂(relative dilution ratio)` / `log₂(relative read ratio)` |
-| 版式 | axes `x=300, y_top=149.217, w=110, h=80` pt |
+| 版式 | axes `w=110, h=80` pt，紧随 B 排到 `x≈213.5`；C 右侧到页边留白（第二行没有占满） |
 | 产物 | 并入 `figure1.pdf` |
 
 不用 y=x 参考线：稀释比是设定值、读数是测量值，参考线会暗示两者应当逐点相等。
@@ -100,7 +102,7 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ### 面板字母
 
-三个字母都是手摆（不用 `mp.panel` 自动标签）：8 pt 粗体 Arial。**x 不写死**，而是先 `fig.canvas.draw()`，再从每个面板 axes 的 tight bbox 左缘（含 y 刻度标签与 ylabel）量得，往左退 2 pt 并夹在画布内；y 仍是面板顶部上方 2 pt（`fig.text(x/493, 1 − (y_top − 2)/画布高, va="bottom", ha="left")`）。这样字母永远贴在 y 轴标签外侧，刻度标签变宽也不会把它顶开。A 面板没有坐标轴装饰，量得 x = 0。
+三个字母由 `mp.panel(label=...)` 自动放置：8 pt 粗体 Arial，每列外框左缘、面板顶端上方（A 用 `pad_top` 留 2.8 pt，其余为 0）。`multipanel` 把它放在"实测左装饰外侧"，而列的外框左缘就是页面的列起点，所以 A 与 B 的字母都在 x = 0，不随 ylabel 宽度漂移。**不要**再手摆 `fig.text` 字母——会和 multipanel 的自动标签重影。
 
 ---
 
@@ -108,32 +110,33 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
-| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏） |
-| `PANEL_LETTER_ROOM_PT` | 10 | 每行上方给面板字母的净空 |
-| `ROW_GAP_PT` | 6 | A 与下排之间 |
+| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏），即 `multipanel(max_width=...)` |
+| `SCHEMATIC_LABEL_COLUMN_PT` | 6 | 给 A 的字母留的那一列；`SCHEMATIC_WIDTH_PT = 493 − 6` |
+| `PANEL_LETTER_PAD_TOP_PX` | 14 | A 上方字母净空（显示像素，≈2.8 pt @360 dpi） |
+| `ROW_GAP_PT` | 6 | A 行与 B/C 行之间（A 的 `margin_bottom`） |
 | `ROW_PANEL_HEIGHT_PT` | 80 | B/C 的 axes 高度 |
-| `ROW_BELOW_DECORATION_PT` | 42 | x 刻度 + xlabel + B 图例所占高度 |
-| `PANEL_B_X_PT` / `PANEL_B_WIDTH_PT` | 130 / 120 | B 的横轴位置与轴宽 |
-| `PANEL_C_X_PT` / `PANEL_C_WIDTH_PT` | 300 / 110 | C 的横轴位置与轴宽 |
+| `ROW_BELOW_DECORATION_PT` | 42 | x 刻度 + xlabel + B 图例所占高度（`margin_bottom`） |
+| `PANEL_B_WIDTH_PT` | 120 | B 的 axes 宽度（x 由 flow 决定） |
+| `PANEL_C_WIDTH_PT` | 110 | C 的 axes 宽度（x 由 flow 决定） |
 | `LEGEND_BELOW_Y` | −0.34 | B 图例在 axes 坐标系中的纵向锚点 |
 | `BAR_COUNT_FONT_PT` | 5 | 柱端数字字号（fit-critical 覆盖，house 允许） |
 
-改高度类常量后画布高度自动重算；改 `PANEL_*_X_PT` 时注意 C 的图例在轴右侧约 55 pt，`PANEL_C_X_PT + PANEL_C_WIDTH_PT` 不宜超过约 420。
+改 axes 尺寸后画布高度自动重算；B/C 不会再被"摆到中间"，它们总是从行首左对齐。若想改变两面板之间的空隙，调 `mp.panel(..., margin_right=...)`（默认 10 pt）。
 
 ---
 
 ## Figure S1 — 文库制备重复性 + 每基因插入条数分布
 
-**画布**：493 × 312 pt（Cell 双栏宽）：
+**画布**：493 × 304.4 pt（Cell 双栏宽），由 `cns.multipanel(max_width=493, unit="pt")` 流式排版：
 
 ```
-10（字母带） + 120（面板高） + 30（x 刻度 + xlabel）       A–C 行
-+ 10（行距）
-+ 10（字母带） + 100（面板高） + 30（x 刻度 + xlabel）     D 行
-+ 2（底边）
+A–C 行：7.2（字母带） + 120（面板高） + 30（x 刻度 + xlabel）
+D 行：  10（行距）+ 7.2（字母带） + 100（面板高） + 30（x 刻度 + xlabel）
 ```
 
-A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160`）；D 在第二行左起，用 house 的 SQUARE 尺寸 100 × 100 pt（单 panel 必须落在 80–150 pt 内，不能通栏）。没有外部矢量面板，因此不需要 pypdf 叠加。
+A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y 轴装饰 ≈29 + 右边距 10 ≈ 159 pt，三列共 477 pt，占满 493 pt 页宽）；D 在第二行由 `mp.newline()` 从行首开始，用 house 的 SQUARE 尺寸 100 × 100 pt（单 panel 必须落在 80–150 pt 内，不能通栏），右侧留白。没有外部矢量面板，因此不需要 pypdf 叠加。
+
+**版式机制**：`mp.panel(width, height)` 只给 axes 尺寸；每列的横向宽度和字母位置在渲染时按实测的 y 轴装饰宽度算出，所以 A/B/C 的字母都落在各自列的外框左缘，A 与 D 的字母因此都在 x = 0（左对齐）。ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。
 
 **产物**：
 
@@ -158,7 +161,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `PBL`、`PBR`（缺列在 I/O 边界直接报错） |
 | 变换 | 只保留两列都 > 0 的行（对数轴画不出 0）：164,820 → 108,717 行 |
 | 画法 | 在 log10 空间做 2D 核密度（`gaussian_kde`，>5000 点时固定种子抽 5,000 点、128×128 网格插值），逐点按密度排序后 `ax.scatter(s=1.5, alpha=0.6, linewidths=0, rasterized=True)`，viridis 着色并归一化到 [0,1]；灰色虚线 x=y；左上 `n / r / P`（log10 空间 Pearson，`P < 1e-9` 显示为 `P < 1E-9`，否则 `P = mantissa E±exp`）；右下 inset 密度色条（0→low、1→high，标题 Density）；双对数轴（本图中 matplotlib 只给 y 轴次刻度，按 house 规则两侧一并关闭，与 1a 的 QC 图一致） |
-| 版式 | axes `x=30, y_top=10, w=120, h=120` pt；字母 A 贴该面板 y 轴标签左侧（x 由 tight bbox 量得，约 5），`y_top=10` |
+| 版式 | axes `w=120, h=120` pt；由 flow 排到 `x=28.8, y_top=7.2`（x 含实测 ylabel 宽度）；字母 A 由 multipanel 放在列首，x = 0 |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel B — 技术重复
@@ -169,7 +172,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Reads_1`、`Reads_2` |
 | 变换 | 两列都 > 0：152,276 → 117,297 行 |
 | 画法 | 与 A 相同；轴标签 `Reads of Technical Replicate 1 / 2` |
-| 版式 | axes `x=190`，其余同 A；字母 B 贴在 `Reads of Technical Replicate 2` 左侧（约 165），`y_top=10` |
+| 版式 | axes `w=120, h=120`，紧随 A 排到 `x=187.6`（比 A 宽 159 pt，因为 ylabel 更长）；字母 B 在列首，x ≈ 158.8 |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel C — 生物学重复
@@ -180,7 +183,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Reads_1`、`Reads_2` |
 | 变换 | 两列都 > 0：125,566 → 92,704 行 |
 | 画法 | 与 A 相同；轴标签 `Reads of Biological Replicate 1 / 2` |
-| 版式 | axes `x=350`，其余同 A；字母 C 贴在 `Reads of Biological Replicate 2` 左侧（约 325），`y_top=10` |
+| 版式 | axes `w=120, h=120`，排到 `x=346.5`，右缘 466.5 pt（页宽 493，行未占满）；字母 C 在列首，x ≈ 317.6 |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel D — 每个基因的插入条数分布
@@ -191,7 +194,7 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 | 必需列 | `Type`、`Systematic ID`（缺列在 I/O 边界直接报错） |
 | 变换 | 只数 `Type == "Coding gene"` 的插入行；按 `Systematic ID` 计数得到 5,070 个基因的条数（中位 62，四分位 36–98，最大 1,254）；再按 25 条一档分箱，0–299 共 12 档，≥300 合并为最后一档（46 个基因）。第一档的刻度是 bin 左边界 `0`，实际装的是 1–24 条（零插入基因不在表里） |
 | 画法 | `cns.barplot(x="bin_label", y="n_genes", color=palette[2])`，柱色为 house palette 第 2 位（灰度可分）；13 个刻度在 100 pt 里放不下，`ax.set_xticks(...[::3])` 隔两档显示（0 / 75 / 150 / 225 / ≥300）；x `Insertions per gene`、y `Number of genes` |
-| 版式 | axes `x=30, y_top=180, w=100, h=100` pt（house SQUARE）；字母 D 贴在 `Number of genes` 左侧（约 0），`y_top=180` |
+| 版式 | axes `w=100, h=100` pt（house SQUARE），排在 `x=33.6, y_top=174.4`；字母 D 在列首，x = 0（与 A 左对齐） |
 | 产物 | 并入 `figure_s1.pdf` |
 
 **为什么是普通直方图而不是累计曲线**：横轴跨 0–1254，中位 62、99% 的基因 ≤ 290；线性横轴上的累计曲线会把 99% 的曲线挤进左侧 24% 的宽度。普通直方图能直接读出众数（25–75）与长尾，最后一档标成 `≥300`，避免被误读成又一个 25 宽的 bin。
@@ -202,19 +205,16 @@ A–C 是三个 120 pt 方形面板并排（间距 40 pt，`PANEL_PITCH_PT = 160
 
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
-| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏） |
-| `PANEL_SIZE_PT` | 120 | 每个方形面板的边长 |
-| `PANEL_PITCH_PT` | 160 | 面板起点间距（= 边长 + 40 pt 放刻度与 ylabel） |
-| `PANEL_FIRST_X_PT` | 30 | 第一个面板的横轴位置（给 y 刻度留左边距） |
-| `BELOW_DECORATION_PT` | 30 | x 刻度 + xlabel 所占高度 |
-| `PANEL_LETTER_ROOM_PT` | 10 | 面板上方给字母的净空 |
-| `ROW_GAP_PT` | 10 | A–C 行与 D 行之间 |
-| `PANEL_D_X_PT` / `PANEL_D_WIDTH_PT` / `PANEL_D_HEIGHT_PT` | 30 / 100 / 100 | D 的位置与大小（80–150 pt 契约） |
+| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏），即 `multipanel(max_width=...)` |
+| `PANEL_SIZE_PT` | 120 | A–C 每个方形面板的 axes 边长 |
+| `BELOW_DECORATION_PT` | 30 | x 刻度 + xlabel 所占高度（`margin_bottom`） |
+| `ROW_GAP_PT` | 10 | A–C 行与 D 行之间（D 的 `margin_top`） |
+| `PANEL_D_SIZE_PT` | 100 | D 的 axes 边长（80–150 pt 契约） |
 | `COUNT_BIN_WIDTH` / `COUNT_TAIL_START` | 25 / 300 | 直方图档宽与最后一档的起点 |
 | `DENSITY_SCATTER_S` / `DENSITY_SCATTER_ALPHA` | 1.5 / 0.6 | 点大小与透明度（密云例外） |
 | `DENSITY_CBAR_BOUNDS` | (0.82, 0.02, 0.035, 0.30) | 密度色条在 axes 分数坐标中的位置与大小 |
 
-改 `PANEL_SIZE_PT` 后画布高度自动重算；改 `PANEL_PITCH_PT` 时注意 `PANEL_FIRST_X_PT + 2 × PITCH + SIZE` 必须 < 493。
+改 `PANEL_SIZE_PT` 后列宽和画布高度自动重算。三列总宽 = Σ(axes + 实测装饰 + `margin_right` 10)，当前 3 × 158.8 ≈ 476 pt；若把它加到 ~130 pt，C 会被 `max_width` 换行到第二行，改前先跑一次看渲染。面板间距用 `mp.panel(..., margin_right=...)` 调。
 
 ---
 
