@@ -30,12 +30,14 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ## Figure 1 — DIT-HAP 流程、覆盖度与 spike-in 线性
 
-**画布**：493 × 266.918 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两行 `mp.newline()` 隔开；高度是两行总高，由 A 面板的比例推出：
+**画布**：493 × 296.92 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两行 `mp.newline()` 隔开；高度是两行总高，由 A 面板的比例推出：
 
 ```
 A 行：10（字母带 = 7.2 标签高 + 2.8 净空） + 121.718（= 487 × 113.4 / 453.72） + 6（行距）
-B/C 行：7.2（字母带） + 80（面板高） + 42（下方装饰）
+B/C 行：7.2（字母带） + 110（面板高） + 42（下方装饰）
 ```
+
+B 与 C 用同一个 110 × 110 pt 方形 axes，两块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）。
 
 **版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C 从左往右流式排列、行首贴页面左边，第二行没占满的右侧就留白；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A 与 B 的字母因此都在 x = 0。
 
@@ -76,7 +78,7 @@ B/C 行：7.2（字母带） + 80（面板高） + 42（下方装饰）
 | 画法 | `cns.barplot(x="coverage_pct", y="class_label", orient="h", hue="dataset_label", hue_order=[Traditional Tn-Seq, DIT-HAP], palette=SERIES_COLORS[2,3], order=类顺序)`；柱端 `ax.bar_label` 标 `n_lfc` 千分位整数，无星号、无脚注 |
 | 高亮 | Inviable 组（索引 0）画 `axhspan(-0.5, 0.5)`，accent 色（palette 0）8% alpha；该组刻度文字同色加粗 |
 | 轴 | x `Covered genes (%)`，刻度 0/20/40/60/80/100，上限 112 只给柱端数字留头空；y `FYPO viability class` |
-| 版式 | axes `w=120, h=80` pt，由 flow 排到 `x≈55.7, y_top≈144.9`（x 含实测 ylabel 宽度）；图例 `bbox_to_anchor=(0.5, -0.34)`、两列、无边框 |
+| 版式 | axes `110 × 110` pt，由 flow 排到 `x≈55.7, y_top≈144.9`（x 含实测 ylabel 宽度）；图例两列、无边框，用 `ScaledTranslation` 固定在 axes 下方 27 pt（不用 axes 分数，否则面板变高会把图例推出下边距） |
 | 产物 | 并入 `figure1.pdf` |
 
 数据口径：`n_lfc` = 至少一个通过 hard filter + 重复合并（`release/insertion_level/LFC.tsv`）且满足 `IN_GENE_FILTER` 的插入所覆盖的基因数；分母为 `gene_result` 的 5,126 个蛋白编码基因。无置信区间、无 p 值（2026-11-07 用户决定）。
@@ -93,7 +95,7 @@ B/C 行：7.2（字母带） + 80（面板高） + 42（下方装饰）
 | 画法 | `cns.regplot(x="Relative_Dilution_Ratio", y="Relative_Read_Ratio", color="Name", add_equation=True)`——`color=` 而不是 `hue=`：每个位点一个图例项，但全局只拟合一条线。cnsplots 自带左上 `r / P` 标注与右下拟合方程 + R² |
 | 图例 | `cns.take_legend_out(title="Spike-in")`，右侧竖排 #1–#5 |
 | 轴 | `log₂(relative dilution ratio)` / `log₂(relative read ratio)` |
-| 版式 | axes `w=110, h=80` pt，紧随 B 排到 `x≈213.5`；C 右侧到页边留白（第二行没有占满） |
+| 版式 | axes `110 × 110` pt，紧随 B 排到 `x≈203.5`；C 右侧到页边留白（第二行没有占满） |
 | 产物 | 并入 `figure1.pdf` |
 
 不用 y=x 参考线：稀释比是设定值、读数是测量值，参考线会暗示两者应当逐点相等。
@@ -114,11 +116,9 @@ B/C 行：7.2（字母带） + 80（面板高） + 42（下方装饰）
 | `SCHEMATIC_LABEL_COLUMN_PT` | 6 | 给 A 的字母留的那一列；`SCHEMATIC_WIDTH_PT = 493 − 6` |
 | `PANEL_LETTER_PAD_TOP_PX` | 14 | A 上方字母净空（显示像素，≈2.8 pt @360 dpi） |
 | `ROW_GAP_PT` | 6 | A 行与 B/C 行之间（A 的 `margin_bottom`） |
-| `ROW_PANEL_HEIGHT_PT` | 80 | B/C 的 axes 高度 |
+| `ROW_PANEL_SIZE_PT` | 110 | B/C 共用的方形 axes 边长（x 由 flow 决定） |
 | `ROW_BELOW_DECORATION_PT` | 42 | x 刻度 + xlabel + B 图例所占高度（`margin_bottom`） |
-| `PANEL_B_WIDTH_PT` | 120 | B 的 axes 宽度（x 由 flow 决定） |
-| `PANEL_C_WIDTH_PT` | 110 | C 的 axes 宽度（x 由 flow 决定） |
-| `LEGEND_BELOW_Y` | −0.34 | B 图例在 axes 坐标系中的纵向锚点 |
+| `LEGEND_BELOW_AXES_PT` | 27 | B 图例顶边到 axes 底边的固定距离（点，不用 axes 分数） |
 | `BAR_COUNT_FONT_PT` | 5 | 柱端数字字号（fit-critical 覆盖，house 允许） |
 
 改 axes 尺寸后画布高度自动重算；B/C 不会再被"摆到中间"，它们总是从行首左对齐。若想改变两面板之间的空隙，调 `mp.panel(..., margin_right=...)`（默认 10 pt）。

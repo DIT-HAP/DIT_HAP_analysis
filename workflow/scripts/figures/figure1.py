@@ -74,6 +74,7 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
+from matplotlib.transforms import ScaledTranslation
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
 
@@ -116,11 +117,10 @@ SCHEMATIC_WIDTH_PT = CANVAS_WIDTH_PT - SCHEMATIC_LABEL_COLUMN_PT
 # letter band above A is the label's own height plus this clearance.
 PANEL_LETTER_PAD_TOP_PX = round(2.8 * HOUSE_FIGURE_DPI / 72)
 
-# Bottom row.
-ROW_PANEL_HEIGHT_PT = 80.0
+# Bottom row: both panels share one square footprint so the two plotting
+# areas read as a pair; 110 pt is inside the house 80-150 pt panel band.
+ROW_PANEL_SIZE_PT = 110.0
 ROW_BELOW_DECORATION_PT = 42.0  # x ticks + xlabel + panel B's legend
-PANEL_B_WIDTH_PT = 120.0
-PANEL_C_WIDTH_PT = 110.0
 
 # --- Panel B vocabulary -----------------------------------------------------
 COVERAGE_CLASSES = ("inviable", "viable", "depends_on_conditions", "unknown", "total")
@@ -140,8 +140,11 @@ AXIS_TICK_VALUES = [0, 20, 40, 60, 80, 100]
 COVERAGE_X_LABEL = "Covered genes (%)"
 COVERAGE_Y_LABEL = "FYPO viability class"
 FOCUS_CLASS_INDEX = 0  # Inviable is first in COVERAGE_CLASSES
-BAR_COUNT_FONT_PT = 5  # fit-critical: the count must clear an 80 pt panel
-LEGEND_BELOW_Y = -0.34
+BAR_COUNT_FONT_PT = 5  # fit-critical: the count must clear inside its bar
+# The legend hangs a fixed distance below the axes, not a fraction of its
+# height: a fraction would push it further down every time the panel grows and
+# eventually off the margin reserved below the row.
+LEGEND_BELOW_AXES_PT = 27.0
 
 # --- Panel C vocabulary -----------------------------------------------------
 SPIKEIN_REFERENCE_SAMPLE = "Spikein0"
@@ -243,15 +246,15 @@ def draw_figure(
     mp.newline()  # starts B's row at the page's left edge, under A
     coverage_ax = mp.panel(
         "B",
-        width=PANEL_B_WIDTH_PT,
-        height=ROW_PANEL_HEIGHT_PT,
+        width=ROW_PANEL_SIZE_PT,
+        height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
     )
     render_coverage_panel(coverage_ax, coverage)
     spikein_ax = mp.panel(
         "C",
-        width=PANEL_C_WIDTH_PT,
-        height=ROW_PANEL_HEIGHT_PT,
+        width=ROW_PANEL_SIZE_PT,
+        height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
     )
     render_spikein_panel(spikein_ax, spikein)
@@ -261,11 +264,10 @@ def draw_figure(
 def hide_schematic_axes(ax: Axes) -> None:
     """Blank panel A: its content arrives as vector PDF after the page is saved.
 
-    The empty tick sets matter: multipanel measures y-axis decoration even on an
-    axis-off axes, and the placeholder ticks would widen A's left reserve until
-    its box ran off the right edge of the page.
+    The empty y tick set is what matters: multipanel measures y-axis decoration
+    even on an axis-off axes, and the placeholder ticks would widen A's left
+    reserve until its box ran off the right edge of the page.
     """
-    ax.set_xticks([])
     ax.set_yticks([])
     ax.set_axis_off()
 
@@ -304,11 +306,14 @@ def render_coverage_panel(ax: Axes, frame: pd.DataFrame) -> None:
     ax.set_ylabel(COVERAGE_Y_LABEL)
 
     handles, legend_labels = ax.get_legend_handles_labels()
+    legend_offset = ScaledTranslation(0.0, -LEGEND_BELOW_AXES_PT / 72, ax.figure.dpi_scale_trans)
     ax.legend(
         handles,
         legend_labels,
         loc="upper center",
-        bbox_to_anchor=(0.5, LEGEND_BELOW_Y),
+        bbox_to_anchor=(0.5, 0.0),
+        bbox_transform=ax.transAxes + legend_offset,
+        borderaxespad=0,
         ncol=len(COVERAGE_DATASETS),
         frameon=False,
     )
@@ -361,11 +366,11 @@ def page_size_pt(pdf: Path) -> tuple[float, float]:
 
 
 def axes_box_pt(ax: Axes, figure: Figure) -> tuple[float, float, float, float]:
-    """Return an axes box as (x, y from the page top, width, height) in points."""
+    """Return an axes box as (x, y, width, height) in points from the page's bottom-left."""
     width_in, height_in = figure.get_size_inches()
     width_pt, height_pt = width_in * 72, height_in * 72
     box = ax.get_position()
-    return box.x0 * width_pt, (1 - box.y1) * height_pt, box.width * width_pt, box.height * height_pt
+    return box.x0 * width_pt, box.y0 * height_pt, box.width * width_pt, box.height * height_pt
 
 
 def overlay_schematic(
@@ -375,8 +380,9 @@ def overlay_schematic(
     box_pt: tuple[float, float, float, float],
 ) -> None:
     """Scale the schematic uniformly into panel A's box and merge it onto the canvas."""
-    x_pt, y_top_pt, box_width_pt, box_height_pt = box_pt
-    _, canvas_height_pt = page_size_pt(canvas_pdf)
+    # The box is in PDF points already: bbox_inches=None keeps the page equal to
+    # the figure, so the figure fractions flip straight into the page's origin.
+    x_pt, y_pt, box_width_pt, box_height_pt = box_pt
     writer = PdfWriter(clone_from=str(canvas_pdf))
     canvas_page = writer.pages[0]
     schematic_page = PdfReader(str(schematic_pdf)).pages[0]
@@ -386,9 +392,7 @@ def overlay_schematic(
     scale = min(box_width_pt / source_width, box_height_pt / source_height)
 
     x_pt += (box_width_pt - source_width * scale) / 2
-    y_from_top = y_top_pt + (box_height_pt - source_height * scale) / 2
-    # PDF coordinates count from the page's bottom edge.
-    y_pt = canvas_height_pt - y_from_top - source_height * scale
+    y_pt += (box_height_pt - source_height * scale) / 2
 
     canvas_page.merge_transformed_page(
         schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
@@ -437,10 +441,10 @@ def run(config: Figure1Config) -> tuple[float, float]:
 
     mp, schematic_ax = draw_figure(coverage, spikein, schematic_box_height)
     assert mp.fig is not None
-    # Settle multipanel's measured layout, then save the designed canvas:
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
-    # drawn artists and shift panel A's box away from the overlay below.
-    mp.fig.canvas.draw()
+    # drawn artists and shift panel A's box away from the overlay below; keep
+    # the designed canvas. The save draws the figure, which is also what settles
+    # multipanel's measured layout before the box is read back.
     cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
     overlay_schematic(
         config.canvas_pdf,
