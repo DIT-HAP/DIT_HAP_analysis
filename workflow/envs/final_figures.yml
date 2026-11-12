@@ -19,6 +19,7 @@ dependencies:
   - statannotations>=0.7.2,<0.8
   - scipy>=1.13,<2
   - pyarrow
+  - openpyxl>=3.1,<4  # panel E reads the curated FACS workbook directly
   - pytest>=9.0
   - loguru
   - poppler

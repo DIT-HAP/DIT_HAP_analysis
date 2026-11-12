@@ -18,15 +18,18 @@ from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
+    DIT_HAP_SERIES,
     GENERATIONS,
     SPIKEIN_POINT_SIZE,
     Figure1Config,
     apply_house_style,
     axes_box_pt,
     build_coverage_frame,
+    build_facs_comparison_frame,
     build_spikein_frame,
     build_trajectory_frame,
     draw_figure,
+    render_facs_panel,
     render_lfc_trajectory_panel,
     render_spikein_panel,
     run,
@@ -98,6 +101,7 @@ def _gene_lfc_table() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "Systematic ID": ["G1", "G2", "G3", "G4", "G5"],
+            "Name": ["g1", "g2", "g3", "g4", "g5"],
             "FYPOviability": ["inviable", "inviable", "viable", "viable", "unknown"],
             "YES0": [0.0, 0.0, 0.0, 0.0, 0.0],
             "YES1": [-1.0, -2.0, -0.1, 0.1, -9.0],
@@ -105,6 +109,28 @@ def _gene_lfc_table() -> pd.DataFrame:
             "YES3": [-5.0, -6.0, -0.2, 0.0, -9.0],
             "YES4": [-6.0, -7.0, -0.2, -0.1, -9.0],
         }
+    )
+
+
+def _facs_table() -> pd.DataFrame:
+    """Two genes over three timepoints; g1 carries both independent strains."""
+    blocks = (("g1", "Strain#1", "LV1"), ("g1", "Strain#2", "LV2"), ("g2", "Strain#1", "LV3"))
+    records = [
+        (f"SYS_{gene}", gene, strain_id, strain, f"YES{index}", generation, lfc)
+        for gene, strain, strain_id in blocks
+        for index, (generation, lfc) in enumerate(((0.0, 0.0), (2.0, 1.0), (4.0, 2.0)))
+    ]
+    return pd.DataFrame(
+        records,
+        columns=[
+            "Systematic ID",
+            "Name",
+            "Strain",
+            "Strain_alias",
+            "Timepoints",
+            "Generations",
+            "LFC",
+        ],
     )
 
 
@@ -145,15 +171,18 @@ def figure1_inputs(tmp_path: Path) -> Figure1Config:
     coverage = tmp_path / "lfc_coverage_comparison.tsv"
     spikein = tmp_path / "spike_in_stats.tsv"
     gene_lfc = tmp_path / "gene_lfc.tsv"
+    facs = tmp_path / "facs.xlsx"
     schematic = tmp_path / "figure1a.pdf"
     _coverage_table().to_csv(coverage, sep="\t", index=False)
     _spikein_table().to_csv(spikein, sep="\t", index=False)
     _gene_lfc_table().to_csv(gene_lfc, sep="\t", index=False)
+    _facs_table().to_excel(facs, index=False)
     _write_schematic(schematic)
     return Figure1Config(
         lfc_comparison=coverage,
         spikein=spikein,
         gene_lfc=gene_lfc,
+        facs=facs,
         schematic=schematic,
         output_pdf=tmp_path / "out" / "figure1.pdf",
         output_review=tmp_path / "out" / "figure1.review.png",
@@ -184,17 +213,21 @@ def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
 
 
 def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
-    """A spans the page; B, C and D share one row that opens at the page's left edge."""
+    """A spans the page; B, C and D share one row; E spans the page below them."""
     coverage = build_coverage_frame(_coverage_table())
     spikein = build_spikein_frame(_spikein_table())
     trajectory = build_trajectory_frame(_gene_lfc_table())
-    mp, schematic_ax = draw_figure(coverage, spikein, trajectory, schematic_height_pt=120.0)
+    facs_comparison = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
+    mp, schematic_ax = draw_figure(
+        coverage, spikein, trajectory, facs_comparison, schematic_height_pt=120.0
+    )
 
-    boxes = _panel_boxes(mp, ("B", "C", "D"))  # also settles the flow layout
+    boxes = _panel_boxes(mp, ("B", "C", "D", "E"))  # also settles the flow layout
     a_x, a_y, a_width, _ = axes_box_pt(schematic_ax, mp.fig)
     b_x, b_y, _, b_height = boxes["B"]
     c_x, c_y, _, c_height = boxes["C"]
     d_x, d_y, d_width, _ = boxes["D"]
+    e_x, e_y, e_width, e_height = boxes["E"]
 
     assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
     assert 0 < a_x <= 10  # only the panel letter's column sits left of A
@@ -206,7 +239,10 @@ def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
     assert b_y + b_height < a_y  # the row sits below A
     assert b_x < c_x < d_x
     assert d_x + d_width < CANVAS_WIDTH_PT  # the three columns fit the page width
+    assert e_y + e_height < b_y  # E opens the row below B/C/D
+    assert e_x + e_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
     assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "B"), abs=0.5)
+    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "E"), abs=0.5)
 
 
 # =============================================================================
@@ -268,6 +304,61 @@ def test_lfc_panel_draws_one_line_per_gene():
     assert legend_box.y0 < axes_box.y1  # the lower row overlaps the plot's top
     assert (legend_box.y0 + legend_box.y1) / 2 == pytest.approx(axes_box.y1)
     assert (legend_box.x0 + legend_box.x1) / 2 == pytest.approx((axes_box.x0 + axes_box.x1) / 2)
+    plt.close(fig)
+
+
+def test_facs_comparison_aligns_signs_and_keeps_both_strains():
+    """FACS values flip onto the release's depletion-negative convention."""
+    frame = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
+
+    assert set(frame["gene"]) == {"g1", "g2"}
+    facs = frame[frame["series"] != DIT_HAP_SERIES]
+    assert (facs["lfc"] <= 0).all()  # the fixture's FACS LFC is depletion-positive
+    assert set(facs["series"]) == {"FACS Strain#1", "FACS Strain#2"}
+    assert frame["generation"].max() == pytest.approx(GENERATIONS[-1])
+
+
+def test_facs_comparison_rejects_gene_absent_from_dit_hap():
+    """A FACS gene with no release row would silently lose its DIT-HAP curve."""
+    facs = _facs_table()
+    facs.loc[facs["Name"] == "g2", "Name"] = "not_in_lfc"
+
+    with pytest.raises(ValueError, match="missing FACS genes"):
+        build_facs_comparison_frame(facs, _gene_lfc_table())
+
+
+def test_facs_comparison_drops_the_retired_genes():
+    """orc6 and srb4 stay out of the panel even when the workbook supplies them."""
+    facs = _facs_table()
+    facs.loc[facs["Name"] == "g2", "Name"] = "orc6"
+    gene_lfc = _gene_lfc_table()
+    gene_lfc.loc[gene_lfc["Name"] == "g2", "Name"] = "orc6"
+
+    frame = build_facs_comparison_frame(facs, gene_lfc)
+
+    assert "orc6" not in set(frame["gene"])
+    assert set(frame["gene"]) == {"g1"}
+
+
+def test_facs_panel_draws_one_mini_axes_per_gene_with_shared_limits():
+    """Every gene gets its own axes; all share one y scale and the zero line."""
+    frame = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
+    fig, container = plt.subplots()
+
+    render_facs_panel(container, frame)
+
+    mini_axes = container.child_axes
+    assert [ax.title.get_text() for ax in mini_axes] == ["g1", "g2"]
+    assert len(mini_axes[0].lines) == 4  # DIT-HAP, two FACS strains, zero line
+    assert len(mini_axes[1].lines) == 3  # g2 has no Strain#2 block
+    assert mini_axes[0].get_ylim() == mini_axes[1].get_ylim()
+    legend = container.get_legend()
+    assert legend is not None
+    assert [text.get_text() for text in legend.get_texts()] == [
+        "DIT-HAP",
+        "FACS Strain#1",
+        "FACS Strain#2",
+    ]
     plt.close(fig)
 
 
@@ -390,6 +481,7 @@ def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1C
     text = page.extract_text() or ""
     assert "SCHEMATIC" in text  # the overlaid external page survived
     assert "Covered genes (%)" in text  # the matplotlib canvas survived
+    assert "FACS Strain#1" in text  # panel E's mini axes drew inside the canvas
     assert figure1_inputs.canvas_pdf.exists()
     assert figure1_inputs.output_review.exists()
 

@@ -15,7 +15,8 @@
 # retuned from that document alone.
 #
 # Figure 1: a (schematic, external vector PDF) + b (LFC coverage by FYPO class,
-# Traditional Tn-Seq vs DIT-HAP) + c (spike-in dilution linearity).
+# Traditional Tn-Seq vs DIT-HAP) + c (spike-in dilution linearity) + d (gene-level
+# LFC trajectories by viability class) + e (FACS-validated genes against DIT-HAP).
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.
@@ -36,6 +37,9 @@ rule plot_figure1:
             f"{DATASETS['snakemake_repo']}/"
             f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/LFC.tsv"
         ),
+        # Panel E: FACS depletion curves measured outside the pipeline, one row
+        # per gene x strain x timepoint.
+        facs="resources/curated/FACS_depletion_curves_from_XH.xlsx",
         # Panel A is drawn outside the pipeline; the page box is the content box.
         schematic="resources/figures/figure1a.pdf",
     output:
@@ -57,6 +61,7 @@ rule plot_figure1:
             --lfc-comparison {input.lfc_comparison} \
             --spikein {input.spikein} \
             --gene-lfc {input.gene_lfc} \
+            --facs {input.facs} \
             --schematic {input.schematic} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \

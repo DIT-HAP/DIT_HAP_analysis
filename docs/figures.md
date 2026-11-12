@@ -28,18 +28,19 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ---
 
-## Figure 1 — DIT-HAP 流程、覆盖度与 spike-in 线性
+## Figure 1 — DIT-HAP 流程、覆盖度、spike-in、LFC 轨迹与 FACS 验证
 
-**画布**：493 × 296.92 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两行 `mp.newline()` 隔开；高度是两行总高，由 A 面板的比例推出：
+**画布**：493 × 462.42 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行；高度由各行面板尺寸推出（实测值）：
 
 ```
-A 行：10（字母带 = 7.2 标签高 + 2.8 净空） + 121.718（= 487 × 113.4 / 453.72） + 6（行距）
-B/C 行：7.2（字母带） + 110（面板高） + 42（下方装饰）
+A 行：     10（字母带 = 7.2 标签高 + 2.8 净空） + 121.718（= 487 × 113.4 / 453.72） + 6（行距）      = 137.72
+B/C/D 行： 7.2（字母带） + 17.3（图例，实测） + 100（面板高） + 26（下方装饰）                        = 150.50
+E 行：     6（行距） + 7.2（字母带） + 161（容器高） + 0（末行不留下边距）                            = 174.20
 ```
 
-B 与 C 用同一个 110 × 110 pt 方形 axes，两块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）。
+B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）。E 是一个 487 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 70 × 55 pt，字号沿用 house 的 8/7 pt），右侧空出的竖带放图例。
 
-**版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C 从左往右流式排列、行首贴页面左边，第二行没占满的右侧就留白；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A 与 B 的字母因此都在 x = 0。
+**版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C/D 从左往右流式排列、行首贴页面左边；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A、B、E 的字母因此都在 x = 0。E 的 mini axes 用 `container.inset_axes()` 建，位置是容器 axes 的分数坐标，渲染时自动跟随容器。
 
 **产物**：
 
@@ -78,7 +79,7 @@ B 与 C 用同一个 110 × 110 pt 方形 axes，两块绘图区大小一致、�
 | 画法 | `cns.barplot(x="coverage_pct", y="class_label", orient="h", hue="dataset_label", hue_order=[Traditional Tn-Seq, DIT-HAP], palette=SERIES_COLORS[2,3], order=类顺序)`；柱端 `ax.bar_label` 标 `n_lfc` 千分位整数，无星号、无脚注 |
 | 高亮 | Inviable 组（索引 0）画 `axhspan(-0.5, 0.5)`，accent 色（palette 0）8% alpha；该组刻度文字同色加粗 |
 | 轴 | x `Covered genes (%)`，刻度 0/20/40/60/80/100，上限 112 只给柱端数字留头空；y `FYPO viability class` |
-| 版式 | axes `110 × 110` pt，由 flow 排到 `x≈55.7, y_top≈144.9`（x 含实测 ylabel 宽度）；图例两列、无边框，用 `ScaledTranslation` 固定在 axes 下方 27 pt（不用 axes 分数，否则面板变高会把图例推出下边距） |
+| 版式 | axes `100 × 100` pt，由 flow 排到行首（x 含实测 ylabel 宽度）；图例两列、无边框，用 `bbox_to_anchor=(0, 1)` 挂在 axes 上方，由 multipanel 实测为顶部装饰 |
 | 产物 | 并入 `figure1.pdf` |
 
 数据口径：`n_lfc` = 至少一个通过 hard filter + 重复合并（`release/insertion_level/LFC.tsv`）且满足 `IN_GENE_FILTER` 的插入所覆盖的基因数；分母为 `gene_result` 的 5,126 个蛋白编码基因。无置信区间、无 p 值（2026-11-07 用户决定）。
@@ -95,16 +96,49 @@ B 与 C 用同一个 110 × 110 pt 方形 axes，两块绘图区大小一致、�
 | 画法 | `cns.regplot(x="Relative_Dilution_Ratio", y="Relative_Read_Ratio", color="Name", add_equation=True)`——`color=` 而不是 `hue=`：每个位点一个图例项，但全局只拟合一条线。cnsplots 自带左上 `r / P` 标注与右下拟合方程 + R² |
 | 图例 | `cns.take_legend_out(title="Spike-in")`，右侧竖排 #1–#5 |
 | 轴 | `log₂(relative dilution ratio)` / `log₂(relative read ratio)` |
-| 版式 | axes `110 × 110` pt，紧随 B 排到 `x≈203.5`；C 右侧到页边留白（第二行没有占满） |
+| 版式 | axes `100 × 100` pt，紧随 B；图例 `cns.take_legend_out` 移到 axes 上方右侧竖排 |
 | 产物 | 并入 `figure1.pdf` |
 
 不用 y=x 参考线：稀释比是设定值、读数是测量值，参考线会暗示两者应当逐点相等。
 
 ---
 
+### Panel D — 基因级 LFC 时间轨迹
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `<HD_DIT_HAP release>/gene_level/LFC.tsv` |
+| 必需列 | `Systematic ID`、`FYPOviability`、`YES0`…`YES4`（缺列在 I/O 边界直接报错） |
+| 变换 | 只留 `inviable` 与 `viable` 两类；宽表 melt 成每基因每世代一行；`YES0…YES4` 映射到世代 `0 / 2.352 / 5.588 / 9.104 / 12.48`（上游 config 的 time_points） |
+| 画法 | 每个类别把全部基因 pivot 成"一列一基因"，一次 `ax.plot` 画完整类：线宽 0.5 pt、alpha 0.05，密集处靠叠加变深。inviable 用 accent（palette 0），viable 用 palette 1；inviable 的 zorder 更高，重叠处保留高亮色。`axhline(0)` 灰色虚线 |
+| 图例 | 每类一个不透明色块（线本身不带 label，否则上千条曲线各成一个图例项），标签带样本量 `Inviable (n = 1,082)` / `Viable (n = 3,161)`；单列、无边框，横跨 axes 上边缘（下半在图内），`pad_top` 把下半高度还给行基线 |
+| 轴 | x 刻度 `0 / 2.4 / 5.6 / 9.1 / 12.5`（世代数取三位小数会在 100 pt 内打架，标签只做显示舍入）；x `Generations`，y `Gene-level LFC (log₂)` |
+| 版式 | axes `100 × 100` pt，紧随 C；x 刻度 + xlabel 由 `ROW_BELOW_DECORATION_PT` 预留 |
+| 产物 | 并入 `figure1.pdf` |
+
+---
+
+### Panel E — FACS 验证基因的耗竭曲线 vs DIT-HAP
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `resources/curated/FACS_depletion_curves_from_XH.xlsx`（XH 提供的 FACS 耗竭曲线）+ 上一个 panel 同源的 `gene_level/LFC.tsv` |
+| 必需列 | FACS：`Name`、`Strain_alias`、`Generations`、`LFC`；release：`Name` 与 `YES0`…`YES4`（缺列在 I/O 边界直接报错） |
+| 数据形状 | workbook 是 tidy 长表（每行 = 基因 × 菌株 × 时间点），10 个基因、每株 9 个时间点（Spore + YES0…YES7），共 171 行；panel 去掉 `orc6`、`srb4` 后画 8 个基因（`FACS_EXCLUDED_GENES`）；`fal1` 只有 `Strain#1`，没有 `Strain#2` |
+| 变换 | 每个基因把 FACS 两条独立菌株曲线与 release 的 5 点 LFC 拼成一张长表：`gene / source / series / generation / lfc`。**符号对齐**：FACS 的 LFC 以耗竭为正，release 以耗竭为负，故 FACS 乘 −1 后与 panel D 同向（耗竭基因向下）。共享 y 范围取两源合并后的最小值/最大值向外取整 |
+| 画法 | 一个 487 pt 容器 axes（`set_axis_off()`）内嵌 8 个 `inset_axes`，4 列 × 2 行、按基因名排序（每行 4 个）。每格画 3 条线：DIT-HAP（palette 4 绿）、FACS `Strain#1`（palette 5 鲑红）、FACS `Strain#2`（palette 6 紫）——两条是独立菌株而非技术重复，所以都画，各用一色、不用线型区分；三条数据线线宽 2 pt（用户指定，覆盖 house 默认 1.5）、`alpha=0.8`，图例色块保持不透明；零线灰色虚线 0.5 pt；基因名斜体加粗作 title（house 8 pt） |
+| 轴 | 全格共享 x `0–12.8`（刻度 0/4/8/12）与 y（刻度间隔 2、向外取整）；只有第一列显示 y 刻度标签、只有底行显示 x 刻度标签；两个共享轴标题用容器 `text()` 居中在整个网格上，不用某个 mini axes 的 label |
+| 图例 | 竖排在网格右侧的留白带里（左边缘距网格 12 pt），在网格高度上垂直居中：`DIT-HAP`、`FACS Strain#1`、`FACS Strain#2`，单列、无边框 |
+| 版式 | mini axes `70 × 55` pt；列距 10 pt、行距 16 pt（给下一行 8 pt title 留位）；左侧 34 pt（y 刻度 + 旋转 y 标题）、底部 22 pt（x 刻度 + x 标题）、顶部 13 pt（首行 title）；右侧 12 pt 后是图例带；容器高 = 13 + 2×55 + 16 + 22 = 161 pt；E 是最后一行，`margin_bottom=0`（否则 multipanel 默认再留 10 pt 页脚） |
+| 产物 | 并入 `figure1.pdf` |
+
+数据口径：FACS 表的 `Generations` 每株各自记录（同名的 YES 时间点不等于同一世代值），因此不能共用 x 向量；`Spore` 恒为 0，有三个 block 的 YES0 略小于 0（如 `arg6/Strain#1` 的 −0.18），x 下限留到 −0.3。
+
+---
+
 ### 面板字母
 
-三个字母由 `mp.panel(label=...)` 自动放置：8 pt 粗体 Arial，每列外框左缘、面板顶端上方（A 用 `pad_top` 留 2.8 pt，其余为 0）。`multipanel` 把它放在"实测左装饰外侧"，而列的外框左缘就是页面的列起点，所以 A 与 B 的字母都在 x = 0，不随 ylabel 宽度漂移。**不要**再手摆 `fig.text` 字母——会和 multipanel 的自动标签重影。
+五个字母由 `mp.panel(label=...)` 自动放置：8 pt 粗体 Arial，每列外框左缘、面板顶端上方（A 用 `pad_top` 留 2.8 pt，D 用 `pad_top` 抵消图例下半，其余为 0）。`multipanel` 把它放在"实测左装饰外侧"，而列的外框左缘就是页面的列起点，所以 A、B、E 的字母都在 x = 0，不随 ylabel 宽度漂移。**不要**再手摆 `fig.text` 字母——会和 multipanel 的自动标签重影。
 
 ---
 
@@ -113,15 +147,25 @@ B 与 C 用同一个 110 × 110 pt 方形 axes，两块绘图区大小一致、�
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
 | `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏），即 `multipanel(max_width=...)` |
-| `SCHEMATIC_LABEL_COLUMN_PT` | 6 | 给 A 的字母留的那一列；`SCHEMATIC_WIDTH_PT = 493 − 6` |
+| `PANEL_LABEL_COLUMN_PT` | 6 | 给每列字母留的那一列；`PAGE_CONTENT_WIDTH_PT = 493 − 6`（A 与 E 用它做宽度） |
 | `PANEL_LETTER_PAD_TOP_PX` | 14 | A 上方字母净空（显示像素，≈2.8 pt @360 dpi） |
-| `ROW_GAP_PT` | 6 | A 行与 B/C 行之间（A 的 `margin_bottom`） |
-| `ROW_PANEL_SIZE_PT` | 110 | B/C 共用的方形 axes 边长（x 由 flow 决定） |
-| `ROW_BELOW_DECORATION_PT` | 42 | x 刻度 + xlabel + B 图例所占高度（`margin_bottom`） |
-| `LEGEND_BELOW_AXES_PT` | 27 | B 图例顶边到 axes 底边的固定距离（点，不用 axes 分数） |
+| `ROW_GAP_PT` | 6 | A 行与 B/C/D 行之间（A 的 `margin_bottom`）；E 的行距（`margin_top`） |
+| `ROW_PANEL_SIZE_PT` | 100 | B/C/D 共用的方形 axes 边长（x 由 flow 决定） |
+| `ROW_BELOW_DECORATION_PT` | 26 | x 刻度 + xlabel 所占高度（`margin_bottom`） |
 | `BAR_COUNT_FONT_PT` | 5 | 柱端数字字号（fit-critical 覆盖，house 允许） |
+| `LFC_LEGEND_HALF_HEIGHT_PT` | 8.4 | D 的图例跨过 axes 顶边时，`pad_top` 补偿的下半高度 |
+| `FACS_GRID_COLUMNS` | 4 | E 的列数；行数由 `ceil(基因数 / 4)` 自动推出 |
+| `FACS_MINI_AXES_WIDTH_PT` / `FACS_MINI_AXES_HEIGHT_PT` | 70 / 55 | E 每个基因 mini axes 的尺寸（70×4 + 10×3 + 34 = 344，右侧留给图例） |
+| `FACS_EXCLUDED_GENES` | `orc6`、`srb4` | 不画的基因（用户 2026-11-12 决定），在 frame 构建时剔除 |
+| `FACS_LINE_WIDTH_PT` | 2 | E 的三条数据线线宽（用户指定） |
+| `FACS_COLUMN_GAP_PT` / `FACS_ROW_GAP_PT` | 10 / 16 | E 的列距/行距；行距要给下一行基因名 title 留位 |
+| `FACS_TITLE_BAND_PT` | 13 | E 首行基因名 title 的顶部留白 |
+| `FACS_LEGEND_GAP_PT` | 12 | E 网格右缘到右侧图例左缘的距离 |
+| `FACS_BOTTOM_DECORATION_PT` | 22 | E 的 x 刻度标签 + 共享 x 标题 |
+| `FACS_LEFT_DECORATION_PT` | 34 | E 的 y 刻度标签 + 共享 y 标题 |
+| `FACS_LFC_SIGN` | −1 | FACS LFC 符号翻转，与 release 的"耗竭为负"对齐 |
 
-改 axes 尺寸后画布高度自动重算；B/C 不会再被"摆到中间"，它们总是从行首左对齐。若想改变两面板之间的空隙，调 `mp.panel(..., margin_right=...)`（默认 10 pt）。
+改 axes 尺寸后画布高度自动重算；B/C/D 不会再被"摆到中间"，它们总是从行首左对齐。若想改变面板之间的空隙，调 `mp.panel(..., margin_right=...)`（默认 10 pt）。
 
 ---
 
