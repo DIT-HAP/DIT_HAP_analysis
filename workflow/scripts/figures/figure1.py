@@ -4,13 +4,15 @@
 Figure 1 — DIT-HAP concept, LFC coverage, spike-in linearity
 ============================================================
 
-Assembles the first main-text figure from three panels:
+Assembles the first main-text figure from four panels:
 
   A  the DIT-HAP workflow schematic, drawn outside the pipeline and supplied as
      a one-page vector PDF;
   B  LFC gene coverage of Traditional Tn-Seq versus DIT-HAP, by FYPO viability
      class;
-  C  spike-in dilution linearity.
+  C  spike-in dilution linearity;
+  D  gene-level LFC through the 12.5-generation time course, one trajectory
+     per gene, coloured by the two FYPO viability classes B highlights.
 
 Every drawing decision for this figure lives in this file. The script imports
 no stage module from ``workflow/src`` and calls no upstream renderer, so
@@ -23,11 +25,10 @@ merges the two pages. The review PNG is rasterized from the merged PDF, not
 from the canvas, so it shows the same picture the PDF does.
 
 The page is a ``cns.multipanel`` flow: A's reserved box fills the first row,
-``mp.newline()`` puts B and C at the left of the second, and the unused right
-half of that row stays blank. Each panel's box is its axes size plus whatever
-y-axis decoration multipanel measures at render time, so B and C keep their own
-labels clear instead of overlapping; the letters are placed by multipanel at the
-left edge of each panel's column.
+``mp.newline()`` puts B, C and D at the left of the second. Each panel's box is
+its axes size plus whatever y-axis decoration multipanel measures at render
+time, so a wide ylabel pushes only its own panel right; the letters are placed
+by multipanel at the left edge of each panel's column.
 
 Input
 -----
@@ -35,6 +36,9 @@ Input
   Columns: dataset, fypo_class, n_total, n_dr, n_lfc, pct_dr, pct_lfc.
 - results/1a_pcr_qc/spike_in_stats.tsv
   Columns: Sample, Name, Relative_Dilution_Ratio, Relative_Read_Ratio.
+- <HD_DIT_HAP release>/gene_level/LFC.tsv
+  Columns: Systematic ID, FYPOviability, YES0..YES4 (log2 fold change per
+  generation; YES0 is the 0-generation baseline).
 - resources/figures/figure1a.pdf
   One page; its page box is its content box.
 
@@ -49,6 +53,7 @@ Usage
     python workflow/scripts/figures/figure1.py \\
         --lfc-comparison results/2a_coverage/cross_dataset/lfc_coverage_comparison.tsv \\
         --spikein results/1a_pcr_qc/spike_in_stats.tsv \\
+        --gene-lfc <HD_DIT_HAP release>/gene_level/LFC.tsv \\
         --schematic resources/figures/figure1a.pdf \\
         --output-pdf results/7a_figures/figure1.pdf \\
         --output-review results/7a_figures/figure1.review.png \\
@@ -63,6 +68,7 @@ Version:  1.0.0
 # 1. IMPORTS (Standard Library -> Third-Party)
 # =============================================================================
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -71,10 +77,11 @@ from typing import cast
 
 import cnsplots as cns
 from loguru import logger
+from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
-from matplotlib.transforms import ScaledTranslation
+from matplotlib.lines import Line2D
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
 
@@ -117,10 +124,13 @@ SCHEMATIC_WIDTH_PT = CANVAS_WIDTH_PT - SCHEMATIC_LABEL_COLUMN_PT
 # letter band above A is the label's own height plus this clearance.
 PANEL_LETTER_PAD_TOP_PX = round(2.8 * HOUSE_FIGURE_DPI / 72)
 
-# Bottom row: both panels share one square footprint so the two plotting
-# areas read as a pair; 110 pt is inside the house 80-150 pt panel band.
-ROW_PANEL_SIZE_PT = 110.0
-ROW_BELOW_DECORATION_PT = 42.0  # x ticks + xlabel + panel B's legend
+# Bottom row: B, C and D share one square footprint so the three plotting areas
+# read as a set; 100 pt is the house SQUARE baseline (inside the 80-150 pt band)
+# and the three columns still fit the page width with their own y decorations.
+ROW_PANEL_SIZE_PT = 100.0
+# x ticks + xlabel; the legends sit above the row, and multipanel measures
+# them as top decoration.
+ROW_BELOW_DECORATION_PT = 26.0
 
 # --- Panel B vocabulary -----------------------------------------------------
 COVERAGE_CLASSES = ("inviable", "viable", "depends_on_conditions", "unknown", "total")
@@ -132,6 +142,7 @@ CLASS_LABELS = {
     "total": "Total",
 }
 COVERAGE_DATASETS = ("LD_haploid", "HD_DIT_HAP")
+COVERAGE_LEGEND_TITLE = "Library"
 DATASET_LABELS = {"LD_haploid": "Traditional Tn-Seq", "HD_DIT_HAP": "DIT-HAP"}
 
 PERCENT_PER_UNIT = 100.0
@@ -141,21 +152,54 @@ COVERAGE_X_LABEL = "Covered genes (%)"
 COVERAGE_Y_LABEL = "FYPO viability class"
 FOCUS_CLASS_INDEX = 0  # Inviable is first in COVERAGE_CLASSES
 BAR_COUNT_FONT_PT = 5  # fit-critical: the count must clear inside its bar
-# The legend hangs a fixed distance below the axes, not a fraction of its
-# height: a fraction would push it further down every time the panel grows and
-# eventually off the margin reserved below the row.
-LEGEND_BELOW_AXES_PT = 27.0
+# A data hairline would vanish as a legend swatch, so the legend draws its own.
+LEGEND_SWATCH_LINE_WIDTH_PT = 0.8
+# Narrower than matplotlib's 2 em default: the horizontal legends are wide and
+# sit over their own panel only.
+LEGEND_COLUMN_SPACING_EM = 0.8
 
 # --- Panel C vocabulary -----------------------------------------------------
 SPIKEIN_REFERENCE_SAMPLE = "Spikein0"
 SPIKEIN_SITE_PREFIX = "Spike-in Insertion "
 SPIKEIN_SITE_LABEL_PREFIX = "#"
+SPIKEIN_LEGEND_TITLE = "Spike-in"
+SPIKEIN_POINT_SIZE = 25.0
 SPIKEIN_X_LABEL = r"$\log_2$(relative dilution ratio)"
 SPIKEIN_Y_LABEL = r"$\log_2$(relative read ratio)"
+
+# --- Panel D vocabulary -----------------------------------------------------
+# The release's five sampling points: the LFC columns in order, and the
+# generations they stand for (upstream config's time_points).
+GENERATION_COLUMNS = ("YES0", "YES1", "YES2", "YES3", "YES4")
+GENERATIONS = (0.0, 2.352, 5.588, 9.104, 12.48)
+# Display rounding only (the full-precision values are in the data and docs):
+# three decimals collide under a 100 pt axes.
+GENERATION_TICK_LABELS = ("0", "2.4", "5.6", "9.1", "12.5")
+TRAJECTORY_CLASSES = ("inviable", "viable")
+TRAJECTORY_LABELS = {"inviable": "Inviable", "viable": "Viable"}
+# Inviable keeps panel B's accent, the colour B already uses for that class;
+# viable takes palette slot 1, which no other series in this figure uses.
+TRAJECTORY_COLORS = {
+    "inviable": ACCENT_COLOR,
+    "viable": cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0],
+}
+# Thousands of gene curves share one 100 pt axes, so each is a hairline and
+# transparent: dense regions darken by overplotting, single genes stay legible.
+TRAJECTORY_LINE_WIDTH_PT = 0.5
+TRAJECTORY_LINE_ALPHA = 0.05
+# Inviable draws over viable so the highlighted class keeps its accent where
+# the two overlap (at the shared 0-generation baseline).
+TRAJECTORY_ZORDER = {"inviable": 3, "viable": 2}
+LFC_X_LABEL = "Generations"
+LFC_Y_LABEL = r"Gene-level LFC ($\log_2$)"
+# D's legend straddles its axes' top edge, so only its upper half counts as
+# top decoration; D's pad_top gives the rest back to keep D on B/C's baseline.
+LFC_LEGEND_HALF_HEIGHT_PT = 8.4
 
 # --- Input contracts --------------------------------------------------------
 COVERAGE_COLUMNS = ("dataset", "fypo_class", "n_lfc", "pct_lfc")
 SPIKEIN_COLUMNS = ("Sample", "Name", "Relative_Dilution_Ratio", "Relative_Read_Ratio")
+TRAJECTORY_COLUMNS = ("Systematic ID", "FYPOviability", *GENERATION_COLUMNS)
 
 
 # =============================================================================
@@ -167,6 +211,7 @@ class Figure1Config:
 
     lfc_comparison: Path
     spikein: Path
+    gene_lfc: Path
     schematic: Path
     output_pdf: Path
     output_review: Path
@@ -174,7 +219,7 @@ class Figure1Config:
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        for path in [self.lfc_comparison, self.spikein, self.schematic]:
+        for path in [self.lfc_comparison, self.spikein, self.gene_lfc, self.schematic]:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
         for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
@@ -206,6 +251,21 @@ def build_spikein_frame(spikein: pd.DataFrame) -> pd.DataFrame:
     return frame.sort_values("Name", kind="stable")
 
 
+def build_trajectory_frame(gene_lfc: pd.DataFrame) -> pd.DataFrame:
+    """Reshape the wide per-generation LFC table into one row per gene and generation."""
+    is_traced = gene_lfc["FYPOviability"].isin(TRAJECTORY_CLASSES)
+    wide = gene_lfc.loc[is_traced, list(TRAJECTORY_COLUMNS)]
+    long = wide.melt(
+        id_vars=["Systematic ID", "FYPOviability"],
+        var_name="generation_column",
+        value_name="lfc",
+    )
+    long["generation"] = long["generation_column"].map(
+        dict(zip(GENERATION_COLUMNS, GENERATIONS, strict=True))
+    )
+    return long
+
+
 # =============================================================================
 # 5. RENDERING
 # =============================================================================
@@ -224,9 +284,12 @@ def apply_house_style() -> None:
 
 
 def draw_figure(
-    coverage: pd.DataFrame, spikein: pd.DataFrame, schematic_height_pt: float
+    coverage: pd.DataFrame,
+    spikein: pd.DataFrame,
+    trajectory: pd.DataFrame,
+    schematic_height_pt: float,
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw the page: A's reserved schematic box, then B and C left-aligned below.
+    """Draw the page: A's reserved schematic box, then B, C and D in a row below.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
@@ -258,6 +321,14 @@ def draw_figure(
         margin_bottom=ROW_BELOW_DECORATION_PT,
     )
     render_spikein_panel(spikein_ax, spikein)
+    lfc_ax = mp.panel(
+        "D",
+        width=ROW_PANEL_SIZE_PT,
+        height=ROW_PANEL_SIZE_PT,
+        margin_bottom=ROW_BELOW_DECORATION_PT,
+        pad_top=round(LFC_LEGEND_HALF_HEIGHT_PT * HOUSE_FIGURE_DPI / 72),
+    )
+    render_lfc_trajectory_panel(lfc_ax, trajectory)
     return mp, schematic_ax
 
 
@@ -304,17 +375,39 @@ def render_coverage_panel(ax: Axes, frame: pd.DataFrame) -> None:
     ax.set_xticks(AXIS_TICK_VALUES)
     ax.set_xlabel(COVERAGE_X_LABEL)
     ax.set_ylabel(COVERAGE_Y_LABEL)
+    add_legend_above(ax, columns=len(COVERAGE_DATASETS), title=COVERAGE_LEGEND_TITLE)
 
-    handles, legend_labels = ax.get_legend_handles_labels()
-    legend_offset = ScaledTranslation(0.0, -LEGEND_BELOW_AXES_PT / 72, ax.figure.dpi_scale_trans)
+
+def legend_entries(
+    ax: Axes, handles: Sequence[Artist] | None = None
+) -> tuple[Sequence[Artist], list[str]]:
+    """Return a legend's handles and labels, from explicit handles or the axes."""
+    if handles is None:
+        return ax.get_legend_handles_labels()
+    return handles, [cast(str, handle.get_label()) for handle in handles]
+
+
+def add_legend_above(
+    ax: Axes,
+    columns: int,
+    title: str | None = None,
+    handles: Sequence[Artist] | None = None,
+    loc: str = "lower left",
+    anchor: tuple[float, float] = (0.0, 1.0),
+) -> None:
+    """Draw an unframed legend above the axes, left-aligned unless told otherwise."""
+    entries, labels = legend_entries(ax, handles)
     ax.legend(
-        handles,
-        legend_labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.0),
-        bbox_transform=ax.transAxes + legend_offset,
+        entries,
+        labels,
+        title=title,
+        loc=loc,
+        bbox_to_anchor=anchor,
         borderaxespad=0,
-        ncol=len(COVERAGE_DATASETS),
+        borderpad=0,
+        ncol=columns,
+        columnspacing=LEGEND_COLUMN_SPACING_EM,
+        markerscale=1,
         frameon=False,
     )
 
@@ -346,14 +439,52 @@ def render_spikein_panel(ax: Axes, frame: pd.DataFrame) -> None:
         x="Relative_Dilution_Ratio",
         y="Relative_Read_Ratio",
         color="Name",
+        s=SPIKEIN_POINT_SIZE,
         add_equation=True,
         ax=ax,
     )
     ax.set_xlabel(SPIKEIN_X_LABEL)
     ax.set_ylabel(SPIKEIN_Y_LABEL)
 
-    # cnsplots parks the colour column's name as the legend title; replace it.
-    cns.take_legend_out(title="Spike-in", ax=ax)
+    # cnsplots' own legend (with its column-name title) is replaced: the legend
+    # above the axes carries the real title.
+    add_legend_above(ax, columns=frame["Name"].nunique(), title=SPIKEIN_LEGEND_TITLE)
+
+
+def render_lfc_trajectory_panel(ax: Axes, frame: pd.DataFrame) -> None:
+    """Draw one LFC trajectory per gene, coloured by its viability class."""
+    for viability in TRAJECTORY_CLASSES:
+        shown = frame[frame["FYPOviability"] == viability]
+        # One column per gene: a single plot call draws the whole class. The
+        # lines carry no label — thousands of them would each become a legend
+        # entry — so the legend uses one opaque swatch per class instead.
+        curves = shown.pivot_table(index="generation", columns="Systematic ID", values="lfc")
+        ax.plot(
+            curves.index,
+            curves.to_numpy(),
+            color=TRAJECTORY_COLORS[viability],
+            linewidth=TRAJECTORY_LINE_WIDTH_PT,
+            alpha=TRAJECTORY_LINE_ALPHA,
+            zorder=TRAJECTORY_ZORDER[viability],
+        )
+
+    class_sizes = frame.groupby("FYPOviability")["Systematic ID"].nunique()
+    swatches = [
+        Line2D(
+            [],
+            [],
+            color=TRAJECTORY_COLORS[viability],
+            linewidth=LEGEND_SWATCH_LINE_WIDTH_PT,
+            label=f"{TRAJECTORY_LABELS[viability]} (n = {class_sizes[viability]:,})",
+        )
+        for viability in TRAJECTORY_CLASSES
+    ]
+
+    ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5)
+    ax.set_xticks(GENERATIONS, GENERATION_TICK_LABELS)
+    ax.set_xlabel(LFC_X_LABEL)
+    ax.set_ylabel(LFC_Y_LABEL)
+    add_legend_above(ax, columns=1, handles=swatches, loc="center", anchor=(0.5, 1.0))
 
 
 # =============================================================================
@@ -435,11 +566,12 @@ def run(config: Figure1Config) -> tuple[float, float]:
 
     coverage = build_coverage_frame(read_tsv(config.lfc_comparison, COVERAGE_COLUMNS))
     spikein = build_spikein_frame(read_tsv(config.spikein, SPIKEIN_COLUMNS))
+    trajectory = build_trajectory_frame(read_tsv(config.gene_lfc, TRAJECTORY_COLUMNS))
 
     schematic_width, schematic_height = page_size_pt(config.schematic)
     schematic_box_height = SCHEMATIC_WIDTH_PT * schematic_height / schematic_width
 
-    mp, schematic_ax = draw_figure(coverage, spikein, schematic_box_height)
+    mp, schematic_ax = draw_figure(coverage, spikein, trajectory, schematic_box_height)
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
     # drawn artists and shift panel A's box away from the overlay below; keep
@@ -469,6 +601,9 @@ def parse_args() -> argparse.Namespace:
         "--lfc-comparison", type=Path, required=True, help="Combined LFC comparison TSV"
     )
     parser.add_argument("--spikein", type=Path, required=True, help="Spike-in stats TSV")
+    parser.add_argument(
+        "--gene-lfc", type=Path, required=True, help="Release gene-level LFC TSV (wide)"
+    )
     parser.add_argument("--schematic", type=Path, required=True, help="Panel A schematic PDF")
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
@@ -492,6 +627,7 @@ def main() -> int:
     config = Figure1Config(
         lfc_comparison=args.lfc_comparison,
         spikein=args.spikein,
+        gene_lfc=args.gene_lfc,
         schematic=args.schematic,
         output_pdf=args.output_pdf,
         output_review=args.output_review,

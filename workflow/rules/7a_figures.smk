@@ -30,6 +30,12 @@ rule plot_figure1:
         lfc_comparison="results/2a_coverage/cross_dataset/lfc_coverage_comparison.tsv",
         # Spike-in dilution series, built by 1a_pcr_qc.smk.
         spikein="results/1a_pcr_qc/spike_in_stats.tsv",
+        # Panel D: the release's gene-level LFC table, one row per gene and one
+        # column per generation (YES0..YES4).
+        gene_lfc=(
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/LFC.tsv"
+        ),
         # Panel A is drawn outside the pipeline; the page box is the content box.
         schematic="resources/figures/figure1a.pdf",
     output:
@@ -50,6 +56,7 @@ rule plot_figure1:
         python workflow/scripts/figures/figure1.py \
             --lfc-comparison {input.lfc_comparison} \
             --spikein {input.spikein} \
+            --gene-lfc {input.gene_lfc} \
             --schematic {input.schematic} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \

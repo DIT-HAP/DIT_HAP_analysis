@@ -11,19 +11,32 @@ pytest.importorskip("cnsplots")
 pytest.importorskip("pypdf")
 
 import cnsplots as cns
+from matplotlib import pyplot as plt
 from matplotlib.transforms import Bbox
 from pypdf import PdfReader
 from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
+    GENERATIONS,
+    SPIKEIN_POINT_SIZE,
     Figure1Config,
+    apply_house_style,
     axes_box_pt,
     build_coverage_frame,
     build_spikein_frame,
+    build_trajectory_frame,
     draw_figure,
+    render_lfc_trajectory_panel,
+    render_spikein_panel,
     run,
 )
+
+
+@pytest.fixture(autouse=True)
+def _house_style() -> None:
+    """Draw with the production style: layout constants are calibrated at 360 dpi."""
+    apply_house_style()
 
 
 # =============================================================================
@@ -80,6 +93,21 @@ def _replicate_table(x: str, y: str) -> pd.DataFrame:
     return pd.concat([table, pd.DataFrame({x: [0], y: [5]})], ignore_index=True)
 
 
+def _gene_lfc_table() -> pd.DataFrame:
+    """Two inviable and two viable genes over the release's five generations."""
+    return pd.DataFrame(
+        {
+            "Systematic ID": ["G1", "G2", "G3", "G4", "G5"],
+            "FYPOviability": ["inviable", "inviable", "viable", "viable", "unknown"],
+            "YES0": [0.0, 0.0, 0.0, 0.0, 0.0],
+            "YES1": [-1.0, -2.0, -0.1, 0.1, -9.0],
+            "YES2": [-3.0, -4.0, -0.1, 0.1, -9.0],
+            "YES3": [-5.0, -6.0, -0.2, 0.0, -9.0],
+            "YES4": [-6.0, -7.0, -0.2, -0.1, -9.0],
+        }
+    )
+
+
 def _annotation_table() -> pd.DataFrame:
     """Two genes share three in-gene insertions; intergenic rows must not count."""
     return pd.DataFrame(
@@ -116,13 +144,16 @@ def figure1_inputs(tmp_path: Path) -> Figure1Config:
     """Write fixture inputs and return a config pointing at them."""
     coverage = tmp_path / "lfc_coverage_comparison.tsv"
     spikein = tmp_path / "spike_in_stats.tsv"
+    gene_lfc = tmp_path / "gene_lfc.tsv"
     schematic = tmp_path / "figure1a.pdf"
     _coverage_table().to_csv(coverage, sep="\t", index=False)
     _spikein_table().to_csv(spikein, sep="\t", index=False)
+    _gene_lfc_table().to_csv(gene_lfc, sep="\t", index=False)
     _write_schematic(schematic)
     return Figure1Config(
         lfc_comparison=coverage,
         spikein=spikein,
+        gene_lfc=gene_lfc,
         schematic=schematic,
         output_pdf=tmp_path / "out" / "figure1.pdf",
         output_review=tmp_path / "out" / "figure1.review.png",
@@ -153,24 +184,28 @@ def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
 
 
 def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
-    """A spans the page; B and C open a row at the left and leave the right blank."""
+    """A spans the page; B, C and D share one row that opens at the page's left edge."""
     coverage = build_coverage_frame(_coverage_table())
     spikein = build_spikein_frame(_spikein_table())
-    mp, schematic_ax = draw_figure(coverage, spikein, schematic_height_pt=120.0)
+    trajectory = build_trajectory_frame(_gene_lfc_table())
+    mp, schematic_ax = draw_figure(coverage, spikein, trajectory, schematic_height_pt=120.0)
 
-    boxes = _panel_boxes(mp, ("B", "C"))  # also settles the flow layout
+    boxes = _panel_boxes(mp, ("B", "C", "D"))  # also settles the flow layout
     a_x, a_y, a_width, _ = axes_box_pt(schematic_ax, mp.fig)
-    c_x, c_y, c_width, c_height = boxes["C"]
     b_x, b_y, _, b_height = boxes["B"]
+    c_x, c_y, _, c_height = boxes["C"]
+    d_x, d_y, d_width, _ = boxes["D"]
 
     assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
     assert 0 < a_x <= 10  # only the panel letter's column sits left of A
     assert a_x + a_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
-    assert b_y == pytest.approx(c_y)  # one common row
+    assert c_y == pytest.approx(b_y)  # one common row
+    # D's two entry rows are a hair shorter than a title row plus entries.
+    assert d_y == pytest.approx(b_y, abs=1.0)
     assert b_height == pytest.approx(c_height)
     assert b_y + b_height < a_y  # the row sits below A
-    assert c_x > b_x
-    assert c_x + c_width < CANVAS_WIDTH_PT * 0.8  # left-aligned, right side empty
+    assert b_x < c_x < d_x
+    assert d_x + d_width < CANVAS_WIDTH_PT  # the three columns fit the page width
     assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "B"), abs=0.5)
 
 
@@ -200,6 +235,60 @@ def test_build_coverage_frame_rejects_missing_class():
 
     with pytest.raises(ValueError, match="missing FYPO classes"):
         build_coverage_frame(table)
+
+
+def test_trajectory_summary_keeps_only_the_two_classes_and_maps_generations():
+    """Unknown stays out; each surviving gene contributes one row per generation."""
+    frame = build_trajectory_frame(_gene_lfc_table())
+
+    assert set(frame["FYPOviability"]) == {"inviable", "viable"}
+    assert sorted(frame["generation"].unique()) == list(GENERATIONS)
+    assert len(frame) == 4 * len(GENERATIONS)
+
+
+def test_lfc_panel_draws_one_line_per_gene():
+    """Each gene is its own curve; each class is one legend entry, not one curve."""
+    frame = build_trajectory_frame(_gene_lfc_table())
+    fig, ax = plt.subplots()
+
+    render_lfc_trajectory_panel(ax, frame)
+
+    gene_lines = ax.lines[:-1]  # the last artist is the zero reference line
+    assert len(gene_lines) == 4  # two inviable + two viable; unknown stays out
+    assert all(np.asarray(line.get_ydata()).shape == (len(GENERATIONS),) for line in gene_lines)
+    legend = ax.get_legend()
+    assert legend is not None
+    assert [text.get_text() for text in legend.get_texts()] == [
+        "Inviable (n = 2)",
+        "Viable (n = 2)",
+    ]
+    fig.canvas.draw()
+    legend_box = legend.get_window_extent()
+    axes_box = ax.get_window_extent()
+    assert legend_box.y0 < axes_box.y1  # the lower row overlaps the plot's top
+    assert (legend_box.y0 + legend_box.y1) / 2 == pytest.approx(axes_box.y1)
+    assert (legend_box.x0 + legend_box.x1) / 2 == pytest.approx((axes_box.x0 + axes_box.x1) / 2)
+    plt.close(fig)
+
+
+def test_spikein_panel_uses_the_configured_point_size_and_legend_row():
+    """Points take panel C's size constant; its legend is one row above the axes."""
+    frame = build_spikein_frame(_spikein_table())
+    fig, ax = plt.subplots()
+
+    render_spikein_panel(ax, frame)
+
+    point_sizes = {
+        tuple(collection.get_sizes())
+        for collection in ax.collections
+        if len(collection.get_sizes())  # the fit's CI band carries no marker size
+    }
+    assert point_sizes == {(SPIKEIN_POINT_SIZE,)}
+    legend = ax.get_legend()
+    assert legend is not None
+    fig.canvas.draw()
+    assert legend.get_window_extent().y0 >= ax.get_window_extent().y1
+    plt.close(fig)
 
 
 def test_build_spikein_frame_drops_reference_and_relabels_sites():
