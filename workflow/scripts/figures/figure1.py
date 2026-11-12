@@ -22,11 +22,16 @@ changing Figure 1 cannot change another stage's output.
 
 Panel A is vector for a reason: matplotlib cannot embed PDF or SVG as vector
 content (``imshow`` always rasterizes), so the canvas is drawn with A's region
-left blank and ``pypdf`` then scales the schematic page into that region and
-merges the two pages. The review PNG is rasterized from the merged PDF, not
-from the canvas, so it shows the same picture the PDF does.
+left blank and ``pypdf`` then copies the schematic page into that region at
+scale 1.0 (the panel box is the schematic's own page box) and merges the two
+pages. The review PNG is rasterized from the merged PDF, not from the canvas,
+so it shows the same picture the PDF does.
 
-The page is a ``cns.multipanel`` flow: A's reserved box fills the first row,
+The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
+the canvas width and lets the rows decide the height, so the flow below draws a
+content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
+top-left corner, leaving the rest of the page blank. Within the content, A takes
+the schematic page's actual size at the left of the first row,
 the first ``mp.newline()`` puts B, C and D at the left of the second, and the
 second puts E across the third. Each panel's box is its axes size plus whatever
 y-axis decoration multipanel measures at render time, so a wide ylabel pushes
@@ -118,14 +123,24 @@ ACCENT_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
 FOCUS_BAND_ALPHA = 0.08
 
 # --- Canvas and panel geometry, in points -----------------------------------
-# 493 pt is the Cell two-column width, which multipanel takes as the page width.
-CANVAS_WIDTH_PT = 493.0
+# The manuscript page is A4 (210 x 297 mm). multipanel sizes the figure by
+# width only, so the content canvas is A4 wide minus the page margins and the
+# assembly mounts it PAGE_MARGIN_PT in from the page's top-left corner; the
+# rest of the page stays blank.
+MM_PER_INCH = 25.4
+A4_WIDTH_PT = 210.0 / MM_PER_INCH * 72.0  # 595.28
+A4_HEIGHT_PT = 297.0 / MM_PER_INCH * 72.0  # 841.89
+PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
+# The content width is the page width minus the left and right margins, so the
+# right margin comes for free and the figure cannot run off the page.
+CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
 ROW_GAP_PT = 6.0  # between panel rows
 
-# Panels A and E span the page. multipanel reserves each panel's letter column
-# on the left, so their axes width gives that column back: 6 pt is the rendered
-# width of a bold 8 pt "A". The schematic is then scaled into A's box after the
-# page is saved.
+# Panel E spans the content width. Panel A instead takes the schematic PDF's own
+# page box, so the artwork is embedded at its actual size (scale 1.0) rather
+# than blown up to the page width. multipanel reserves each panel's letter
+# column on the left, so a page-spanning axis gives that column back: 6 pt is
+# the rendered width of a bold 8 pt "A".
 PANEL_LABEL_COLUMN_PT = 6.0
 PAGE_CONTENT_WIDTH_PT = CANVAS_WIDTH_PT - PANEL_LABEL_COLUMN_PT
 # multipanel's pad_top is in display pixels (figure_dpi / 72 per point), so the
@@ -387,9 +402,9 @@ def draw_figure(
     spikein: pd.DataFrame,
     trajectory: pd.DataFrame,
     facs_comparison: pd.DataFrame,
-    schematic_height_pt: float,
+    schematic_size_pt: tuple[float, float],
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw the page: A's reserved schematic box, B, C and D, then E below them.
+    """Draw the page: A's actual-size schematic box, B, C and D, then E below them.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
@@ -397,9 +412,10 @@ def draw_figure(
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
 
+    schematic_width_pt, schematic_height_pt = schematic_size_pt
     schematic_ax = mp.panel(
         "A",
-        width=PAGE_CONTENT_WIDTH_PT,
+        width=schematic_width_pt,
         height=schematic_height_pt,
         pad_top=PANEL_LETTER_PAD_TOP_PX,
         margin_bottom=ROW_GAP_PT,
@@ -754,16 +770,18 @@ def axes_box_pt(ax: Axes, figure: Figure) -> tuple[float, float, float, float]:
     return box.x0 * width_pt, box.y0 * height_pt, box.width * width_pt, box.height * height_pt
 
 
-def overlay_schematic(
+def assemble_page(
     canvas_pdf: Path,
     schematic_pdf: Path,
     output_pdf: Path,
     box_pt: tuple[float, float, float, float],
 ) -> None:
-    """Scale the schematic uniformly into panel A's box and merge it onto the canvas."""
+    """Overlay the schematic on the canvas, then mount the content atop an A4 page."""
     # The box is in PDF points already: bbox_inches=None keeps the page equal to
     # the figure, so the figure fractions flip straight into the page's origin.
     x_pt, y_pt, box_width_pt, box_height_pt = box_pt
+    # The canvas page must belong to a writer before its content can grow: pypdf
+    # 7 refuses content replacements on reader-owned pages.
     writer = PdfWriter(clone_from=str(canvas_pdf))
     canvas_page = writer.pages[0]
     schematic_page = PdfReader(str(schematic_pdf)).pages[0]
@@ -778,6 +796,14 @@ def overlay_schematic(
     canvas_page.merge_transformed_page(
         schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
     )
+
+    # A4 page: the canvas keeps its designed size, inset from the page's
+    # top-left corner; the rest of the page stays blank.
+    content_height_pt = float(canvas_page.mediabox.height)
+    bottom_pt = A4_HEIGHT_PT - PAGE_MARGIN_PT - content_height_pt
+    page = writer.add_blank_page(width=A4_WIDTH_PT, height=A4_HEIGHT_PT)
+    page.merge_transformed_page(canvas_page, Transformation().translate(PAGE_MARGIN_PT, bottom_pt))
+    writer.remove_page(0)  # the content now lives on the A4 page
     writer.write(str(output_pdf))
 
 
@@ -831,19 +857,17 @@ def run(config: Figure1Config) -> tuple[float, float]:
     trajectory = build_trajectory_frame(gene_lfc)
     facs_comparison = build_facs_comparison_frame(read_excel(config.facs, FACS_COLUMNS), gene_lfc)
 
-    schematic_width, schematic_height = page_size_pt(config.schematic)
-    schematic_box_height = PAGE_CONTENT_WIDTH_PT * schematic_height / schematic_width
+    # The schematic page's own box is the panel's box: scale 1.0, actual size.
+    schematic_size = page_size_pt(config.schematic)
 
-    mp, schematic_ax = draw_figure(
-        coverage, spikein, trajectory, facs_comparison, schematic_box_height
-    )
+    mp, schematic_ax = draw_figure(coverage, spikein, trajectory, facs_comparison, schematic_size)
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
     # drawn artists and shift panel A's box away from the overlay below; keep
     # the designed canvas. The save draws the figure, which is also what settles
     # multipanel's measured layout before the box is read back.
     cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
-    overlay_schematic(
+    assemble_page(
         config.canvas_pdf,
         config.schematic,
         config.output_pdf,
@@ -851,12 +875,11 @@ def run(config: Figure1Config) -> tuple[float, float]:
     )
     rasterize_review(config.output_pdf, config.output_review)
 
-    width_pt, height_pt = mp.fig.get_size_inches() * 72
     logger.success(
-        f"Wrote {config.output_pdf} ({width_pt:.0f} x {height_pt:.2f} pt) "
+        f"Wrote {config.output_pdf} (A4 {A4_WIDTH_PT:.2f} x {A4_HEIGHT_PT:.2f} pt) "
         f"and {config.output_review}"
     )
-    return width_pt, height_pt
+    return A4_WIDTH_PT, A4_HEIGHT_PT
 
 
 def parse_args() -> argparse.Namespace:

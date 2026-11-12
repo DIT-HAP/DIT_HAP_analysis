@@ -21,8 +21,12 @@ from the released insertion annotations. Genes with no in-gene insertion are
 absent from that table, so the distribution covers only the genes that carry at
 least one.
 
-The page is a ``cns.multipanel`` flow: A-C fill the first row, ``mp.newline()``
-puts D at the left of the second. Each panel's box is its axes size plus the
+The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
+the canvas width and lets the rows decide the height, so the flow below draws a
+content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
+top-left corner, leaving the rest of the page blank. Within the content, A-C fill
+the first row and ``mp.newline()`` puts D at the left of the second. Each
+panel's box is its axes size plus the
 y-axis decoration multipanel measures at render time, so a longer ylabel pushes
 its own panel right instead of overlapping the previous one; the panel letters
 are placed by multipanel at the left edge of each panel's column.
@@ -37,8 +41,9 @@ Input
 
 Output
 ------
-- results/7a_figures/figure_s1.pdf
-- results/7a_figures/figure_s1.review.png
+- results/7a_figures/figure_s1.pdf               content mounted on an A4 page
+- results/7a_figures/figure_s1.review.png       360 dpi review raster
+- results/7a_figures/_work/figure_s1_canvas.pdf canvas before the A4 mount (debug)
 
 Usage
 -----
@@ -48,7 +53,8 @@ Usage
         --bio results/1a_pcr_qc/_work/bio.parquet \\
         --annotations <release>/insertion_level/annotations.tsv.gz \\
         --output-pdf results/7a_figures/figure_s1.pdf \\
-        --output-review results/7a_figures/figure_s1.review.png
+        --output-review results/7a_figures/figure_s1.review.png \\
+        --canvas results/7a_figures/_work/figure_s1_canvas.pdf
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-11-09
@@ -73,6 +79,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import NullLocator
 import numpy as np
 import pandas as pd
+from pypdf import PdfReader, PdfWriter, Transformation
 from scipy.interpolate import RegularGridInterpolator
 from scipy.stats import gaussian_kde, pearsonr
 
@@ -95,10 +102,20 @@ FURNITURE_COLOR = cns.GRAY  # guides and annotations, never data
 COUNT_BAR_COLOR = cns.get_hexcolors_from_apalette([2], HOUSE_PALETTE)[0]
 
 # --- Canvas and panel geometry, in points -----------------------------------
-CANVAS_WIDTH_PT = 493.0
+# The manuscript page is A4 (210 x 297 mm). multipanel sizes the figure by
+# width only, so the content canvas is A4 wide minus the page margins and the
+# assembly mounts it PAGE_MARGIN_PT in from the page's top-left corner; the
+# rest of the page stays blank.
+MM_PER_INCH = 25.4
+A4_WIDTH_PT = 210.0 / MM_PER_INCH * 72.0  # 595.28
+A4_HEIGHT_PT = 297.0 / MM_PER_INCH * 72.0  # 841.89
+PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
+# The content width is the page width minus the left and right margins, so the
+# right margin comes for free and the figure cannot run off the page.
+CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
 # Three square panels across the page. 120 pt sits above the house 100 pt
 # legible floor; the flow adds each panel's measured y-axis decoration and its
-# right margin, so the three footprints total ~477 pt of the 493 pt page.
+# right margin, so the three footprints total ~477 pt of the A4 page width.
 PANEL_SIZE_PT = 120.0
 BELOW_DECORATION_PT = 30.0  # x ticks + xlabel
 # Panel D sits on a second row, left-aligned under A, at the house SQUARE
@@ -191,6 +208,7 @@ class FigureS1Config:
     annotations: Path
     output_pdf: Path
     output_review: Path
+    canvas_pdf: Path
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
@@ -198,7 +216,7 @@ class FigureS1Config:
         for path in inputs:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
-        for output in [self.output_pdf, self.output_review]:
+        for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
             output.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -410,6 +428,17 @@ def _grid_density(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 # =============================================================================
 # 6. ASSEMBLY
 # =============================================================================
+def mount_on_a4(canvas_pdf: Path, output_pdf: Path) -> None:
+    """Inset the content canvas from the A4 page's top-left corner; the rest stays blank."""
+    canvas_page = PdfReader(str(canvas_pdf)).pages[0]
+    content_height_pt = float(canvas_page.mediabox.height)
+    bottom_pt = A4_HEIGHT_PT - PAGE_MARGIN_PT - content_height_pt
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=A4_WIDTH_PT, height=A4_HEIGHT_PT)
+    page.merge_transformed_page(canvas_page, Transformation().translate(PAGE_MARGIN_PT, bottom_pt))
+    writer.write(str(output_pdf))
+
+
 def rasterize_review(pdf: Path, review_png: Path) -> None:
     """Rasterize the assembled PDF at the house review resolution."""
     subprocess.run(
@@ -470,15 +499,15 @@ def run(config: FigureS1Config) -> tuple[float, float]:
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight"; pass bbox_inches=None so the page
     # keeps the multipanel canvas instead of cropping to the drawn artists.
-    cns.savefig(config.output_pdf, fig=mp.fig, bbox_inches=None)
+    cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
+    mount_on_a4(config.canvas_pdf, config.output_pdf)
     rasterize_review(config.output_pdf, config.output_review)
 
-    width_pt, height_pt = mp.fig.get_size_inches() * 72
     logger.success(
-        f"Wrote {config.output_pdf} ({width_pt:.0f} x {height_pt:.2f} pt) "
+        f"Wrote {config.output_pdf} (A4 {A4_WIDTH_PT:.2f} x {A4_HEIGHT_PT:.2f} pt) "
         f"and {config.output_review}"
     )
-    return width_pt, height_pt
+    return A4_WIDTH_PT, A4_HEIGHT_PT
 
 
 def parse_args() -> argparse.Namespace:
@@ -492,6 +521,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
+    parser.add_argument("--canvas", type=Path, required=True, help="Canvas PDF before the A4 mount")
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
     )
@@ -515,6 +545,7 @@ def main() -> int:
         annotations=args.annotations,
         output_pdf=args.output_pdf,
         output_review=args.output_review,
+        canvas_pdf=args.canvas,
     )
     try:
         run(config)

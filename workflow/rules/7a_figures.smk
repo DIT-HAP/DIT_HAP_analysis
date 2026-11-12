@@ -86,6 +86,8 @@ rule plot_figure_s1:
     output:
         pdf=f"{_FIGURES}/figure_s1.pdf",
         review=f"{_FIGURES}/figure_s1.review.png",
+        # The canvas before the A4 mount, kept for layout debugging.
+        canvas=f"{_FIGURES}/_work/figure_s1_canvas.pdf",
     log:
         "logs/7a_figures/plot_figure_s1.log",
     conda:
@@ -100,5 +102,6 @@ rule plot_figure_s1:
             --bio {input.bio} \
             --annotations {input.annotations} \
             --output-pdf {output.pdf} \
-            --output-review {output.review} &> {log}
+            --output-review {output.review} \
+            --canvas {output.canvas} &> {log}
         """

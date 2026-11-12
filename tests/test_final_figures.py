@@ -16,6 +16,8 @@ from matplotlib.transforms import Bbox
 from pypdf import PdfReader
 from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
+    A4_HEIGHT_PT,
+    A4_WIDTH_PT,
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
     DIT_HAP_SERIES,
@@ -162,6 +164,7 @@ def figure_s1_inputs(tmp_path: Path) -> figure_s1.FigureS1Config:
         annotations=annotations,
         output_pdf=tmp_path / "out" / "figure_s1.pdf",
         output_review=tmp_path / "out" / "figure_s1.review.png",
+        canvas_pdf=tmp_path / "out" / "_work" / "figure_s1_canvas.pdf",
     )
 
 
@@ -213,17 +216,17 @@ def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
 
 
 def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
-    """A spans the page; B, C and D share one row; E spans the page below them."""
+    """A keeps its own size; B, C and D share one row; E spans the page below them."""
     coverage = build_coverage_frame(_coverage_table())
     spikein = build_spikein_frame(_spikein_table())
     trajectory = build_trajectory_frame(_gene_lfc_table())
     facs_comparison = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
     mp, schematic_ax = draw_figure(
-        coverage, spikein, trajectory, facs_comparison, schematic_height_pt=120.0
+        coverage, spikein, trajectory, facs_comparison, schematic_size_pt=(400.0, 120.0)
     )
 
     boxes = _panel_boxes(mp, ("B", "C", "D", "E"))  # also settles the flow layout
-    a_x, a_y, a_width, _ = axes_box_pt(schematic_ax, mp.fig)
+    a_x, a_y, a_width, a_height = axes_box_pt(schematic_ax, mp.fig)
     b_x, b_y, _, b_height = boxes["B"]
     c_x, c_y, _, c_height = boxes["C"]
     d_x, d_y, d_width, _ = boxes["D"]
@@ -231,7 +234,7 @@ def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
 
     assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
     assert 0 < a_x <= 10  # only the panel letter's column sits left of A
-    assert a_x + a_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
+    assert (a_width, a_height) == pytest.approx((400.0, 120.0))  # actual size, no stretch
     assert c_y == pytest.approx(b_y)  # one common row
     # D's two entry rows are a hair shorter than a title row plus entries.
     assert d_y == pytest.approx(b_y, abs=1.0)
@@ -474,7 +477,8 @@ def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1C
     assert len(reader.pages) == 1
 
     page = reader.pages[0]
-    assert width_pt == pytest.approx(CANVAS_WIDTH_PT, abs=0.01)
+    assert width_pt == pytest.approx(A4_WIDTH_PT, abs=0.01)
+    assert height_pt == pytest.approx(A4_HEIGHT_PT, abs=0.01)  # the manuscript page
     assert float(page.mediabox.width) == pytest.approx(width_pt, abs=0.01)
     assert float(page.mediabox.height) == pytest.approx(height_pt, abs=0.01)
 
@@ -497,7 +501,8 @@ def test_figure_s1_run_assembles_one_page(figure_s1_inputs: figure_s1.FigureS1Co
     assert len(reader.pages) == 1
 
     page = reader.pages[0]
-    assert width_pt == pytest.approx(figure_s1.CANVAS_WIDTH_PT, abs=0.01)
+    assert width_pt == pytest.approx(figure_s1.A4_WIDTH_PT, abs=0.01)
+    assert height_pt == pytest.approx(figure_s1.A4_HEIGHT_PT, abs=0.01)  # the manuscript page
     assert float(page.mediabox.width) == pytest.approx(width_pt, abs=0.01)
     assert float(page.mediabox.height) == pytest.approx(height_pt, abs=0.01)
 
@@ -505,4 +510,5 @@ def test_figure_s1_run_assembles_one_page(figure_s1_inputs: figure_s1.FigureS1Co
     assert "PBL Reads" in text
     assert "Reads of Biological Replicate 1" in text
     assert "Insertions per gene" in text
+    assert figure_s1_inputs.canvas_pdf.exists()
     assert figure_s1_inputs.output_review.exists()

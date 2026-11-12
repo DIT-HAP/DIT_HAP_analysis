@@ -30,15 +30,16 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ## Figure 1 — DIT-HAP 流程、覆盖度、spike-in、LFC 轨迹与 FACS 验证
 
-**画布**：493 × 462.42 pt（Cell 双栏宽）。整页由 `cns.multipanel(max_width=493, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行；高度由各行面板尺寸推出（实测值）：
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。`cns.multipanel` 只决定宽度，所以内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由三行面板推出（实测 454.1 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上各 40 pt，右侧也留 40 pt），页面其余部分留白。内容画布本身由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行：
 
 ```
-A 行：     10（字母带 = 7.2 标签高 + 2.8 净空） + 121.718（= 487 × 113.4 / 453.72） + 6（行距）      = 137.72
+A 行：     10（字母带 = 7.2 标签高 + 2.8 净空） + 113.4（示意图页面实际高度） + 6（行距）            = 129.4
 B/C/D 行： 7.2（字母带） + 17.3（图例，实测） + 100（面板高） + 26（下方装饰）                        = 150.50
 E 行：     6（行距） + 7.2（字母带） + 161（容器高） + 0（末行不留下边距）                            = 174.20
+            内容高合计 454.1，贴到 841.89 高的 A4 页上距顶 40 pt 处
 ```
 
-B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）。E 是一个 487 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 70 × 55 pt，字号沿用 house 的 8/7 pt），右侧空出的竖带放图例。
+B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）；A4 宽度下这一行右端会留出空白。E 是一个 509.28 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 70 × 55 pt，字号沿用 house 的 8/7 pt），右侧空出的竖带放图例。
 
 **版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C/D 从左往右流式排列、行首贴页面左边；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A、B、E 的字母因此都在 x = 0。E 的 mini axes 用 `container.inset_axes()` 建，位置是容器 axes 的分数坐标，渲染时自动跟随容器。
 
@@ -46,9 +47,9 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 | 文件 | 说明 |
 |---|---|
-| `results/7a_figures/figure1.pdf` | 最终矢量图（单页） |
+| `results/7a_figures/figure1.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure1.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化（含 A 面板） |
-| `results/7a_figures/_work/figure1_canvas.pdf` | 叠加前的画布，A 区为空白；排查版式时看这个 |
+| `results/7a_figures/_work/figure1_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（A 区空白，515.28 × 454.1 pt）；排查版式时看这个 |
 
 **为什么 A 面板用 pypdf 叠加**：matplotlib / cnsplots 没有把 SVG/PDF 当矢量嵌入的 API，`ax.imshow` 一定栅格化。脚本先用 matplotlib 画整张画布（A 区留白），再用 `pypdf` 把示意图 PDF 等比缩放、平移进 A 区，最后 `merge_transformed_page` 合成单页 PDF。示意图的 4 个 Arial 子集与 4 张 601 ppi 位图都原样保留。
 
@@ -59,9 +60,9 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | 要素 | 内容 |
 |---|---|
 | 输入 | `resources/figures/figure1a.pdf`（单页，页面框即内容框，453.72 × 113.4 pt） |
-| 变换 | 等比缩放（×1.0733，几乎满框）到预留的 axes 框；框的宽高比按示意图页面比例设定，因此正好铺满，无偏移 |
+| 变换 | 不缩放（×1.0000）：预留框就是示意图页面框 453.72 × 113.4 pt，pypdf 原样平移到该框，不加边、不缩放 |
 | 画法 | multipanel 建一个空 axes（`set_xticks([]) + set_yticks([]) + set_axis_off()`，清刻度是为了让 multipanel 量到 0 宽的左装饰）；`pypdf` 的 `PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点是 PDF 左下角 |
-| 版式 | 预留框 `x=5.775, y_top=10, w=487, h=121.718`（487 = 493 − 6 pt，6 pt 是字母 "A" 占的那一列）；不裁边、不补白边 |
+| 版式 | 预留框 `x=5.775, y_top=10, w=453.72, h=113.4`（示意图页面框原尺寸；A 不再通栏，右侧留白）；不裁边、不补白边 |
 | 产物 | 并入 `figure1.pdf` |
 
 可编辑母版是 `resources/figures/figure1a.svg`；**管线只读 PDF**。SVG 换新后需重新导出 PDF（当前 PDF 由 PDFKit 生成，文字保持矢量）。
@@ -146,8 +147,10 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
-| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏），即 `multipanel(max_width=...)` |
-| `PANEL_LABEL_COLUMN_PT` | 6 | 给每列字母留的那一列；`PAGE_CONTENT_WIDTH_PT = 493 − 6`（A 与 E 用它做宽度） |
+| `A4_WIDTH_PT` / `A4_HEIGHT_PT` | 595.28 / 841.89 | 最终页面尺寸（210 × 297 mm） |
+| `PAGE_MARGIN_PT` | 40 | 内容页距 A4 页左、上、右的留白 |
+| `CANVAS_WIDTH_PT` | 515.28 | 内容画布宽（= A4 宽 − 2 × 页边距），即 `multipanel(max_width=...)` |
+| `PANEL_LABEL_COLUMN_PT` | 6 | 给每列字母留的那一列；`PAGE_CONTENT_WIDTH_PT = 515.28 − 6`（E 用它做宽度；A 用示意图自身的页面框） |
 | `PANEL_LETTER_PAD_TOP_PX` | 14 | A 上方字母净空（显示像素，≈2.8 pt @360 dpi） |
 | `ROW_GAP_PT` | 6 | A 行与 B/C/D 行之间（A 的 `margin_bottom`）；E 的行距（`margin_top`） |
 | `ROW_PANEL_SIZE_PT` | 100 | B/C/D 共用的方形 axes 边长（x 由 flow 决定） |
@@ -171,14 +174,14 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 ## Figure S1 — 文库制备重复性 + 每基因插入条数分布
 
-**画布**：493 × 304.4 pt（Cell 双栏宽），由 `cns.multipanel(max_width=493, unit="pt")` 流式排版：
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 304.4 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），其余留白。内容画布由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版：
 
 ```
 A–C 行：7.2（字母带） + 120（面板高） + 30（x 刻度 + xlabel）
 D 行：  10（行距）+ 7.2（字母带） + 100（面板高） + 30（x 刻度 + xlabel）
 ```
 
-A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y 轴装饰 ≈29 + 右边距 10 ≈ 159 pt，三列共 477 pt，占满 493 pt 页宽）；D 在第二行由 `mp.newline()` 从行首开始，用 house 的 SQUARE 尺寸 100 × 100 pt（单 panel 必须落在 80–150 pt 内，不能通栏），右侧留白。没有外部矢量面板，因此不需要 pypdf 叠加。
+A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y 轴装饰 ≈29 + 右边距 10 ≈ 159 pt，三列共 477 pt，A4 宽度下右侧留白）；D 在第二行由 `mp.newline()` 从行首开始，用 house 的 SQUARE 尺寸 100 × 100 pt（单 panel 必须落在 80–150 pt 内，不能通栏），右侧留白。没有外部矢量面板，因此不需要示意图叠加；pypdf 只负责把内容页贴到 A4 页左上角内缩 40 pt 处。
 
 **版式机制**：`mp.panel(width, height)` 只给 axes 尺寸；每列的横向宽度和字母位置在渲染时按实测的 y 轴装饰宽度算出，所以 A/B/C 的字母都落在各自列的外框左缘，A 与 D 的字母因此都在 x = 0（左对齐）。ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。
 
@@ -186,8 +189,9 @@ A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y �
 
 | 文件 | 说明 |
 |---|---|
-| `results/7a_figures/figure_s1.pdf` | 最终矢量图（单页） |
+| `results/7a_figures/figure_s1.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure_s1.review.png` | 360 dpi 评审位图 |
+| `results/7a_figures/_work/figure_s1_canvas.pdf` | 贴 A4 前的内容画布（515.28 × 304.4 pt）；排查版式时看这个 |
 
 **为什么复制而不是复用**：这三张图原本由 `workflow/scripts/pcr_qc/plot_pcr_qc.py` 画在 1a 的 2×2 图里。本脚本自带一份密度着色、对数轴与 n/r/P 标注的实现（KDE 部分对应 `workflow/src/figure_render/_point_density.py`，其余对应 `_scatter.py` 的密度路径），不 import 任何 stage 模块——改 S1 的版式不会动 1a 的 QC 图。
 
@@ -227,7 +231,7 @@ A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y �
 | 必需列 | `Reads_1`、`Reads_2` |
 | 变换 | 两列都 > 0：125,566 → 92,704 行 |
 | 画法 | 与 A 相同；轴标签 `Reads of Biological Replicate 1 / 2` |
-| 版式 | axes `w=120, h=120`，排到 `x=346.5`，右缘 466.5 pt（页宽 493，行未占满）；字母 C 在列首，x ≈ 317.6 |
+| 版式 | axes `w=120, h=120`，排到 `x=346.5`，右缘 466.5 pt（内容宽 515.28，行未占满）；字母 C 在列首，x ≈ 317.6 |
 | 产物 | 并入 `figure_s1.pdf` |
 
 ### Panel D — 每个基因的插入条数分布
@@ -249,7 +253,9 @@ A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y �
 
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
-| `CANVAS_WIDTH_PT` | 493 | 画布宽（Cell 双栏），即 `multipanel(max_width=...)` |
+| `A4_WIDTH_PT` / `A4_HEIGHT_PT` | 595.28 / 841.89 | 最终页面尺寸（210 × 297 mm） |
+| `PAGE_MARGIN_PT` | 40 | 内容页距 A4 页左、上、右的留白 |
+| `CANVAS_WIDTH_PT` | 515.28 | 内容画布宽（= A4 宽 − 2 × 页边距），即 `multipanel(max_width=...)` |
 | `PANEL_SIZE_PT` | 120 | A–C 每个方形面板的 axes 边长 |
 | `BELOW_DECORATION_PT` | 30 | x 刻度 + xlabel 所占高度（`margin_bottom`） |
 | `ROW_GAP_PT` | 10 | A–C 行与 D 行之间（D 的 `margin_top`） |
@@ -258,7 +264,7 @@ A–C 是三个 120 pt 方形面板并排（面板外框 = axes 120 + 实测 y �
 | `DENSITY_SCATTER_S` / `DENSITY_SCATTER_ALPHA` | 1.5 / 0.6 | 点大小与透明度（密云例外） |
 | `DENSITY_CBAR_BOUNDS` | (0.82, 0.02, 0.035, 0.30) | 密度色条在 axes 分数坐标中的位置与大小 |
 
-改 `PANEL_SIZE_PT` 后列宽和画布高度自动重算。三列总宽 = Σ(axes + 实测装饰 + `margin_right` 10)，当前 3 × 158.8 ≈ 476 pt；若把它加到 ~130 pt，C 会被 `max_width` 换行到第二行，改前先跑一次看渲染。面板间距用 `mp.panel(..., margin_right=...)` 调。
+改 `PANEL_SIZE_PT` 后列宽和画布高度自动重算。三列总宽 = Σ(axes + 实测装饰 + `margin_right` 10)，当前 3 × 158.8 ≈ 476 pt，内容宽 515.28 pt 下还有富余；加到 ~130 pt 仍能并排，再大就会被 `max_width` 换行。面板间距用 `mp.panel(..., margin_right=...)` 调。
 
 ---
 
