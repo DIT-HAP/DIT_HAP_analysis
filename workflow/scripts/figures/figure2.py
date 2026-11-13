@@ -897,12 +897,12 @@ def draw_flow(container: Axes, fit: GeneFit) -> None:
         va="center",
         fontsize=FLOW_TEXT_FONT_PT,
     )
-    draw_vertical_arrow(container, FORMULA_BOX_Y_PT + FORMULA_BOX_HEIGHT_PT, DATA_BOX_Y_PT)
+    draw_vertical_arrow(container, DATA_BOX_Y_PT, FORMULA_BOX_Y_PT + FORMULA_BOX_HEIGHT_PT)
 
     draw_box(container, FORMULA_BOX_Y_PT, FORMULA_BOX_HEIGHT_PT)
     draw_equation(container, fit)
 
-    draw_vertical_arrow(container, PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT, FORMULA_BOX_Y_PT)
+    draw_vertical_arrow(container, FORMULA_BOX_Y_PT, PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT)
     draw_box(container, PARAMETER_BOX_Y_PT, PARAMETER_BOX_HEIGHT_PT)
     container.text(
         FLOW_CENTER_X_PT,
