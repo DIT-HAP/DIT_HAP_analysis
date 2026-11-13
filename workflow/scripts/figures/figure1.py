@@ -324,16 +324,16 @@ AGGREGATE_AXIS_LABEL = r"Gene-level LFC ($\log_2$)"
 TRANSITION_LABEL = "Weighted\naggregation"
 AGGREGATION_FORMULA = (
     r"$\mathrm{LFC}_{\mathrm{gene},t}="
-    r"\dfrac{\sum_i w_i\cdot\mathrm{LFC}_{i,t}}{\sum_i w_i}$"
+    r"\sum_i w_i\cdot\mathrm{LFC}_{i,t}\,/\,\sum_i w_i$"
 )
 WEIGHT_LEGEND_LABELS = ("High weight", "Low weight")
 AGGREGATE_LEGEND_LABELS = ("Insertion-level LFC", "Gene-level LFC")
 GENERATIONS_LEGEND_TITLE = "Generations"
-# The coral accent already means the inviable class in B/D; cdc7 is inviable,
-# so the aggregated curve keeps that meaning and the high-weight sites (the
-# ones driving it) take the same colour. The insertion cloud stays furniture
-# grey, like D's population curves.
-AGGREGATION_HIGH_WEIGHT_COLOR = ACCENT_COLOR
+# The weight encoding takes slot 1 (teal), the greyscale-separable partner of
+# the coral accent, so the lollipops never read as the profile lines below
+# them. The gene-level aggregate keeps the coral accent (cdc7 is inviable);
+# the insertion cloud stays furniture grey, like D's population curves.
+AGGREGATION_HIGH_WEIGHT_COLOR = cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0]
 AGGREGATION_LOW_WEIGHT_COLOR = FURNITURE_COLOR
 AGGREGATION_GENE_COLOR = ACCENT_COLOR
 AGGREGATION_INSERTION_COLOR = FURNITURE_COLOR
@@ -387,9 +387,9 @@ AGG_RIGHT_AXES_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
 # The x tick labels and x titles sit below the 120 pt axes block, exactly like
 # B/C/D's ROW_BELOW_DECORATION_PT.
 AGG_BELOW_DECORATION_PT = 26.0
-AGG_ARROW_Y = 0.6167  # fraction of the transition axes
-AGG_LABEL_Y = 0.65
-AGG_FORMULA_Y = 0.5917
+AGG_ARROW_Y = 0.6152  # fraction of the transition axes
+AGG_LABEL_Y = 0.6442
+AGG_FORMULA_Y = 0.5862
 # One region per inset axes: (left, bottom, width, height) in container points.
 AGG_SUB_AXES_PT = {
     "weight": (
@@ -1314,8 +1314,8 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         axes["weight"],
         columns=1,
         handles=weight_swatches,
-        loc="center left",
-        anchor=(1.0, 0.6),
+        loc="upper left",
+        anchor=(1.0, 1.0),
     )
 
     generation_swatches = [
@@ -1333,8 +1333,8 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         columns=1,
         title=GENERATIONS_LEGEND_TITLE,
         handles=generation_swatches,
-        loc="lower center",
-        anchor=(0.5, 0.0),
+        loc="lower left",
+        anchor=(0.0, 0.0),
     )
 
     aggregate_swatches = [
@@ -1357,8 +1357,8 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         axes["aggregate"],
         columns=1,
         handles=aggregate_swatches,
-        loc="upper center",
-        anchor=(0.5, 1.0),
+        loc="center",
+        anchor=(0.7, 1.0),
     )
 
 
