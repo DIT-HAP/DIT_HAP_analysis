@@ -11,16 +11,16 @@ Assembles the first main-text figure from six panels:
   B  LFC gene coverage of Traditional Tn-Seq versus DIT-HAP, by FYPO viability
      class;
   C  spike-in dilution linearity;
-  D  gene-level LFC through the 12.5-generation time course, one trajectory
-     per gene, coloured by the two FYPO viability classes B highlights;
-  E  FACS-validated genes: each gene's FACS depletion curves (two independent
-     strains) against its DIT-HAP gene-level LFC, one small axes per gene;
-  F  how one gene's insertion-level measurements become its gene-level LFC:
+  D  how one gene's insertion-level measurements become its gene-level LFC:
      a worked essential gene (cdc7) with its TTAA sites on the real ORF
      coordinate, each site's statistical weight above the baseline and the four
      insertion-LFC spatial profiles below it, the weighted-aggregation formula
      between, and every insertion trajectory plus the aggregated gene-level
-     curve on the right.
+     curve on the right;
+  E  gene-level LFC through the 12.5-generation time course, one trajectory
+     per gene, coloured by the two FYPO viability classes B highlights;
+  F  FACS-validated genes: each gene's FACS depletion curves (two independent
+     strains) against its DIT-HAP gene-level LFC, one small axes per gene.
 
 Every drawing decision for this figure lives in this file. The script imports
 no stage module from ``workflow/src`` and calls no upstream renderer, so
@@ -34,16 +34,17 @@ pages. The review PNG is rasterized from the merged PDF, not from the canvas,
 so it shows the same picture the PDF does.
 
 The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
-the canvas width and lets the rows decide the height, so the flow below draws a
-content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
-top-left corner, leaving the rest of the page blank. Within the content, A takes
-the schematic page's actual size at the left of the first row,
-the first ``mp.newline()`` puts B, C and D at the left of the second, the second
-puts E across the third, and the third puts the 400 pt-wide F block at the left
-of the fourth. Each panel's box is its axes size plus whatever y-axis decoration
-multipanel measures at render time, so a wide ylabel pushes only its own panel
-right; the letters are placed by multipanel at the left edge of each panel's
-column.
+the canvas width and lets the panels decide the height, so the flow below draws
+a content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
+top-left corner, leaving the rest of the page blank. A takes the schematic
+page's actual size at the left of the first row. The second row opens the
+two-column grid: B coverage on the left and D aggregation on the right; C
+spike-in stacks below B (``below="B"``), E trajectories below C, and F FACS
+below D. The right column is wider than the A4 content box, so the trial canvas
+uses ``LAYOUT_MAX_WIDTH_PT`` and the mount clips the overflow at the page edge.
+Each panel's box is its axes size plus whatever y-axis decoration multipanel
+measures at render time, so a wide ylabel pushes only its own panel right; the
+letters are placed by multipanel at the left edge of each panel's column.
 
 Input
 -----
@@ -59,9 +60,9 @@ Input
   timepoint; FACS LFC is depletion-positive, the opposite sign to the release).
 - <HD_DIT_HAP release>/insertion_level/LFC.tsv
   Columns: Chr, Coordinate, Strand, Target, YES0..YES4 (one row per insertion
-  orientation; panel F joins these onto the weights).
+  orientation; panel D joins these onto the weights).
 - <HD_DIT_HAP release>/insertion_level/padj.tsv
-  Same shape as the insertion LFC table; panel F reads the adjusted p-values
+  Same shape as the insertion LFC table; panel D reads the adjusted p-values
   to draw each site's statistical weight.
 - <HD_DIT_HAP release>/insertion_level/insertion_weights.tsv
   Columns: Chr, Coordinate, Strand, Target, Timepoint, Weight, Systematic ID
@@ -69,7 +70,7 @@ Input
 - resources/external/pombase/<version>/genome_region/coding_gene_primary_transcripts.bed
   Columns: #Chr, Start, End, Transcript, Length, Strand, Feature, Systematic ID,
   ... ParentalRegion_start, ParentalRegion_end (CDS and intron segments of the
-  primary transcript; panel F draws the gene model from these).
+  primary transcript; panel D draws the gene model from these).
 - resources/figures/figure1a.pdf
   One page; its page box is its content box.
 
@@ -163,12 +164,19 @@ PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
 # right margin comes for free and the figure cannot run off the page.
 CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
 ROW_GAP_PT = 6.0  # between panel rows
+# Trial two-column layout: the right column (panels D/F) is wider than the A4
+# content box, so the flow canvas is allowed to exceed CANVAS_WIDTH_PT. The
+# canvas keeps the full width (inspect _work/figure1_canvas.pdf); the A4 mount
+# clips at the page edge. Set back to CANVAS_WIDTH_PT once the column widths
+# are decided.
+LAYOUT_MAX_WIDTH_PT = 720.0
 
-# Panel E spans the content width. Panel A instead takes the schematic PDF's own
-# page box, so the artwork is embedded at its actual size (scale 1.0) rather
-# than blown up to the page width. multipanel reserves each panel's letter
-# column on the left, so a page-spanning axis gives that column back: 6 pt is
-# the rendered width of a bold 8 pt "A".
+# Panel F's container uses this width (its 4 x 2 grid occupies only the left
+# 384 pt). Panel A instead takes the schematic PDF's own page box, so the
+# artwork is embedded at its actual size (scale 1.0) rather than blown up to
+# the page width. multipanel reserves each panel's letter column on the left,
+# so a page-spanning axis gives that column back: 6 pt is the rendered width
+# of a bold 8 pt "A".
 PANEL_LABEL_COLUMN_PT = 6.0
 PAGE_CONTENT_WIDTH_PT = CANVAS_WIDTH_PT - PANEL_LABEL_COLUMN_PT
 # multipanel's pad_top is in display pixels (figure_dpi / 72 per point), so the
@@ -218,7 +226,7 @@ SPIKEIN_POINT_SIZE = 25.0
 SPIKEIN_X_LABEL = r"$\log_2$(relative dilution ratio)"
 SPIKEIN_Y_LABEL = r"$\log_2$(relative read ratio)"
 
-# --- Panel D vocabulary -----------------------------------------------------
+# --- Panel E vocabulary -----------------------------------------------------
 # The release's five sampling points: the LFC columns in order, and the
 # generations they stand for (upstream config's time_points).
 GENERATION_COLUMNS = ("YES0", "YES1", "YES2", "YES3", "YES4")
@@ -243,11 +251,11 @@ TRAJECTORY_LINE_ALPHA = 0.05
 TRAJECTORY_ZORDER = {"inviable": 3, "viable": 2}
 LFC_X_LABEL = "Generations"
 LFC_Y_LABEL = r"Gene-level LFC ($\log_2$)"
-# D's legend straddles its axes' top edge, so only its upper half counts as
-# top decoration; D's pad_top gives the rest back to keep D on B/C's baseline.
+# E's legend straddles its axes' top edge, so only its upper half counts as
+# top decoration; E's pad_top gives the rest back to keep E on C's baseline.
 LFC_LEGEND_HALF_HEIGHT_PT = 8.4
 
-# --- Panel E vocabulary -----------------------------------------------------
+# --- Panel F vocabulary -----------------------------------------------------
 DIT_HAP_SERIES = "DIT-HAP"
 FACS_SERIES_PREFIX = "FACS "
 # The workbook covers ten genes; orc6 and srb4 were retired from the panel by
@@ -265,7 +273,7 @@ FACS_STRAIN_COLORS = dict(
 )
 # FACS LFC is depletion-positive (the reference outgrows the mutant); the
 # release reports depletion-negative values. Flipping FACS puts both curves on
-# panel D's convention, so a depleted gene descends in both.
+# panel E's convention, so a depleted gene descends in both.
 FACS_LFC_SIGN = -1.0
 FACS_X_LABEL = "Generations"
 FACS_Y_LABEL = r"LFC ($\log_2$)"
@@ -278,9 +286,9 @@ FACS_LINE_ALPHA = 0.8
 FACS_Y_LABEL_CENTER_X_PT = 15.0  # centre of the rotated shared y label
 FACS_X_LABEL_BOTTOM_PT = 3.0  # bottom of the shared x label
 
-# --- Panel E geometry -------------------------------------------------------
+# --- Panel F geometry -------------------------------------------------------
 # Eight genes in a 4 x 2 grid; the legend is one row above the panel. The mini
-# axes are insets of one page-wide container panel, so they follow its box at
+# axes are insets of one fixed-width container panel, so they follow its box at
 # render time.
 FACS_GRID_COLUMNS = 4
 FACS_MINI_AXES_WIDTH_PT = 80.0
@@ -294,7 +302,7 @@ FACS_LEFT_DECORATION_PT = 34.0  # y tick labels + the shared y label
 # (salmon, purple). No other panel uses those three slots.
 DIT_HAP_COLOR = cns.get_hexcolors_from_apalette([4], HOUSE_PALETTE)[0]
 
-# --- Panel F vocabulary -----------------------------------------------------
+# --- Panel D vocabulary -----------------------------------------------------
 # The worked gene is fixed (not a per-run choice): cdc7 is the only inviable
 # gene with >=10 measured TTAA sites spanning the ORF, >=3 terminal sites whose
 # 12.5-generation LFC stays near zero, and introns to draw in the model bar.
@@ -365,7 +373,7 @@ AGGREGATE_Y_LIMITS = (AGGREGATION_LFC_LIMITS[0], AGGREGATION_LFC_LIMITS[1] + AGG
 # (the real deviation is < 1e-3).
 AGGREGATION_TOLERANCE = 1e-2
 
-# --- Panel F geometry (points inside one 400 x 120 container) ---------------
+# --- Panel D geometry (points inside one 400 x 120 container) ---------------
 AGG_PANEL_WIDTH_PT = 400.0
 AGG_PANEL_HEIGHT_PT = 120.0
 AGG_LEFT_DECORATION_PT = 30.0  # y tick labels + both rotated labels
@@ -559,7 +567,7 @@ def facs_gene_rows(frame: pd.DataFrame) -> int:
 
 
 def facs_panel_height_pt(n_rows: int) -> float:
-    """Return panel E's container height for a grid of n_rows rows."""
+    """Return panel F's container height for a grid of n_rows rows."""
     axes_height = n_rows * FACS_MINI_AXES_HEIGHT_PT
     gaps_height = (n_rows - 1) * FACS_ROW_GAP_PT
     return FACS_TITLE_BAND_PT + axes_height + gaps_height + FACS_BOTTOM_DECORATION_PT
@@ -705,7 +713,7 @@ def build_aggregation_data(
             f"{AGGREGATION_GENE_ID}: the weighted site LFCs deviate from the release "
             f"gene-level row by {deviation:.4f}"
         )
-    logger.info(f"Panel F: {len(site_lfc)} TTAA sites, aggregate deviation {deviation:.2e}")
+    logger.info(f"Panel D: {len(site_lfc)} TTAA sites, aggregate deviation {deviation:.2e}")
 
     return AggregationPanelData(
         gene_name=cast(str, record["Name"]),
@@ -744,13 +752,18 @@ def draw_figure(
     aggregation: AggregationPanelData,
     schematic_size_pt: tuple[float, float],
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw the page: A's actual-size schematic box, B, C and D, then E and F.
+    """Draw the page: A's box, then the two-column grid B/C/E | D/F.
+
+    Left column: B coverage, C spike-in below it, E trajectories below C.
+    Right column: D weighted aggregation to the right of B, F FACS below D.
+    The right column is wider than the A4 content box in this trial layout, so
+    the flow canvas exceeds CANVAS_WIDTH_PT; the A4 mount clips the overflow.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
     the object until the page is written or the panels stay unmeasured.
     """
-    mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
+    mp = cns.multipanel(max_width=LAYOUT_MAX_WIDTH_PT, unit="pt")
 
     schematic_width_pt, schematic_height_pt = schematic_size_pt
     schematic_ax = mp.panel(
@@ -762,7 +775,7 @@ def draw_figure(
     )
     blank_panel_axes(schematic_ax)
 
-    mp.newline()  # starts B's row at the page's left edge, under A
+    mp.newline()  # starts the two-column grid at the page's left edge, under A
     coverage_ax = mp.panel(
         "B",
         width=ROW_PANEL_SIZE_PT,
@@ -770,43 +783,43 @@ def draw_figure(
         margin_bottom=ROW_BELOW_DECORATION_PT,
     )
     render_coverage_panel(coverage_ax, coverage)
+    aggregation_ax = mp.panel(
+        "D",
+        width=AGG_PANEL_WIDTH_PT,
+        height=AGG_PANEL_HEIGHT_PT,
+        margin_bottom=AGG_BELOW_DECORATION_PT,  # x ticks + x titles below the axes block
+    )
+    blank_panel_axes(aggregation_ax)
+    render_aggregation_panel(aggregation_ax, aggregation)
+
     spikein_ax = mp.panel(
         "C",
         width=ROW_PANEL_SIZE_PT,
         height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
+        below="B",
     )
     render_spikein_panel(spikein_ax, spikein)
     lfc_ax = mp.panel(
-        "D",
+        "E",
         width=ROW_PANEL_SIZE_PT,
         height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
         pad_top=round(LFC_LEGEND_HALF_HEIGHT_PT * HOUSE_FIGURE_DPI / 72),
+        below="C",
     )
     render_lfc_trajectory_panel(lfc_ax, trajectory)
 
-    mp.newline()  # panel E spans the page under the B/C/D row
     facs_ax = mp.panel(
-        "E",
+        "F",
         width=PAGE_CONTENT_WIDTH_PT,
         height=facs_panel_height_pt(facs_gene_rows(facs_comparison)),
         margin_top=ROW_GAP_PT,
-        margin_bottom=0,  # the row gap to F comes from F's margin_top
+        margin_bottom=0,
+        below="D",
     )
     blank_panel_axes(facs_ax)
     render_facs_panel(facs_ax, facs_comparison)
-
-    mp.newline()  # panel F sits at the page's left under E
-    aggregation_ax = mp.panel(
-        "F",
-        width=AGG_PANEL_WIDTH_PT,
-        height=AGG_PANEL_HEIGHT_PT,
-        margin_top=ROW_GAP_PT,
-        margin_bottom=AGG_BELOW_DECORATION_PT,  # x ticks + x titles below the axes block
-    )
-    blank_panel_axes(aggregation_ax)
-    render_aggregation_panel(aggregation_ax, aggregation)
     return mp, schematic_ax
 
 
@@ -988,7 +1001,7 @@ def render_facs_panel(container: Axes, frame: pd.DataFrame) -> None:
 
 
 def facs_sub_axes_bounds(row: int, column: int, n_rows: int) -> tuple[float, float, float, float]:
-    """Return one mini axes' bounds as fractions of the panel E container."""
+    """Return one mini axes' bounds as fractions of the panel F container."""
     row_from_bottom = n_rows - 1 - row
     x_pt = FACS_LEFT_DECORATION_PT + column * (FACS_MINI_AXES_WIDTH_PT + FACS_COLUMN_GAP_PT)
     y_pt = FACS_BOTTOM_DECORATION_PT + row_from_bottom * (
@@ -1073,7 +1086,7 @@ def add_facs_axis_labels(container: Axes, n_rows: int) -> None:
 
 
 def add_facs_legend(container: Axes) -> None:
-    """Draw panel E's three-entry legend as one row above the mini-axes grid."""
+    """Draw panel F's three-entry legend as one row above the mini-axes grid."""
     swatches = [
         Line2D(
             [],
@@ -1106,9 +1119,9 @@ def add_facs_legend(container: Axes) -> None:
     )
 
 
-# --- Panel F rendering ------------------------------------------------------
+# --- Panel D rendering ------------------------------------------------------
 def render_aggregation_panel(container: Axes, data: AggregationPanelData) -> None:
-    """Draw panel F: the mirror profile, the transition block and the aggregate."""
+    """Draw panel D: the mirror profile, the transition block and the aggregate."""
     axes = aggregation_axes(container)
     render_weight_axis(axes["weight"], data)
     render_spatial_profile_axis(axes["profile"], data)
@@ -1131,7 +1144,7 @@ def aggregation_sub_axes_bounds(
 
 
 def aggregation_axes(container: Axes) -> dict[str, Axes]:
-    """Create panel F's five inset axes from the fixed point geometry."""
+    """Create panel D's five inset axes from the fixed point geometry."""
     return {
         name: container.inset_axes(aggregation_sub_axes_bounds(*bounds))
         for name, bounds in AGG_SUB_AXES_PT.items()
@@ -1301,7 +1314,7 @@ def render_aggregate_axis(ax: Axes, data: AggregationPanelData) -> None:
 
 
 def add_aggregation_legends(axes: dict[str, Axes]) -> None:
-    """Draw panel F's three legends: weight class, generation ramp, series."""
+    """Draw panel D's three legends: weight class, generation ramp, series."""
     weight_swatches = [
         Line2D([], [], color=color, linewidth=0.8, marker="o", markersize=2.5, label=label)
         for color, label in zip(
