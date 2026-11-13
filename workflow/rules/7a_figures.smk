@@ -17,6 +17,8 @@
 # Figure 1: a (schematic, external vector PDF) + b (LFC coverage by FYPO class,
 # Traditional Tn-Seq vs DIT-HAP) + c (spike-in dilution linearity) + d (gene-level
 # LFC trajectories by viability class) + e (FACS-validated genes against DIT-HAP).
+# Figure 2: a the nrs1 example: its measured gene-level LFCs and the released
+# Gompertz fit (A/DR/DL) with the formula written in the panel.
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.
@@ -63,6 +65,37 @@ rule plot_figure1:
             --gene-lfc {input.gene_lfc} \
             --facs {input.facs} \
             --schematic {input.schematic} \
+            --output-pdf {output.pdf} \
+            --output-review {output.review} \
+            --canvas {output.canvas} &> {log}
+        """
+
+
+rule plot_figure2:
+    input:
+        # Panel A: the release's gene-level curve fits, one row per gene. The
+        # fitted curve is drawn from the row's A/DR/DL; its *_fitted columns
+        # are the cross-check that this script uses the same model.
+        gene_fitting=(
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/"
+            "gene_level_fitting_statistics.tsv"
+        ),
+    output:
+        pdf=f"{_FIGURES}/figure2.pdf",
+        review=f"{_FIGURES}/figure2.review.png",
+        # The canvas before the A4 mount, kept for layout debugging.
+        canvas=f"{_FIGURES}/_work/figure2_canvas.pdf",
+    log:
+        "logs/7a_figures/plot_figure2.log",
+    conda:
+        "../envs/final_figures.yml"
+    message:
+        "*** [figures] Assembling Figure 2..."
+    shell:
+        """
+        python workflow/scripts/figures/figure2.py \
+            --gene-fitting {input.gene_fitting} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \
             --canvas {output.canvas} &> {log}

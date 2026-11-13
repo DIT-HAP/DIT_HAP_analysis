@@ -171,6 +171,59 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 ---
 
+## Figure 2 — 耗竭动力学：DR/DL 背后的 Gompertz 拟合
+
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由面板推出（实测 142.8 pt = 标题带 9.6 + 字母带 7.2 + 面板 100 + x 装饰 26）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
+
+**当前只有 A 面板**（2026-11-13 起逐步搭建，其余面板待加入）。
+
+**产物**：
+
+| 文件 | 说明 |
+|---|---|
+| `results/7a_figures/figure2.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
+| `results/7a_figures/figure2.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
+| `results/7a_figures/_work/figure2_canvas.pdf` | 贴 A4 前的内容画布（515.28 × 142.8 pt）；排查版式时看这个 |
+
+---
+
+### Panel A — nrs1：一个基因的实测 LFC 与 Gompertz 拟合
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `<HD_DIT_HAP release>/gene_level/gene_level_fitting_statistics.tsv`（release 的基因级拟合表，一行一个基因） |
+| 必需列 | `Name`、`time_points`、`A`、`DR`、`DL`、`R2`、`YES0`…`YES4`、`YES0_fitted`…`YES4_fitted`（缺列在 I/O 边界直接报错） |
+| 变换 | 按 `Name == "nrs1"` 取唯一一行（缺失或重复都报错）；`time_points` 的逗号串解析为世代向量 `0 / 2.352 / 5.588 / 9.104 / 12.48`；**平滑曲线由发布的 A/DR/DL 代入模型求值**（300 点），`*_fitted` 五列只用来核对模型一致（逐点偏差 ≤ 5e-3，覆盖参数三位小数舍入的传播），不用于摆线 |
+| 画法 | 实测点：palette 0（accent），`s=24`、白边 0.6 pt、`zorder=3`；拟合曲线：palette 1（teal），线宽 1.5 pt、`zorder=2`；无图例（形状与颜色自明，公式块解释曲线） |
+| 公式块 | 右上角、`ha="right"`、距 axes 右/上缘 0.985 / 0.975（axes 分数），三行 7 pt、行距 0.145：① 模型 `y = A·exp(−exp[DR·e/A·(DL−x)+1])`；② `A = −6.68, DR = −1.12`；③ `DL = 0.00, R² = 0.968`（数值由该行参数格式化，不是写死的） |
+| 轴 | x `Generations`，刻度为五个世代值（一位小数，`2.352 → 2.4`、`12.48 → 12.5`，末尾 `.0` 去掉）；y `Gene-level LFC (log₂)`，刻度只覆盖数据范围的 2 单位网格（nrs1 为 −6/−4/−2/0），顶部留白不带刻度 |
+| 比例 | 数据范围外扩：底部 8%、顶部 30%（顶部宽带留给公式块；按数据跨度取比例，换基因仍成立）；x 两侧各 3% |
+| 版式 | axes `120 × 100` pt，排在页面首行（x 含实测 ylabel 宽度）；标题 `nrs1` 斜体加粗（house 8 pt）；字母 A 由 multipanel 放在列首，x = 0 |
+| 产物 | 并入 `figure2.pdf` |
+
+数据口径：`A` 是曲线平台（nrs1 = −6.677，负值表示耗竭到底）、`DR` 是最大耗竭速率（−1.119）、`DL` 是耗竭延迟（−0.0，显示为 0.00）；`R2 = 0.9676`。实测 `YES0…YES4` 与曲线在同一条 LFC 轴上，曲线的首个拟合点（−0.441）与实测 `YES0`（0）的差距就是拟合残差，不做隐藏。
+
+---
+
+### 可调旋钮（全部在 `workflow/scripts/figures/figure2.py` 顶部）
+
+| 常量 | 当前值 | 作用 |
+|---|---:|---|
+| `GENE_NAME` | `nrs1` | 示例基因（固定，不做逐次选择） |
+| `PANEL_WIDTH_PT` / `PANEL_HEIGHT_PT` | 120 / 100 | A 面板 axes 尺寸 |
+| `BELOW_DECORATION_PT` | 26 | x 刻度 + xlabel 所占高度 |
+| `Y_PADDING_BOTTOM` / `Y_PADDING_TOP` | 0.08 / 0.30 | y 轴上下留白占数据跨度的比例；顶部带宽决定公式块空间 |
+| `Y_TICK_STEP` | 2 | y 刻度间隔（只在数据范围内取刻度） |
+| `X_PADDING` | 0.03 | x 两侧留白占跨度比例 |
+| `ANNOTATION_TOP` / `ANNOTATION_LINE_STEP` | 0.975 / 0.145 | 公式块起始高度与行距（axes 分数） |
+| `ANNOTATION_FONT_PT` | 7 | 公式块字号 |
+| `OBSERVED_MARKER_SIZE` / `FIT_LINE_WIDTH_PT` | 24 / 1.5 | 实测点大小、拟合线线宽 |
+| `CURVE_SAMPLES` | 300 | 平滑曲线取点数 |
+
+换示例基因只改 `GENE_NAME`；轴刻度、留白与公式数值都会跟着该行重算（`GENE_FIT_COLUMNS` 的契约不变）。
+
+---
+
 ## Figure S1 — 文库制备重复性 + 每基因插入条数分布
 
 **画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 304.4 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），其余留白。内容画布由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版：
