@@ -38,11 +38,12 @@ the canvas width and lets the rows decide the height, so the flow below draws a
 content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
 top-left corner, leaving the rest of the page blank. Within the content, A takes
 the schematic page's actual size at the left of the first row,
-the first ``mp.newline()`` puts B, C and D at the left of the second, and the
-second puts E across the third. Each panel's box is its axes size plus whatever
-y-axis decoration multipanel measures at render time, so a wide ylabel pushes
-only its own panel right; the letters are placed by multipanel at the left edge
-of each panel's column.
+the first ``mp.newline()`` puts B, C and D at the left of the second, the second
+puts E across the third, and the third puts the 400 pt-wide F block at the left
+of the fourth. Each panel's box is its axes size plus whatever y-axis decoration
+multipanel measures at render time, so a wide ylabel pushes only its own panel
+right; the letters are placed by multipanel at the left edge of each panel's
+column.
 
 Input
 -----
@@ -97,7 +98,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-11-07
-Version:  1.1.0
+Version:  1.2.0
 """
 
 # =============================================================================
@@ -114,9 +115,9 @@ from typing import cast
 
 import cnsplots as cns
 from loguru import logger
-from matplotlib import colormaps
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
+from matplotlib.colors import to_rgb
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -338,53 +339,55 @@ AGGREGATION_GENE_COLOR = ACCENT_COLOR
 AGGREGATION_INSERTION_COLOR = FURNITURE_COLOR
 # The gene model is annotation furniture, not a data series: neutral dark grey.
 GENE_MODEL_COLOR = "#4D4D4D"
-# Generation colour ramp: the house sequential map sampled light (2.4 gen) to
-# dark (12.5 gen), so the progressive collapse reads as depth.
-GENERATION_CMAP_LIGHT = 0.92
-GENERATION_CMAP_DARK = 0.18
-AGGREGATION_WEIGHT_LINE_WIDTH_PT = 0.5
-AGGREGATION_WEIGHT_MARKER_SIZE = 8.0
-AGGREGATION_PROFILE_LINE_WIDTH_PT = 1.0
-AGGREGATION_INSERTION_LINE_WIDTH_PT = 0.4
+# Generation ramp: one hue (the coral accent) shaded light (2.4 gen) to dark
+# (12.5 gen), so the progressive collapse reads as depth without adding a
+# second categorical palette.
+GENERATION_COLOR_LIGHT_MIX = 0.35  # accent fraction; the rest is white
+GENERATION_COLOR_DARK_MIX = 1.0
+AGGREGATION_WEIGHT_LINE_WIDTH_PT = 1.0
+AGGREGATION_WEIGHT_MARKER_SIZE = 20.0
+AGGREGATION_PROFILE_LINE_WIDTH_PT = 2.0
+AGGREGATION_INSERTION_LINE_WIDTH_PT = 0.5
 AGGREGATION_INSERTION_ALPHA = 0.3
 AGGREGATION_GENE_LINE_WIDTH_PT = 2.0
-GENE_MODEL_BAR_HEIGHT = 0.4
+GENE_MODEL_BAR_HEIGHT = 0.5
 GENE_MODEL_BASELINE_Y = 0.5
 GENE_MODEL_LINE_WIDTH_PT = 0.5
-GENE_MODEL_END_LABEL_Y = 0.9
+GENE_MODEL_END_LABEL_PAD_PT = 1.0
+# The aggregate keeps a blank band above y = 0 for its inside-top legend; the
+# y ticks still run 0..-8.
+AGGREGATE_HEADROOM = 1.0
+AGGREGATE_Y_LIMITS = (AGGREGATION_LFC_LIMITS[0], AGGREGATION_LFC_LIMITS[1] + AGGREGATE_HEADROOM)
 # A mis-joined insertion table would separate the drawn aggregate from the
 # release's gene-level row; 1e-2 covers the release's three-decimal rounding
 # (the real deviation is < 1e-3).
 AGGREGATION_TOLERANCE = 1e-2
 
-# --- Panel F geometry (points inside one page-wide container, like E) ------
-AGG_PANEL_HEIGHT_PT = 158.0
-AGG_LEFT_DECORATION_PT = 36.0  # y tick labels + both rotated labels
-AGG_LEFT_AXES_WIDTH_PT = 168.0
-AGG_BLOCK_GAP_PT = 10.0
-AGG_TRANSITION_WIDTH_PT = 100.0
-AGG_RIGHT_DECORATION_PT = 30.0
-AGG_RIGHT_MARGIN_PT = 8.0
-AGG_GENE_AXES_BOTTOM_PT = 22.0
-AGG_GENE_AXES_HEIGHT_PT = 14.0
-AGG_AXES_GAP_PT = 3.0
+# --- Panel F geometry (points inside one 400 x 120 container) ---------------
+AGG_PANEL_WIDTH_PT = 400.0
+AGG_PANEL_HEIGHT_PT = 120.0
+AGG_LEFT_DECORATION_PT = 30.0  # y tick labels + both rotated labels
+AGG_LEFT_AXES_WIDTH_PT = 120.0
+AGG_GENE_AXES_HEIGHT_PT = 15.0
 AGG_LFC_HEIGHT_PT = 75.0
-# The positive (weight) and negative (LFC) halves share the y = 0 baseline at a
-# strict 1 : 2.5 height ratio.
 AGG_WEIGHT_HEIGHT_PT = 30.0
-AGG_LFC_BOTTOM_PT = AGG_GENE_AXES_BOTTOM_PT + AGG_GENE_AXES_HEIGHT_PT + AGG_AXES_GAP_PT
-AGG_WEIGHT_BOTTOM_PT = AGG_LFC_BOTTOM_PT + AGG_LFC_HEIGHT_PT
-AGG_TRANSITION_X_PT = AGG_LEFT_DECORATION_PT + AGG_LEFT_AXES_WIDTH_PT + AGG_BLOCK_GAP_PT
-AGG_RIGHT_X_PT = (
-    AGG_TRANSITION_X_PT + AGG_TRANSITION_WIDTH_PT + AGG_BLOCK_GAP_PT + AGG_RIGHT_DECORATION_PT
-)
-AGG_RIGHT_AXES_WIDTH_PT = PAGE_CONTENT_WIDTH_PT - AGG_RIGHT_X_PT - AGG_RIGHT_MARGIN_PT
-# The transition block spans the weight band as well as the LFC band so its
-# legends and formula share one coordinate system.
-AGG_TRANSITION_HEIGHT_PT = AGG_LFC_HEIGHT_PT + AGG_WEIGHT_HEIGHT_PT
-AGG_ARROW_Y = 0.42  # fraction of the transition axes
-AGG_LABEL_Y = 0.52
-AGG_FORMULA_Y = 0.34
+# The left block stacks weight (30) + profile (75) + model (15) = the full 120;
+# the shared x axis line sits at the weight/profile boundary (y = 0).
+AGG_PROFILE_BOTTOM_PT = AGG_GENE_AXES_HEIGHT_PT
+AGG_WEIGHT_BOTTOM_PT = AGG_PROFILE_BOTTOM_PT + AGG_LFC_HEIGHT_PT
+AGG_TRANSITION_X_PT = AGG_LEFT_DECORATION_PT + AGG_LEFT_AXES_WIDTH_PT
+AGG_TRANSITION_WIDTH_PT = 100.0
+AGG_TRANSITION_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
+AGG_RIGHT_DECORATION_PT = 30.0
+AGG_RIGHT_X_PT = AGG_TRANSITION_X_PT + AGG_TRANSITION_WIDTH_PT + AGG_RIGHT_DECORATION_PT
+AGG_RIGHT_AXES_WIDTH_PT = AGG_PANEL_WIDTH_PT - AGG_RIGHT_X_PT
+AGG_RIGHT_AXES_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
+# The x tick labels and x titles sit below the 120 pt axes block, exactly like
+# B/C/D's ROW_BELOW_DECORATION_PT.
+AGG_BELOW_DECORATION_PT = 26.0
+AGG_ARROW_Y = 0.33  # fraction of the transition axes
+AGG_LABEL_Y = 0.39
+AGG_FORMULA_Y = 0.28
 # One region per inset axes: (left, bottom, width, height) in container points.
 AGG_SUB_AXES_PT = {
     "weight": (
@@ -395,27 +398,27 @@ AGG_SUB_AXES_PT = {
     ),
     "profile": (
         AGG_LEFT_DECORATION_PT,
-        AGG_LFC_BOTTOM_PT,
+        AGG_PROFILE_BOTTOM_PT,
         AGG_LEFT_AXES_WIDTH_PT,
         AGG_LFC_HEIGHT_PT,
     ),
     "model": (
         AGG_LEFT_DECORATION_PT,
-        AGG_GENE_AXES_BOTTOM_PT,
+        0.0,
         AGG_LEFT_AXES_WIDTH_PT,
         AGG_GENE_AXES_HEIGHT_PT,
     ),
     "transition": (
         AGG_TRANSITION_X_PT,
-        AGG_LFC_BOTTOM_PT,
+        0.0,
         AGG_TRANSITION_WIDTH_PT,
         AGG_TRANSITION_HEIGHT_PT,
     ),
     "aggregate": (
         AGG_RIGHT_X_PT,
-        AGG_LFC_BOTTOM_PT,
+        0.0,
         AGG_RIGHT_AXES_WIDTH_PT,
-        AGG_LFC_HEIGHT_PT,
+        AGG_RIGHT_AXES_HEIGHT_PT,
     ),
 }
 
@@ -792,13 +795,13 @@ def draw_figure(
     blank_panel_axes(facs_ax)
     render_facs_panel(facs_ax, facs_comparison)
 
-    mp.newline()  # panel F spans the page under E
+    mp.newline()  # panel F sits at the page's left under E
     aggregation_ax = mp.panel(
         "F",
-        width=PAGE_CONTENT_WIDTH_PT,
+        width=AGG_PANEL_WIDTH_PT,
         height=AGG_PANEL_HEIGHT_PT,
         margin_top=ROW_GAP_PT,
-        margin_bottom=0,  # last row: its x labels are the page's bottom decoration
+        margin_bottom=AGG_BELOW_DECORATION_PT,  # x ticks + x titles below the axes block
     )
     blank_panel_axes(aggregation_ax)
     render_aggregation_panel(aggregation_ax, aggregation)
@@ -1118,9 +1121,9 @@ def aggregation_sub_axes_bounds(
 ) -> tuple[float, float, float, float]:
     """Return one panel-F inset's bounds as fractions of the container."""
     return (
-        x_pt / PAGE_CONTENT_WIDTH_PT,
+        x_pt / AGG_PANEL_WIDTH_PT,
         y_pt / AGG_PANEL_HEIGHT_PT,
-        width_pt / PAGE_CONTENT_WIDTH_PT,
+        width_pt / AGG_PANEL_WIDTH_PT,
         height_pt / AGG_PANEL_HEIGHT_PT,
     )
 
@@ -1133,17 +1136,15 @@ def aggregation_axes(container: Axes) -> dict[str, Axes]:
     }
 
 
-def generation_colors() -> list[tuple[float, float, float, float]]:
-    """Return the four generation colours, light (2.4 gen) to dark (12.5 gen)."""
-    colormap = colormaps[DENSITY_CMAP]
-    return [
-        colormap(value)
-        for value in np.linspace(
-            GENERATION_CMAP_LIGHT,
-            GENERATION_CMAP_DARK,
-            len(AGGREGATION_PROFILE_TIMEPOINTS),
-        )
-    ]
+def generation_colors() -> list[tuple[float, float, float]]:
+    """Return the four generation colours, one hue shaded light to dark."""
+    accent = np.array(to_rgb(ACCENT_COLOR))
+    mixes = np.linspace(
+        GENERATION_COLOR_LIGHT_MIX,
+        GENERATION_COLOR_DARK_MIX,
+        len(AGGREGATION_PROFILE_TIMEPOINTS),
+    )
+    return [tuple(1.0 - mix * (1.0 - accent)) for mix in mixes]
 
 
 def render_weight_axis(ax: Axes, data: AggregationPanelData) -> None:
@@ -1176,7 +1177,6 @@ def render_weight_axis(ax: Axes, data: AggregationPanelData) -> None:
     ax.set_yticks(AGGREGATION_WEIGHT_TICKS)
     ax.set_ylabel(WEIGHT_AXIS_LABEL)
     ax.set_xticks([])
-    ax.spines["bottom"].set_visible(False)
     ax.set_title(data.gene_name, fontstyle="italic", fontweight="bold", loc="left", pad=2)
 
 
@@ -1192,13 +1192,13 @@ def render_spatial_profile_axis(ax: Axes, data: AggregationPanelData) -> None:
             zorder=2,
         )
 
-    ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5, zorder=1)
     ax.set_xlim(0, data.span_bp)
     ax.set_ylim(*AGGREGATION_LFC_LIMITS)
     ax.set_yticks(AGGREGATION_LFC_TICKS)
     ax.set_ylabel(PROFILE_AXIS_LABEL)
     ax.set_xticks([])
     ax.spines["top"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
 
 
 def render_gene_model_axis(ax: Axes, data: AggregationPanelData) -> None:
@@ -1219,14 +1219,31 @@ def render_gene_model_axis(ax: Axes, data: AggregationPanelData) -> None:
         color=GENE_MODEL_COLOR,
         edgecolor="none",
     )
-    ax.text(0, GENE_MODEL_END_LABEL_Y, "5'", ha="left", va="bottom")
-    ax.text(data.span_bp, GENE_MODEL_END_LABEL_Y, "3'", ha="right", va="bottom")
+    ax.annotate(
+        "5'",
+        xy=(0, GENE_MODEL_BASELINE_Y),
+        xytext=(-GENE_MODEL_END_LABEL_PAD_PT, 0),
+        textcoords="offset points",
+        ha="right",
+        va="center",
+        clip_on=False,
+    )
+    ax.annotate(
+        "3'",
+        xy=(data.span_bp, GENE_MODEL_BASELINE_Y),
+        xytext=(GENE_MODEL_END_LABEL_PAD_PT, 0),
+        textcoords="offset points",
+        ha="left",
+        va="center",
+        clip_on=False,
+    )
 
     ax.set_xlim(0, data.span_bp)
     ax.set_ylim(0, 1)
     ax.set_yticks([])
     ticks = np.arange(0, data.span_bp + 1, 1000)
     ax.set_xticks(ticks, [f"{int(tick):,}" for tick in ticks])
+    ax.tick_params(axis="x", length=0)
     ax.set_xlabel(MODEL_AXIS_LABEL)
     for side in ("top", "left", "right", "bottom"):
         ax.spines[side].set_visible(False)
@@ -1274,7 +1291,7 @@ def render_aggregate_axis(ax: Axes, data: AggregationPanelData) -> None:
 
     ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5, zorder=1)
     ax.set_xlim(*AGGREGATION_X_LIMITS)
-    ax.set_ylim(*AGGREGATION_LFC_LIMITS)
+    ax.set_ylim(*AGGREGATE_Y_LIMITS)
     ax.set_xticks(GENERATIONS, GENERATION_TICK_LABELS)
     ax.set_yticks(AGGREGATION_LFC_TICKS)
     ax.set_xlabel(LFC_X_LABEL)
@@ -1293,10 +1310,10 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
     ]
     add_unframed_legend(
         axes["weight"],
-        columns=len(weight_swatches),
+        columns=1,
         handles=weight_swatches,
-        loc="lower right",
-        anchor=(1.0, 1.0),
+        loc="center left",
+        anchor=(1.0, 0.5),
     )
 
     generation_swatches = [
@@ -1310,12 +1327,12 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         for color, label in zip(generation_colors(), GENERATION_TICK_LABELS[1:], strict=True)
     ]
     add_unframed_legend(
-        axes["transition"],
+        axes["profile"],
         columns=len(generation_swatches),
         title=GENERATIONS_LEGEND_TITLE,
         handles=generation_swatches,
-        loc="upper center",
-        anchor=(0.5, 1.0),
+        loc="center left",
+        anchor=(1.0, 0.8),
     )
 
     aggregate_swatches = [
@@ -1338,8 +1355,8 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         axes["aggregate"],
         columns=len(aggregate_swatches),
         handles=aggregate_swatches,
-        loc="lower right",
-        anchor=(1.0, 1.0),
+        loc="upper center",
+        anchor=(0.5, 1.0),
     )
 
 
