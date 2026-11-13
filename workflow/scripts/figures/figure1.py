@@ -37,14 +37,13 @@ The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
 the canvas width and lets the panels decide the height, so the flow below draws
 a content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
 top-left corner, leaving the rest of the page blank. A takes the schematic
-page's actual size at the left of the first row. The second row opens the
-two-column grid: B coverage on the left and D aggregation on the right; C
-spike-in stacks below B (``below="B"``), E trajectories below C, and F FACS
-below D. The right column is wider than the A4 content box, so the trial canvas
-uses ``LAYOUT_MAX_WIDTH_PT`` and the mount clips the overflow at the page edge.
-Each panel's box is its axes size plus whatever y-axis decoration multipanel
-measures at render time, so a wide ylabel pushes only its own panel right; the
-letters are placed by multipanel at the left edge of each panel's column.
+page's actual size at the left of the first row. Row 2 holds B coverage (70 pt
+wide) and D aggregation (333 x 100 pt) to its right; row 3 holds C spike-in, E
+trajectories to its right, and F FACS (220 x 100 pt, 2 x 2) after E. Both rows
+fit the A4 content width. Each panel's box is its axes size plus whatever
+y-axis decoration multipanel measures at render time, so a wide ylabel pushes
+only its own panel right; the letters are placed by multipanel at the left edge
+of each panel's column.
 
 Input
 -----
@@ -164,29 +163,21 @@ PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
 # right margin comes for free and the figure cannot run off the page.
 CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
 ROW_GAP_PT = 6.0  # between panel rows
-# Trial two-column layout: the right column (panels D/F) is wider than the A4
-# content box, so the flow canvas is allowed to exceed CANVAS_WIDTH_PT. The
-# canvas keeps the full width (inspect _work/figure1_canvas.pdf); the A4 mount
-# clips at the page edge. Set back to CANVAS_WIDTH_PT once the column widths
-# are decided.
-LAYOUT_MAX_WIDTH_PT = 720.0
 
-# Panel F's container uses this width (its 4 x 2 grid occupies only the left
-# 384 pt). Panel A instead takes the schematic PDF's own page box, so the
-# artwork is embedded at its actual size (scale 1.0) rather than blown up to
-# the page width. multipanel reserves each panel's letter column on the left,
-# so a page-spanning axis gives that column back: 6 pt is the rendered width
-# of a bold 8 pt "A".
+# Panel A takes the schematic PDF's own page box, so the artwork is embedded at
+# its actual size (scale 1.0) rather than blown up to the page width.
+# multipanel reserves each panel's letter column on the left, so a
+# page-spanning axis gives that column back: 6 pt is the rendered width of a
+# bold 8 pt "A".
 PANEL_LABEL_COLUMN_PT = 6.0
-PAGE_CONTENT_WIDTH_PT = CANVAS_WIDTH_PT - PANEL_LABEL_COLUMN_PT
 # multipanel's pad_top is in display pixels (figure_dpi / 72 per point), so the
 # letter band above A is the label's own height plus this clearance.
 PANEL_LETTER_PAD_TOP_PX = round(2.8 * HOUSE_FIGURE_DPI / 72)
 
-# Bottom row: B, C and D share one square footprint so the three plotting areas
-# read as a set; 100 pt is the house SQUARE baseline (inside the 80-150 pt band)
-# and the three columns still fit the page width with their own y decorations.
+# C and E keep the 100 pt house SQUARE baseline; B is narrowed to 70 pt for the
+# trial so the D column can sit beside it without running off the page.
 ROW_PANEL_SIZE_PT = 100.0
+COVERAGE_PANEL_WIDTH_PT = 70.0
 # x ticks + xlabel; the legends sit above the row, and multipanel measures
 # them as top decoration.
 ROW_BELOW_DECORATION_PT = 26.0
@@ -258,9 +249,10 @@ LFC_LEGEND_HALF_HEIGHT_PT = 8.4
 # --- Panel F vocabulary -----------------------------------------------------
 DIT_HAP_SERIES = "DIT-HAP"
 FACS_SERIES_PREFIX = "FACS "
-# The workbook covers ten genes; orc6 and srb4 were retired from the panel by
-# user decision (2026-11-12), leaving a clean 4 x 2 grid.
-FACS_EXCLUDED_GENES = ("orc6", "srb4")
+# The workbook covers ten genes; panel F keeps only these four in a 2 x 2 grid
+# (user decision on 2026-11-13). The order on the page is alphabetical: cut8
+# and fal1 on the top row, leu1 and rpl3601 below.
+FACS_SHOWN_GENES = ("cut8", "fal1", "leu1", "rpl3601")
 # The two FACS strains are independent isolates, not replicates, so both are
 # drawn and each gets its own Cell-palette colour.
 FACS_STRAIN_ORDER = ("Strain#1", "Strain#2")
@@ -287,14 +279,18 @@ FACS_Y_LABEL_CENTER_X_PT = 15.0  # centre of the rotated shared y label
 FACS_X_LABEL_BOTTOM_PT = 3.0  # bottom of the shared x label
 
 # --- Panel F geometry -------------------------------------------------------
-# Eight genes in a 4 x 2 grid; the legend is one row above the panel. The mini
-# axes are insets of one fixed-width container panel, so they follow its box at
-# render time.
-FACS_GRID_COLUMNS = 4
-FACS_MINI_AXES_WIDTH_PT = 80.0
-FACS_MINI_AXES_HEIGHT_PT = 60.0
+# Four genes in a 2 x 2 grid. The bottom row's x axis must sit on panel E's
+# axes bottom: with the row-top alignment F's container top is 110.15 pt above
+# E's axes bottom, so the container is 110.15 + 22 (bottom band) = 132.15 pt
+# tall and the two mini rows take (132.15 - 13 - 12.5 - 22) / 2 = 42.325 pt.
+# The width stays 220 pt: 34 + 2*88 + 10 = 220.
+FACS_GRID_COLUMNS = 2
+FACS_CONTAINER_WIDTH_PT = 220.0
+FACS_CONTAINER_HEIGHT_PT = 132.15
+FACS_MINI_AXES_WIDTH_PT = 88.0
+FACS_MINI_AXES_HEIGHT_PT = 42.325
 FACS_COLUMN_GAP_PT = 10.0
-FACS_ROW_GAP_PT = 16.0  # clears the lower row's 8 pt gene title
+FACS_ROW_GAP_PT = 12.5  # clears the lower row's 8 pt gene title
 FACS_TITLE_BAND_PT = 13.0  # above the upper row's gene titles
 FACS_BOTTOM_DECORATION_PT = 22.0  # x tick labels + the shared x label
 FACS_LEFT_DECORATION_PT = 34.0  # y tick labels + the shared y label
@@ -373,27 +369,37 @@ AGGREGATE_Y_LIMITS = (AGGREGATION_LFC_LIMITS[0], AGGREGATION_LFC_LIMITS[1] + AGG
 # (the real deviation is < 1e-3).
 AGGREGATION_TOLERANCE = 1e-2
 
-# --- Panel D geometry (points inside one 400 x 120 container) ---------------
-AGG_PANEL_WIDTH_PT = 400.0
+# --- Panel D geometry (353.33 x 120) ---------------------------------------
+# The plot blocks keep the compact 5/6 widths (25 pt decorations, 100 pt axes)
+# and the height returns to the full 120 pt design. The 20 pt the panel gains
+# over the compact 333.33 pt version goes entirely to the middle transition,
+# which gives the 7 pt formula its side margins back.
+AGG_HORIZONTAL_SCALE = 5.0 / 6.0
 AGG_PANEL_HEIGHT_PT = 120.0
-AGG_LEFT_DECORATION_PT = 30.0  # y tick labels + both rotated labels
-AGG_LEFT_AXES_WIDTH_PT = 120.0
+AGG_LEFT_DECORATION_PT = 30.0 * AGG_HORIZONTAL_SCALE  # 25; tick labels + labels
+AGG_LEFT_AXES_WIDTH_PT = 120.0 * AGG_HORIZONTAL_SCALE  # 100
 AGG_GENE_AXES_HEIGHT_PT = 15.0
 AGG_LFC_HEIGHT_PT = 75.0
 AGG_WEIGHT_HEIGHT_PT = 30.0
-# The left block stacks weight (30) + profile (75) + model (15) = the full 120;
-# the shared x axis line sits at the weight/profile boundary (y = 0).
+# The left block stacks weight + profile + model = the full 120 pt height; the
+# shared x axis line sits at the weight/profile boundary (y = 0).
 AGG_PROFILE_BOTTOM_PT = AGG_GENE_AXES_HEIGHT_PT
 AGG_WEIGHT_BOTTOM_PT = AGG_PROFILE_BOTTOM_PT + AGG_LFC_HEIGHT_PT
 AGG_TRANSITION_X_PT = AGG_LEFT_DECORATION_PT + AGG_LEFT_AXES_WIDTH_PT
-AGG_TRANSITION_WIDTH_PT = 100.0
+AGG_TRANSITION_WIDTH_PT = 100.0 * AGG_HORIZONTAL_SCALE + 20.0  # 103.33
 AGG_TRANSITION_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
-AGG_RIGHT_DECORATION_PT = 30.0
+AGG_RIGHT_DECORATION_PT = 30.0 * AGG_HORIZONTAL_SCALE  # 25
 AGG_RIGHT_X_PT = AGG_TRANSITION_X_PT + AGG_TRANSITION_WIDTH_PT + AGG_RIGHT_DECORATION_PT
-AGG_RIGHT_AXES_WIDTH_PT = AGG_PANEL_WIDTH_PT - AGG_RIGHT_X_PT
+AGG_RIGHT_AXES_WIDTH_PT = 120.0 * AGG_HORIZONTAL_SCALE  # 100
 AGG_RIGHT_AXES_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
+AGG_PANEL_WIDTH_PT = (
+    AGG_TRANSITION_X_PT
+    + AGG_TRANSITION_WIDTH_PT
+    + AGG_RIGHT_DECORATION_PT
+    + AGG_RIGHT_AXES_WIDTH_PT
+)
 # The x tick labels and x titles sit below the 120 pt axes block, exactly like
-# B/C/D's ROW_BELOW_DECORATION_PT.
+# B/C/E's ROW_BELOW_DECORATION_PT.
 AGG_BELOW_DECORATION_PT = 26.0
 AGG_ARROW_Y = 0.6152  # fraction of the transition axes
 AGG_LABEL_Y = 0.6442
@@ -536,7 +542,7 @@ def build_trajectory_frame(gene_lfc: pd.DataFrame) -> pd.DataFrame:
 
 def build_facs_comparison_frame(facs: pd.DataFrame, gene_lfc: pd.DataFrame) -> pd.DataFrame:
     """Stack the FACS and DIT-HAP curves per gene on one sign convention."""
-    is_shown = ~facs["Name"].isin(FACS_EXCLUDED_GENES)
+    is_shown = facs["Name"].isin(FACS_SHOWN_GENES)
     shown_facs = facs.loc[is_shown, list(FACS_COLUMNS)]
     genes = sorted(shown_facs["Name"].unique())
     missing_genes = set(genes) - set(gene_lfc["Name"])
@@ -752,18 +758,17 @@ def draw_figure(
     aggregation: AggregationPanelData,
     schematic_size_pt: tuple[float, float],
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw the page: A's box, then the two-column grid B/C/E | D/F.
+    """Draw the page: A's box, then the B/D row and the C/E/F row.
 
-    Left column: B coverage, C spike-in below it, E trajectories below C.
-    Right column: D weighted aggregation to the right of B, F FACS below D.
-    The right column is wider than the A4 content box in this trial layout, so
-    the flow canvas exceeds CANVAS_WIDTH_PT; the A4 mount clips the overflow.
+    Row 2: B coverage (70 pt wide) and D weighted aggregation (333 x 100 pt) to
+    its right. Row 3: C spike-in, E trajectories to its right, then F FACS
+    (220 x 100 pt, 2 x 2). Both rows fit the A4 content width.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
     the object until the page is written or the panels stay unmeasured.
     """
-    mp = cns.multipanel(max_width=LAYOUT_MAX_WIDTH_PT, unit="pt")
+    mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
 
     schematic_width_pt, schematic_height_pt = schematic_size_pt
     schematic_ax = mp.panel(
@@ -775,10 +780,10 @@ def draw_figure(
     )
     blank_panel_axes(schematic_ax)
 
-    mp.newline()  # starts the two-column grid at the page's left edge, under A
+    mp.newline()  # row 2 opens at the page's left edge, under A
     coverage_ax = mp.panel(
         "B",
-        width=ROW_PANEL_SIZE_PT,
+        width=COVERAGE_PANEL_WIDTH_PT,
         height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
     )
@@ -792,12 +797,12 @@ def draw_figure(
     blank_panel_axes(aggregation_ax)
     render_aggregation_panel(aggregation_ax, aggregation)
 
+    mp.newline()  # row 3: C | E | F
     spikein_ax = mp.panel(
         "C",
         width=ROW_PANEL_SIZE_PT,
         height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
-        below="B",
     )
     render_spikein_panel(spikein_ax, spikein)
     lfc_ax = mp.panel(
@@ -806,17 +811,14 @@ def draw_figure(
         height=ROW_PANEL_SIZE_PT,
         margin_bottom=ROW_BELOW_DECORATION_PT,
         pad_top=round(LFC_LEGEND_HALF_HEIGHT_PT * HOUSE_FIGURE_DPI / 72),
-        below="C",
     )
     render_lfc_trajectory_panel(lfc_ax, trajectory)
 
     facs_ax = mp.panel(
         "F",
-        width=PAGE_CONTENT_WIDTH_PT,
+        width=FACS_CONTAINER_WIDTH_PT,
         height=facs_panel_height_pt(facs_gene_rows(facs_comparison)),
-        margin_top=ROW_GAP_PT,
         margin_bottom=0,
-        below="D",
     )
     blank_panel_axes(facs_ax)
     render_facs_panel(facs_ax, facs_comparison)
@@ -866,7 +868,7 @@ def render_coverage_panel(ax: Axes, frame: pd.DataFrame) -> None:
     ax.set_xticks(AXIS_TICK_VALUES)
     ax.set_xlabel(COVERAGE_X_LABEL)
     ax.set_ylabel(COVERAGE_Y_LABEL)
-    add_unframed_legend(ax, columns=len(COVERAGE_DATASETS), title=COVERAGE_LEGEND_TITLE)
+    add_unframed_legend(ax, columns=1, title=COVERAGE_LEGEND_TITLE)
 
 
 def legend_entries(
@@ -1009,9 +1011,9 @@ def facs_sub_axes_bounds(row: int, column: int, n_rows: int) -> tuple[float, flo
     )
     panel_height_pt = facs_panel_height_pt(n_rows)
     return (
-        x_pt / PAGE_CONTENT_WIDTH_PT,
+        x_pt / FACS_CONTAINER_WIDTH_PT,
         y_pt / panel_height_pt,
-        FACS_MINI_AXES_WIDTH_PT / PAGE_CONTENT_WIDTH_PT,
+        FACS_MINI_AXES_WIDTH_PT / FACS_CONTAINER_WIDTH_PT,
         FACS_MINI_AXES_HEIGHT_PT / panel_height_pt,
     )
 
@@ -1069,7 +1071,7 @@ def add_facs_axis_labels(container: Axes, n_rows: int) -> None:
         FACS_GRID_COLUMNS * FACS_MINI_AXES_WIDTH_PT + (FACS_GRID_COLUMNS - 1) * FACS_COLUMN_GAP_PT
     )
     container.text(
-        FACS_Y_LABEL_CENTER_X_PT / PAGE_CONTENT_WIDTH_PT,
+        FACS_Y_LABEL_CENTER_X_PT / FACS_CONTAINER_WIDTH_PT,
         (FACS_BOTTOM_DECORATION_PT + grid_height_pt / 2) / panel_height_pt,
         FACS_Y_LABEL,
         rotation=90,
@@ -1077,7 +1079,7 @@ def add_facs_axis_labels(container: Axes, n_rows: int) -> None:
         va="center",
     )
     container.text(
-        (FACS_LEFT_DECORATION_PT + grid_width_pt / 2) / PAGE_CONTENT_WIDTH_PT,
+        (FACS_LEFT_DECORATION_PT + grid_width_pt / 2) / FACS_CONTAINER_WIDTH_PT,
         FACS_X_LABEL_BOTTOM_PT / panel_height_pt,
         FACS_X_LABEL,
         ha="center",
@@ -1109,7 +1111,7 @@ def add_facs_legend(container: Axes) -> None:
     grid_width_pt = (
         FACS_GRID_COLUMNS * FACS_MINI_AXES_WIDTH_PT + (FACS_GRID_COLUMNS - 1) * FACS_COLUMN_GAP_PT
     )
-    anchor_x = (FACS_LEFT_DECORATION_PT + grid_width_pt / 2) / PAGE_CONTENT_WIDTH_PT
+    anchor_x = (FACS_LEFT_DECORATION_PT + grid_width_pt / 2) / FACS_CONTAINER_WIDTH_PT
     add_unframed_legend(
         container,
         columns=len(swatches),
