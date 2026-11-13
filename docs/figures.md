@@ -198,11 +198,11 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 ---
 
-## Figure 2 — 耗竭动力学：DR/DL 背后的 Gompertz 拟合
+## Figure 2 — 耗竭动力学：一条拟合曲线如何定义 A、DR、DL
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由面板推出（实测 142.8 pt = 标题带 9.6 + 字母带 7.2 + 面板 100 + x 装饰 26）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由面板推出（实测 107.2 pt = 字母带 7.2 + 面板 100）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
 
-**当前只有 A 面板**（2026-11-13 起逐步搭建，其余面板待加入）。
+**当前只有 A 面板**（2026-11-13 起逐步搭建，其余面板待加入）。Panel A 是"模型定义"面板：左侧是数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素。
 
 **产物**：
 
@@ -210,25 +210,37 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 |---|---|
 | `results/7a_figures/figure2.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure2.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
-| `results/7a_figures/_work/figure2_canvas.pdf` | 贴 A4 前的内容画布（515.28 × 142.8 pt）；排查版式时看这个 |
+| `results/7a_figures/_work/figure2_canvas.pdf` | 贴 A4 前的内容画布（515.28 × 107.2 pt）；排查版式时看这个 |
 
 ---
 
-### Panel A — nrs1：一个基因的实测 LFC 与 Gompertz 拟合
+### Panel A — 模型定义：数据 → Gompertz 公式 → 三个参数（mtf1 示例）
+
+**版式**：一个 `236 × 100` pt 的容器 axes（字母 A 由 multipanel 放在列首）。容器内部分三块：
+
+```
+x 2–80    左侧流程列（78 pt 宽）：数据框 / 公式框 / 参数框，竖直箭头连接
+x 80–101  水平箭头（约 20 pt），指向右侧曲线
+x 101–126 解剖图的 y 轴装饰（y 刻度 + 旋转 ylabel）
+x 126–226 解剖图 axes（100 × 76 pt）
+x 226–236 右边距（给最右 x 刻度标签留位）
+```
 
 | 要素 | 内容 |
 |---|---|
 | 输入 | `<HD_DIT_HAP release>/gene_level/gene_level_fitting_statistics.tsv`（release 的基因级拟合表，一行一个基因） |
-| 必需列 | `Name`、`time_points`、`A`、`DR`、`DL`、`R2`、`YES0`…`YES4`、`YES0_fitted`…`YES4_fitted`（缺列在 I/O 边界直接报错） |
-| 变换 | 按 `Name == "nrs1"` 取唯一一行（缺失或重复都报错）；`time_points` 的逗号串解析为世代向量 `0 / 2.352 / 5.588 / 9.104 / 12.48`；**平滑曲线由发布的 A/DR/DL 代入模型求值**（300 点），`*_fitted` 五列只用来核对模型一致（逐点偏差 ≤ 5e-3，覆盖参数三位小数舍入的传播），不用于摆线 |
-| 画法 | 实测点：palette 0（accent），`s=24`、白边 0.6 pt、`zorder=3`；拟合曲线：palette 1（teal），线宽 1.5 pt、`zorder=2`；无图例（形状与颜色自明，公式块解释曲线） |
-| 公式块 | 右上角、`ha="right"`、距 axes 右/上缘 0.985 / 0.975（axes 分数），三行 7 pt、行距 0.145：① 模型 `y = A·exp(−exp[DR·e/A·(DL−x)+1])`；② `A = −6.68, DR = −1.12`；③ `DL = 0.00, R² = 0.968`（数值由该行参数格式化，不是写死的） |
-| 轴 | x `Generations`，刻度为五个世代值（一位小数，`2.352 → 2.4`、`12.48 → 12.5`，末尾 `.0` 去掉）；y `Gene-level LFC (log₂)`，刻度只覆盖数据范围的 2 单位网格（nrs1 为 −6/−4/−2/0），顶部留白不带刻度 |
-| 比例 | 数据范围外扩：底部 8%、顶部 30%（顶部宽带留给公式块；按数据跨度取比例，换基因仍成立）；x 两侧各 3% |
-| 版式 | axes `120 × 100` pt，排在页面首行（x 含实测 ylabel 宽度）；标题 `nrs1` 斜体加粗（house 8 pt）；字母 A 由 multipanel 放在列首，x = 0 |
+| 必需列 | `Name`、`time_points`、`A`、`DR`、`DL`、`R2`、`t_inflection`、`y_inflection`、`YES0`…`YES4`、`YES0_fitted`…`YES4_fitted`（缺列在 I/O 边界直接报错） |
+| 变换 | 按 `Name == "mtf1"` 取唯一一行（缺失或重复都报错）；`time_points` 的逗号串解析为世代向量 `0 / 2.352 / 5.588 / 9.104 / 12.48`；平滑曲线由发布的 `A/DR/DL` 代入模型求值（300 点）；`*_fitted` 五列只用来核对模型一致（逐点偏差 ≤ 5e-3，覆盖参数舍入的传播），不用于摆线。mtf1：A = −5.509、DR = −0.656、DL = 4.606、R² = 0.999、t_inflection = 7.698、y_inflection = −2.027 |
+| 流程框 | 圆角框 `78 × 17 / 33.5 / 19.5` pt，浅灰底 `#f7f7f7`、灰色 0.6 pt 描边；框间竖箭头（灰色 0.8 pt，`mutation_scale=6`）；顶部框文字 `Time-series LFC data` 6.5 pt；底部框 `Extracted parameters` 6.5 pt + 彩色参数名 `DR / DL / A` 7 pt 加粗，横向居中 |
+| 公式 | 放在中间框，两行 6.5 pt、行距 9 pt、各自水平居中：① `LFC(t) = A·exp(−exp[`；② `(DR·e/A)(DL−t) + 1])`。参数名 `A / DR / DL / A` 带同色 25% alpha 圆角底（`FancyBboxPatch`）；公式下方灰色 `R² = 0.999` 6.5 pt。**实现注意**：matplotlib 的 mathtext 不支持 `\colorbox`，所以公式被拆成若干 `FormulaPiece`，用 Agg renderer 逐段量宽后在框内左→右排，参数段再按实测 bbox 画圆角底；全程矢量、可进 Illustrator 编辑 |
+| 参数配色 | `A` = Cell 槽 2 赭黄 `#e1a22e`；`DR` = 槽 0 砖红 `#c84c3a`；`DL` = 槽 1 青绿 `#2f7e8f`。数据与拟合线用中性色：曲线 = 槽 3 蓝灰 `#4e5a8a`（1.5 pt），实测点 = 槽 9 灰 `#6b6b6b`（`s=12`、白边 0.4 pt）。颜色只承担"参数含义"，不与数据语义冲突 |
+| 解剖图 | 实测 5 点 + 拟合曲线；灰色点线 `y=0` 基线。三条 guide 全部用参数色：① **A**：`y=A` 横虚线（4,2），右端圆点，标签 `A (plateau)` 在线的左端上方；② **DR**：拐点切线 `y=DR·(x−DL)`（点划线 5,1.4,0.8,1.4），在交点处画圆点 `(t_inflection, y_inflection)`，标签 `DR (slope)` 在切线上方；③ **DL**：`x=DL` 竖点线（1,1.6）从 `y=0` 到轴底，两端各一个圆点，标签 `DL (intercept)` 在顶端右侧。所有 guide 线宽 1 pt、圆点 `s=16` |
+| 轴 | x `Generations`，刻度为五个世代值（一位小数，`2.352 → 2.4`、`12.48 → 12.5`，末尾 `.0` 去掉），6.5 pt；y `LFC (log₂)`，7 pt，刻度只取数据范围内的 2 单位网格（mtf1 为 −4/−2/0），6.5 pt |
+| 比例 | y 轴数据下限**包含 A**（即使曲线在观测窗口内还没到达平台，否则平台线会贴到轴上）；下留白 28%、上留白 31%（上方给切线和标签）；x 两侧各 3% |
+| 字体 | 流程/公式/刻度 6.5 pt；参数名与轴标题 7 pt；全部 Arial（TrueType 嵌入） |
 | 产物 | 并入 `figure2.pdf` |
 
-数据口径：`A` 是曲线平台（nrs1 = −6.677，负值表示耗竭到底）、`DR` 是最大耗竭速率（−1.119）、`DL` 是耗竭延迟（−0.0，显示为 0.00）；`R2 = 0.9676`。实测 `YES0…YES4` 与曲线在同一条 LFC 轴上，曲线的首个拟合点（−0.441）与实测 `YES0`（0）的差距就是拟合残差，不做隐藏。
+数据口径：面板里**不写基因名**（这是模型定义面板，不是基因故事），示例基因 mtf1 的记录在本文档与图注；实测点保留，用来连接左侧"Time-series LFC data"这一步。`A` 是平台值（负值 = 耗竭到底）、`DR` 是拐点处切线的斜率（最大耗竭速率）、`DL` 是切线与 `y=0` 的交点（延迟）。mtf1 的曲线在 12.48 代时约 −4.45，尚未到达 A = −5.51，平台线因此画在数据末端之下。
 
 ---
 
@@ -236,18 +248,21 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 | 常量 | 当前值 | 作用 |
 |---|---:|---|
-| `GENE_NAME` | `nrs1` | 示例基因（固定，不做逐次选择） |
-| `PANEL_WIDTH_PT` / `PANEL_HEIGHT_PT` | 120 / 100 | A 面板 axes 尺寸 |
-| `BELOW_DECORATION_PT` | 26 | x 刻度 + xlabel 所占高度 |
-| `Y_PADDING_BOTTOM` / `Y_PADDING_TOP` | 0.08 / 0.30 | y 轴上下留白占数据跨度的比例；顶部带宽决定公式块空间 |
+| `GENE_NAME` | `mtf1` | 示例基因（固定，不做逐次选择） |
+| `PANEL_WIDTH_PT` / `PANEL_HEIGHT_PT` | 236 / 100 | A 面板容器尺寸 |
+| `FLOW_X_PT` / `FLOW_WIDTH_PT` | 2 / 78 | 左侧流程列的位置与宽度 |
+| `DATA_BOX_Y_PT` / `FORMULA_BOX_Y_PT` / `PARAMETER_BOX_Y_PT` | 80 / 40 / 14 | 三个流程框的底边 |
+| `PLOT_X_PT` / `PLOT_Y_PT` / `PLOT_WIDTH_PT` / `PLOT_HEIGHT_PT` | 126 / 22 / 100 / 76 | 解剖图的 inset 位置与大小 |
+| `CHIP_ALPHA` | 0.25 | 公式参数底色透明度 |
+| `Y_PADDING_BOTTOM` / `Y_PADDING_TOP` | 0.28 / 0.31 | y 轴上下留白占数据跨度的比例；下限包含 A |
 | `Y_TICK_STEP` | 2 | y 刻度间隔（只在数据范围内取刻度） |
 | `X_PADDING` | 0.03 | x 两侧留白占跨度比例 |
-| `ANNOTATION_TOP` / `ANNOTATION_LINE_STEP` | 0.975 / 0.145 | 公式块起始高度与行距（axes 分数） |
-| `ANNOTATION_FONT_PT` | 7 | 公式块字号 |
-| `OBSERVED_MARKER_SIZE` / `FIT_LINE_WIDTH_PT` | 24 / 1.5 | 实测点大小、拟合线线宽 |
-| `CURVE_SAMPLES` | 300 | 平滑曲线取点数 |
+| `FLOW_TEXT_FONT_PT` / `EQUATION_FONT_PT` | 6.5 | 流程文字与公式字号 |
+| `PLOT_TICK_FONT_PT` / `PLOT_LABEL_FONT_PT` | 6.5 / 7 | 解剖图刻度与轴标题字号 |
+| `EQUATION_LINE_GAP_PT` / `CHIP_PAD_PT` | 0.7 / 0.8 | 公式分段的水平间距、圆角底外扩 |
+| `OBSERVED_MARKER_SIZE` / `GUIDE_DOT_SIZE` | 12 / 16 | 实测点与 guide 圆点大小 |
 
-换示例基因只改 `GENE_NAME`；轴刻度、留白与公式数值都会跟着该行重算（`GENE_FIT_COLUMNS` 的契约不变）。
+颜色、示例基因、公式分段与三条 guide 的标签都在同一批常量里；换基因只改 `GENE_NAME`，轴范围与曲线跟着该行重算（但 guide 标签的绝对位置是按 mtf1 调的，换基因需复查）。
 
 ---
 

@@ -19,8 +19,10 @@
 # LFC trajectories by viability class) + e (FACS-validated genes against DIT-HAP)
 # + f (the weighted aggregation from insertion level to the gene-level curve,
 # worked on cdc7).
-# Figure 2: a the nrs1 example: its measured gene-level LFCs and the released
-# Gompertz fit (A/DR/DL) with the formula written in the panel.
+# Figure 2: a the model-definition panel: the data-to-parameters flow on the
+# left (with the Gompertz equation and its colour-coded parameters) and an mtf1
+# example fit on the right, with A/DR/DL written onto the geometry that defines
+# them.
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.

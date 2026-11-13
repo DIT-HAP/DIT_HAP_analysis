@@ -1,35 +1,42 @@
 #!/usr/bin/env python3
 
 """
-Figure 2 — Depletion kinetics: the Gompertz fit behind DR and DL
-=================================================================
+Figure 2 — Depletion kinetics: how one fitted curve defines DR, DL and A
+========================================================================
 
-Panel A is the worked example that introduces the curve model every downstream
-DR/DL feature is read from: one essential gene (nrs1), its five measured
-gene-level LFCs through the 12.48-generation time course, and the release's
-Gompertz fit. The fitted curve is drawn from the released amplitude, rate and
-lag parameters (A, DR, DL) at a resolution fine enough to look smooth; the
-release's five ``*_fitted`` columns are used only to confirm that this script's
-model reproduces the fit of record, never to place the curve. The formula and
-the four fitted values are written inside the panel.
+Panel A is the model-definition panel that every downstream DR/DL feature is
+read from. It has two halves joined by an arrow:
 
-The gene is fixed by name (``GENE_NAME``): it is the example the figure tells
-its story with, not a per-run choice. Every drawing decision lives in this
-file; the script imports no stage module from ``workflow/src`` and calls no
-upstream renderer, so retuning Figure 2 cannot change another stage's output.
+  left   the analysis flow — time-series LFC data, the Gompertz equation with
+         the three parameter names colour-coded, and the extracted parameters;
+  right  one example fit drawn from the release: the measured points and the
+         fitted curve, with the three parameters written onto the geometry that
+         defines them — A as the plateau line, DR as the slope of the tangent
+         at the inflection, DL as that tangent's x-intercept.
+
+The example gene is fixed (``GENE_NAME``, mtf1): it is the instance the panel
+tells its story with, not a per-run choice. The curve is evaluated from the
+release's amplitude, rate and lag (A, DR, DL); the five ``*_fitted`` columns
+are used only to confirm this script's model reproduces the fit of record.
+Every drawing decision lives in this file; the script imports no stage module
+from ``workflow/src`` and calls no upstream renderer.
+
+The parameter colours are one system across the panel: each parameter has a
+palette colour, its name in the equation sits on a tint of that colour, and the
+matching guide in the plot (line, dots, label) uses it. Data and fit use
+neutral colours so the three parameter colours never compete with the data.
 
 The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
 the canvas width and lets the rows decide the height, so the flow below draws a
 content-sized canvas and the assembly mounts it 40 pt in from the A4 page's
-top-left corner, leaving the rest of the page blank. Each panel's box is its
-axes size plus the y-axis decoration multipanel measures at render time, so a
-wide ylabel pushes only its own panel right; the letters are placed by
-multipanel at the left edge of each panel's column.
+top-left corner, leaving the rest of the page blank. The panel letter is placed
+by multipanel at the left edge of the panel's column.
 
 Input
 -----
 - <HD_DIT_HAP release>/gene_level/gene_level_fitting_statistics.tsv
-  Columns: Name, time_points, A, DR, DL, R2, YES0..YES4, YES0_fitted..YES4_fitted.
+  Columns: Name, time_points, A, DR, DL, R2, t_inflection, y_inflection,
+  YES0..YES4, YES0_fitted..YES4_fitted.
 
 Output
 ------
@@ -47,7 +54,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-11-13
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -58,10 +65,15 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
+from typing import cast
 
 import cnsplots as cns
 from loguru import logger
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.colors import to_rgba
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+from matplotlib.text import Text
 import numpy as np
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -80,6 +92,7 @@ FONT_SANS_SERIF = (
     "DejaVu Sans",
 )
 HOUSE_FIGURE_DPI = 360
+FURNITURE_COLOR = cns.GRAY  # box edges, arrows, guides that carry no parameter
 
 # --- Canvas and panel geometry, in points -----------------------------------
 # The manuscript page is A4 (210 x 297 mm). multipanel sizes the figure by
@@ -91,61 +104,110 @@ A4_WIDTH_PT = 210.0 / MM_PER_INCH * 72.0  # 595.28
 A4_HEIGHT_PT = 297.0 / MM_PER_INCH * 72.0  # 841.89
 PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
 CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
-BELOW_DECORATION_PT = 26.0  # x ticks + xlabel
-# 120 pt is the example panel's width: wide enough for the one-line formula at
-# the house 7 pt without shrinking the type below it.
-PANEL_WIDTH_PT = 120.0
+
+# Panel A is one container axes holding the whole composition. Its width is
+# the flow column (80) + the arrow (20) + the plot's y-axis decoration (~24)
+# + the plot (100) + a 6 pt right margin.
+PANEL_WIDTH_PT = 236.0
 PANEL_HEIGHT_PT = 100.0
 
+# Left flow column: three boxes stacked, joined by short vertical arrows.
+FLOW_X_PT = 2.0
+FLOW_WIDTH_PT = 78.0
+FLOW_CENTER_X_PT = FLOW_X_PT + FLOW_WIDTH_PT / 2
+DATA_BOX_Y_PT = 80.0
+DATA_BOX_HEIGHT_PT = 17.0
+FORMULA_BOX_Y_PT = 40.0
+FORMULA_BOX_HEIGHT_PT = 33.5
+PARAMETER_BOX_Y_PT = 14.0
+PARAMETER_BOX_HEIGHT_PT = 19.5
+BOX_FACE_COLOR = "#f7f7f7"
+BOX_EDGE_PT = 0.6
+ARROW_HEAD_SCALE = 6.0
+ARROW_LINE_WIDTH_PT = 0.8
+# Horizontal arrow from the flow to the plot; 20 pt is the gap the composition
+# was laid out around.
+FLOW_ARROW_Y_PT = 56.0
+FLOW_ARROW_END_X_PT = 101.0
+FLOW_ARROW_HEAD_SCALE = 8.0
+
+# Right plot: a 100 x 76 pt axes inset into the container. The container owns
+# the plot's y-axis decoration and x label, so the panel box is exactly
+# PANEL_WIDTH_PT x PANEL_HEIGHT_PT including them.
+PLOT_X_PT = 126.0
+PLOT_Y_PT = 22.0
+PLOT_WIDTH_PT = 100.0
+PLOT_HEIGHT_PT = 76.0
+
 # --- Panel A vocabulary -----------------------------------------------------
-GENE_NAME = "nrs1"
+GENE_NAME = "mtf1"
 NAME_COLUMN = "Name"
 TIME_POINTS_COLUMN = "time_points"
 AMPLITUDE_COLUMN = "A"
 RATE_COLUMN = "DR"
 LAG_COLUMN = "DL"
 R2_COLUMN = "R2"
+T_INFLECTION_COLUMN = "t_inflection"
+Y_INFLECTION_COLUMN = "y_inflection"
 VALUE_COLUMNS = ("YES0", "YES1", "YES2", "YES3", "YES4")
 FITTED_COLUMNS = tuple(f"{column}_fitted" for column in VALUE_COLUMNS)
-# The release keeps only two or three decimals for A/DR/DL and the fitted
-# values, so evaluating the model from the stored parameters can sit a few
-# units in the last place away from the stored fit; 5e-3 covers the rounding
-# of every parameter without accepting a different model.
+# The release keeps only a few decimals for A/DR/DL and the fitted values, so
+# evaluating the model from the stored parameters can sit a few units in the
+# last place away from the stored fit; 5e-3 covers the rounding of every
+# parameter without accepting a different model.
 FITTED_TOLERANCE = 5e-3
 
-# Observed points take the accent, the fitted curve the greyscale-separable
-# teal of slot 1: shape and colour both separate the two series.
-OBSERVED_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
-FIT_COLOR = cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0]
-OBSERVED_MARKER_SIZE = 24.0
-OBSERVED_MARKER_EDGE_PT = 0.6
-FIT_LINE_WIDTH_PT = 1.5
-CURVE_SAMPLES = 300
+# --- Parameter colours ------------------------------------------------------
+# One colour per parameter, used by the equation chip, the guide and the label.
+# Cell slots 2/0/1 are the greyscale-separable ochre-red-teal triad.
+AMPLITUDE_COLOR = cns.get_hexcolors_from_apalette([2], HOUSE_PALETTE)[0]
+RATE_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
+LAG_COLOR = cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0]
+# Data and fit take neutral slots so no parameter colour is a data colour.
+FIT_COLOR = cns.get_hexcolors_from_apalette([3], HOUSE_PALETTE)[0]
+POINT_COLOR = cns.get_hexcolors_from_apalette([9], HOUSE_PALETTE)[0]
+CHIP_ALPHA = 0.25
 
+# --- Panel A drawing sizes --------------------------------------------------
+FLOW_TEXT_FONT_PT = 6.5
+EQUATION_FONT_PT = 6.5
+PLOT_TICK_FONT_PT = 6.5
+PLOT_LABEL_FONT_PT = 7.0
+EQUATION_LINE_GAP_PT = 0.7
+CHIP_PAD_PT = 0.8
+CHIP_ROUNDING_PT = 1.0
+CURVE_SAMPLES = 300
+OBSERVED_MARKER_SIZE = 12.0
+OBSERVED_MARKER_EDGE_PT = 0.4
+GUIDE_LINE_WIDTH_PT = 1.0
+GUIDE_DOT_SIZE = 16.0
+ZERO_LINE_WIDTH_PT = 0.5
+
+# --- Panel A text -----------------------------------------------------------
+DATA_BOX_TEXT = "Time-series LFC data"
+PARAMETER_BOX_TEXT = "Extracted parameters"
+PARAMETER_NAMES = (
+    (r"$DR$", RATE_COLOR),
+    (r"$DL$", LAG_COLOR),
+    (r"$A$", AMPLITUDE_COLOR),
+)
+PARAMETER_NAME_FONT_PT = 7.0
+PARAMETER_NAME_GAP_PT = 9.0
 X_LABEL = "Generations"
-Y_LABEL = r"Gene-level LFC ($\log_2$)"
+Y_LABEL = r"LFC ($\log_2$)"
+PLATEAU_LABEL = r"$A$ (plateau)"
+RATE_LABEL = r"$DR$ (slope)"
+LAG_LABEL = r"$DL$ (intercept)"
 # One decimal is the display precision the release's generation grid needs
 # (2.352 -> 2.4); a trailing ".0" is dropped so the first tick reads 0.
 TICK_DECIMALS = 1
-
-# The data fill the lower ~70% of the axes; the top band is left for the model
-# block. Padding is a fraction of the combined observed/fitted span so the
-# panel keeps its proportions if the example gene ever changes.
-Y_PADDING_BOTTOM = 0.08
-Y_PADDING_TOP = 0.30
-X_PADDING = 0.03
-# Two LFC units per tick across the data range only: the reserved annotation
-# band above the data carries no tick, so it reads as headroom, not as scale.
 Y_TICK_STEP = 2.0
-
-# --- Panel A annotation -----------------------------------------------------
-# The exact model as implemented upstream: alpha = DR * e / A. Written as one
-# display equation; the parameters below carry the fitted values.
-FIT_FORMULA = r"$y=A\,\exp\left(-\exp\left[\dfrac{DR\cdot e}{A}\left(DL-x\right)+1\right]\right)$"
-ANNOTATION_X = 0.985  # axes fraction, right-aligned
-ANNOTATION_TOP = 0.975
-ANNOTATION_LINE_STEP = 0.145  # axes fraction between the three lines
-ANNOTATION_FONT_PT = 7.0
+# The data fill the middle band; the top is left for the tangent/labels and the
+# bottom for the plateau label and the delay line's lower dot.
+Y_PADDING_BOTTOM = 0.28
+Y_PADDING_TOP = 0.31
+X_PADDING = 0.03
+DELAY_BOTTOM_MARGIN = 0.15  # keeps the delay line's lower dot inside the axes
 
 # --- Input contract ---------------------------------------------------------
 GENE_FIT_COLUMNS = (
@@ -155,6 +217,8 @@ GENE_FIT_COLUMNS = (
     RATE_COLUMN,
     LAG_COLUMN,
     R2_COLUMN,
+    T_INFLECTION_COLUMN,
+    Y_INFLECTION_COLUMN,
     *VALUE_COLUMNS,
     *FITTED_COLUMNS,
 )
@@ -191,6 +255,17 @@ class GeneFit:
     rate: float
     lag: float
     r2: float
+    t_inflection: float
+    y_inflection: float
+
+
+@dataclass(frozen=True)
+class FormulaPiece:
+    """One run of text in the equation, optionally sitting on a colour chip."""
+
+    text: str
+    color: str = "black"
+    chip: tuple[float, float, float, float] | None = None
 
 
 # =============================================================================
@@ -242,6 +317,8 @@ def build_gene_fit(fitting: pd.DataFrame) -> GeneFit:
         rate=rate,
         lag=lag,
         r2=float(row[R2_COLUMN]),
+        t_inflection=float(row[T_INFLECTION_COLUMN]),
+        y_inflection=float(row[Y_INFLECTION_COLUMN]),
     )
 
 
@@ -255,14 +332,16 @@ def display_ticks(generations: np.ndarray) -> list[str]:
 
 
 def y_data_bounds(fit: GeneFit, curve: np.ndarray) -> tuple[float, float]:
-    """Return the lowest and highest y among the points and the drawn curve."""
-    low = min(float(fit.observed.min()), float(curve.min()))
+    """Return the lowest and highest y among the points, the curve and the plateau."""
+    # The plateau guide is drawn at A even when the sampled curve has not
+    # reached it by the last generation, so A must be inside the axes.
+    low = min(float(fit.observed.min()), float(curve.min()), fit.amplitude)
     high = max(float(fit.observed.max()), float(curve.max()))
     return low, high
 
 
 def padded_y_limits(low: float, high: float) -> tuple[float, float]:
-    """Pad the data bounds, leaving the wider band on top for the model block."""
+    """Pad the data bounds, leaving the wider band on top for the tangent."""
     span = high - low
     return low - Y_PADDING_BOTTOM * span, high + Y_PADDING_TOP * span
 
@@ -272,6 +351,25 @@ def y_tick_values(low: float, high: float) -> np.ndarray:
     first = np.ceil(low / Y_TICK_STEP) * Y_TICK_STEP
     last = np.floor(high / Y_TICK_STEP) * Y_TICK_STEP
     return np.arange(first, last + Y_TICK_STEP / 2, Y_TICK_STEP)
+
+
+def equation_lines() -> tuple[tuple[FormulaPiece, ...], tuple[FormulaPiece, ...]]:
+    """Return the Gompertz equation split over two lines, the parameters chipped."""
+    line_one = (
+        FormulaPiece(r"$\mathrm{LFC}(t)=$"),
+        FormulaPiece(r"$A$", AMPLITUDE_COLOR, to_rgba(AMPLITUDE_COLOR, CHIP_ALPHA)),
+        FormulaPiece(r"$\cdot\exp(-\exp[$"),
+    )
+    line_two = (
+        FormulaPiece(r"$($"),
+        FormulaPiece(r"$DR$", RATE_COLOR, to_rgba(RATE_COLOR, CHIP_ALPHA)),
+        FormulaPiece(r"$\cdot e/$"),
+        FormulaPiece(r"$A$", AMPLITUDE_COLOR, to_rgba(AMPLITUDE_COLOR, CHIP_ALPHA)),
+        FormulaPiece(r"$)($"),
+        FormulaPiece(r"$DL$", LAG_COLOR, to_rgba(LAG_COLOR, CHIP_ALPHA)),
+        FormulaPiece(r"$-t)+1])$"),
+    )
+    return line_one, line_two
 
 
 # =============================================================================
@@ -299,66 +397,311 @@ def draw_figure(fit: GeneFit) -> cns.multipanel:
     the object until the file is written or the panels stay unmeasured.
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
-    ax = mp.panel(
-        "A",
-        width=PANEL_WIDTH_PT,
-        height=PANEL_HEIGHT_PT,
-        margin_bottom=BELOW_DECORATION_PT,
-    )
-    render_gene_fit_panel(ax, fit)
+    container = mp.panel("A", width=PANEL_WIDTH_PT, height=PANEL_HEIGHT_PT, margin_bottom=0)
+    # Clear the ticks before turning the axis off: multipanel measures y-axis
+    # decoration even on an axis-off axes, and placeholder ticks would widen
+    # the panel's left reserve.
+    container.set_xticks([])
+    container.set_yticks([])
+    container.set_axis_off()
+    render_panel(container, fit)
     return mp
 
 
-def render_gene_fit_panel(ax: Axes, fit: GeneFit) -> None:
-    """Draw the measured points, the smooth fitted curve and the model block."""
+def render_panel(container: Axes, fit: GeneFit) -> None:
+    """Draw the flow column, the horizontal arrow and the anatomy plot."""
+    # The container's data coordinates are points, so every box and arrow below
+    # is placed in the panel's own pt geometry.
+    container.set_xlim(0, PANEL_WIDTH_PT)
+    container.set_ylim(0, PANEL_HEIGHT_PT)
+    draw_flow(container, fit)
+    draw_horizontal_arrow(container)
+
+    plot = container.inset_axes(
+        (
+            PLOT_X_PT / PANEL_WIDTH_PT,
+            PLOT_Y_PT / PANEL_HEIGHT_PT,
+            PLOT_WIDTH_PT / PANEL_WIDTH_PT,
+            PLOT_HEIGHT_PT / PANEL_HEIGHT_PT,
+        )
+    )
+    render_anatomy_plot(plot, fit)
+
+
+def draw_flow(container: Axes, fit: GeneFit) -> None:
+    """Draw the three stacked flow boxes, their arrows, and the fitted equation."""
+    draw_box(container, DATA_BOX_Y_PT, DATA_BOX_HEIGHT_PT)
+    container.text(
+        FLOW_CENTER_X_PT,
+        DATA_BOX_Y_PT + DATA_BOX_HEIGHT_PT / 2,
+        DATA_BOX_TEXT,
+        ha="center",
+        va="center",
+        fontsize=FLOW_TEXT_FONT_PT,
+    )
+    draw_vertical_arrow(container, FORMULA_BOX_Y_PT + FORMULA_BOX_HEIGHT_PT, DATA_BOX_Y_PT)
+
+    draw_box(container, FORMULA_BOX_Y_PT, FORMULA_BOX_HEIGHT_PT)
+    draw_equation(container, fit)
+
+    draw_vertical_arrow(container, PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT, FORMULA_BOX_Y_PT)
+    draw_box(container, PARAMETER_BOX_Y_PT, PARAMETER_BOX_HEIGHT_PT)
+    container.text(
+        FLOW_CENTER_X_PT,
+        PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT - 4.5,
+        PARAMETER_BOX_TEXT,
+        ha="center",
+        va="center",
+        fontsize=FLOW_TEXT_FONT_PT,
+    )
+    draw_parameter_names(container)
+
+
+def draw_box(container: Axes, y_pt: float, height_pt: float) -> None:
+    """Draw one rounded flow box in the left column."""
+    container.add_patch(
+        FancyBboxPatch(
+            (FLOW_X_PT, y_pt),
+            FLOW_WIDTH_PT,
+            height_pt,
+            boxstyle="round,pad=0,rounding_size=2.0",
+            linewidth=BOX_EDGE_PT,
+            edgecolor=FURNITURE_COLOR,
+            facecolor=BOX_FACE_COLOR,
+            zorder=1,
+        )
+    )
+
+
+def draw_vertical_arrow(container: Axes, tail_pt: float, head_pt: float) -> None:
+    """Draw the arrow between two stacked flow boxes."""
+    container.add_patch(
+        FancyArrowPatch(
+            (FLOW_CENTER_X_PT, tail_pt),
+            (FLOW_CENTER_X_PT, head_pt),
+            arrowstyle="-|>",
+            mutation_scale=ARROW_HEAD_SCALE,
+            color=FURNITURE_COLOR,
+            linewidth=ARROW_LINE_WIDTH_PT,
+            shrinkA=0,
+            shrinkB=0,
+            zorder=2,
+        )
+    )
+
+
+def draw_horizontal_arrow(container: Axes) -> None:
+    """Draw the arrow from the flow column to the anatomy plot."""
+    container.add_patch(
+        FancyArrowPatch(
+            (FLOW_X_PT + FLOW_WIDTH_PT, FLOW_ARROW_Y_PT),
+            (FLOW_ARROW_END_X_PT, FLOW_ARROW_Y_PT),
+            arrowstyle="-|>",
+            mutation_scale=FLOW_ARROW_HEAD_SCALE,
+            color=FURNITURE_COLOR,
+            linewidth=ARROW_LINE_WIDTH_PT,
+            shrinkA=0,
+            shrinkB=0,
+            zorder=2,
+        )
+    )
+
+
+def text_extent_pt(container: Axes, text: str, fontsize: float) -> tuple[float, float]:
+    """Measure a text's rendered width and height in points."""
+    renderer = cast(FigureCanvasAgg, container.figure.canvas).get_renderer()
+    artist = container.text(0, 0, text, fontsize=fontsize)
+    bbox = artist.get_window_extent(renderer)
+    artist.remove()
+    return bbox.width * 72 / container.figure.dpi, bbox.height * 72 / container.figure.dpi
+
+
+def draw_equation(container: Axes, fit: GeneFit) -> None:
+    """Draw the two equation lines, centred in the formula box, with colour chips."""
+    line_one, line_two = equation_lines()
+    line_one_y = FORMULA_BOX_Y_PT + 25.3
+    line_two_y = FORMULA_BOX_Y_PT + 16.3
+    draw_equation_line(container, line_one, line_one_y)
+    draw_equation_line(container, line_two, line_two_y)
+    container.text(
+        FLOW_CENTER_X_PT,
+        FORMULA_BOX_Y_PT + 8.5,
+        rf"$R^2={fit.r2:.3f}$",
+        ha="center",
+        va="center",
+        fontsize=FLOW_TEXT_FONT_PT,
+        color=FURNITURE_COLOR,
+    )
+
+
+def draw_equation_line(container: Axes, pieces: tuple[FormulaPiece, ...], y_pt: float) -> None:
+    """Lay one equation line out left-to-right, centred, drawing each chip behind its text."""
+    widths = [text_extent_pt(container, piece.text, EQUATION_FONT_PT)[0] for piece in pieces]
+    total = sum(widths) + EQUATION_LINE_GAP_PT * (len(pieces) - 1)
+    x_pt = FLOW_CENTER_X_PT - total / 2
+    for piece, width_pt in zip(pieces, widths, strict=True):
+        artist = container.text(
+            x_pt,
+            y_pt,
+            piece.text,
+            ha="left",
+            va="center",
+            fontsize=EQUATION_FONT_PT,
+            color=piece.color,
+            zorder=5,
+        )
+        if piece.chip is not None:
+            draw_chip(container, artist, piece.chip)
+        x_pt += width_pt + EQUATION_LINE_GAP_PT
+
+
+def draw_chip(container: Axes, artist: Text, chip: tuple[float, float, float, float]) -> None:
+    """Draw a rounded tint behind one parameter name in the equation."""
+    renderer = cast(FigureCanvasAgg, container.figure.canvas).get_renderer()
+    bbox = artist.get_window_extent(renderer)
+    inverse = container.transData.inverted()
+    (x0, y0), (x1, y1) = inverse.transform([[bbox.x0, bbox.y0], [bbox.x1, bbox.y1]])
+    container.add_patch(
+        FancyBboxPatch(
+            (x0 - CHIP_PAD_PT, y0 - CHIP_PAD_PT),
+            (x1 - x0) + 2 * CHIP_PAD_PT,
+            (y1 - y0) + 2 * CHIP_PAD_PT,
+            boxstyle=f"round,pad=0,rounding_size={CHIP_ROUNDING_PT}",
+            facecolor=chip,
+            edgecolor="none",
+            zorder=4,
+        )
+    )
+
+
+def draw_parameter_names(container: Axes) -> None:
+    """Draw the extracted parameters in their colours, centred in their box."""
+    widths = [
+        text_extent_pt(container, text, PARAMETER_NAME_FONT_PT)[0] for text, _ in PARAMETER_NAMES
+    ]
+    total = sum(widths) + PARAMETER_NAME_GAP_PT * (len(PARAMETER_NAMES) - 1)
+    x_pt = FLOW_CENTER_X_PT - total / 2
+    for (text, color), width_pt in zip(PARAMETER_NAMES, widths, strict=True):
+        container.text(
+            x_pt,
+            PARAMETER_BOX_Y_PT + 6.5,
+            text,
+            ha="left",
+            va="center",
+            fontsize=PARAMETER_NAME_FONT_PT,
+            color=color,
+            fontweight="bold",
+        )
+        x_pt += width_pt + PARAMETER_NAME_GAP_PT
+
+
+def render_anatomy_plot(ax: Axes, fit: GeneFit) -> None:
+    """Draw the example fit with A, DR and DL written onto their geometry."""
     curve_x = np.linspace(fit.generations.min(), fit.generations.max(), CURVE_SAMPLES)
     curve_y = gompertz(curve_x, fit.amplitude, fit.rate, fit.lag)
+    low, high = y_data_bounds(fit, curve_y)
+    y_bottom, y_top = padded_y_limits(low, high)
+    x_left = fit.generations.min() - X_PADDING * np.ptp(fit.generations)
+    x_right = fit.generations.max() + X_PADDING * np.ptp(fit.generations)
 
+    ax.plot(curve_x, curve_y, color=FIT_COLOR, linewidth=1.5, zorder=3)
     ax.scatter(
         fit.generations,
         fit.observed,
         s=OBSERVED_MARKER_SIZE,
-        color=OBSERVED_COLOR,
+        color=POINT_COLOR,
         edgecolors="white",
         linewidths=OBSERVED_MARKER_EDGE_PT,
-        zorder=3,
+        zorder=4,
     )
-    ax.plot(curve_x, curve_y, color=FIT_COLOR, linewidth=FIT_LINE_WIDTH_PT, zorder=2)
 
-    low, high = y_data_bounds(fit, curve_y)
-    ax.set_xlim(
-        fit.generations.min() - X_PADDING * np.ptp(fit.generations),
-        fit.generations.max() + X_PADDING * np.ptp(fit.generations),
-    )
-    ax.set_ylim(*padded_y_limits(low, high))
+    ax.set_xlim(x_left, x_right)
+    ax.set_ylim(y_bottom, y_top)
+    ax.axhline(0, color=FURNITURE_COLOR, linestyle=(0, (1, 2)), linewidth=ZERO_LINE_WIDTH_PT)
+    draw_plateau_guide(ax, fit, x_left, x_right)
+    draw_rate_guide(ax, fit, x_left, x_right, y_top, y_bottom)
+    draw_delay_guide(ax, fit, y_bottom)
     ax.set_xticks(fit.generations, display_ticks(fit.generations))
     ax.set_yticks(y_tick_values(low, high))
-    ax.set_xlabel(X_LABEL)
-    ax.set_ylabel(Y_LABEL)
-    ax.set_title(fit.name, fontstyle="italic", fontweight="bold")
-    add_model_block(ax, fit)
+    ax.tick_params(labelsize=PLOT_TICK_FONT_PT)
+    ax.set_xlabel(X_LABEL, fontsize=PLOT_LABEL_FONT_PT)
+    ax.set_ylabel(Y_LABEL, fontsize=PLOT_LABEL_FONT_PT)
 
 
-def add_model_block(ax: Axes, fit: GeneFit) -> None:
-    """Write the fitted formula and values in the axes' free top-right band."""
-    # A zero lag is stored as -0.0 by the release's three-decimal round trip;
-    # print the value, not its signed zero.
-    lag = 0.0 if fit.lag == 0 else fit.lag
-    lines = (
-        FIT_FORMULA,
-        rf"$A={fit.amplitude:.2f},\quad DR={fit.rate:.2f}$",
-        rf"$DL={lag:.2f},\quad R^2={fit.r2:.3f}$",
+def draw_plateau_guide(ax: Axes, fit: GeneFit, x_left: float, x_right: float) -> None:
+    """Draw the plateau line, its end dot and its label."""
+    ax.axhline(fit.amplitude, color=AMPLITUDE_COLOR, linestyle=(0, (4, 2)), linewidth=1.0)
+    ax.scatter([x_right - 0.3], [fit.amplitude], s=GUIDE_DOT_SIZE, color=AMPLITUDE_COLOR, zorder=5)
+    # Above the line on the left: the tangent and the late-time curve occupy the
+    # line's right half, and the delay line sits far enough right of this label.
+    ax.text(
+        x_left + 0.3,
+        fit.amplitude + 0.12,
+        PLATEAU_LABEL,
+        color=AMPLITUDE_COLOR,
+        ha="left",
+        va="bottom",
+        fontsize=PLOT_TICK_FONT_PT,
     )
-    for index, line in enumerate(lines):
-        ax.text(
-            ANNOTATION_X,
-            ANNOTATION_TOP - index * ANNOTATION_LINE_STEP,
-            line,
-            transform=ax.transAxes,
-            ha="right",
-            va="top",
-            fontsize=ANNOTATION_FONT_PT,
-        )
+
+
+def draw_rate_guide(
+    ax: Axes, fit: GeneFit, x_left: float, x_right: float, y_top: float, y_bottom: float
+) -> None:
+    """Draw the inflection tangent, its inflection dot and the slope label."""
+    tangent_x = _tangent_segment(fit, x_left, x_right, y_top, y_bottom)
+    ax.plot(
+        tangent_x,
+        fit.rate * (tangent_x - fit.lag),
+        color=RATE_COLOR,
+        linestyle=(0, (5, 1.4, 0.8, 1.4)),
+        linewidth=1.0,
+        zorder=2,
+    )
+    ax.scatter([fit.t_inflection], [fit.y_inflection], s=GUIDE_DOT_SIZE, color=RATE_COLOR, zorder=5)
+    ax.text(
+        3.3,
+        1.15,
+        RATE_LABEL,
+        color=RATE_COLOR,
+        ha="left",
+        va="bottom",
+        fontsize=PLOT_TICK_FONT_PT,
+    )
+
+
+def _tangent_segment(
+    fit: GeneFit, x_left: float, x_right: float, y_top: float, y_bottom: float
+) -> np.ndarray:
+    """Clip the tangent line to the axes box, returning its two x endpoints."""
+    crossing_top = fit.lag + y_top / fit.rate
+    crossing_bottom = fit.lag + y_bottom / fit.rate
+    start = max(min(crossing_top, crossing_bottom), x_left)
+    end = min(max(crossing_top, crossing_bottom), x_right)
+    return np.array([start, end])
+
+
+def draw_delay_guide(ax: Axes, fit: GeneFit, y_bottom: float) -> None:
+    """Draw the delay line, its two dots and the intercept label."""
+    line_bottom = y_bottom + DELAY_BOTTOM_MARGIN
+    ax.plot(
+        [fit.lag, fit.lag],
+        [0, line_bottom],
+        color=LAG_COLOR,
+        linestyle=(0, (1, 1.6)),
+        linewidth=1.0,
+        zorder=2,
+    )
+    ax.scatter([fit.lag, fit.lag], [0, line_bottom], s=GUIDE_DOT_SIZE, color=LAG_COLOR, zorder=5)
+    ax.text(
+        fit.lag + 0.25,
+        0.12,
+        LAG_LABEL,
+        color=LAG_COLOR,
+        ha="left",
+        va="bottom",
+        fontsize=PLOT_TICK_FONT_PT,
+    )
 
 
 # =============================================================================
