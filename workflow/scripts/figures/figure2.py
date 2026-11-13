@@ -42,6 +42,10 @@ The parameter colours are one system across the figure: each parameter has a
 palette colour, its name in the equation sits on a tint of that colour, and the
 matching guide in the plot (line, dots, label) uses it. Data and fit use
 neutral colours so the three parameter colours never compete with the data.
+The panel C inset is the one place that leaves this palette: its bars carry the
+class colours figure 1 already uses — viable teal, inviable red — so the
+viability split reads the same across both figures. DR and DL therefore avoid
+red and teal and take purple and green.
 
 The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
 the canvas width and lets the rows decide the height, so the flow below draws a
@@ -217,13 +221,14 @@ C_Y_HEADROOM = 1.08
 # Ceilings the count axis may snap to, coarser than the headroom alone so the
 # two ticks of each axes stay round numbers (1,500 / 3,500 / 300 / 500).
 C_TICK_MULTIPLIERS = (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 8.0, 10.0)
-# The inset: two 16 pt mini histograms stacked in the corner the main bars do
-# not reach — DR's upper left, DL's upper right. Only the shape matters here;
-# the minis carry no ticks, so each is scaled to its own peak.
-C_INSET_X_PT = (3.0, 47.5)
-C_INSET_WIDTH_PT = 46.5
-C_INSET_TOP_PT = 74.0
-C_INSET_MINI_HEIGHT_PT = 16.0
+# The inset: two 20 pt mini histograms stacked in the corner the main bars do
+# not reach — DR's upper left (bars there top out at 15 pt), DL's upper right
+# (bars there top out at 2 pt). Only the shape matters here; the minis carry no
+# ticks, so each is scaled to its own peak.
+C_INSET_X_PT = (3.0, 44.0)
+C_INSET_WIDTH_PT = 52.0
+C_INSET_TOP_PT = PLOT_HEIGHT_PT - 2.0
+C_INSET_MINI_HEIGHT_PT = 20.0
 C_INSET_LABEL_BAND_PT = 6.0
 C_INSET_LABEL_FONT_PT = 5.5
 
@@ -264,14 +269,21 @@ FITTED_TOLERANCE = 5e-3
 
 # --- Parameter colours ------------------------------------------------------
 # One colour per parameter, used by the equation chip, the guide and the label.
-# Cell slots 2/0/1 are the greyscale-separable ochre-red-teal triad.
+# Cell slots 2 (ochre), 6 (purple) and 4 (green) stay clear of red and teal:
+# figure 1 reserves those for the inviable/viable classes, and panel C's inset
+# reuses them for the same two classes.
 AMPLITUDE_COLOR = cns.get_hexcolors_from_apalette([2], HOUSE_PALETTE)[0]
-RATE_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
-LAG_COLOR = cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0]
+RATE_COLOR = cns.get_hexcolors_from_apalette([6], HOUSE_PALETTE)[0]
+LAG_COLOR = cns.get_hexcolors_from_apalette([4], HOUSE_PALETTE)[0]
 # Data and fit take neutral slots so no parameter colour is a data colour.
 FIT_COLOR = cns.get_hexcolors_from_apalette([3], HOUSE_PALETTE)[0]
 POINT_COLOR = cns.get_hexcolors_from_apalette([9], HOUSE_PALETTE)[0]
 CHIP_ALPHA = 0.25
+# Panel C's inset must match figure 1, where viable is Cell slot 1 and inviable
+# the slot 0 red accent; the two are taken in VIABILITY_GROUPS order.
+VIABILITY_COLORS = dict(
+    zip(VIABILITY_GROUPS, cns.get_hexcolors_from_apalette([1, 0], HOUSE_PALETTE), strict=True)
+)
 
 # Panel C's two histogram recipes: column, range, bin width, colour, x label.
 PARAMETER_HISTOGRAMS = (
@@ -629,7 +641,7 @@ def render_panel_c(container: Axes, distributions: dict[tuple[str, str], np.ndar
         render_distribution_axes(
             ax, values, edges, color, xlabel, y_max, is_left_column=column == 0
         )
-        render_viability_inset(ax, distributions, parameter, edges, color, column)
+        render_viability_inset(ax, distributions, parameter, edges, column)
     container.text(
         C_Y_LABEL_CENTER_X_PT,
         C_PLOT_Y_PT + PLOT_HEIGHT_PT / 2,
@@ -677,7 +689,6 @@ def render_viability_inset(
     distributions: dict[tuple[str, str], np.ndarray],
     parameter: str,
     edges: np.ndarray,
-    color: str,
     column: int,
 ) -> None:
     """Stack the two viability groups' mini histograms in the main panel's empty corner."""
@@ -694,7 +705,7 @@ def render_viability_inset(
             )
         )
         values = distributions[(group, parameter)]
-        cns.histplot(x=values, bins=edges, color=color, ax=mini, legend=False)
+        cns.histplot(x=values, bins=edges, color=VIABILITY_COLORS[group], ax=mini, legend=False)
         mini.set_xlim(edges[0], edges[-1])
         mini.set_ylim(0, count_axis_ceiling(float(np.histogram(values, bins=edges)[0].max())))
         mini.set_axis_off()
