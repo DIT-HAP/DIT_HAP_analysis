@@ -272,6 +272,9 @@ FACS_Y_LABEL = r"LFC ($\log_2$)"
 FACS_X_TICKS = (0.0, 4.0, 8.0, 12.0)
 FACS_X_LIMITS = (-0.3, 12.8)
 FACS_LINE_WIDTH_PT = 2.0  # user-specified, heavier than the 1.5 house default
+# The two FACS strain curves are dashed (round dash ends); the DIT-HAP curve
+# stays solid, so the pipeline reference is never confused with the measurements.
+FACS_STRAIN_LINESTYLE = "--"
 # A light alpha keeps the three curves from reading as opaque tubes where they
 # overlap; the legend swatches stay fully opaque.
 FACS_LINE_ALPHA = 0.8
@@ -958,6 +961,7 @@ def render_lfc_trajectory_panel(ax: Axes, frame: pd.DataFrame) -> None:
             color=TRAJECTORY_COLORS[viability],
             linewidth=TRAJECTORY_LINE_WIDTH_PT,
             alpha=TRAJECTORY_LINE_ALPHA,
+            solid_capstyle="round",
             zorder=TRAJECTORY_ZORDER[viability],
         )
 
@@ -1034,6 +1038,7 @@ def render_facs_gene_axes(
         color=DIT_HAP_COLOR,
         linewidth=FACS_LINE_WIDTH_PT,
         alpha=FACS_LINE_ALPHA,
+        solid_capstyle="round",
     )
 
     for strain in FACS_STRAIN_ORDER:
@@ -1046,6 +1051,8 @@ def render_facs_gene_axes(
             color=FACS_STRAIN_COLORS[strain],
             linewidth=FACS_LINE_WIDTH_PT,
             alpha=FACS_LINE_ALPHA,
+            linestyle=FACS_STRAIN_LINESTYLE,
+            dash_capstyle="round",
         )
 
     ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5)
@@ -1095,6 +1102,7 @@ def add_facs_legend(container: Axes) -> None:
             [],
             color=DIT_HAP_COLOR,
             linewidth=FACS_LINE_WIDTH_PT,
+            solid_capstyle="round",
             label=DIT_HAP_SERIES,
         ),
         *[
@@ -1103,6 +1111,8 @@ def add_facs_legend(container: Axes) -> None:
                 [],
                 color=FACS_STRAIN_COLORS[strain],
                 linewidth=FACS_LINE_WIDTH_PT,
+                linestyle=FACS_STRAIN_LINESTYLE,
+                dash_capstyle="round",
                 label=f"{FACS_SERIES_PREFIX}{strain}",
             )
             for strain in FACS_STRAIN_ORDER
@@ -1206,6 +1216,7 @@ def render_spatial_profile_axis(ax: Axes, data: AggregationPanelData) -> None:
             data.site_lfc[timepoint].to_numpy(),
             color=color,
             linewidth=AGGREGATION_PROFILE_LINE_WIDTH_PT,
+            solid_capstyle="round",
             zorder=2,
         )
 
@@ -1296,6 +1307,7 @@ def render_aggregate_axis(ax: Axes, data: AggregationPanelData) -> None:
         color=AGGREGATION_INSERTION_COLOR,
         linewidth=AGGREGATION_INSERTION_LINE_WIDTH_PT,
         alpha=AGGREGATION_INSERTION_ALPHA,
+        solid_capstyle="round",
         zorder=2,
     )
     ax.plot(
@@ -1303,6 +1315,7 @@ def render_aggregate_axis(ax: Axes, data: AggregationPanelData) -> None:
         data.gene_curve.to_numpy(),
         color=AGGREGATION_GENE_COLOR,
         linewidth=AGGREGATION_GENE_LINE_WIDTH_PT,
+        solid_capstyle="round",
         zorder=4,
     )
 
