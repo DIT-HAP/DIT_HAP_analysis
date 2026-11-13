@@ -18,12 +18,18 @@ from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
     A4_HEIGHT_PT,
     A4_WIDTH_PT,
+    AGG_PANEL_HEIGHT_PT,
+    AGG_PANEL_WIDTH_PT,
     AGGREGATION_GENE_ID,
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
+    COVERAGE_PANEL_WIDTH_PT,
     DIT_HAP_SERIES,
+    FACS_CONTAINER_HEIGHT_PT,
+    FACS_CONTAINER_WIDTH_PT,
     GENERATION_COLUMNS,
     GENERATIONS,
+    ROW_PANEL_SIZE_PT,
     SPIKEIN_POINT_SIZE,
     Figure1Config,
     apply_house_style,
@@ -106,7 +112,7 @@ def _gene_lfc_table() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "Systematic ID": ["G1", "G2", "G3", "G4", "G5"],
-            "Name": ["g1", "g2", "g3", "g4", "g5"],
+            "Name": ["cut8", "fal1", "leu1", "rpl3601", "g5"],
             "FYPOviability": ["inviable", "inviable", "viable", "viable", "unknown"],
             "YES0": [0.0, 0.0, 0.0, 0.0, 0.0],
             "YES1": [-1.0, -2.0, -0.1, 0.1, -9.0],
@@ -118,7 +124,7 @@ def _gene_lfc_table() -> pd.DataFrame:
 
 
 def _gene_lfc_with_aggregation() -> pd.DataFrame:
-    """The panel D gene table plus the worked gene panel F pins by systematic ID."""
+    """The panel E gene table plus the worked gene panel D pins by systematic ID."""
     worked_gene = pd.DataFrame(
         {
             "Systematic ID": [AGGREGATION_GENE_ID],
@@ -185,8 +191,14 @@ def _gene_intervals() -> pd.DataFrame:
 
 
 def _facs_table() -> pd.DataFrame:
-    """Two genes over three timepoints; g1 carries both independent strains."""
-    blocks = (("g1", "Strain#1", "LV1"), ("g1", "Strain#2", "LV2"), ("g2", "Strain#1", "LV3"))
+    """The panel's four genes over three timepoints; cut8 carries both strains."""
+    blocks = (
+        ("cut8", "Strain#1", "LV1"),
+        ("cut8", "Strain#2", "LV2"),
+        ("fal1", "Strain#1", "LV3"),
+        ("leu1", "Strain#1", "LV4"),
+        ("rpl3601", "Strain#1", "LV5"),
+    )
     records = [
         (f"SYS_{gene}", gene, strain_id, strain, f"YES{index}", generation, lfc)
         for gene, strain, strain_id in blocks
@@ -301,8 +313,8 @@ def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
     return text.get_window_extent(mp.fig.canvas.get_renderer()).x0 * 72 / mp.fig.dpi
 
 
-def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
-    """A keeps its own size; B, C and D share one row; E and F span the page below them."""
+def test_draw_figure_places_the_two_column_grid():
+    """A above; B/C/E stack on the left, D aggregation and F FACS on the right."""
     coverage = build_coverage_frame(_coverage_table())
     spikein = build_spikein_frame(_spikein_table())
     trajectory = build_trajectory_frame(_gene_lfc_table())
@@ -326,29 +338,32 @@ def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
 
     boxes = _panel_boxes(mp, ("B", "C", "D", "E", "F"))  # also settles the flow layout
     a_x, a_y, a_width, a_height = axes_box_pt(schematic_ax, mp.fig)
-    b_x, b_y, _, b_height = boxes["B"]
-    c_x, c_y, _, c_height = boxes["C"]
-    d_x, d_y, d_width, _ = boxes["D"]
+    b_x, b_y, b_width, b_height = boxes["B"]
+    c_x, c_y, c_width, c_height = boxes["C"]
+    d_x, d_y, d_width, d_height = boxes["D"]
     e_x, e_y, e_width, e_height = boxes["E"]
     f_x, f_y, f_width, f_height = boxes["F"]
 
     assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
     assert 0 < a_x <= 10  # only the panel letter's column sits left of A
     assert (a_width, a_height) == pytest.approx((400.0, 120.0))  # actual size, no stretch
-    assert c_y == pytest.approx(b_y)  # one common row
-    # D's two entry rows are a hair shorter than a title row plus entries.
-    assert d_y == pytest.approx(b_y, abs=1.0)
-    assert b_height == pytest.approx(c_height)
-    assert b_y + b_height < a_y  # the row sits below A
-    assert b_x < c_x < d_x
-    assert d_x + d_width < CANVAS_WIDTH_PT  # the three columns fit the page width
-    assert e_y + e_height < b_y  # E opens the row below B/C/D
-    assert e_x + e_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
-    assert f_y + f_height < e_y  # F opens the row below E
-    assert f_x + f_width == pytest.approx(e_x + e_width, abs=0.5)  # both span the page
+    assert (b_width, b_height) == pytest.approx((COVERAGE_PANEL_WIDTH_PT, ROW_PANEL_SIZE_PT))
+    assert (c_width, c_height) == pytest.approx((ROW_PANEL_SIZE_PT, ROW_PANEL_SIZE_PT))
+    assert (e_width, e_height) == pytest.approx((ROW_PANEL_SIZE_PT, ROW_PANEL_SIZE_PT))
+    assert (d_width, d_height) == pytest.approx((AGG_PANEL_WIDTH_PT, AGG_PANEL_HEIGHT_PT))
+    assert (f_width, f_height) == pytest.approx((FACS_CONTAINER_WIDTH_PT, FACS_CONTAINER_HEIGHT_PT))
+    assert b_y + b_height < a_y  # the grid opens below A
+    assert d_x > b_x + b_width  # D sits to the right of B
+    assert c_y + c_height < b_y  # C sits below B
+    assert e_x > c_x + c_width  # E sits to the right of C
+    assert f_x > e_x + e_width  # F sits to the right of E
+    assert e_y == pytest.approx(c_y, abs=1.5)  # C and E share the row
+    assert f_y + f_height < d_y  # row 3 opens below D's row
+    assert f_y + f_height > c_y + c_height  # F is the taller panel in row 3
     assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "B"), abs=0.5)
-    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "E"), abs=0.5)
-    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "F"), abs=0.5)
+    assert _panel_label_left_pt(mp, "B") == pytest.approx(_panel_label_left_pt(mp, "C"), abs=0.5)
+    assert _panel_label_left_pt(mp, "E") > _panel_label_left_pt(mp, "C")
+    assert _panel_label_left_pt(mp, "F") > _panel_label_left_pt(mp, "E")
 
 
 # =============================================================================
@@ -417,7 +432,7 @@ def test_facs_comparison_aligns_signs_and_keeps_both_strains():
     """FACS values flip onto the release's depletion-negative convention."""
     frame = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
 
-    assert set(frame["gene"]) == {"g1", "g2"}
+    assert set(frame["gene"]) == {"cut8", "fal1", "leu1", "rpl3601"}
     facs = frame[frame["series"] != DIT_HAP_SERIES]
     assert (facs["lfc"] <= 0).all()  # the fixture's FACS LFC is depletion-positive
     assert set(facs["series"]) == {"FACS Strain#1", "FACS Strain#2"}
@@ -425,25 +440,25 @@ def test_facs_comparison_aligns_signs_and_keeps_both_strains():
 
 
 def test_facs_comparison_rejects_gene_absent_from_dit_hap():
-    """A FACS gene with no release row would silently lose its DIT-HAP curve."""
-    facs = _facs_table()
-    facs.loc[facs["Name"] == "g2", "Name"] = "not_in_lfc"
+    """A shown FACS gene with no release row would silently lose its DIT-HAP curve."""
+    gene_lfc = _gene_lfc_table()
+    gene_lfc.loc[gene_lfc["Name"] == "fal1", "Name"] = "not_in_lfc"
 
     with pytest.raises(ValueError, match="missing FACS genes"):
-        build_facs_comparison_frame(facs, _gene_lfc_table())
+        build_facs_comparison_frame(_facs_table(), gene_lfc)
 
 
-def test_facs_comparison_drops_the_retired_genes():
-    """orc6 and srb4 stay out of the panel even when the workbook supplies them."""
+def test_facs_comparison_keeps_only_the_shown_genes():
+    """Genes outside FACS_SHOWN_GENES stay out of the panel even when supplied."""
     facs = _facs_table()
-    facs.loc[facs["Name"] == "g2", "Name"] = "orc6"
+    facs.loc[facs["Name"] == "fal1", "Name"] = "orc6"
     gene_lfc = _gene_lfc_table()
-    gene_lfc.loc[gene_lfc["Name"] == "g2", "Name"] = "orc6"
+    gene_lfc.loc[gene_lfc["Name"] == "fal1", "Name"] = "orc6"
 
     frame = build_facs_comparison_frame(facs, gene_lfc)
 
     assert "orc6" not in set(frame["gene"])
-    assert set(frame["gene"]) == {"g1"}
+    assert set(frame["gene"]) == {"cut8", "leu1", "rpl3601"}
 
 
 def test_aggregation_data_reproduces_the_gene_level_curve():
@@ -469,7 +484,7 @@ def test_aggregation_data_reproduces_the_gene_level_curve():
 
 
 def test_aggregation_data_rejects_a_missing_gene_row():
-    """Panel F is pinned to one gene; a gene-level table without it cannot draw."""
+    """Panel D is pinned to one gene; a gene-level table without it cannot draw."""
     insertion_lfc, insertion_padj, insertion_weights = _insertion_tables()
 
     with pytest.raises(ValueError, match="exactly one"):
@@ -490,9 +505,9 @@ def test_facs_panel_draws_one_mini_axes_per_gene_with_shared_limits():
     render_facs_panel(container, frame)
 
     mini_axes = container.child_axes
-    assert [ax.title.get_text() for ax in mini_axes] == ["g1", "g2"]
+    assert [ax.title.get_text() for ax in mini_axes] == ["cut8", "fal1", "leu1", "rpl3601"]
     assert len(mini_axes[0].lines) == 4  # DIT-HAP, two FACS strains, zero line
-    assert len(mini_axes[1].lines) == 3  # g2 has no Strain#2 block
+    assert len(mini_axes[1].lines) == 3  # fal1 has no Strain#2 block
     assert mini_axes[0].get_ylim() == mini_axes[1].get_ylim()
     legend = container.get_legend()
     assert legend is not None
@@ -624,7 +639,7 @@ def test_run_merges_schematic_into_a_single_vector_page(figure1_inputs: Figure1C
     text = page.extract_text() or ""
     assert "SCHEMATIC" in text  # the overlaid external page survived
     assert "Covered genes (%)" in text  # the matplotlib canvas survived
-    assert "FACS Strain#1" in text  # panel E's mini axes drew inside the canvas
+    assert "FACS Strain#1" in text  # panel F's mini axes drew inside the canvas
     assert figure1_inputs.canvas_pdf.exists()
     assert figure1_inputs.output_review.exists()
 
