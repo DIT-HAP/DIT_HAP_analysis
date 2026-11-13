@@ -22,6 +22,11 @@ bottom row carries x tick labels. Each mini axes repeats the three guides in a
 lighter weight; their text labels stay in A, and the four genes' fitted values
 and R2 share one table under the grid.
 
+Panel C sits to the right of A on the same row: the distributions of DR and DL
+across every successful fit in the release, one histogram each, sharing one
+count scale so the two shapes are directly comparable. It answers "where in this
+space do real genes fall?" — the spread A's single example cannot show.
+
 The genes are fixed (``PANEL_A_GENE`` and ``PANEL_B_GENES``): they are the
 instances the figure tells its story with, not per-run choices. Each curve is
 evaluated from its released amplitude, rate and lag (A, DR, DL); the five
@@ -44,7 +49,7 @@ Input
 -----
 - <HD_DIT_HAP release>/gene_level/gene_level_fitting_statistics.tsv
   Columns: Name, time_points, A, DR, DL, R2, t_inflection, y_inflection,
-  YES0..YES4, YES0_fitted..YES4_fitted.
+  YES0..YES4, YES0_fitted..YES4_fitted (panel C additionally reads Status).
 
 Output
 ------
@@ -187,11 +192,33 @@ PANEL_B_HEIGHT_PT = (
     + B_ROW_GAP_PT
     + B_TOP_TITLE_BAND_PT
 )
+# Panel C sits to the right of A on the same row: two histograms, DR and DL,
+# each at panel A's plot footprint. The two panels have independent count
+# axes because DL's zero spike (3,113 genes) is far taller than DR's peak.
+PANEL_C_WIDTH_PT = 252.0
+PANEL_C_HEIGHT_PT = 100.0
+C_LEFT_DECORATION_PT = 34.0  # count labels are wider than LFC ticks + ylabel
+C_COLUMN_GAP_PT = 10.0
+C_PLOT_Y_PT = 22.0
+C_Y_LABEL_CENTER_X_PT = 10.0
+C_Y_HEADROOM = 1.08
+
 ROW_GAP_PT = 10.0  # between panel A and panel B
 
 # --- Panel vocabulary -------------------------------------------------------
 PANEL_A_GENE = "mtf1"
 PANEL_B_GENES = ("tna1", "pst2", "rpl3801", "nrs1")
+
+# --- Panel C vocabulary -----------------------------------------------------
+DISTRIBUTION_COLUMNS = ("Status", "DR", "DL")
+SUCCESS_STATUS = "Success"
+DR_HIST_RANGE = (-2.2, 0.3)
+DR_BIN_WIDTH = 0.1
+DL_HIST_RANGE = (0.0, 10.0)
+DL_BIN_WIDTH = 0.5
+DR_X_LABEL = "Depletion rate (DR)"
+DL_X_LABEL = "Depletion lag (DL)"
+COUNT_Y_LABEL = "Number of genes"
 NAME_COLUMN = "Name"
 TIME_POINTS_COLUMN = "time_points"
 AMPLITUDE_COLUMN = "A"
@@ -378,6 +405,18 @@ def build_gene_fit(fitting: pd.DataFrame, gene_name: str) -> GeneFit:
     )
 
 
+def build_parameter_distributions(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Return DR and DL across every successful gene-level fit."""
+    is_success = table["Status"] == SUCCESS_STATUS
+    selected = table.loc[is_success]
+    return selected["DR"].to_numpy(dtype=float), selected["DL"].to_numpy(dtype=float)
+
+
+def histogram_edges(low: float, high: float, width: float) -> np.ndarray:
+    """Return bin edges covering [low, high], high included in the last bin."""
+    return np.arange(low, high + width / 2, width)
+
+
 def display_ticks(generations: np.ndarray) -> list[str]:
     """Format the generation grid at the panel's display precision."""
     labels = []
@@ -445,7 +484,11 @@ def apply_house_style() -> None:
     cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map=SEQUENTIAL_CMAP)
 
 
-def draw_figure(panel_a_fit: GeneFit, panel_b_fits: tuple[GeneFit, ...]) -> cns.multipanel:
+def draw_figure(
+    panel_a_fit: GeneFit,
+    panel_b_fits: tuple[GeneFit, ...],
+    distributions: tuple[np.ndarray, np.ndarray],
+) -> cns.multipanel:
     """Draw panels A and B and return the multipanel that owns the page.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
@@ -456,6 +499,16 @@ def draw_figure(panel_a_fit: GeneFit, panel_b_fits: tuple[GeneFit, ...]) -> cns.
     container = mp.panel("A", width=PANEL_WIDTH_PT, height=PANEL_HEIGHT_PT, margin_bottom=0)
     blank_container(container)
     render_panel(container, panel_a_fit)
+
+    container_c = mp.panel(
+        "C",
+        width=PANEL_C_WIDTH_PT,
+        height=PANEL_C_HEIGHT_PT,
+        margin_right=0,
+        margin_bottom=0,
+    )
+    blank_container(container_c)
+    render_panel_c(container_c, distributions)
 
     mp.newline()
     container_b = mp.panel(
@@ -498,6 +551,65 @@ def render_panel(container: Axes, fit: GeneFit) -> None:
         )
     )
     render_anatomy_plot(plot, fit)
+
+
+def render_panel_c(container: Axes, distributions: tuple[np.ndarray, np.ndarray]) -> None:
+    """Draw the DR and DL histograms side by side at panel A's plot footprint."""
+    container.set_xlim(0, PANEL_C_WIDTH_PT)
+    container.set_ylim(0, PANEL_C_HEIGHT_PT)
+    dr_values, dl_values = distributions
+    panels = (
+        (dr_values, DR_HIST_RANGE, DR_BIN_WIDTH, RATE_COLOR, DR_X_LABEL),
+        (dl_values, DL_HIST_RANGE, DL_BIN_WIDTH, LAG_COLOR, DL_X_LABEL),
+    )
+    edges = [
+        histogram_edges(hist_range[0], hist_range[1], bin_width)
+        for _, hist_range, bin_width, _, _ in panels
+    ]
+    counts = [
+        np.histogram(values, bins=bins)[0]
+        for values, bins in zip((dr_values, dl_values), edges, strict=True)
+    ]
+    # One count scale for both panels: the two distributions describe the same
+    # 4,513 genes, and the shared scale makes DL's zero spike comparable to DR.
+    y_max = max(int(count.max()) for count in counts) * C_Y_HEADROOM
+    for column, ((values, _, _, color, xlabel), bins) in enumerate(zip(panels, edges, strict=True)):
+        x_pt = C_LEFT_DECORATION_PT + column * (PLOT_WIDTH_PT + C_COLUMN_GAP_PT)
+        ax = container.inset_axes(
+            (
+                x_pt / PANEL_C_WIDTH_PT,
+                C_PLOT_Y_PT / PANEL_C_HEIGHT_PT,
+                PLOT_WIDTH_PT / PANEL_C_WIDTH_PT,
+                PLOT_HEIGHT_PT / PANEL_C_HEIGHT_PT,
+            )
+        )
+        render_distribution_axes(ax, values, bins, color, xlabel, y_max, show_y_labels=column == 0)
+    container.text(
+        C_Y_LABEL_CENTER_X_PT,
+        C_PLOT_Y_PT + PLOT_HEIGHT_PT / 2,
+        COUNT_Y_LABEL,
+        rotation=90,
+        ha="center",
+        va="center",
+        fontsize=PLOT_LABEL_FONT_PT,
+    )
+
+
+def render_distribution_axes(
+    ax: Axes,
+    values: np.ndarray,
+    edges: np.ndarray,
+    color: str,
+    xlabel: str,
+    y_max: float,
+    show_y_labels: bool,
+) -> None:
+    """Draw one parameter's count histogram under the shared count scale."""
+    cns.histplot(x=values, bins=edges, color=color, ax=ax, legend=False)
+    ax.set_ylim(0, y_max)
+    ax.set_ylabel("")
+    ax.set_xlabel(xlabel, fontsize=PLOT_LABEL_FONT_PT)
+    ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT, labelleft=show_y_labels)
 
 
 def render_panel_b(container: Axes, fits: tuple[GeneFit, ...]) -> None:
@@ -1045,9 +1157,12 @@ def run(config: Figure2Config) -> tuple[float, float]:
     apply_house_style()
 
     fitting = read_tsv_columns(config.gene_fitting, GENE_FIT_COLUMNS)
+    distributions = build_parameter_distributions(
+        read_tsv_columns(config.gene_fitting, DISTRIBUTION_COLUMNS)
+    )
     fits = {gene: build_gene_fit(fitting, gene) for gene in (PANEL_A_GENE, *PANEL_B_GENES)}
 
-    mp = draw_figure(fits[PANEL_A_GENE], tuple(fits[gene] for gene in PANEL_B_GENES))
+    mp = draw_figure(fits[PANEL_A_GENE], tuple(fits[gene] for gene in PANEL_B_GENES), distributions)
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight"; pass bbox_inches=None so the page
     # keeps the multipanel canvas instead of cropping to the drawn artists.
