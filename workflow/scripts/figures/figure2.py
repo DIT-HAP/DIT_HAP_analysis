@@ -23,9 +23,13 @@ lighter weight; their text labels stay in A, and the four genes' fitted values
 and R2 share one table under the grid.
 
 Panel C sits to the right of A on the same row: the distributions of DR and DL
-across every successful fit in the release, one histogram each, sharing one
-count scale so the two shapes are directly comparable. It answers "where in this
-space do real genes fall?" — the spread A's single example cannot show.
+across every successful fit, one histogram each on its own count scale. In the
+corner each histogram leaves empty (upper left for DR, upper right for DL) a
+small inset stacks the same parameter for the two FYPO viability groups —
+viable above, inviable below — tick-free and scaled to their own peaks; the
+inset carries the shape of the split, not its counts. Together they answer
+"where in this space do real genes fall, and how do genes that die differ from
+genes that survive?", neither of which A's single example can show.
 
 The genes are fixed (``PANEL_A_GENE`` and ``PANEL_B_GENES``): they are the
 instances the figure tells its story with, not per-run choices. Each curve is
@@ -49,7 +53,8 @@ Input
 -----
 - <HD_DIT_HAP release>/gene_level/gene_level_fitting_statistics.tsv
   Columns: Name, time_points, A, DR, DL, R2, t_inflection, y_inflection,
-  YES0..YES4, YES0_fitted..YES4_fitted (panel C additionally reads Status).
+  YES0..YES4, YES0_fitted..YES4_fitted (panel C additionally reads Status and
+  FYPOviability).
 
 Output
 ------
@@ -75,7 +80,7 @@ Version:  2.0.0
 # =============================================================================
 import argparse
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, floor, log10
 from pathlib import Path
 import subprocess
 import sys
@@ -192,16 +197,35 @@ PANEL_B_HEIGHT_PT = (
     + B_ROW_GAP_PT
     + B_TOP_TITLE_BAND_PT
 )
-# Panel C sits to the right of A on the same row: two histograms, DR and DL,
-# each at panel A's plot footprint. The two panels have independent count
-# axes because DL's zero spike (3,113 genes) is far taller than DR's peak.
-PANEL_C_WIDTH_PT = 252.0
+# Panel C sits to the right of A on the same row and answers "where in this
+# space do real genes fall?": one histogram of every successful fit per
+# parameter, each on its own count axis. Inside each histogram's empty corner a
+# small unlabelled-count inset repeats the parameter for the two FYPO viability
+# groups, so the split is visible without stealing the panel's space.
+# The panel has to share A's row inside the 515.28 pt canvas, and multipanel
+# charges each panel the width of its letter, so A's right margin is 0 and C is
+# 34 + 99 + 10 + 99 + 23 = 265 pt wide (two letters + both panels = 512.6).
+PANEL_C_WIDTH_PT = 265.0
 PANEL_C_HEIGHT_PT = 100.0
-C_LEFT_DECORATION_PT = 34.0  # count labels are wider than LFC ticks + ylabel
+C_PLOT_X_PT = 34.0  # left decoration: rotated ylabel + the left count labels
+C_PLOT_WIDTH_PT = 99.0
 C_COLUMN_GAP_PT = 10.0
-C_PLOT_Y_PT = 22.0
-C_Y_LABEL_CENTER_X_PT = 10.0
+C_RIGHT_DECORATION_PT = 23.0  # the right panel's count labels
+C_PLOT_Y_PT = 22.0  # bottom decoration: x tick labels + xlabel
+C_Y_LABEL_CENTER_X_PT = 4.0
 C_Y_HEADROOM = 1.08
+# Ceilings the count axis may snap to, coarser than the headroom alone so the
+# two ticks of each axes stay round numbers (1,500 / 3,500 / 300 / 500).
+C_TICK_MULTIPLIERS = (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 8.0, 10.0)
+# The inset: two 16 pt mini histograms stacked in the corner the main bars do
+# not reach — DR's upper left, DL's upper right. Only the shape matters here;
+# the minis carry no ticks, so each is scaled to its own peak.
+C_INSET_X_PT = (3.0, 47.5)
+C_INSET_WIDTH_PT = 46.5
+C_INSET_TOP_PT = 74.0
+C_INSET_MINI_HEIGHT_PT = 16.0
+C_INSET_LABEL_BAND_PT = 6.0
+C_INSET_LABEL_FONT_PT = 5.5
 
 ROW_GAP_PT = 10.0  # between panel A and panel B
 
@@ -210,9 +234,12 @@ PANEL_A_GENE = "mtf1"
 PANEL_B_GENES = ("tna1", "pst2", "rpl3801", "nrs1")
 
 # --- Panel C vocabulary -----------------------------------------------------
-DISTRIBUTION_COLUMNS = ("Status", "DR", "DL")
+DISTRIBUTION_COLUMNS = ("Status", "FYPOviability", "DR", "DL")
 SUCCESS_STATUS = "Success"
-DR_HIST_RANGE = (-2.2, 0.3)
+VIABILITY_COLUMN = "FYPOviability"
+VIABILITY_GROUPS = ("viable", "inviable")  # inset row order, top first
+ALL_GENES = "all"  # key for the main histograms, which pool every successful fit
+DR_HIST_RANGE = (-1.5, 0.3)
 DR_BIN_WIDTH = 0.1
 DL_HIST_RANGE = (0.0, 10.0)
 DL_BIN_WIDTH = 0.5
@@ -245,6 +272,12 @@ LAG_COLOR = cns.get_hexcolors_from_apalette([1], HOUSE_PALETTE)[0]
 FIT_COLOR = cns.get_hexcolors_from_apalette([3], HOUSE_PALETTE)[0]
 POINT_COLOR = cns.get_hexcolors_from_apalette([9], HOUSE_PALETTE)[0]
 CHIP_ALPHA = 0.25
+
+# Panel C's two histogram recipes: column, range, bin width, colour, x label.
+PARAMETER_HISTOGRAMS = (
+    (RATE_COLUMN, DR_HIST_RANGE, DR_BIN_WIDTH, RATE_COLOR, DR_X_LABEL),
+    (LAG_COLUMN, DL_HIST_RANGE, DL_BIN_WIDTH, LAG_COLOR, DL_X_LABEL),
+)
 
 # --- Panel A drawing sizes --------------------------------------------------
 FLOW_TEXT_FONT_PT = 6.5
@@ -405,16 +438,33 @@ def build_gene_fit(fitting: pd.DataFrame, gene_name: str) -> GeneFit:
     )
 
 
-def build_parameter_distributions(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Return DR and DL across every successful gene-level fit."""
+def build_parameter_distributions(table: pd.DataFrame) -> dict[tuple[str, str], np.ndarray]:
+    """Return DR and DL for all genes and each viability group, keyed by (group, parameter)."""
     is_success = table["Status"] == SUCCESS_STATUS
     selected = table.loc[is_success]
-    return selected["DR"].to_numpy(dtype=float), selected["DL"].to_numpy(dtype=float)
+    subsets = {ALL_GENES: selected}
+    subsets |= {
+        group: selected.loc[selected[VIABILITY_COLUMN] == group] for group in VIABILITY_GROUPS
+    }
+    return {
+        (group, column): rows[column].to_numpy(dtype=float)
+        for group, rows in subsets.items()
+        for column, *_ in PARAMETER_HISTOGRAMS
+    }
 
 
 def histogram_edges(low: float, high: float, width: float) -> np.ndarray:
     """Return bin edges covering [low, high], high included in the last bin."""
     return np.arange(low, high + width / 2, width)
+
+
+def count_axis_ceiling(max_count: float) -> float:
+    """Round the tallest bar up to a two-tick count axis ceiling."""
+    target = max_count * C_Y_HEADROOM
+    base = 10.0 ** floor(log10(target))
+    return next(
+        multiplier * base for multiplier in C_TICK_MULTIPLIERS if multiplier * base >= target
+    )
 
 
 def display_ticks(generations: np.ndarray) -> list[str]:
@@ -487,7 +537,7 @@ def apply_house_style() -> None:
 def draw_figure(
     panel_a_fit: GeneFit,
     panel_b_fits: tuple[GeneFit, ...],
-    distributions: tuple[np.ndarray, np.ndarray],
+    distributions: dict[tuple[str, str], np.ndarray],
 ) -> cns.multipanel:
     """Draw panels A and B and return the multipanel that owns the page.
 
@@ -496,7 +546,11 @@ def draw_figure(
     the object until the file is written or the panels stay unmeasured.
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
-    container = mp.panel("A", width=PANEL_WIDTH_PT, height=PANEL_HEIGHT_PT, margin_bottom=0)
+    # A gives up its right margin so C keeps A's row: the two letters plus both
+    # panels have to fit inside the 515.28 pt canvas.
+    container = mp.panel(
+        "A", width=PANEL_WIDTH_PT, height=PANEL_HEIGHT_PT, margin_right=0, margin_bottom=0
+    )
     blank_container(container)
     render_panel(container, panel_a_fit)
 
@@ -553,37 +607,29 @@ def render_panel(container: Axes, fit: GeneFit) -> None:
     render_anatomy_plot(plot, fit)
 
 
-def render_panel_c(container: Axes, distributions: tuple[np.ndarray, np.ndarray]) -> None:
-    """Draw the DR and DL histograms side by side at panel A's plot footprint."""
+def render_panel_c(container: Axes, distributions: dict[tuple[str, str], np.ndarray]) -> None:
+    """Draw the all-gene DR and DL histograms, each with the viability split inset."""
     container.set_xlim(0, PANEL_C_WIDTH_PT)
     container.set_ylim(0, PANEL_C_HEIGHT_PT)
-    dr_values, dl_values = distributions
-    panels = (
-        (dr_values, DR_HIST_RANGE, DR_BIN_WIDTH, RATE_COLOR, DR_X_LABEL),
-        (dl_values, DL_HIST_RANGE, DL_BIN_WIDTH, LAG_COLOR, DL_X_LABEL),
-    )
-    edges = [
-        histogram_edges(hist_range[0], hist_range[1], bin_width)
-        for _, hist_range, bin_width, _, _ in panels
-    ]
-    counts = [
-        np.histogram(values, bins=bins)[0]
-        for values, bins in zip((dr_values, dl_values), edges, strict=True)
-    ]
-    # One count scale for both panels: the two distributions describe the same
-    # 4,513 genes, and the shared scale makes DL's zero spike comparable to DR.
-    y_max = max(int(count.max()) for count in counts) * C_Y_HEADROOM
-    for column, ((values, _, _, color, xlabel), bins) in enumerate(zip(panels, edges, strict=True)):
-        x_pt = C_LEFT_DECORATION_PT + column * (PLOT_WIDTH_PT + C_COLUMN_GAP_PT)
+    for column, (parameter, hist_range, bin_width, color, xlabel) in enumerate(
+        PARAMETER_HISTOGRAMS
+    ):
+        edges = histogram_edges(hist_range[0], hist_range[1], bin_width)
+        x_pt = C_PLOT_X_PT + column * (C_PLOT_WIDTH_PT + C_COLUMN_GAP_PT)
         ax = container.inset_axes(
             (
                 x_pt / PANEL_C_WIDTH_PT,
                 C_PLOT_Y_PT / PANEL_C_HEIGHT_PT,
-                PLOT_WIDTH_PT / PANEL_C_WIDTH_PT,
+                C_PLOT_WIDTH_PT / PANEL_C_WIDTH_PT,
                 PLOT_HEIGHT_PT / PANEL_C_HEIGHT_PT,
             )
         )
-        render_distribution_axes(ax, values, bins, color, xlabel, y_max, show_y_labels=column == 0)
+        values = distributions[(ALL_GENES, parameter)]
+        y_max = count_axis_ceiling(float(np.histogram(values, bins=edges)[0].max()))
+        render_distribution_axes(
+            ax, values, edges, color, xlabel, y_max, is_left_column=column == 0
+        )
+        render_viability_inset(ax, distributions, parameter, edges, color, column)
     container.text(
         C_Y_LABEL_CENTER_X_PT,
         C_PLOT_Y_PT + PLOT_HEIGHT_PT / 2,
@@ -602,14 +648,66 @@ def render_distribution_axes(
     color: str,
     xlabel: str,
     y_max: float,
-    show_y_labels: bool,
+    *,
+    is_left_column: bool,
 ) -> None:
-    """Draw one parameter's count histogram under the shared count scale."""
+    """Draw the all-gene count histogram on its own two-tick count axis."""
     cns.histplot(x=values, bins=edges, color=color, ax=ax, legend=False)
+    ax.set_xlim(edges[0], edges[-1])
     ax.set_ylim(0, y_max)
+    ax.set_yticks([0.0, y_max], [f"{0:,.0f}", f"{y_max:,.0f}"])
     ax.set_ylabel("")
     ax.set_xlabel(xlabel, fontsize=PLOT_LABEL_FONT_PT)
-    ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT, labelleft=show_y_labels)
+    ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT)
+    # The right panel's scale is its own, so it must be readable from its right
+    # edge — there is no room for a second label column between the two plots.
+    # The y ticks carry no mark: beside a positive count the dash reads as a
+    # minus sign (1,500 -> -1,500).
+    ax.tick_params(
+        axis="y",
+        length=0,
+        right=not is_left_column,
+        labelleft=is_left_column,
+        labelright=not is_left_column,
+    )
+
+
+def render_viability_inset(
+    ax: Axes,
+    distributions: dict[tuple[str, str], np.ndarray],
+    parameter: str,
+    edges: np.ndarray,
+    color: str,
+    column: int,
+) -> None:
+    """Stack the two viability groups' mini histograms in the main panel's empty corner."""
+    x_pt = C_INSET_X_PT[column]
+    row_band_pt = C_INSET_LABEL_BAND_PT + C_INSET_MINI_HEIGHT_PT
+    for row, group in enumerate(VIABILITY_GROUPS):
+        bottom_pt = C_INSET_TOP_PT - (row + 1) * row_band_pt
+        mini = ax.inset_axes(
+            (
+                x_pt / C_PLOT_WIDTH_PT,
+                bottom_pt / PLOT_HEIGHT_PT,
+                C_INSET_WIDTH_PT / C_PLOT_WIDTH_PT,
+                C_INSET_MINI_HEIGHT_PT / PLOT_HEIGHT_PT,
+            )
+        )
+        values = distributions[(group, parameter)]
+        cns.histplot(x=values, bins=edges, color=color, ax=mini, legend=False)
+        mini.set_xlim(edges[0], edges[-1])
+        mini.set_ylim(0, count_axis_ceiling(float(np.histogram(values, bins=edges)[0].max())))
+        mini.set_axis_off()
+        ax.text(
+            x_pt / C_PLOT_WIDTH_PT,
+            (bottom_pt + C_INSET_MINI_HEIGHT_PT) / PLOT_HEIGHT_PT,
+            group,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=C_INSET_LABEL_FONT_PT,
+            fontstyle="italic",
+        )
 
 
 def render_panel_b(container: Axes, fits: tuple[GeneFit, ...]) -> None:

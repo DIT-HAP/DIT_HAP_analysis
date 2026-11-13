@@ -25,8 +25,10 @@
 # them; b four example fits (tna1, pst2, rpl3801, nrs1) in a 2 x 2 grid below
 # A, same width, each mini axes at A's plot footprint, with the same guides and
 # one shared table of the four genes' A/DR/DL/R2 values underneath; c the
-# distributions of DR and DL across all successful fits, two histograms to the
-# right of A on the same row, sharing one count scale.
+# distributions of DR and DL across every successful fit (two histograms to the
+# right of A on the same row, each on its own count scale), with a small
+# tick-free inset in each panel's empty corner splitting that parameter by FYPO
+# viability (viable above, inviable below).
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.
@@ -108,7 +110,8 @@ rule plot_figure2:
         # Panels A and B: the release's gene-level curve fits, one row per gene.
         # The fitted curve is drawn from the row's A/DR/DL; its *_fitted columns
         # are the cross-check that this script uses the same model. Panel C
-        # reuses the same table, filtering on Status for DR/DL distributions.
+        # reuses the same table, filtering on Status and splitting DR/DL by
+        # FYPOviability.
         gene_fitting=(
             f"{DATASETS['snakemake_repo']}/"
             f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/"
