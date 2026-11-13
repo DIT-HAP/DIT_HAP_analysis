@@ -337,8 +337,9 @@ AGGREGATION_HIGH_WEIGHT_COLOR = ACCENT_COLOR
 AGGREGATION_LOW_WEIGHT_COLOR = FURNITURE_COLOR
 AGGREGATION_GENE_COLOR = ACCENT_COLOR
 AGGREGATION_INSERTION_COLOR = FURNITURE_COLOR
-# The gene model is annotation furniture, not a data series: neutral dark grey.
-GENE_MODEL_COLOR = "#4D4D4D"
+# The gene model takes the house palette's slot-3 blue (user-selected); the bar
+# is annotation furniture, not a data series, but the blue keeps it legible.
+GENE_MODEL_COLOR = cns.get_hexcolors_from_apalette([3], HOUSE_PALETTE)[0]
 # Generation ramp: one hue (the coral accent) shaded light (2.4 gen) to dark
 # (12.5 gen), so the progressive collapse reads as depth without adding a
 # second categorical palette.
@@ -347,16 +348,17 @@ GENERATION_COLOR_DARK_MIX = 1.0
 AGGREGATION_WEIGHT_LINE_WIDTH_PT = 1.0
 AGGREGATION_WEIGHT_MARKER_SIZE = 20.0
 AGGREGATION_PROFILE_LINE_WIDTH_PT = 2.0
-AGGREGATION_INSERTION_LINE_WIDTH_PT = 0.5
+AGGREGATION_INSERTION_LINE_WIDTH_PT = 1.0
 AGGREGATION_INSERTION_ALPHA = 0.3
-AGGREGATION_GENE_LINE_WIDTH_PT = 2.0
+AGGREGATION_GENE_LINE_WIDTH_PT = 3.0
 GENE_MODEL_BAR_HEIGHT = 0.5
 GENE_MODEL_BASELINE_Y = 0.5
 GENE_MODEL_LINE_WIDTH_PT = 0.5
 GENE_MODEL_END_LABEL_PAD_PT = 1.0
 # The aggregate keeps a blank band above y = 0 for its inside-top legend; the
-# y ticks still run 0..-8.
-AGGREGATE_HEADROOM = 1.0
+# y ticks still run 0..-8. The band holds the two-row legend (16.7 pt) clear of
+# the zero line.
+AGGREGATE_HEADROOM = 1.5
 AGGREGATE_Y_LIMITS = (AGGREGATION_LFC_LIMITS[0], AGGREGATION_LFC_LIMITS[1] + AGGREGATE_HEADROOM)
 # A mis-joined insertion table would separate the drawn aggregate from the
 # release's gene-level row; 1e-2 covers the release's three-decimal rounding
@@ -385,9 +387,9 @@ AGG_RIGHT_AXES_HEIGHT_PT = AGG_PANEL_HEIGHT_PT
 # The x tick labels and x titles sit below the 120 pt axes block, exactly like
 # B/C/D's ROW_BELOW_DECORATION_PT.
 AGG_BELOW_DECORATION_PT = 26.0
-AGG_ARROW_Y = 0.33  # fraction of the transition axes
-AGG_LABEL_Y = 0.39
-AGG_FORMULA_Y = 0.28
+AGG_ARROW_Y = 0.6167  # fraction of the transition axes
+AGG_LABEL_Y = 0.65
+AGG_FORMULA_Y = 0.5917
 # One region per inset axes: (left, bottom, width, height) in container points.
 AGG_SUB_AXES_PT = {
     "weight": (
@@ -1177,7 +1179,7 @@ def render_weight_axis(ax: Axes, data: AggregationPanelData) -> None:
     ax.set_yticks(AGGREGATION_WEIGHT_TICKS)
     ax.set_ylabel(WEIGHT_AXIS_LABEL)
     ax.set_xticks([])
-    ax.set_title(data.gene_name, fontstyle="italic", fontweight="bold", loc="left", pad=2)
+    ax.set_title(data.gene_name, fontstyle="italic", fontweight="bold", loc="center", pad=2)
 
 
 def render_spatial_profile_axis(ax: Axes, data: AggregationPanelData) -> None:
@@ -1313,7 +1315,7 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         columns=1,
         handles=weight_swatches,
         loc="center left",
-        anchor=(1.0, 0.5),
+        anchor=(1.0, 0.6),
     )
 
     generation_swatches = [
@@ -1327,12 +1329,12 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
         for color, label in zip(generation_colors(), GENERATION_TICK_LABELS[1:], strict=True)
     ]
     add_unframed_legend(
-        axes["profile"],
-        columns=len(generation_swatches),
+        axes["transition"],
+        columns=1,
         title=GENERATIONS_LEGEND_TITLE,
         handles=generation_swatches,
-        loc="center left",
-        anchor=(1.0, 0.8),
+        loc="lower center",
+        anchor=(0.5, 0.0),
     )
 
     aggregate_swatches = [
@@ -1340,7 +1342,7 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
             [],
             [],
             color=AGGREGATION_INSERTION_COLOR,
-            linewidth=LEGEND_SWATCH_LINE_WIDTH_PT,
+            linewidth=AGGREGATION_INSERTION_LINE_WIDTH_PT,
             label=AGGREGATE_LEGEND_LABELS[0],
         ),
         Line2D(
@@ -1353,7 +1355,7 @@ def add_aggregation_legends(axes: dict[str, Axes]) -> None:
     ]
     add_unframed_legend(
         axes["aggregate"],
-        columns=len(aggregate_swatches),
+        columns=1,
         handles=aggregate_swatches,
         loc="upper center",
         anchor=(0.5, 1.0),
