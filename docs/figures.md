@@ -30,16 +30,16 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ## Figure 1 — DIT-HAP 流程、覆盖度、spike-in、LFC 轨迹与 FACS 验证
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。`cns.multipanel` 只决定宽度，所以内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由三行面板推出（实测 454.1 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上各 40 pt，右侧也留 40 pt），页面其余部分留白。内容画布本身由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行：
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。`cns.multipanel` 只决定宽度，所以内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由三行面板推出（实测 470.7 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上各 40 pt，右侧也留 40 pt），页面其余部分留白。内容画布本身由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行：
 
 ```
 A 行：     10（字母带 = 7.2 标签高 + 2.8 净空） + 113.4（示意图页面实际高度） + 6（行距）            = 129.4
 B/C/D 行： 7.2（字母带） + 17.3（图例，实测） + 100（面板高） + 26（下方装饰）                        = 150.50
-E 行：     6（行距） + 7.2（字母带） + 161（容器高） + 0（末行不留下边距）                            = 174.20
-            内容高合计 454.1，贴到 841.89 高的 A4 页上距顶 40 pt 处
+E 行：     6（行距） + 7.2（字母带） + 6.6（图例，实测） + 171（容器高） + 0（末行不留下边距）        = 190.80
+            内容高合计 470.7，贴到 841.89 高的 A4 页上距顶 40 pt 处
 ```
 
-B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）；A4 宽度下这一行右端会留出空白。E 是一个 509.28 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 70 × 55 pt，字号沿用 house 的 8/7 pt），右侧空出的竖带放图例。
+B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）；A4 宽度下这一行右端会留出空白。E 是一个 509.28 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 80 × 60 pt，字号沿用 house 的 8/7 pt）；图例一行放在容器上方。
 
 **版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C/D 从左往右流式排列、行首贴页面左边；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A、B、E 的字母因此都在 x = 0。E 的 mini axes 用 `container.inset_axes()` 建，位置是容器 axes 的分数坐标，渲染时自动跟随容器。
 
@@ -49,7 +49,7 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 |---|---|
 | `results/7a_figures/figure1.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure1.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化（含 A 面板） |
-| `results/7a_figures/_work/figure1_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（A 区空白，515.28 × 454.1 pt）；排查版式时看这个 |
+| `results/7a_figures/_work/figure1_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（A 区空白，515.28 × 470.7 pt）；排查版式时看这个 |
 
 **为什么 A 面板用 pypdf 叠加**：matplotlib / cnsplots 没有把 SVG/PDF 当矢量嵌入的 API，`ax.imshow` 一定栅格化。脚本先用 matplotlib 画整张画布（A 区留白），再用 `pypdf` 把示意图 PDF 等比缩放、平移进 A 区，最后 `merge_transformed_page` 合成单页 PDF。示意图的 4 个 Arial 子集与 4 张 601 ppi 位图都原样保留。
 
@@ -127,10 +127,10 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | 必需列 | FACS：`Name`、`Strain_alias`、`Generations`、`LFC`；release：`Name` 与 `YES0`…`YES4`（缺列在 I/O 边界直接报错） |
 | 数据形状 | workbook 是 tidy 长表（每行 = 基因 × 菌株 × 时间点），10 个基因、每株 9 个时间点（Spore + YES0…YES7），共 171 行；panel 去掉 `orc6`、`srb4` 后画 8 个基因（`FACS_EXCLUDED_GENES`）；`fal1` 只有 `Strain#1`，没有 `Strain#2` |
 | 变换 | 每个基因把 FACS 两条独立菌株曲线与 release 的 5 点 LFC 拼成一张长表：`gene / source / series / generation / lfc`。**符号对齐**：FACS 的 LFC 以耗竭为正，release 以耗竭为负，故 FACS 乘 −1 后与 panel D 同向（耗竭基因向下）。共享 y 范围取两源合并后的最小值/最大值向外取整 |
-| 画法 | 一个 487 pt 容器 axes（`set_axis_off()`）内嵌 8 个 `inset_axes`，4 列 × 2 行、按基因名排序（每行 4 个）。每格画 3 条线：DIT-HAP（palette 4 绿）、FACS `Strain#1`（palette 5 鲑红）、FACS `Strain#2`（palette 6 紫）——两条是独立菌株而非技术重复，所以都画，各用一色、不用线型区分；三条数据线线宽 2 pt（用户指定，覆盖 house 默认 1.5）、`alpha=0.8`，图例色块保持不透明；零线灰色虚线 0.5 pt；基因名斜体加粗作 title（house 8 pt） |
+| 画法 | 一个 509.28 pt 容器 axes（`set_axis_off()`）内嵌 8 个 `inset_axes`，4 列 × 2 行、按基因名排序（每行 4 个）。每格画 3 条线：DIT-HAP（palette 4 绿）、FACS `Strain#1`（palette 5 鲑红）、FACS `Strain#2`（palette 6 紫）——两条是独立菌株而非技术重复，所以都画，各用一色、不用线型区分；三条数据线线宽 2 pt（用户指定，覆盖 house 默认 1.5）、`alpha=0.8`，图例色块保持不透明；零线灰色虚线 0.5 pt；基因名斜体加粗作 title（house 8 pt） |
 | 轴 | 全格共享 x `0–12.8`（刻度 0/4/8/12）与 y（刻度间隔 2、向外取整）；只有第一列显示 y 刻度标签、只有底行显示 x 刻度标签；两个共享轴标题用容器 `text()` 居中在整个网格上，不用某个 mini axes 的 label |
-| 图例 | 竖排在网格右侧的留白带里（左边缘距网格 12 pt），在网格高度上垂直居中：`DIT-HAP`、`FACS Strain#1`、`FACS Strain#2`，单列、无边框 |
-| 版式 | mini axes `70 × 55` pt；列距 10 pt、行距 16 pt（给下一行 8 pt title 留位）；左侧 34 pt（y 刻度 + 旋转 y 标题）、底部 22 pt（x 刻度 + x 标题）、顶部 13 pt（首行 title）；右侧 12 pt 后是图例带；容器高 = 13 + 2×55 + 16 + 22 = 161 pt；E 是最后一行，`margin_bottom=0`（否则 multipanel 默认再留 10 pt 页脚） |
+| 图例 | 一行三列、无边框，挂在容器 axes 上方（`loc="lower center"`，锚点 x = 网格水平中心 = 209/509.28 ≈ 0.411），水平居中于整个网格：`DIT-HAP`、`FACS Strain#1`、`FACS Strain#2`；multipanel 把它量作 E 的顶部装饰（实测高 6.6 pt、宽 152.6 pt） |
+| 版式 | mini axes `80 × 60` pt（4 列共 350 pt，加左侧 34 pt 后仍留白）；列距 10 pt、行距 16 pt（给下一行 8 pt title 留位）；左侧 34 pt（y 刻度 + 旋转 y 标题）、底部 22 pt（x 刻度 + x 标题）、顶部 13 pt（首行 title）；容器高 = 13 + 2×60 + 16 + 22 = 171 pt；图例在容器外上方另计；E 是最后一行，`margin_bottom=0`（否则 multipanel 默认再留 10 pt 页脚） |
 | 产物 | 并入 `figure1.pdf` |
 
 数据口径：FACS 表的 `Generations` 每株各自记录（同名的 YES 时间点不等于同一世代值），因此不能共用 x 向量；`Spore` 恒为 0，有三个 block 的 YES0 略小于 0（如 `arg6/Strain#1` 的 −0.18），x 下限留到 −0.3。
@@ -158,12 +158,11 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | `BAR_COUNT_FONT_PT` | 5 | 柱端数字字号（fit-critical 覆盖，house 允许） |
 | `LFC_LEGEND_HALF_HEIGHT_PT` | 8.4 | D 的图例跨过 axes 顶边时，`pad_top` 补偿的下半高度 |
 | `FACS_GRID_COLUMNS` | 4 | E 的列数；行数由 `ceil(基因数 / 4)` 自动推出 |
-| `FACS_MINI_AXES_WIDTH_PT` / `FACS_MINI_AXES_HEIGHT_PT` | 70 / 55 | E 每个基因 mini axes 的尺寸（70×4 + 10×3 + 34 = 344，右侧留给图例） |
+| `FACS_MINI_AXES_WIDTH_PT` / `FACS_MINI_AXES_HEIGHT_PT` | 80 / 60 | E 每个基因 mini axes 的尺寸（80×4 + 10×3 + 34 = 384，图例在上方另占一行） |
 | `FACS_EXCLUDED_GENES` | `orc6`、`srb4` | 不画的基因（用户 2026-11-12 决定），在 frame 构建时剔除 |
 | `FACS_LINE_WIDTH_PT` | 2 | E 的三条数据线线宽（用户指定） |
 | `FACS_COLUMN_GAP_PT` / `FACS_ROW_GAP_PT` | 10 / 16 | E 的列距/行距；行距要给下一行基因名 title 留位 |
 | `FACS_TITLE_BAND_PT` | 13 | E 首行基因名 title 的顶部留白 |
-| `FACS_LEGEND_GAP_PT` | 12 | E 网格右缘到右侧图例左缘的距离 |
 | `FACS_BOTTOM_DECORATION_PT` | 22 | E 的 x 刻度标签 + 共享 x 标题 |
 | `FACS_LEFT_DECORATION_PT` | 34 | E 的 y 刻度标签 + 共享 y 标题 |
 | `FACS_LFC_SIGN` | −1 | FACS LFC 符号翻转，与 release 的"耗竭为负"对齐 |

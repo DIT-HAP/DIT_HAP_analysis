@@ -251,18 +251,17 @@ FACS_Y_LABEL_CENTER_X_PT = 15.0  # centre of the rotated shared y label
 FACS_X_LABEL_BOTTOM_PT = 3.0  # bottom of the shared x label
 
 # --- Panel E geometry -------------------------------------------------------
-# Eight genes in a 4 x 2 grid; the freed right-hand band carries the vertical
-# legend. The mini axes are insets of one page-wide container panel, so they
-# follow its box at render time.
+# Eight genes in a 4 x 2 grid; the legend is one row above the panel. The mini
+# axes are insets of one page-wide container panel, so they follow its box at
+# render time.
 FACS_GRID_COLUMNS = 4
-FACS_MINI_AXES_WIDTH_PT = 70.0
-FACS_MINI_AXES_HEIGHT_PT = 55.0
+FACS_MINI_AXES_WIDTH_PT = 80.0
+FACS_MINI_AXES_HEIGHT_PT = 60.0
 FACS_COLUMN_GAP_PT = 10.0
 FACS_ROW_GAP_PT = 16.0  # clears the lower row's 8 pt gene title
 FACS_TITLE_BAND_PT = 13.0  # above the upper row's gene titles
 FACS_BOTTOM_DECORATION_PT = 22.0  # x tick labels + the shared x label
 FACS_LEFT_DECORATION_PT = 34.0  # y tick labels + the shared y label
-FACS_LEGEND_GAP_PT = 12.0  # grid's right edge to the legend's left edge
 # DIT-HAP takes the green of slot 4; the two FACS strains take slots 5 and 6
 # (salmon, purple). No other panel uses those three slots.
 DIT_HAP_COLOR = cns.get_hexcolors_from_apalette([4], HOUSE_PALETTE)[0]
@@ -633,7 +632,7 @@ def render_facs_panel(container: Axes, frame: pd.DataFrame) -> None:
         )
 
     add_facs_axis_labels(container, n_rows)
-    add_facs_legend(container, n_rows)
+    add_facs_legend(container)
 
 
 def facs_sub_axes_bounds(row: int, column: int, n_rows: int) -> tuple[float, float, float, float]:
@@ -721,8 +720,8 @@ def add_facs_axis_labels(container: Axes, n_rows: int) -> None:
     )
 
 
-def add_facs_legend(container: Axes, n_rows: int) -> None:
-    """Draw panel E's vertical legend in the free band right of the mini-axes grid."""
+def add_facs_legend(container: Axes) -> None:
+    """Draw panel E's three-entry legend as one row above the mini-axes grid."""
     swatches = [
         Line2D(
             [],
@@ -745,12 +744,14 @@ def add_facs_legend(container: Axes, n_rows: int) -> None:
     grid_width_pt = (
         FACS_GRID_COLUMNS * FACS_MINI_AXES_WIDTH_PT + (FACS_GRID_COLUMNS - 1) * FACS_COLUMN_GAP_PT
     )
-    grid_height_pt = n_rows * FACS_MINI_AXES_HEIGHT_PT + (n_rows - 1) * FACS_ROW_GAP_PT
-    anchor = (
-        (FACS_LEFT_DECORATION_PT + grid_width_pt + FACS_LEGEND_GAP_PT) / PAGE_CONTENT_WIDTH_PT,
-        (FACS_BOTTOM_DECORATION_PT + grid_height_pt / 2) / facs_panel_height_pt(n_rows),
+    anchor_x = (FACS_LEFT_DECORATION_PT + grid_width_pt / 2) / PAGE_CONTENT_WIDTH_PT
+    add_unframed_legend(
+        container,
+        columns=len(swatches),
+        handles=swatches,
+        loc="lower center",
+        anchor=(anchor_x, 1.0),
     )
-    add_unframed_legend(container, columns=1, handles=swatches, loc="center left", anchor=anchor)
 
 
 # =============================================================================
