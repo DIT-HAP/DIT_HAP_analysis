@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 """
-Figure 1 — DIT-HAP concept, coverage, spike-in, LFC trajectories, FACS
-======================================================================
+Figure 1 — DIT-HAP concept, coverage, spike-in, LFC trajectories, FACS, aggregation
+===================================================================================
 
-Assembles the first main-text figure from five panels:
+Assembles the first main-text figure from six panels:
 
   A  the DIT-HAP workflow schematic, drawn outside the pipeline and supplied as
      a one-page vector PDF;
@@ -14,7 +14,13 @@ Assembles the first main-text figure from five panels:
   D  gene-level LFC through the 12.5-generation time course, one trajectory
      per gene, coloured by the two FYPO viability classes B highlights;
   E  FACS-validated genes: each gene's FACS depletion curves (two independent
-     strains) against its DIT-HAP gene-level LFC, one small axes per gene.
+     strains) against its DIT-HAP gene-level LFC, one small axes per gene;
+  F  how one gene's insertion-level measurements become its gene-level LFC:
+     a worked essential gene (cdc7) with its TTAA sites on the real ORF
+     coordinate, each site's statistical weight above the baseline and the four
+     insertion-LFC spatial profiles below it, the weighted-aggregation formula
+     between, and every insertion trajectory plus the aggregated gene-level
+     curve on the right.
 
 Every drawing decision for this figure lives in this file. The script imports
 no stage module from ``workflow/src`` and calls no upstream renderer, so
@@ -50,6 +56,19 @@ Input
 - resources/curated/FACS_depletion_curves_from_XH.xlsx
   Columns: Name, Strain_alias, Generations, LFC (one row per gene x strain x
   timepoint; FACS LFC is depletion-positive, the opposite sign to the release).
+- <HD_DIT_HAP release>/insertion_level/LFC.tsv
+  Columns: Chr, Coordinate, Strand, Target, YES0..YES4 (one row per insertion
+  orientation; panel F joins these onto the weights).
+- <HD_DIT_HAP release>/insertion_level/padj.tsv
+  Same shape as the insertion LFC table; panel F reads the adjusted p-values
+  to draw each site's statistical weight.
+- <HD_DIT_HAP release>/insertion_level/insertion_weights.tsv
+  Columns: Chr, Coordinate, Strand, Target, Timepoint, Weight, Systematic ID
+  (gene-timepoint-normalised weights, sum 1 within each group).
+- resources/external/pombase/<version>/genome_region/coding_gene_primary_transcripts.bed
+  Columns: #Chr, Start, End, Transcript, Length, Strand, Feature, Systematic ID,
+  ... ParentalRegion_start, ParentalRegion_end (CDS and intron segments of the
+  primary transcript; panel F draws the gene model from these).
 - resources/figures/figure1a.pdf
   One page; its page box is its content box.
 
@@ -66,6 +85,11 @@ Usage
         --spikein results/1a_pcr_qc/spike_in_stats.tsv \\
         --gene-lfc <HD_DIT_HAP release>/gene_level/LFC.tsv \\
         --facs resources/curated/FACS_depletion_curves_from_XH.xlsx \\
+        --insertion-lfc <HD_DIT_HAP release>/insertion_level/LFC.tsv \\
+        --insertion-padj <HD_DIT_HAP release>/insertion_level/padj.tsv \\
+        --insertion-weights <HD_DIT_HAP release>/insertion_level/insertion_weights.tsv \\
+        --gene-intervals \\
+            resources/external/pombase/<ver>/genome_region/coding_gene_primary_transcripts.bed \\
         --schematic resources/figures/figure1a.pdf \\
         --output-pdf results/7a_figures/figure1.pdf \\
         --output-review results/7a_figures/figure1.review.png \\
@@ -73,7 +97,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-11-07
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -82,7 +106,7 @@ Version:  1.0.0
 import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import ceil, floor
+from math import ceil, floor, log10
 from pathlib import Path
 import subprocess
 import sys
@@ -90,11 +114,14 @@ from typing import cast
 
 import cnsplots as cns
 from loguru import logger
+from matplotlib import colormaps
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from matplotlib.patches import FancyArrowPatch
+import numpy as np
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
 
@@ -266,12 +293,152 @@ FACS_LEFT_DECORATION_PT = 34.0  # y tick labels + the shared y label
 # (salmon, purple). No other panel uses those three slots.
 DIT_HAP_COLOR = cns.get_hexcolors_from_apalette([4], HOUSE_PALETTE)[0]
 
+# --- Panel F vocabulary -----------------------------------------------------
+# The worked gene is fixed (not a per-run choice): cdc7 is the only inviable
+# gene with >=10 measured TTAA sites spanning the ORF, >=3 terminal sites whose
+# 12.5-generation LFC stays near zero, and introns to draw in the model bar.
+AGGREGATION_GENE_ID = "SPBC21.06c"
+AGGREGATION_WEIGHT_TIMEPOINT = "YES4"  # the weight shown above each lollipop
+# The spatial profiles run over the four sampled generations, never the YES0
+# baseline (every insertion's YES0 LFC is zero by construction).
+AGGREGATION_PROFILE_TIMEPOINTS = ("YES1", "YES2", "YES3", "YES4")
+# Upstream's weight is -log10(padj) clipped into the open unit interval, so an
+# uninformative insertion keeps a tiny floor weight instead of vanishing from
+# the normalising sum (DIT_HAP_snakemake/wf/src/depletion/weights.py).
+WEIGHT_PROB_FLOOR = 1e-6
+WEIGHT_PROB_CEILING = 1 - 1e-6
+HIGHLIGHT_PADJ = 0.05
+HIGH_WEIGHT_THRESHOLD = -log10(HIGHLIGHT_PADJ)
+# Every insertion's weight clips at 6, so the lollipop axis tops out just above
+# that ceiling.
+AGGREGATION_WEIGHT_AXIS_MAX = 6.4
+AGGREGATION_WEIGHT_TICKS = (0, 2, 4, 6)
+AGGREGATION_LFC_TICKS = (0, -2, -4, -6, -8)
+AGGREGATION_LFC_LIMITS = (-8, 0)
+AGGREGATION_X_LIMITS = (-0.3, 12.8)
+WEIGHT_AXIS_LABEL = "Weight\n($-\\log_{10}$padj)"
+PROFILE_AXIS_LABEL = r"LFC ($\log_2$)"
+MODEL_AXIS_LABEL = "Position along gene (bp)"
+AGGREGATE_AXIS_LABEL = r"Gene-level LFC ($\log_2$)"
+TRANSITION_LABEL = "Weighted\naggregation"
+AGGREGATION_FORMULA = (
+    r"$\mathrm{LFC}_{\mathrm{gene},t}="
+    r"\dfrac{\sum_i w_i\cdot\mathrm{LFC}_{i,t}}{\sum_i w_i}$"
+)
+WEIGHT_LEGEND_LABELS = ("High weight", "Low weight")
+AGGREGATE_LEGEND_LABELS = ("Insertion-level LFC", "Gene-level LFC")
+GENERATIONS_LEGEND_TITLE = "Generations"
+# The coral accent already means the inviable class in B/D; cdc7 is inviable,
+# so the aggregated curve keeps that meaning and the high-weight sites (the
+# ones driving it) take the same colour. The insertion cloud stays furniture
+# grey, like D's population curves.
+AGGREGATION_HIGH_WEIGHT_COLOR = ACCENT_COLOR
+AGGREGATION_LOW_WEIGHT_COLOR = FURNITURE_COLOR
+AGGREGATION_GENE_COLOR = ACCENT_COLOR
+AGGREGATION_INSERTION_COLOR = FURNITURE_COLOR
+# The gene model is annotation furniture, not a data series: neutral dark grey.
+GENE_MODEL_COLOR = "#4D4D4D"
+# Generation colour ramp: the house sequential map sampled light (2.4 gen) to
+# dark (12.5 gen), so the progressive collapse reads as depth.
+GENERATION_CMAP_LIGHT = 0.92
+GENERATION_CMAP_DARK = 0.18
+AGGREGATION_WEIGHT_LINE_WIDTH_PT = 0.5
+AGGREGATION_WEIGHT_MARKER_SIZE = 8.0
+AGGREGATION_PROFILE_LINE_WIDTH_PT = 1.0
+AGGREGATION_INSERTION_LINE_WIDTH_PT = 0.4
+AGGREGATION_INSERTION_ALPHA = 0.3
+AGGREGATION_GENE_LINE_WIDTH_PT = 2.0
+GENE_MODEL_BAR_HEIGHT = 0.4
+GENE_MODEL_BASELINE_Y = 0.5
+GENE_MODEL_LINE_WIDTH_PT = 0.5
+GENE_MODEL_END_LABEL_Y = 0.9
+# A mis-joined insertion table would separate the drawn aggregate from the
+# release's gene-level row; 1e-2 covers the release's three-decimal rounding
+# (the real deviation is < 1e-3).
+AGGREGATION_TOLERANCE = 1e-2
+
+# --- Panel F geometry (points inside one page-wide container, like E) ------
+AGG_PANEL_HEIGHT_PT = 158.0
+AGG_LEFT_DECORATION_PT = 36.0  # y tick labels + both rotated labels
+AGG_LEFT_AXES_WIDTH_PT = 168.0
+AGG_BLOCK_GAP_PT = 10.0
+AGG_TRANSITION_WIDTH_PT = 100.0
+AGG_RIGHT_DECORATION_PT = 30.0
+AGG_RIGHT_MARGIN_PT = 8.0
+AGG_GENE_AXES_BOTTOM_PT = 22.0
+AGG_GENE_AXES_HEIGHT_PT = 14.0
+AGG_AXES_GAP_PT = 3.0
+AGG_LFC_HEIGHT_PT = 75.0
+# The positive (weight) and negative (LFC) halves share the y = 0 baseline at a
+# strict 1 : 2.5 height ratio.
+AGG_WEIGHT_HEIGHT_PT = 30.0
+AGG_LFC_BOTTOM_PT = AGG_GENE_AXES_BOTTOM_PT + AGG_GENE_AXES_HEIGHT_PT + AGG_AXES_GAP_PT
+AGG_WEIGHT_BOTTOM_PT = AGG_LFC_BOTTOM_PT + AGG_LFC_HEIGHT_PT
+AGG_TRANSITION_X_PT = AGG_LEFT_DECORATION_PT + AGG_LEFT_AXES_WIDTH_PT + AGG_BLOCK_GAP_PT
+AGG_RIGHT_X_PT = (
+    AGG_TRANSITION_X_PT + AGG_TRANSITION_WIDTH_PT + AGG_BLOCK_GAP_PT + AGG_RIGHT_DECORATION_PT
+)
+AGG_RIGHT_AXES_WIDTH_PT = PAGE_CONTENT_WIDTH_PT - AGG_RIGHT_X_PT - AGG_RIGHT_MARGIN_PT
+# The transition block spans the weight band as well as the LFC band so its
+# legends and formula share one coordinate system.
+AGG_TRANSITION_HEIGHT_PT = AGG_LFC_HEIGHT_PT + AGG_WEIGHT_HEIGHT_PT
+AGG_ARROW_Y = 0.42  # fraction of the transition axes
+AGG_LABEL_Y = 0.52
+AGG_FORMULA_Y = 0.34
+# One region per inset axes: (left, bottom, width, height) in container points.
+AGG_SUB_AXES_PT = {
+    "weight": (
+        AGG_LEFT_DECORATION_PT,
+        AGG_WEIGHT_BOTTOM_PT,
+        AGG_LEFT_AXES_WIDTH_PT,
+        AGG_WEIGHT_HEIGHT_PT,
+    ),
+    "profile": (
+        AGG_LEFT_DECORATION_PT,
+        AGG_LFC_BOTTOM_PT,
+        AGG_LEFT_AXES_WIDTH_PT,
+        AGG_LFC_HEIGHT_PT,
+    ),
+    "model": (
+        AGG_LEFT_DECORATION_PT,
+        AGG_GENE_AXES_BOTTOM_PT,
+        AGG_LEFT_AXES_WIDTH_PT,
+        AGG_GENE_AXES_HEIGHT_PT,
+    ),
+    "transition": (
+        AGG_TRANSITION_X_PT,
+        AGG_LFC_BOTTOM_PT,
+        AGG_TRANSITION_WIDTH_PT,
+        AGG_TRANSITION_HEIGHT_PT,
+    ),
+    "aggregate": (
+        AGG_RIGHT_X_PT,
+        AGG_LFC_BOTTOM_PT,
+        AGG_RIGHT_AXES_WIDTH_PT,
+        AGG_LFC_HEIGHT_PT,
+    ),
+}
+
 # --- Input contracts --------------------------------------------------------
 COVERAGE_COLUMNS = ("dataset", "fypo_class", "n_lfc", "pct_lfc")
 SPIKEIN_COLUMNS = ("Sample", "Name", "Relative_Dilution_Ratio", "Relative_Read_Ratio")
 TRAJECTORY_COLUMNS = ("Systematic ID", "FYPOviability", *GENERATION_COLUMNS)
 GENE_LFC_COLUMNS = ("Systematic ID", "Name", "FYPOviability", *GENERATION_COLUMNS)
 FACS_COLUMNS = ("Name", "Strain_alias", "Generations", "LFC")
+INSERTION_KEY_COLUMNS = ("Chr", "Coordinate", "Strand", "Target")
+INSERTION_LFC_COLUMNS = (*INSERTION_KEY_COLUMNS, *GENERATION_COLUMNS)
+INSERTION_PADJ_COLUMNS = (*INSERTION_KEY_COLUMNS, *GENERATION_COLUMNS)
+INSERTION_WEIGHT_COLUMNS = (*INSERTION_KEY_COLUMNS, "Timepoint", "Weight", "Systematic ID")
+GENE_INTERVAL_COLUMNS = (
+    "Systematic ID",
+    "Feature",
+    "Start",
+    "End",
+    "Strand",
+    "ParentalRegion_start",
+    "ParentalRegion_end",
+)
+GENE_MODEL_FEATURES = ("CDS", "intron")
 
 
 # =============================================================================
@@ -285,6 +452,10 @@ class Figure1Config:
     spikein: Path
     gene_lfc: Path
     facs: Path
+    insertion_lfc: Path
+    insertion_padj: Path
+    insertion_weights: Path
+    gene_intervals: Path
     schematic: Path
     output_pdf: Path
     output_review: Path
@@ -292,7 +463,17 @@ class Figure1Config:
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        inputs = [self.lfc_comparison, self.spikein, self.gene_lfc, self.facs, self.schematic]
+        inputs = [
+            self.lfc_comparison,
+            self.spikein,
+            self.gene_lfc,
+            self.facs,
+            self.insertion_lfc,
+            self.insertion_padj,
+            self.insertion_weights,
+            self.gene_intervals,
+            self.schematic,
+        ]
         for path in inputs:
             if not path.exists():
                 raise ValueError(f"Required input not found: {path}")
@@ -379,6 +560,160 @@ def facs_panel_height_pt(n_rows: int) -> float:
     return FACS_TITLE_BAND_PT + axes_height + gaps_height + FACS_BOTTOM_DECORATION_PT
 
 
+@dataclass(kw_only=True, frozen=True)
+class AggregationPanelData:
+    """One gene's assembled per-site data, gene model and gene-level curve."""
+
+    gene_name: str
+    span_bp: float
+    site_lfc: pd.DataFrame  # index = bp from the start codon, columns YES0..YES4
+    site_weight: pd.DataFrame  # same shape; normalised within each gene-timepoint
+    site_raw_weight: pd.Series  # -log10(padj) at the weight timepoint, per site
+    high_weight: pd.Series  # bool, site_raw_weight > the significance cutoff
+    gene_curve: pd.Series  # index YES0..YES4, the release's gene-level LFC
+    model: pd.DataFrame  # columns Feature/Start/End/lo/hi
+
+
+def build_site_frame(
+    insertion_lfc: pd.DataFrame,
+    insertion_padj: pd.DataFrame,
+    insertion_weights: pd.DataFrame,
+) -> pd.DataFrame:
+    """Collapse cdc7's two insertion orientations into one row per TTAA site-timepoint."""
+    weights = insertion_weights.loc[insertion_weights["Systematic ID"] == AGGREGATION_GENE_ID]
+    if weights.empty:
+        raise ValueError(f"Weights table has no rows for {AGGREGATION_GENE_ID}")
+
+    lfc_long = insertion_lfc.melt(
+        id_vars=list(INSERTION_KEY_COLUMNS),
+        value_vars=list(GENERATION_COLUMNS),
+        var_name="Timepoint",
+        value_name="lfc",
+    )
+    padj_long = insertion_padj.melt(
+        id_vars=list(INSERTION_KEY_COLUMNS),
+        value_vars=list(GENERATION_COLUMNS),
+        var_name="Timepoint",
+        value_name="padj",
+    )
+    joined = weights.merge(lfc_long, on=[*INSERTION_KEY_COLUMNS, "Timepoint"], how="inner").merge(
+        padj_long, on=[*INSERTION_KEY_COLUMNS, "Timepoint"], how="left"
+    )
+
+    # Mirror upstream's neg_log10: fill a missing adjusted p-value with 1 before
+    # clipping, so an untested row sits at the floor weight instead of NaN.
+    adjusted = joined["padj"].astype(float).fillna(1.0)
+    joined["raw_weight"] = -np.log10(adjusted.clip(WEIGHT_PROB_FLOOR, WEIGHT_PROB_CEILING))
+    joined["contribution"] = joined["Weight"] * joined["lfc"]
+
+    # The release treats an insertion's two TTAA orientations as independent
+    # measurements (one row per orientation). They share one physical site, so
+    # the panel shows one lollipop and one trajectory per coordinate: the site
+    # weight is the summed normalised weight and its LFC the weight-weighted
+    # mean. Summing the group preserves the gene-level aggregate exactly.
+    site = joined.groupby(["Coordinate", "Timepoint"], as_index=False).agg(
+        site_weight=("Weight", "sum"),
+        contribution=("contribution", "sum"),
+        raw_weight=("raw_weight", "mean"),
+    )
+    site["site_lfc"] = site["contribution"] / site["site_weight"]
+    return site
+
+
+def build_gene_model(
+    gene_intervals: pd.DataFrame,
+) -> tuple[pd.DataFrame, float, float, str]:
+    """Return cdc7's CDS/intron segments in ORF coordinates plus the ORF bounds."""
+    rows = gene_intervals.loc[gene_intervals["Systematic ID"] == AGGREGATION_GENE_ID]
+    if rows.empty:
+        raise ValueError(f"Gene interval table has no rows for {AGGREGATION_GENE_ID}")
+
+    region_start = float(rows["ParentalRegion_start"].iloc[0])
+    region_end = float(rows["ParentalRegion_end"].iloc[0])
+    strand = cast(str, rows["Strand"].iloc[0])
+    model = rows.loc[rows["Feature"].isin(GENE_MODEL_FEATURES), ["Feature", "Start", "End"]].copy()
+
+    if strand == "+":
+        model["lo"] = model["Start"] - region_start
+        model["hi"] = model["End"] - region_start
+    else:
+        model["lo"] = region_end - model["End"]
+        model["hi"] = region_end - model["Start"]
+    return model.sort_values("lo", kind="stable"), region_start, region_end, strand
+
+
+def position_along_gene(
+    coordinates: pd.Series, region_start: float, region_end: float, strand: str
+) -> pd.Series:
+    """Convert genomic coordinates to bp from the start codon, 5' end first."""
+    values = coordinates.to_numpy()
+    offsets = np.where(strand == "+", values - region_start, region_end - values)
+    return pd.Series(offsets, index=coordinates.index, dtype=float)
+
+
+def build_aggregation_data(
+    gene_lfc: pd.DataFrame,
+    insertion_lfc: pd.DataFrame,
+    insertion_padj: pd.DataFrame,
+    insertion_weights: pd.DataFrame,
+    gene_intervals: pd.DataFrame,
+) -> AggregationPanelData:
+    """Assemble cdc7's per-site aggregation inputs, gene model and gene-level curve."""
+    gene_row = gene_lfc.loc[gene_lfc["Systematic ID"] == AGGREGATION_GENE_ID]
+    if len(gene_row) != 1:
+        raise ValueError(
+            f"Gene-level table must hold exactly one {AGGREGATION_GENE_ID} row, "
+            f"found {len(gene_row)}"
+        )
+    record = gene_row.iloc[0]
+
+    site = build_site_frame(insertion_lfc, insertion_padj, insertion_weights)
+    model, region_start, region_end, strand = build_gene_model(gene_intervals)
+    timepoints = list(GENERATION_COLUMNS)
+
+    site_lfc = site.pivot_table(
+        index="Coordinate", columns="Timepoint", values="site_lfc", aggfunc="first"
+    )[timepoints]
+    site_weight = site.pivot_table(
+        index="Coordinate", columns="Timepoint", values="site_weight", aggfunc="first"
+    )[timepoints]
+    raw_weight = site.loc[site["Timepoint"] == AGGREGATION_WEIGHT_TIMEPOINT].set_index(
+        "Coordinate"
+    )["raw_weight"]
+
+    coordinates = pd.Series(site_lfc.index, index=site_lfc.index)
+    positions = position_along_gene(coordinates, region_start, region_end, strand)
+    order = positions.sort_values(kind="stable").index
+    positions = positions.loc[order].to_numpy()
+
+    site_lfc = site_lfc.loc[order]
+    site_lfc.index = positions
+    site_weight = site_weight.loc[order]
+    site_weight.index = positions
+    raw_weight = raw_weight.loc[order]
+    raw_weight.index = positions
+
+    gene_curve = record.loc[timepoints].astype(float)
+    deviation = float(((site_lfc * site_weight).sum() - gene_curve).abs().max())
+    if deviation > AGGREGATION_TOLERANCE:
+        raise ValueError(
+            f"{AGGREGATION_GENE_ID}: the weighted site LFCs deviate from the release "
+            f"gene-level row by {deviation:.4f}"
+        )
+    logger.info(f"Panel F: {len(site_lfc)} TTAA sites, aggregate deviation {deviation:.2e}")
+
+    return AggregationPanelData(
+        gene_name=cast(str, record["Name"]),
+        span_bp=region_end - region_start,
+        site_lfc=site_lfc,
+        site_weight=site_weight,
+        site_raw_weight=raw_weight,
+        high_weight=raw_weight > HIGH_WEIGHT_THRESHOLD,
+        gene_curve=gene_curve,
+        model=model,
+    )
+
+
 # =============================================================================
 # 5. RENDERING
 # =============================================================================
@@ -401,9 +736,10 @@ def draw_figure(
     spikein: pd.DataFrame,
     trajectory: pd.DataFrame,
     facs_comparison: pd.DataFrame,
+    aggregation: AggregationPanelData,
     schematic_size_pt: tuple[float, float],
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw the page: A's actual-size schematic box, B, C and D, then E below them.
+    """Draw the page: A's actual-size schematic box, B, C and D, then E and F.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
@@ -451,10 +787,21 @@ def draw_figure(
         width=PAGE_CONTENT_WIDTH_PT,
         height=facs_panel_height_pt(facs_gene_rows(facs_comparison)),
         margin_top=ROW_GAP_PT,
-        margin_bottom=0,  # last row: its x label is the page's bottom decoration
+        margin_bottom=0,  # the row gap to F comes from F's margin_top
     )
     blank_panel_axes(facs_ax)
     render_facs_panel(facs_ax, facs_comparison)
+
+    mp.newline()  # panel F spans the page under E
+    aggregation_ax = mp.panel(
+        "F",
+        width=PAGE_CONTENT_WIDTH_PT,
+        height=AGG_PANEL_HEIGHT_PT,
+        margin_top=ROW_GAP_PT,
+        margin_bottom=0,  # last row: its x labels are the page's bottom decoration
+    )
+    blank_panel_axes(aggregation_ax)
+    render_aggregation_panel(aggregation_ax, aggregation)
     return mp, schematic_ax
 
 
@@ -754,6 +1101,248 @@ def add_facs_legend(container: Axes) -> None:
     )
 
 
+# --- Panel F rendering ------------------------------------------------------
+def render_aggregation_panel(container: Axes, data: AggregationPanelData) -> None:
+    """Draw panel F: the mirror profile, the transition block and the aggregate."""
+    axes = aggregation_axes(container)
+    render_weight_axis(axes["weight"], data)
+    render_spatial_profile_axis(axes["profile"], data)
+    render_gene_model_axis(axes["model"], data)
+    render_transition_axis(axes["transition"])
+    render_aggregate_axis(axes["aggregate"], data)
+    add_aggregation_legends(axes)
+
+
+def aggregation_sub_axes_bounds(
+    x_pt: float, y_pt: float, width_pt: float, height_pt: float
+) -> tuple[float, float, float, float]:
+    """Return one panel-F inset's bounds as fractions of the container."""
+    return (
+        x_pt / PAGE_CONTENT_WIDTH_PT,
+        y_pt / AGG_PANEL_HEIGHT_PT,
+        width_pt / PAGE_CONTENT_WIDTH_PT,
+        height_pt / AGG_PANEL_HEIGHT_PT,
+    )
+
+
+def aggregation_axes(container: Axes) -> dict[str, Axes]:
+    """Create panel F's five inset axes from the fixed point geometry."""
+    return {
+        name: container.inset_axes(aggregation_sub_axes_bounds(*bounds))
+        for name, bounds in AGG_SUB_AXES_PT.items()
+    }
+
+
+def generation_colors() -> list[tuple[float, float, float, float]]:
+    """Return the four generation colours, light (2.4 gen) to dark (12.5 gen)."""
+    colormap = colormaps[DENSITY_CMAP]
+    return [
+        colormap(value)
+        for value in np.linspace(
+            GENERATION_CMAP_LIGHT,
+            GENERATION_CMAP_DARK,
+            len(AGGREGATION_PROFILE_TIMEPOINTS),
+        )
+    ]
+
+
+def render_weight_axis(ax: Axes, data: AggregationPanelData) -> None:
+    """Draw one lollipop per TTAA site: its -log10(padj) weight above the baseline."""
+    positions = data.site_lfc.index.to_numpy()
+    weights = data.site_raw_weight.to_numpy()
+    is_high = data.high_weight.to_numpy()
+    stem_colors = np.where(
+        is_high, AGGREGATION_HIGH_WEIGHT_COLOR, AGGREGATION_LOW_WEIGHT_COLOR
+    ).tolist()
+
+    ax.vlines(
+        positions,
+        0,
+        weights,
+        colors=stem_colors,
+        linewidth=AGGREGATION_WEIGHT_LINE_WIDTH_PT,
+    )
+    ax.scatter(
+        positions,
+        weights,
+        s=AGGREGATION_WEIGHT_MARKER_SIZE,
+        color=stem_colors,
+        linewidths=0,
+        zorder=3,
+    )
+
+    ax.set_xlim(0, data.span_bp)
+    ax.set_ylim(0, AGGREGATION_WEIGHT_AXIS_MAX)
+    ax.set_yticks(AGGREGATION_WEIGHT_TICKS)
+    ax.set_ylabel(WEIGHT_AXIS_LABEL)
+    ax.set_xticks([])
+    ax.spines["bottom"].set_visible(False)
+    ax.set_title(data.gene_name, fontstyle="italic", fontweight="bold", loc="left", pad=2)
+
+
+def render_spatial_profile_axis(ax: Axes, data: AggregationPanelData) -> None:
+    """Draw one insertion-LFC profile per generation across the ORF."""
+    positions = data.site_lfc.index.to_numpy()
+    for color, timepoint in zip(generation_colors(), AGGREGATION_PROFILE_TIMEPOINTS, strict=True):
+        ax.plot(
+            positions,
+            data.site_lfc[timepoint].to_numpy(),
+            color=color,
+            linewidth=AGGREGATION_PROFILE_LINE_WIDTH_PT,
+            zorder=2,
+        )
+
+    ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5, zorder=1)
+    ax.set_xlim(0, data.span_bp)
+    ax.set_ylim(*AGGREGATION_LFC_LIMITS)
+    ax.set_yticks(AGGREGATION_LFC_TICKS)
+    ax.set_ylabel(PROFILE_AXIS_LABEL)
+    ax.set_xticks([])
+    ax.spines["top"].set_visible(False)
+
+
+def render_gene_model_axis(ax: Axes, data: AggregationPanelData) -> None:
+    """Draw the gene model bar: CDS boxes on an intron line, 5' to 3'."""
+    coding = data.model.loc[data.model["Feature"] == "CDS"]
+    ax.hlines(
+        GENE_MODEL_BASELINE_Y,
+        0,
+        data.span_bp,
+        color=GENE_MODEL_COLOR,
+        linewidth=GENE_MODEL_LINE_WIDTH_PT,
+    )
+    ax.barh(
+        GENE_MODEL_BASELINE_Y,
+        coding["hi"] - coding["lo"],
+        left=coding["lo"],
+        height=GENE_MODEL_BAR_HEIGHT,
+        color=GENE_MODEL_COLOR,
+        edgecolor="none",
+    )
+    ax.text(0, GENE_MODEL_END_LABEL_Y, "5'", ha="left", va="bottom")
+    ax.text(data.span_bp, GENE_MODEL_END_LABEL_Y, "3'", ha="right", va="bottom")
+
+    ax.set_xlim(0, data.span_bp)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([])
+    ticks = np.arange(0, data.span_bp + 1, 1000)
+    ax.set_xticks(ticks, [f"{int(tick):,}" for tick in ticks])
+    ax.set_xlabel(MODEL_AXIS_LABEL)
+    for side in ("top", "left", "right", "bottom"):
+        ax.spines[side].set_visible(False)
+
+
+def render_transition_axis(ax: Axes) -> None:
+    """Draw the right arrow, its label and the weighted-aggregation formula."""
+    ax.set_axis_off()
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.add_patch(
+        FancyArrowPatch(
+            (0.06, AGG_ARROW_Y),
+            (0.94, AGG_ARROW_Y),
+            arrowstyle="-|>",
+            mutation_scale=9,
+            color="black",
+            linewidth=0.8,
+            shrinkA=0,
+            shrinkB=0,
+        )
+    )
+    ax.text(0.5, AGG_LABEL_Y, TRANSITION_LABEL, ha="center", va="bottom")
+    ax.text(0.5, AGG_FORMULA_Y, AGGREGATION_FORMULA, ha="center", va="top", fontsize=7)
+
+
+def render_aggregate_axis(ax: Axes, data: AggregationPanelData) -> None:
+    """Draw every insertion trajectory in grey and the gene-level aggregate in coral."""
+    # One column per site: a single plot call draws the whole insertion cloud.
+    ax.plot(
+        GENERATIONS,
+        data.site_lfc.T.to_numpy(),
+        color=AGGREGATION_INSERTION_COLOR,
+        linewidth=AGGREGATION_INSERTION_LINE_WIDTH_PT,
+        alpha=AGGREGATION_INSERTION_ALPHA,
+        zorder=2,
+    )
+    ax.plot(
+        GENERATIONS,
+        data.gene_curve.to_numpy(),
+        color=AGGREGATION_GENE_COLOR,
+        linewidth=AGGREGATION_GENE_LINE_WIDTH_PT,
+        zorder=4,
+    )
+
+    ax.axhline(0.0, color=FURNITURE_COLOR, linestyle="--", linewidth=0.5, zorder=1)
+    ax.set_xlim(*AGGREGATION_X_LIMITS)
+    ax.set_ylim(*AGGREGATION_LFC_LIMITS)
+    ax.set_xticks(GENERATIONS, GENERATION_TICK_LABELS)
+    ax.set_yticks(AGGREGATION_LFC_TICKS)
+    ax.set_xlabel(LFC_X_LABEL)
+    ax.set_ylabel(AGGREGATE_AXIS_LABEL)
+
+
+def add_aggregation_legends(axes: dict[str, Axes]) -> None:
+    """Draw panel F's three legends: weight class, generation ramp, series."""
+    weight_swatches = [
+        Line2D([], [], color=color, linewidth=0.8, marker="o", markersize=2.5, label=label)
+        for color, label in zip(
+            (AGGREGATION_HIGH_WEIGHT_COLOR, AGGREGATION_LOW_WEIGHT_COLOR),
+            WEIGHT_LEGEND_LABELS,
+            strict=True,
+        )
+    ]
+    add_unframed_legend(
+        axes["weight"],
+        columns=len(weight_swatches),
+        handles=weight_swatches,
+        loc="lower right",
+        anchor=(1.0, 1.0),
+    )
+
+    generation_swatches = [
+        Line2D(
+            [],
+            [],
+            color=color,
+            linewidth=AGGREGATION_PROFILE_LINE_WIDTH_PT,
+            label=label,
+        )
+        for color, label in zip(generation_colors(), GENERATION_TICK_LABELS[1:], strict=True)
+    ]
+    add_unframed_legend(
+        axes["transition"],
+        columns=len(generation_swatches),
+        title=GENERATIONS_LEGEND_TITLE,
+        handles=generation_swatches,
+        loc="upper center",
+        anchor=(0.5, 1.0),
+    )
+
+    aggregate_swatches = [
+        Line2D(
+            [],
+            [],
+            color=AGGREGATION_INSERTION_COLOR,
+            linewidth=LEGEND_SWATCH_LINE_WIDTH_PT,
+            label=AGGREGATE_LEGEND_LABELS[0],
+        ),
+        Line2D(
+            [],
+            [],
+            color=AGGREGATION_GENE_COLOR,
+            linewidth=AGGREGATION_GENE_LINE_WIDTH_PT,
+            label=AGGREGATE_LEGEND_LABELS[1],
+        ),
+    ]
+    add_unframed_legend(
+        axes["aggregate"],
+        columns=len(aggregate_swatches),
+        handles=aggregate_swatches,
+        loc="lower right",
+        anchor=(1.0, 1.0),
+    )
+
+
 # =============================================================================
 # 6. ASSEMBLY (vector overlay and review raster)
 # =============================================================================
@@ -847,6 +1436,12 @@ def read_excel(path: Path, required_columns: tuple[str, ...]) -> pd.DataFrame:
     return require_columns(pd.read_excel(path), path, required_columns)
 
 
+def read_gene_intervals(path: Path, required_columns: tuple[str, ...]) -> pd.DataFrame:
+    """Read PomBase's BED with its '#Chr' header and validate the columns."""
+    table = pd.read_csv(path, sep="\t").rename(columns={"#Chr": "Chr"})
+    return require_columns(table, path, required_columns)
+
+
 def run(config: Figure1Config) -> tuple[float, float]:
     """Build Figure 1 end to end and return the page's (width, height) in points."""
     config.validate()
@@ -857,11 +1452,20 @@ def run(config: Figure1Config) -> tuple[float, float]:
     gene_lfc = read_tsv(config.gene_lfc, GENE_LFC_COLUMNS)
     trajectory = build_trajectory_frame(gene_lfc)
     facs_comparison = build_facs_comparison_frame(read_excel(config.facs, FACS_COLUMNS), gene_lfc)
+    aggregation = build_aggregation_data(
+        gene_lfc,
+        read_tsv(config.insertion_lfc, INSERTION_LFC_COLUMNS),
+        read_tsv(config.insertion_padj, INSERTION_PADJ_COLUMNS),
+        read_tsv(config.insertion_weights, INSERTION_WEIGHT_COLUMNS),
+        read_gene_intervals(config.gene_intervals, GENE_INTERVAL_COLUMNS),
+    )
 
     # The schematic page's own box is the panel's box: scale 1.0, actual size.
     schematic_size = page_size_pt(config.schematic)
 
-    mp, schematic_ax = draw_figure(coverage, spikein, trajectory, facs_comparison, schematic_size)
+    mp, schematic_ax = draw_figure(
+        coverage, spikein, trajectory, facs_comparison, aggregation, schematic_size
+    )
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
     # drawn artists and shift panel A's box away from the overlay below; keep
@@ -894,6 +1498,18 @@ def parse_args() -> argparse.Namespace:
         "--gene-lfc", type=Path, required=True, help="Release gene-level LFC TSV (wide)"
     )
     parser.add_argument("--facs", type=Path, required=True, help="FACS depletion-curve workbook")
+    parser.add_argument(
+        "--insertion-lfc", type=Path, required=True, help="Release insertion-level LFC TSV"
+    )
+    parser.add_argument(
+        "--insertion-padj", type=Path, required=True, help="Release insertion-level padj TSV"
+    )
+    parser.add_argument(
+        "--insertion-weights", type=Path, required=True, help="Release insertion weights TSV"
+    )
+    parser.add_argument(
+        "--gene-intervals", type=Path, required=True, help="PomBase primary-transcript BED"
+    )
     parser.add_argument("--schematic", type=Path, required=True, help="Panel A schematic PDF")
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
@@ -919,6 +1535,10 @@ def main() -> int:
         spikein=args.spikein,
         gene_lfc=args.gene_lfc,
         facs=args.facs,
+        insertion_lfc=args.insertion_lfc,
+        insertion_padj=args.insertion_padj,
+        insertion_weights=args.insertion_weights,
+        gene_intervals=args.gene_intervals,
         schematic=args.schematic,
         output_pdf=args.output_pdf,
         output_review=args.output_review,

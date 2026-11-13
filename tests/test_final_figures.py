@@ -18,14 +18,17 @@ from workflow.scripts.figures import figure_s1
 from workflow.scripts.figures.figure1 import (
     A4_HEIGHT_PT,
     A4_WIDTH_PT,
+    AGGREGATION_GENE_ID,
     CANVAS_WIDTH_PT,
     COVERAGE_CLASSES,
     DIT_HAP_SERIES,
+    GENERATION_COLUMNS,
     GENERATIONS,
     SPIKEIN_POINT_SIZE,
     Figure1Config,
     apply_house_style,
     axes_box_pt,
+    build_aggregation_data,
     build_coverage_frame,
     build_facs_comparison_frame,
     build_spikein_frame,
@@ -114,6 +117,73 @@ def _gene_lfc_table() -> pd.DataFrame:
     )
 
 
+def _gene_lfc_with_aggregation() -> pd.DataFrame:
+    """The panel D gene table plus the worked gene panel F pins by systematic ID."""
+    worked_gene = pd.DataFrame(
+        {
+            "Systematic ID": [AGGREGATION_GENE_ID],
+            "Name": ["cdc7"],
+            "FYPOviability": ["inviable"],
+            "YES0": [0.0],
+            "YES1": [-1.4],
+            "YES2": [-2.32],
+            "YES3": [-3.56],
+            "YES4": [-4.2],
+        }
+    )
+    return pd.concat([_gene_lfc_table(), worked_gene], ignore_index=True)
+
+
+def _insertion_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Two TTAA sites on one plus-strand gene; site 1,200 carries both orientations."""
+    keys = ["Chr", "Coordinate", "Strand", "Target"]
+    lfc = pd.DataFrame(
+        [
+            ("I", 1200, "+", "TTAA", 0.0, -2.0, -4.0, -6.0, -7.0),
+            ("I", 1200, "-", "TTAA", 0.0, -4.0, -4.0, -6.0, -7.0),
+            ("I", 1800, "+", "TTAA", 0.0, 0.5, 0.2, 0.1, 0.0),
+        ],
+        columns=[*keys, *GENERATION_COLUMNS],
+    )
+    padj = pd.DataFrame(
+        [
+            ("I", 1200, "+", "TTAA", 1.0, 1e-4, 1e-5, 1e-6, 1e-6),
+            ("I", 1200, "-", "TTAA", 1.0, 1e-5, 1e-5, 1e-6, 1e-6),
+            ("I", 1800, "+", "TTAA", 1.0, 0.8, 0.5, 0.3, 0.9),
+        ],
+        columns=[*keys, *GENERATION_COLUMNS],
+    )
+    weights = pd.DataFrame(
+        [
+            ("I", coordinate, strand, "TTAA", timepoint, weight, AGGREGATION_GENE_ID)
+            for coordinate, strand, weight in ((1200, "+", 0.4), (1200, "-", 0.2), (1800, "+", 0.4))
+            for timepoint in GENERATION_COLUMNS
+        ],
+        columns=[*keys, "Timepoint", "Weight", "Systematic ID"],
+    )
+    return lfc, padj, weights
+
+
+def _gene_intervals() -> pd.DataFrame:
+    """A 1,000 bp ORF with one intron, in PomBase's primary-transcript BED shape."""
+    segments = (("CDS", 1000, 1400), ("intron", 1400, 1500), ("CDS", 1500, 2000))
+    return pd.DataFrame(
+        [
+            {
+                "Chr": "I",
+                "Systematic ID": AGGREGATION_GENE_ID,
+                "Feature": feature,
+                "Start": start,
+                "End": end,
+                "Strand": "+",
+                "ParentalRegion_start": 1000,
+                "ParentalRegion_end": 2000,
+            }
+            for feature, start, end in segments
+        ]
+    )
+
+
 def _facs_table() -> pd.DataFrame:
     """Two genes over three timepoints; g1 carries both independent strains."""
     blocks = (("g1", "Strain#1", "LV1"), ("g1", "Strain#2", "LV2"), ("g2", "Strain#1", "LV3"))
@@ -175,17 +245,33 @@ def figure1_inputs(tmp_path: Path) -> Figure1Config:
     spikein = tmp_path / "spike_in_stats.tsv"
     gene_lfc = tmp_path / "gene_lfc.tsv"
     facs = tmp_path / "facs.xlsx"
+    insertion_lfc = tmp_path / "insertion_lfc.tsv"
+    insertion_padj = tmp_path / "insertion_padj.tsv"
+    insertion_weights = tmp_path / "insertion_weights.tsv"
+    gene_intervals = tmp_path / "coding_gene_primary_transcripts.bed"
     schematic = tmp_path / "figure1a.pdf"
+
     _coverage_table().to_csv(coverage, sep="\t", index=False)
     _spikein_table().to_csv(spikein, sep="\t", index=False)
-    _gene_lfc_table().to_csv(gene_lfc, sep="\t", index=False)
+    _gene_lfc_with_aggregation().to_csv(gene_lfc, sep="\t", index=False)
     _facs_table().to_excel(facs, index=False)
+    site_lfc, site_padj, site_weights = _insertion_tables()
+    site_lfc.to_csv(insertion_lfc, sep="\t", index=False)
+    site_padj.to_csv(insertion_padj, sep="\t", index=False)
+    site_weights.to_csv(insertion_weights, sep="\t", index=False)
+    intervals = _gene_intervals().rename(columns={"Chr": "#Chr"})
+    intervals.to_csv(gene_intervals, sep="\t", index=False)
     _write_schematic(schematic)
+
     return Figure1Config(
         lfc_comparison=coverage,
         spikein=spikein,
         gene_lfc=gene_lfc,
         facs=facs,
+        insertion_lfc=insertion_lfc,
+        insertion_padj=insertion_padj,
+        insertion_weights=insertion_weights,
+        gene_intervals=gene_intervals,
         schematic=schematic,
         output_pdf=tmp_path / "out" / "figure1.pdf",
         output_review=tmp_path / "out" / "figure1.review.png",
@@ -216,21 +302,35 @@ def _panel_label_left_pt(mp: cns.multipanel, label: str) -> float:
 
 
 def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
-    """A keeps its own size; B, C and D share one row; E spans the page below them."""
+    """A keeps its own size; B, C and D share one row; E and F span the page below them."""
     coverage = build_coverage_frame(_coverage_table())
     spikein = build_spikein_frame(_spikein_table())
     trajectory = build_trajectory_frame(_gene_lfc_table())
     facs_comparison = build_facs_comparison_frame(_facs_table(), _gene_lfc_table())
+    insertion_lfc, insertion_padj, insertion_weights = _insertion_tables()
+    aggregation = build_aggregation_data(
+        _gene_lfc_with_aggregation(),
+        insertion_lfc,
+        insertion_padj,
+        insertion_weights,
+        _gene_intervals(),
+    )
     mp, schematic_ax = draw_figure(
-        coverage, spikein, trajectory, facs_comparison, schematic_size_pt=(400.0, 120.0)
+        coverage,
+        spikein,
+        trajectory,
+        facs_comparison,
+        aggregation,
+        schematic_size_pt=(400.0, 120.0),
     )
 
-    boxes = _panel_boxes(mp, ("B", "C", "D", "E"))  # also settles the flow layout
+    boxes = _panel_boxes(mp, ("B", "C", "D", "E", "F"))  # also settles the flow layout
     a_x, a_y, a_width, a_height = axes_box_pt(schematic_ax, mp.fig)
     b_x, b_y, _, b_height = boxes["B"]
     c_x, c_y, _, c_height = boxes["C"]
     d_x, d_y, d_width, _ = boxes["D"]
     e_x, e_y, e_width, e_height = boxes["E"]
+    f_x, f_y, f_width, f_height = boxes["F"]
 
     assert mp.fig.get_size_inches()[0] * 72 == pytest.approx(CANVAS_WIDTH_PT)
     assert 0 < a_x <= 10  # only the panel letter's column sits left of A
@@ -244,8 +344,11 @@ def test_draw_figure_stacks_schematic_above_a_left_aligned_panel_row():
     assert d_x + d_width < CANVAS_WIDTH_PT  # the three columns fit the page width
     assert e_y + e_height < b_y  # E opens the row below B/C/D
     assert e_x + e_width == pytest.approx(CANVAS_WIDTH_PT, abs=1.0)
+    assert f_y + f_height < e_y  # F opens the row below E
+    assert f_x + f_width == pytest.approx(e_x + e_width, abs=0.5)  # both span the page
     assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "B"), abs=0.5)
     assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "E"), abs=0.5)
+    assert _panel_label_left_pt(mp, "A") == pytest.approx(_panel_label_left_pt(mp, "F"), abs=0.5)
 
 
 # =============================================================================
@@ -341,6 +444,42 @@ def test_facs_comparison_drops_the_retired_genes():
 
     assert "orc6" not in set(frame["gene"])
     assert set(frame["gene"]) == {"g1"}
+
+
+def test_aggregation_data_reproduces_the_gene_level_curve():
+    """Two orientations collapse to one site and the weighted sites sum to the release row."""
+    insertion_lfc, insertion_padj, insertion_weights = _insertion_tables()
+    data = build_aggregation_data(
+        _gene_lfc_with_aggregation(),
+        insertion_lfc,
+        insertion_padj,
+        insertion_weights,
+        _gene_intervals(),
+    )
+
+    assert list(data.site_lfc.index) == [200.0, 800.0]  # bp from the start codon
+    assert data.span_bp == pytest.approx(1000.0)
+    # Site 1,200's two orientations (-2 and -4 at YES1) average by their weights.
+    assert data.site_lfc.loc[200.0, "YES1"] == pytest.approx(-8.0 / 3.0)
+    assert data.gene_curve.to_list() == pytest.approx([0.0, -1.4, -2.32, -3.56, -4.2])
+    assert data.high_weight.to_list() == [True, False]
+    assert (data.site_lfc * data.site_weight).sum().to_list() == pytest.approx(
+        data.gene_curve.to_list()
+    )
+
+
+def test_aggregation_data_rejects_a_missing_gene_row():
+    """Panel F is pinned to one gene; a gene-level table without it cannot draw."""
+    insertion_lfc, insertion_padj, insertion_weights = _insertion_tables()
+
+    with pytest.raises(ValueError, match="exactly one"):
+        build_aggregation_data(
+            _gene_lfc_table(),
+            insertion_lfc,
+            insertion_padj,
+            insertion_weights,
+            _gene_intervals(),
+        )
 
 
 def test_facs_panel_draws_one_mini_axes_per_gene_with_shared_limits():

@@ -28,20 +28,21 @@ env -i HOME="$HOME" USER="$USER" TMPDIR=/tmp \
 
 ---
 
-## Figure 1 — DIT-HAP 流程、覆盖度、spike-in、LFC 轨迹与 FACS 验证
+## Figure 1 — DIT-HAP 流程、覆盖度、spike-in、LFC 轨迹、FACS 验证与聚合算法
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。`cns.multipanel` 只决定宽度，所以内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由三行面板推出（实测 470.7 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上各 40 pt，右侧也留 40 pt），页面其余部分留白。内容画布本身由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版，两个 `mp.newline()` 隔开三行：
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。`cns.multipanel` 只决定宽度，所以内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由四行面板推出（实测 641.9 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上各 40 pt，右侧也留 40 pt），页面其余部分留白。内容画布本身由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版，三个 `mp.newline()` 隔开四行：
 
 ```
 A 行：     10（字母带 = 7.2 标签高 + 2.8 净空） + 113.4（示意图页面实际高度） + 6（行距）            = 129.4
 B/C/D 行： 7.2（字母带） + 17.3（图例，实测） + 100（面板高） + 26（下方装饰）                        = 150.50
-E 行：     6（行距） + 7.2（字母带） + 6.6（图例，实测） + 171（容器高） + 0（末行不留下边距）        = 190.80
-            内容高合计 470.7，贴到 841.89 高的 A4 页上距顶 40 pt 处
+E 行：     6（行距） + 7.2（字母带） + 6.6（图例，实测） + 171（容器高） + 0（行距由 F 的 margin_top 给） = 190.80
+F 行：     6（行距） + 7.2（字母带） + 158（容器高，全部图例/标题都在容器内） + 0（末行不留下边距）    = 171.20
+            内容高合计 641.9，贴到 841.89 高的 A4 页上距顶 40 pt 处
 ```
 
-B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）；A4 宽度下这一行右端会留出空白。E 是一个 509.28 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 80 × 60 pt，字号沿用 house 的 8/7 pt）；图例一行放在容器上方。
+B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长宽相等（house 面板契约 80–150 pt 内）；A4 宽度下这一行右端会留出空白。E 是一个 509.28 pt 宽的空白容器 axes，内部再排 4 列 × 2 行的 mini axes（每个 80 × 60 pt，字号沿用 house 的 8/7 pt）；图例一行放在容器上方。F 也是一个 509.28 pt 宽的空白容器 axes，内部按点坐标排五个 inset axes（左侧镜像剖面、中间过渡、右侧聚合曲线），全部标题与图例都收在容器顶部的 14 pt 带内，所以 multipanel 不额外量到装饰。
 
-**版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C/D 从左往右流式排列、行首贴页面左边；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A、B、E 的字母因此都在 x = 0。E 的 mini axes 用 `container.inset_axes()` 建，位置是容器 axes 的分数坐标，渲染时自动跟随容器。
+**版式机制**：`mp.panel()` 的 `width/height` 是 axes 尺寸，面板的外框在渲染时再加上**实测**的 y 轴装饰宽度（刻度标签 + ylabel）与右边距 10 pt。所以 B/C/D 从左往右流式排列、行首贴页面左边；ylabel 变长只会把它自己这一列往右推，不会压到前一个面板。面板字母由 multipanel 放在每列外框的左缘（8 pt 粗体），A、B、E、F 的字母因此都在 x = 0。E、F 的 inset axes 用 `container.inset_axes()` 建，位置是容器 axes 的分数坐标，渲染时自动跟随容器。
 
 **产物**：
 
@@ -130,16 +131,35 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | 画法 | 一个 509.28 pt 容器 axes（`set_axis_off()`）内嵌 8 个 `inset_axes`，4 列 × 2 行、按基因名排序（每行 4 个）。每格画 3 条线：DIT-HAP（palette 4 绿）、FACS `Strain#1`（palette 5 鲑红）、FACS `Strain#2`（palette 6 紫）——两条是独立菌株而非技术重复，所以都画，各用一色、不用线型区分；三条数据线线宽 2 pt（用户指定，覆盖 house 默认 1.5）、`alpha=0.8`，图例色块保持不透明；零线灰色虚线 0.5 pt；基因名斜体加粗作 title（house 8 pt） |
 | 轴 | 全格共享 x `0–12.8`（刻度 0/4/8/12）与 y（刻度间隔 2、向外取整）；只有第一列显示 y 刻度标签、只有底行显示 x 刻度标签；两个共享轴标题用容器 `text()` 居中在整个网格上，不用某个 mini axes 的 label |
 | 图例 | 一行三列、无边框，挂在容器 axes 上方（`loc="lower center"`，锚点 x = 网格水平中心 = 209/509.28 ≈ 0.411），水平居中于整个网格：`DIT-HAP`、`FACS Strain#1`、`FACS Strain#2`；multipanel 把它量作 E 的顶部装饰（实测高 6.6 pt、宽 152.6 pt） |
-| 版式 | mini axes `80 × 60` pt（4 列共 350 pt，加左侧 34 pt 后仍留白）；列距 10 pt、行距 16 pt（给下一行 8 pt title 留位）；左侧 34 pt（y 刻度 + 旋转 y 标题）、底部 22 pt（x 刻度 + x 标题）、顶部 13 pt（首行 title）；容器高 = 13 + 2×60 + 16 + 22 = 171 pt；图例在容器外上方另计；E 是最后一行，`margin_bottom=0`（否则 multipanel 默认再留 10 pt 页脚） |
+| 版式 | mini axes `80 × 60` pt（4 列共 350 pt，加左侧 34 pt 后仍留白）；列距 10 pt、行距 16 pt（给下一行 8 pt title 留位）；左侧 34 pt（y 刻度 + 旋转 y 标题）、底部 22 pt（x 刻度 + x 标题）、顶部 13 pt（首行 title）；容器高 = 13 + 2×60 + 16 + 22 = 171 pt；图例在容器外上方另计；E 的 `margin_bottom=0`（到 F 的行距由 F 的 `margin_top` 给） |
 | 产物 | 并入 `figure1.pdf` |
 
 数据口径：FACS 表的 `Generations` 每株各自记录（同名的 YES 时间点不等于同一世代值），因此不能共用 x 向量；`Spore` 恒为 0，有三个 block 的 YES0 略小于 0（如 `arg6/Strain#1` 的 −0.18），x 下限留到 −0.3。
 
 ---
 
+### Panel F — 从 insertion level 到 gene level 的加权聚合（cdc7 实例）
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `<HD_DIT_HAP release>/insertion_level/LFC.tsv`（每插入方向一行 × YES0…YES4）、`insertion_level/padj.tsv`（同形状，画棒棒糖权重）、`insertion_level/insertion_weights.tsv`（长表：插入 × 时间点的基因内归一化权重，同基因-时间点求和为 1）、`gene_level/LFC.tsv`（右侧珊瑚色基因级曲线）、`resources/external/pombase/<version>/genome_region/coding_gene_primary_transcripts.bed`（primary transcript 的 CDS/intron 分段） |
+| 必需列 | release 三表：`Chr`、`Coordinate`、`Strand`、`Target` + `YES0`…`YES4`，weights 另加 `Timepoint`、`Weight`、`Systematic ID`；BED：`#Chr`、`Systematic ID`、`Feature`、`Start`、`End`、`Strand`、`ParentalRegion_start`、`ParentalRegion_end`（缺列在 I/O 边界直接报错） |
+| 示例基因 | 固定在 `AGGREGATION_GENE_ID = SPBC21.06c`（cdc7）；选它而不是逐次挑：在 inviable 基因里，它是唯一同时有 ≥10 个测得 TTAA 位点、跨过 ORF 10/10 个 10% 分箱、且有 ≥3 个末端位点在 12.5 代仍停在 0 附近（LFC > −0.5）又带内含子的基因。换基因只改这一个常量，但聚合核对（见下）会要求该基因在 gene-level 表里存在 |
+| 变换 | ① 三条 release 表（LFC / padj / weights）按 4 级插入键 + `Timepoint` 拼成一张长表；每个位点的两个 TTAA 方向是独立测量，但共享同一物理坐标，故按 `Coordinate × Timepoint` 合并：`site_weight = ΣWeight`、`site_lfc = Σ(Weight·LFC)/site_weight`（权重加权平均，合并前后基因级总和严格不变）。② 每个位点的 `raw_weight = −log10(clip(padj, 1e-6, 1−1e-6))`，取 YES4（12.5 代）并对其两个方向取均值，作为棒棒糖高度；`padj < 0.05`（即 `raw_weight > 1.301`）画高权重色，其余画灰。③ 坐标换到 ORF 坐标：plus 链 `coord − ParentalRegion_start`、minus 链 `ParentalRegion_end − coord`，所以 5′ 在左、3′ 在右且保留真实 bp 间距。④ 右侧灰色轨迹用 YES0…YES4 全五个时间点，珊瑚色曲线直接取 release 的 gene-level 行，不重算发布的数字 |
+| 聚合核对 | 画之前把 `Σ(site_weight · site_lfc)` 与 release 的 gene-level 行逐时间点比较；偏差 > `AGGREGATION_TOLERANCE = 1e-2` 直接报错（实测 3.63e-4，覆盖 release 的三位小数舍入）。这一步只防图内 join 错位，不改变任何发布值 |
+| 画法 | **左**：上下两层共享 x、无垂直间距；上层 `vlines + scatter` 棒棒糖（高权重 palette 0 珊瑚、低权重 house 灰 `#A3A3A3`，线宽 0.5 pt、点 8 pt²），y 0–6.4（权重上限 6 是上游 clip 的结果，多留 0.4 给点）；下层四条空间剖面折线（每个世代一条，按位点坐标顺序连），颜色取 house 顺序色图 viridis 从浅（2.4 代，0.92）到深（12.5 代，0.18），线宽 1 pt，不画点；最下方基因结构条 = 一条 0.5 pt 横线（intron）+ CDS `barh` 实心块（中性深灰 `#4D4D4D`，非数据系列），两端标 5′/3′。**中**：黑色右箭头 + 上方 `Weighted aggregation` + 下方公式 `LFC_gene,t = Σ(w_i·LFC_i,t)/Σw_i`（mathtext 7 pt）。**右**：每个位点一条灰细轨迹（0.4 pt、alpha 0.3，含 YES0），上面一条珊瑚粗线（palette 0，2 pt）画 gene-level；零线灰虚线 |
+| 图例 | 三组、全部无边框：左上 `High weight`/`Low weight`（挂在 weight axes 顶边右侧）；中上 `Generations`（四个世代色块，挂在过渡 axes 顶边中央、向内垂）；右上 `Insertion-level LFC`/`Gene-level LFC`（灰细线 / 珊瑚粗线，挂在右侧 axes 顶边右侧） |
+| 轴 | 左上层 `Weight (−log10 padj)`、y 刻度 0/2/4/6；左下层 `LFC (log₂)`、y 刻度 0/−2/−4/−6/−8、x 刻度在基因条上（0/1,000/2,000/3,000，千分位）；基因条 x `Position along gene (bp)`；右图 x `Generations`（0/2.4/5.6/9.1/12.5）、y `Gene-level LFC (log₂)` 0…−8，与左下层严格同尺度 |
+| 版式 | 容器 `509.28 × 158` pt；左侧装饰 36 pt、左 axes 宽 168 pt；上层 30 pt、下层 75 pt（严格 1 : 2.5）、两层在 y = 0 基线相接（各自隐藏相对的 spine，零线是一条灰虚线）；基因条 14 pt、其下 22 pt 放 x 刻度 + 标题；中间过渡区 100 pt、上下跨 105 pt；右侧装饰 30 pt、右 axes 宽 147.28 pt；所有几何常量在脚本顶部，改一个轴宽/高，右侧起点与画布高度自动重算 |
+| 产物 | 并入 `figure1.pdf` |
+
+数据口径：权重来自上游 `-log10(padj)` 再按基因-时间点归一化；棒棒糖画的是**归一化前**的 `−log10(padj)`（YES4），所以高度上限恰好是 6——这是 `padj` 被 clip 到 `1e-6` 的结果，不是坐标轴人为截断。两个插入方向的 `Weight` 相加即该位点的归一化权重；`site_lfc` 是这两个方向的权重加权均值，因此 `Σ(site_weight · site_lfc)` 与逐方向求和完全等价，右侧珊瑚曲线可由灰色轨迹严格复现。
+
+---
+
 ### 面板字母
 
-五个字母由 `mp.panel(label=...)` 自动放置：8 pt 粗体 Arial，每列外框左缘、面板顶端上方（A 用 `pad_top` 留 2.8 pt，D 用 `pad_top` 抵消图例下半，其余为 0）。`multipanel` 把它放在"实测左装饰外侧"，而列的外框左缘就是页面的列起点，所以 A、B、E 的字母都在 x = 0，不随 ylabel 宽度漂移。**不要**再手摆 `fig.text` 字母——会和 multipanel 的自动标签重影。
+六个字母由 `mp.panel(label=...)` 自动放置：8 pt 粗体 Arial，每列外框左缘、面板顶端上方（A 用 `pad_top` 留 2.8 pt，D 用 `pad_top` 抵消图例下半，其余为 0）。`multipanel` 把它放在"实测左装饰外侧"，而列的外框左缘就是页面的列起点，所以 A、B、E、F 的字母都在 x = 0，不随 ylabel 宽度漂移。**不要**再手摆 `fig.text` 字母——会和 multipanel 的自动标签重影。
 
 ---
 
@@ -150,9 +170,9 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | `A4_WIDTH_PT` / `A4_HEIGHT_PT` | 595.28 / 841.89 | 最终页面尺寸（210 × 297 mm） |
 | `PAGE_MARGIN_PT` | 40 | 内容页距 A4 页左、上、右的留白 |
 | `CANVAS_WIDTH_PT` | 515.28 | 内容画布宽（= A4 宽 − 2 × 页边距），即 `multipanel(max_width=...)` |
-| `PANEL_LABEL_COLUMN_PT` | 6 | 给每列字母留的那一列；`PAGE_CONTENT_WIDTH_PT = 515.28 − 6`（E 用它做宽度；A 用示意图自身的页面框） |
+| `PANEL_LABEL_COLUMN_PT` | 6 | 给每列字母留的那一列；`PAGE_CONTENT_WIDTH_PT = 515.28 − 6`（E、F 用它做宽度；A 用示意图自身的页面框） |
 | `PANEL_LETTER_PAD_TOP_PX` | 14 | A 上方字母净空（显示像素，≈2.8 pt @360 dpi） |
-| `ROW_GAP_PT` | 6 | A 行与 B/C/D 行之间（A 的 `margin_bottom`）；E 的行距（`margin_top`） |
+| `ROW_GAP_PT` | 6 | A 行与 B/C/D 行之间（A 的 `margin_bottom`）；E、F 的行距（各自的 `margin_top`） |
 | `ROW_PANEL_SIZE_PT` | 100 | B/C/D 共用的方形 axes 边长（x 由 flow 决定） |
 | `ROW_BELOW_DECORATION_PT` | 26 | x 刻度 + xlabel 所占高度（`margin_bottom`） |
 | `BAR_COUNT_FONT_PT` | 5 | 柱端数字字号（fit-critical 覆盖，house 允许） |
@@ -166,6 +186,13 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 | `FACS_BOTTOM_DECORATION_PT` | 22 | E 的 x 刻度标签 + 共享 x 标题 |
 | `FACS_LEFT_DECORATION_PT` | 34 | E 的 y 刻度标签 + 共享 y 标题 |
 | `FACS_LFC_SIGN` | −1 | FACS LFC 符号翻转，与 release 的"耗竭为负"对齐 |
+| `AGGREGATION_GENE_ID` | `SPBC21.06c` | F 的示例基因（cdc7，固定不做逐次选择） |
+| `AGG_PANEL_HEIGHT_PT` | 158 | F 容器高（含顶部 14 pt 的标题/图例带） |
+| `AGG_LEFT_DECORATION_PT` / `AGG_LEFT_AXES_WIDTH_PT` | 36 / 168 | F 左侧 y 装饰宽、镜像剖面的 axes 宽 |
+| `AGG_WEIGHT_HEIGHT_PT` / `AGG_LFC_HEIGHT_PT` | 30 / 75 | 上层权重区与下层 LFC 区的高度（严格 1 : 2.5） |
+| `AGG_TRANSITION_WIDTH_PT` | 100 | 中间箭头 + 公式过渡区宽度 |
+| `AGG_RIGHT_DECORATION_PT` / `AGG_RIGHT_MARGIN_PT` | 30 / 8 | 右侧 y 装饰宽、右缘留白 |
+| `AGGREGATION_TOLERANCE` | 1e-2 | 图内加权聚合与 release gene-level 行的最大允许偏差 |
 
 改 axes 尺寸后画布高度自动重算；B/C/D 不会再被"摆到中间"，它们总是从行首左对齐。若想改变面板之间的空隙，调 `mp.panel(..., margin_right=...)`（默认 10 pt）。
 
