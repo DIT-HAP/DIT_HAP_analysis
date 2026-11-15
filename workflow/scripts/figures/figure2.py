@@ -41,6 +41,13 @@ panel box and copies it in as vector content (matplotlib cannot embed a PDF
 without rasterizing it); the review PNG is rasterized from the merged PDF
 rather than the canvas.
 
+Panel E drops the schematic's five growth categories onto the DR axis: one
+horizontal violin per category, most-arrested at the top, each row labelled
+with its gene count. Adjacent categories are compared pairwise (two-sided
+Mann-Whitney U) and the four p values are written against a bracket ladder to
+the right of the plot, so the severity gradient reads top to bottom. E hangs
+below D in D's column, keeping the right half of the page to itself.
+
 The genes are fixed (``PANEL_A_GENE`` and ``PANEL_B_GENES``): they are the
 instances the figure tells its story with, not per-run choices. Each curve is
 evaluated from its released amplitude, rate and lag (A, DR, DL); the five
@@ -52,10 +59,12 @@ The parameter colours are one system across the figure: each parameter has a
 palette colour, its name in the equation sits on a tint of that colour, and the
 matching guide in the plot (line, dots, label) uses it. Data and fit use
 neutral colours so the three parameter colours never compete with the data.
-The panel C inset is the one place that leaves this palette: its bars carry the
-class colours figure 1 already uses — viable teal, inviable red — so the
-viability split reads the same across both figures. DR and DL therefore avoid
-red and teal and take purple and green.
+Panel C's inset and panel E leave that palette on purpose: the inset carries
+the class colours figure 1 already uses — viable teal, inviable red — and E's
+violins carry the verification stage's phenotype-family colours, so a growth
+category keeps one colour across figures. Panel E's bracket ladder is the only
+place the figure writes in the accent red; it marks significance rather than a
+class. DR and DL themselves avoid red and teal and take purple and green.
 
 The page is an A4 manuscript page (210 x 297 mm). ``cns.multipanel`` sizes only
 the canvas width and lets the rows decide the height, so the flow below draws a
@@ -71,6 +80,8 @@ Input
   FYPOviability).
 - resources/figures/figure2d.pdf  panel D schematic, one page whose page box
   is its content box (297.72 x 113.4 pt).
+- results/2b_verification/<dataset>/_work/merged.parquet  panel E reads only
+  Category (the curated growth label) and DR, one row per fitted gene.
 
 Output
 ------
@@ -83,6 +94,7 @@ Usage
     python workflow/scripts/figures/figure2.py \\
         --gene-fitting <release>/gene_level/gene_level_fitting_statistics.tsv \\
         --schematic resources/figures/figure2d.pdf \\
+        --verification-merged results/2b_verification/HD_DIT_HAP/_work/merged.parquet \\
         --output-pdf results/7a_figures/figure2.pdf \\
         --output-review results/7a_figures/figure2.review.png \\
         --canvas results/7a_figures/_work/figure2_canvas.pdf
@@ -97,6 +109,7 @@ Version:  2.0.0
 # =============================================================================
 import argparse
 from dataclasses import dataclass
+from itertools import pairwise
 from math import ceil, floor, log10
 from pathlib import Path
 import subprocess
@@ -114,6 +127,7 @@ from matplotlib.text import Text
 import numpy as np
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
+from scipy.stats import mannwhitneyu
 
 # =============================================================================
 # 2. CONSTANTS (house style, layout, draw vocabulary)
@@ -255,6 +269,31 @@ ROW_GAP_PT = 10.0  # between panel A and panel B
 # the 515.28 pt canvas, so the overlay scales it to this box proportionally.
 PANEL_D_WIDTH_PT = PANEL_C_WIDTH_PT
 
+# Panel E hangs below D in D's column: one violin row per growth category, with
+# the category labels on the left and the p-value ladder on the right. The
+# height keeps D's subtree inside B's row, so the canvas height does not grow.
+PANEL_E_WIDTH_PT = PANEL_D_WIDTH_PT
+PANEL_E_HEIGHT_PT = 125.0
+E_PLOT_X_PT = 85.0  # left decoration: row labels ("small colonies (n = 236)")
+E_PLOT_Y_PT = 20.0  # bottom decoration: x tick labels + xlabel
+E_PLOT_WIDTH_PT = 139.0
+E_PLOT_HEIGHT_PT = PANEL_E_HEIGHT_PT - E_PLOT_Y_PT - 2.0
+E_VIOLIN_WIDTH = 0.65  # body thickness as a share of the row pitch
+E_ROW_PAD = 0.5  # half a row above the first row and below the last, so no body is clipped
+E_X_PADDING = 0.05  # x headroom past the most extreme DR, as a share of the span
+E_TICK_STEP = 1.0
+# All four brackets share one vertical line — a ladder through the row centres —
+# and every p label starts at the same x, so the four values read as one column.
+# Widths are in points and converted to axes fractions for drawing.
+E_BRACKET_OFFSET_PT = 3.0  # bracket line's distance right of the plot edge
+E_BRACKET_TICK_PT = 3.0
+E_BRACKET_LINE_WIDTH_PT = 0.6
+E_PVALUE_GAP_PT = 2.0
+E_PVALUE_FONT_PT = 6.0
+# The bracket ladder is the one place the figure writes in the accent red: it
+# marks significance, not a phenotype class, and stays outside the plot area.
+SIGNIFICANCE_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
+
 # --- Panel vocabulary -------------------------------------------------------
 PANEL_A_GENE = "mtf1"
 PANEL_B_GENES = ("tna1", "pst2", "rpl3801", "nrs1")
@@ -287,6 +326,27 @@ FITTED_COLUMNS = tuple(f"{column}_fitted" for column in VALUE_COLUMNS)
 # last place away from the stored fit; 5e-3 covers the rounding of every
 # parameter without accepting a different model.
 FITTED_TOLERANCE = 5e-3
+
+# --- Panel E vocabulary -----------------------------------------------------
+# Curated deletion-library growth categories, most-arrested first. The order is
+# the panel's top-to-bottom row order and the neighbour chain the pairwise tests
+# walk (spores -> germinated -> ... -> WT-like), so each bracket compares one
+# severity step with the next.
+CATEGORY_ORDER = ("spores", "germinated", "microcolonies", "small colonies", "WT-like")
+CATEGORY_COLUMN = "Category"
+CATEGORY_DR_COLUMNS = (CATEGORY_COLUMN, RATE_COLUMN)
+CATEGORY_LABEL_TEMPLATE = "{category} (n = {count:,})"
+P_VALUE_TEMPLATE = "p={mantissa}E{exponent}"
+# The verification stage's phenotype-family colours (Cell slots 2 / 6 / 7 / 1 /
+# 4), so a growth category keeps one colour across this figure and the stage's
+# own category figure.
+CATEGORY_COLORS = dict(
+    zip(
+        CATEGORY_ORDER,
+        cns.get_hexcolors_from_apalette([2, 6, 7, 1, 4], HOUSE_PALETTE),
+        strict=True,
+    )
+)
 
 # --- Parameter colours ------------------------------------------------------
 # One colour per parameter, used by the equation chip, the guide and the label.
@@ -382,13 +442,14 @@ class Figure2Config:
 
     gene_fitting: Path
     schematic: Path
+    verification_merged: Path
     output_pdf: Path
     output_review: Path
     canvas_pdf: Path
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        for required in [self.gene_fitting, self.schematic]:
+        for required in [self.gene_fitting, self.schematic, self.verification_merged]:
             if not required.exists():
                 raise ValueError(f"Required input not found: {required}")
         for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
@@ -408,6 +469,14 @@ class GeneFit:
     r2: float
     t_inflection: float
     y_inflection: float
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class CategoryDr:
+    """One growth category's DR values, in panel row order."""
+
+    category: str
+    dr: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -486,6 +555,59 @@ def build_parameter_distributions(table: pd.DataFrame) -> dict[tuple[str, str], 
         for group, rows in subsets.items()
         for column, *_ in PARAMETER_HISTOGRAMS
     }
+
+
+def build_category_dr(table: pd.DataFrame) -> tuple[CategoryDr, ...]:
+    """Return one DR vector per growth category, in panel row order."""
+    categories = []
+    for category in CATEGORY_ORDER:
+        is_category = table[CATEGORY_COLUMN] == category
+        values = table.loc[is_category, RATE_COLUMN].to_numpy(dtype=float)
+        if len(values) == 0:
+            raise ValueError(f"{category!r} has no genes in the verification table")
+        categories.append(CategoryDr(category=category, dr=values))
+    return tuple(categories)
+
+
+def adjacent_p_values(categories: tuple[CategoryDr, ...]) -> tuple[float, ...]:
+    """Return the two-sided Mann-Whitney U p value of every neighbouring pair."""
+    return tuple(
+        float(mannwhitneyu(left.dr, right.dr, alternative="two-sided").pvalue)
+        for left, right in pairwise(categories)
+    )
+
+
+def format_p_value(p_value: float) -> str:
+    """Format a p value as the panel's compact mantissa/E-exponent label."""
+    mantissa, exponent = f"{p_value:.1E}".split("E")
+    return P_VALUE_TEMPLATE.format(mantissa=mantissa, exponent=int(exponent))
+
+
+def category_frame(categories: tuple[CategoryDr, ...]) -> pd.DataFrame:
+    """Return the long (category, DR) frame the violin plot takes."""
+    return pd.DataFrame(
+        {
+            "category": np.concatenate(
+                [np.full(len(category.dr), category.category) for category in categories]
+            ),
+            "dr": np.concatenate([category.dr for category in categories]),
+        }
+    )
+
+
+def category_dr_limits(categories: tuple[CategoryDr, ...]) -> tuple[float, float]:
+    """Return the shared x limits, with a little headroom past the extremes."""
+    pooled = np.concatenate([category.dr for category in categories])
+    low, high = float(pooled.min()), float(pooled.max())
+    padding = E_X_PADDING * (high - low)
+    return low - padding, high + padding
+
+
+def category_dr_ticks(limits: tuple[float, float]) -> np.ndarray:
+    """Tick the 1-unit DR grid that falls inside the plotted range."""
+    first = np.ceil(limits[0] / E_TICK_STEP) * E_TICK_STEP
+    last = np.floor(limits[1] / E_TICK_STEP) * E_TICK_STEP
+    return np.arange(first, last + E_TICK_STEP / 2, E_TICK_STEP)
 
 
 def histogram_edges(low: float, high: float, width: float) -> np.ndarray:
@@ -573,9 +695,10 @@ def draw_figure(
     panel_a_fit: GeneFit,
     panel_b_fits: tuple[GeneFit, ...],
     distributions: dict[tuple[str, str], np.ndarray],
+    panel_e_categories: tuple[CategoryDr, ...],
     schematic_size_pt: tuple[float, float],
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw panels A, C, B and D and return the multipanel plus panel D's axes.
+    """Draw panels A, C, B, D and E and return the multipanel plus panel D's axes.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
@@ -628,6 +751,20 @@ def draw_figure(
         margin_right=0,
     )
     blank_container(container_d)
+
+    # E hangs below D in D's column (its own multipanel subtree), so the right
+    # half of the page reads D then E while B keeps running down the left.
+    container_e = mp.panel(
+        "E",
+        width=PANEL_E_WIDTH_PT,
+        height=PANEL_E_HEIGHT_PT,
+        below="D",
+        margin_top=ROW_GAP_PT,
+        margin_bottom=0,
+        margin_right=0,
+    )
+    blank_container(container_e)
+    render_panel_e(container_e, panel_e_categories)
     return mp, container_d
 
 
@@ -917,6 +1054,94 @@ def add_panel_b_table(container: Axes, fits: tuple[GeneFit, ...]) -> None:
             container.text(
                 x_pt, row_y, text, ha="right", va="center", fontsize=B_TABLE_FONT_PT, color=color
             )
+
+
+def render_panel_e(container: Axes, categories: tuple[CategoryDr, ...]) -> None:
+    """Draw the DR violins by growth category and their neighbouring-pair p values."""
+    container.set_xlim(0, PANEL_E_WIDTH_PT)
+    container.set_ylim(0, PANEL_E_HEIGHT_PT)
+    labels = [category.category for category in categories]
+    ax = container.inset_axes(
+        (
+            E_PLOT_X_PT / PANEL_E_WIDTH_PT,
+            E_PLOT_Y_PT / PANEL_E_HEIGHT_PT,
+            E_PLOT_WIDTH_PT / PANEL_E_WIDTH_PT,
+            E_PLOT_HEIGHT_PT / PANEL_E_HEIGHT_PT,
+        )
+    )
+    cns.violinplot(
+        data=category_frame(categories),
+        x="dr",
+        y="category",
+        order=labels,
+        width=E_VIOLIN_WIDTH,
+        add_box=True,
+        ax=ax,
+        # seaborn's default normalises each body's area, so a dense row draws
+        # thinner than a sparse one; every violin gets the same maximum width
+        # instead, and the rows read as one comparable set.
+        density_norm="width",
+    )
+    # The violin bodies are the collections, one per category in `order`; the
+    # embedded box is a patch and keeps its white fill.
+    for body, color in zip(
+        ax.collections, [CATEGORY_COLORS[label] for label in labels], strict=True
+    ):
+        body.set_facecolor(color)
+        body.set_edgecolor(color)
+    ax.set_yticks(
+        range(len(categories)),
+        [
+            CATEGORY_LABEL_TEMPLATE.format(category=category.category, count=len(category.dr))
+            for category in categories
+        ],
+    )
+    ax.set_ylim(-E_ROW_PAD, len(categories) - 1 + E_ROW_PAD)
+    ax.invert_yaxis()
+    x_limits = category_dr_limits(categories)
+    ax.set_xlim(*x_limits)
+    ax.set_xticks(category_dr_ticks(x_limits))
+    ax.set_xlabel(DR_X_LABEL, fontsize=PLOT_LABEL_FONT_PT)
+    ax.set_ylabel("")
+    ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT)
+    draw_p_value_ladder(ax, categories)
+
+
+def row_axes_fraction(ax: Axes, position: float) -> float:
+    """Return the axes fraction of one categorical row centre."""
+    display = ax.transData.transform((0.0, position))
+    return float(ax.transAxes.inverted().transform(display)[1])
+
+
+def draw_p_value_ladder(ax: Axes, categories: tuple[CategoryDr, ...]) -> None:
+    """Bracket each neighbouring pair right of the plot and write its p value."""
+    tick = E_BRACKET_TICK_PT / E_PLOT_WIDTH_PT
+    gap = E_PVALUE_GAP_PT / E_PLOT_WIDTH_PT
+    bracket_x = 1 + E_BRACKET_OFFSET_PT / E_PLOT_WIDTH_PT
+    for index, p_value in enumerate(adjacent_p_values(categories)):
+        upper = row_axes_fraction(ax, index)
+        lower = row_axes_fraction(ax, index + 1)
+        top, bottom = max(upper, lower), min(upper, lower)
+        ax.plot(
+            [bracket_x - tick, bracket_x, bracket_x, bracket_x - tick],
+            [top, top, bottom, bottom],
+            color=SIGNIFICANCE_COLOR,
+            linewidth=E_BRACKET_LINE_WIDTH_PT,
+            clip_on=False,
+            transform=ax.transAxes,
+            solid_capstyle="butt",
+        )
+        ax.text(
+            bracket_x + gap,
+            (top + bottom) / 2,
+            format_p_value(p_value),
+            transform=ax.transAxes,
+            ha="left",
+            va="center",
+            fontsize=E_PVALUE_FONT_PT,
+            color=SIGNIFICANCE_COLOR,
+            clip_on=False,
+        )
 
 
 def draw_flow(container: Axes, fit: GeneFit) -> None:
@@ -1333,6 +1558,15 @@ def read_tsv_columns(path: Path, required: tuple[str, ...]) -> pd.DataFrame:
     return table
 
 
+def read_parquet_columns(path: Path, required: tuple[str, ...]) -> pd.DataFrame:
+    """Read the parquet table and keep the required columns, failing once if any is missing."""
+    table = pd.read_parquet(path)
+    missing_columns = set(required) - set(table.columns)
+    if missing_columns:
+        raise ValueError(f"{path} is missing required columns: {sorted(missing_columns)}")
+    return table.loc[:, list(required)]
+
+
 def run(config: Figure2Config) -> tuple[float, float]:
     """Build Figure 2 end to end and return the page's (width, height) in points."""
     config.validate()
@@ -1343,6 +1577,9 @@ def run(config: Figure2Config) -> tuple[float, float]:
         read_tsv_columns(config.gene_fitting, DISTRIBUTION_COLUMNS)
     )
     fits = {gene: build_gene_fit(fitting, gene) for gene in (PANEL_A_GENE, *PANEL_B_GENES)}
+    categories = build_category_dr(
+        read_parquet_columns(config.verification_merged, CATEGORY_DR_COLUMNS)
+    )
 
     # D's box is fixed by C's column; the page's aspect ratio sets its height.
     schematic_size = page_size_pt(config.schematic)
@@ -1351,6 +1588,7 @@ def run(config: Figure2Config) -> tuple[float, float]:
         fits[PANEL_A_GENE],
         tuple(fits[gene] for gene in PANEL_B_GENES),
         distributions,
+        categories,
         schematic_size,
     )
     assert mp.fig is not None
@@ -1381,6 +1619,12 @@ def parse_args() -> argparse.Namespace:
         "--gene-fitting", type=Path, required=True, help="Release gene-level fitting TSV"
     )
     parser.add_argument("--schematic", type=Path, required=True, help="Panel D schematic PDF")
+    parser.add_argument(
+        "--verification-merged",
+        type=Path,
+        required=True,
+        help="Verification stage merged parquet (Category + DR per gene)",
+    )
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
     parser.add_argument("--canvas", type=Path, required=True, help="Canvas PDF before the A4 mount")
@@ -1403,6 +1647,7 @@ def main() -> int:
     config = Figure2Config(
         gene_fitting=args.gene_fitting,
         schematic=args.schematic,
+        verification_merged=args.verification_merged,
         output_pdf=args.output_pdf,
         output_review=args.output_review,
         canvas_pdf=args.canvas,

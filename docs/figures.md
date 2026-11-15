@@ -208,7 +208,7 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 **画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 382.4 pt = A/C 行 7.2 + 100 + 行距 10 + B/D 行 7.2 + 258）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
 
-**当前是 A、B、C、D 四个面板**（2026-11-13 起逐步搭建，其余面板待加入）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；第二行 B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合；D 在 B 右侧、C 正下方，是外部绘制的生长表型分类示意图，取 C 的列宽等比缩放后矢量叠加。
+**当前是 A、B、C、D、E 五个面板**（2026-11-13 起逐步搭建，其余面板待加入）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；第二行 B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合；D 在 B 右侧、C 正下方，是外部绘制的生长表型分类示意图，取 C 的列宽等比缩放后矢量叠加；E 挂在 D 下方、同一列，是五类生长表型的 DR 小提琴图。
 
 **产物**：
 
@@ -304,6 +304,26 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ---
 
+### Panel E — 生长表型的 DR 小提琴图（相邻类两两检验）
+
+**版式**：一个 `265 × 125` pt 的容器，用 multipanel 的 `below="D"` 挂在 D 下方（同一列），与 D 相距 10 pt；D 的子树约 260 pt 仍在 B 行 275 pt 之内，所以画布高度保持 382.4 pt。容器内一个 `139 × 103` pt 的 inset axes：左侧 85 pt 给行标签（如 `small colonies (n = 236)`）与刻度，下方 20 pt 给 x 刻度与标题，右侧 41 pt 给 p 值列。
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `results/2b_verification/HD_DIT_HAP/_work/merged.parquet`（2b 的每基因中间表，只读 `Category`、`DR`；2b 只发布汇总表，没有每基因的公开产物，取法与 figure_s1 读 `_work` 相同） |
+| 类顺序 | `spores → germinated → microcolonies → small colonies → WT-like`（最严重在上），`CATEGORY_ORDER` 同时是检验的相邻链 |
+| 行标签 | `类别 (n = 计数)`，计数为该类在拟合成功基因中的行数：143 / 167 / 401 / 236 / 2,919 |
+| 画法 | `cns.violinplot(x="dr", y="category", order=..., width=0.65, add_box=True, density_norm="width")`——seaborn 默认按面积归一，密集行（WT-like）会画得更细；按宽度归一后每行的最大体厚一致（实测均约 13.6 pt），五行可横向比较。violin 体是 collections、按 `order` 一一对应，画完后按 family 上色，嵌入的白色箱线保持原样 |
+| 配色 | 沿用 verification stage 的 phenotype-family 色（Cell 槽 2/6/7/1/4）：spores 赭黄、germinated 紫、microcolonies 蓝灰、small colonies 青、WT-like 绿，使同一生长类别跨图同色 |
+| 检验 | 相邻两类（spores–germinated、germinated–microcolonies、microcolonies–small colonies、small colonies–WT-like）做双侧 Mann–Whitney U，报告未校正 p——这四对是预设的相邻严重度比较，不是探索性全排列 |
+| p 值标注 | 四条相邻对的括号共用绘图区右侧同一条竖线，只在各行的行心处伸出 3 pt 横齿，形成一把阶梯；四个标签 `p=6.1E-8`（6 pt）全部从同一 x 起排、垂直居中在各对之间，数值列是对齐的。用 accent 红（槽 0）——只在这里用红，表示显著性而非类别 |
+| 轴 | x `Depletion rate (DR)`，范围 = 数据极值 ± 5% 跨度，1 单位刻度（−2 / −1 / 0）；y 无标题，类别已在行标签里 |
+| 产物 | 并入 `figure2.pdf` |
+
+数据口径：当前 release 的计数为 143 / 167 / 401 / 236 / 2,919；`small colonies` 是原始 curated `Category` 一档（含 32 个 E 与 204 个 V），不按 essentiality 拆分。相邻对比的 p 值：6.1e-8 / 2.8e-18 / 3.4e-45 / 2.6e-75（参考图里的 396 / 235 / 2,614 来自更早的一版 curated 表，其余计数一致）。
+
+---
+
 ### 可调旋钮（全部在 `workflow/scripts/figures/figure2.py` 顶部）
 
 | 常量 | 当前值 | 作用 |
@@ -338,6 +358,11 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `ROW_GAP_PT` | 10 | 面板行间距（A/C 行与 B、B 与 D） |
 | `PANEL_D_WIDTH_PT` | 265（= `PANEL_C_WIDTH_PT`） | D 面板预留框宽；高由示意图页面长宽比推出 |
 | `--schematic` | `resources/figures/figure2d.pdf` | D 面板示意图 PDF；面板框取其页面框，换图后尺寸自动跟随 |
+| `PANEL_E_WIDTH_PT` / `PANEL_E_HEIGHT_PT` | 265 / 125 | E 容器尺寸（与 D 同列，`below="D"`） |
+| `E_PLOT_X_PT` / `E_PLOT_Y_PT` / `E_PLOT_WIDTH_PT` | 85 / 20 / 139 | E 的 inset 绘图区（高 = 容器高 − 20 − 2） |
+| `E_BRACKET_OFFSET_PT` / `E_BRACKET_TICK_PT` | 3 / 3 | p 值竖线距绘图区右缘的距离、行心横齿长度（pt） |
+| `E_VIOLIN_WIDTH` / `E_ROW_PAD` / `E_X_PADDING` | 0.65 / 0.5 / 0.05 | violin 最大体厚（行距占比，按宽度归一）、行上下留白（半行，防首末行被裁）、x 两侧留白 |
+| `CATEGORY_ORDER` / `CATEGORY_COLORS` | 见上文 | E 的行顺序 / family 配色（同时决定检验的相邻链） |
 | `CHIP_ALPHA` | 0.25 | 公式参数底色透明度 |
 | `Y_PADDING_BOTTOM` / `Y_PADDING_TOP` | 0.28 / 0.31 | A 面板 y 轴上下留白占数据跨度的比例；下限包含 A |
 | `Y_TICK_STEP` | 2 | y 刻度间隔（只在数据范围内取刻度） |
