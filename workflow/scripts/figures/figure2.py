@@ -32,6 +32,15 @@ a scale. The inset carries the shape of the split, not its counts. Together
 they answer "where in this space do real genes fall, and how do genes that die
 differ from genes that survive?", neither of which A's single example can show.
 
+Panel D is a schematic drawn outside the pipeline — growth-phenotype strings
+parsed by a custom script into growth categories — and supplied as a PDF. It
+sits in B's row, under C, and takes C's column width, so the schematic's left
+and right edges line up with C's plot. Its page box (297.72 x 113.4 pt) is
+wider than that column, so ``pypdf`` scales the page down proportionally to the
+panel box and copies it in as vector content (matplotlib cannot embed a PDF
+without rasterizing it); the review PNG is rasterized from the merged PDF
+rather than the canvas.
+
 The genes are fixed (``PANEL_A_GENE`` and ``PANEL_B_GENES``): they are the
 instances the figure tells its story with, not per-run choices. Each curve is
 evaluated from its released amplitude, rate and lag (A, DR, DL); the five
@@ -60,6 +69,8 @@ Input
   Columns: Name, time_points, A, DR, DL, R2, t_inflection, y_inflection,
   YES0..YES4, YES0_fitted..YES4_fitted (panel C additionally reads Status and
   FYPOviability).
+- resources/figures/figure2d.pdf  panel D schematic, one page whose page box
+  is its content box (297.72 x 113.4 pt).
 
 Output
 ------
@@ -71,6 +82,7 @@ Usage
 -----
     python workflow/scripts/figures/figure2.py \\
         --gene-fitting <release>/gene_level/gene_level_fitting_statistics.tsv \\
+        --schematic resources/figures/figure2d.pdf \\
         --output-pdf results/7a_figures/figure2.pdf \\
         --output-review results/7a_figures/figure2.review.png \\
         --canvas results/7a_figures/_work/figure2_canvas.pdf
@@ -96,6 +108,7 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import to_rgba
+from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 from matplotlib.text import Text
 import numpy as np
@@ -236,6 +249,12 @@ C_INSET_LABEL_FONT_PT = 5.5
 
 ROW_GAP_PT = 10.0  # between panel A and panel B
 
+# Panel D joins B's row, under C, and takes C's column width so the schematic's
+# left and right edges line up with C's plot. Its height follows the PDF page's
+# aspect ratio; the 297.72 pt page cannot sit beside B at its own size inside
+# the 515.28 pt canvas, so the overlay scales it to this box proportionally.
+PANEL_D_WIDTH_PT = PANEL_C_WIDTH_PT
+
 # --- Panel vocabulary -------------------------------------------------------
 PANEL_A_GENE = "mtf1"
 PANEL_B_GENES = ("tna1", "pst2", "rpl3801", "nrs1")
@@ -362,14 +381,16 @@ class Figure2Config:
     """Resolved input/output paths for Figure 2."""
 
     gene_fitting: Path
+    schematic: Path
     output_pdf: Path
     output_review: Path
     canvas_pdf: Path
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        if not self.gene_fitting.exists():
-            raise ValueError(f"Required input not found: {self.gene_fitting}")
+        for required in [self.gene_fitting, self.schematic]:
+            if not required.exists():
+                raise ValueError(f"Required input not found: {required}")
         for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
             output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -552,12 +573,15 @@ def draw_figure(
     panel_a_fit: GeneFit,
     panel_b_fits: tuple[GeneFit, ...],
     distributions: dict[tuple[str, str], np.ndarray],
-) -> cns.multipanel:
-    """Draw panels A and B and return the multipanel that owns the page.
+    schematic_size_pt: tuple[float, float],
+) -> tuple[cns.multipanel, Axes]:
+    """Draw panels A, C, B and D and return the multipanel plus panel D's axes.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
-    the object until the file is written or the panels stay unmeasured.
+    the object until the file is written or the panels stay unmeasured. Panel
+    D's axes is returned so the caller can read its settled box for the pypdf
+    overlay.
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
     # A gives up its right margin so C keeps A's row: the two letters plus both
@@ -579,16 +603,32 @@ def draw_figure(
     render_panel_c(container_c, distributions)
 
     mp.newline()
+    # D follows B in the same row, so B gives up its right margin: D's letter
+    # column becomes the gap between the two.
     container_b = mp.panel(
         "B",
         width=PANEL_B_WIDTH_PT,
         height=PANEL_B_HEIGHT_PT,
         margin_top=ROW_GAP_PT,
         margin_bottom=0,
+        margin_right=0,
     )
     blank_container(container_b)
     render_panel_b(container_b, panel_b_fits)
-    return mp
+
+    # Panel D is the schematic: a blank axes under C, at C's column width, with
+    # the height that keeps the PDF page's aspect ratio so the overlay fills it.
+    schematic_width_pt, schematic_height_pt = schematic_size_pt
+    container_d = mp.panel(
+        "D",
+        width=PANEL_D_WIDTH_PT,
+        height=PANEL_D_WIDTH_PT * schematic_height_pt / schematic_width_pt,
+        margin_top=ROW_GAP_PT,
+        margin_bottom=0,
+        margin_right=0,
+    )
+    blank_container(container_d)
+    return mp, container_d
 
 
 def blank_container(container: Axes) -> None:
@@ -1214,14 +1254,54 @@ def draw_delay_guide(
 # =============================================================================
 # 6. ASSEMBLY
 # =============================================================================
-def mount_on_a4(canvas_pdf: Path, output_pdf: Path) -> None:
-    """Inset the content canvas from the A4 page's top-left corner; the rest stays blank."""
-    canvas_page = PdfReader(str(canvas_pdf)).pages[0]
+def page_size_pt(pdf: Path) -> tuple[float, float]:
+    """Return the first page's (width, height) in points."""
+    page = PdfReader(str(pdf)).pages[0]
+    return float(page.mediabox.width), float(page.mediabox.height)
+
+
+def axes_box_pt(ax: Axes, figure: Figure) -> tuple[float, float, float, float]:
+    """Return an axes box as (x, y, width, height) in points from the page's bottom-left."""
+    width_in, height_in = figure.get_size_inches()
+    width_pt, height_pt = width_in * 72, height_in * 72
+    box = ax.get_position()
+    return box.x0 * width_pt, box.y0 * height_pt, box.width * width_pt, box.height * height_pt
+
+
+def assemble_page(
+    canvas_pdf: Path,
+    schematic_pdf: Path,
+    output_pdf: Path,
+    box_pt: tuple[float, float, float, float],
+) -> None:
+    """Overlay the schematic on the canvas, then mount the content atop an A4 page."""
+    # The box is in PDF points already: bbox_inches=None keeps the page equal to
+    # the figure, so the figure fractions flip straight into the page's origin.
+    x_pt, y_pt, box_width_pt, box_height_pt = box_pt
+    # The canvas page must belong to a writer before its content can grow: pypdf
+    # 7 refuses content replacements on reader-owned pages.
+    writer = PdfWriter(clone_from=str(canvas_pdf))
+    canvas_page = writer.pages[0]
+    schematic_page = PdfReader(str(schematic_pdf)).pages[0]
+
+    source_width = float(schematic_page.mediabox.width)
+    source_height = float(schematic_page.mediabox.height)
+    scale = min(box_width_pt / source_width, box_height_pt / source_height)
+
+    x_pt += (box_width_pt - source_width * scale) / 2
+    y_pt += (box_height_pt - source_height * scale) / 2
+
+    canvas_page.merge_transformed_page(
+        schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
+    )
+
+    # A4 page: the canvas keeps its designed size, inset from the page's
+    # top-left corner; the rest of the page stays blank.
     content_height_pt = float(canvas_page.mediabox.height)
     bottom_pt = A4_HEIGHT_PT - PAGE_MARGIN_PT - content_height_pt
-    writer = PdfWriter()
     page = writer.add_blank_page(width=A4_WIDTH_PT, height=A4_HEIGHT_PT)
     page.merge_transformed_page(canvas_page, Transformation().translate(PAGE_MARGIN_PT, bottom_pt))
+    writer.remove_page(0)  # the content now lives on the A4 page
     writer.write(str(output_pdf))
 
 
@@ -1264,12 +1344,27 @@ def run(config: Figure2Config) -> tuple[float, float]:
     )
     fits = {gene: build_gene_fit(fitting, gene) for gene in (PANEL_A_GENE, *PANEL_B_GENES)}
 
-    mp = draw_figure(fits[PANEL_A_GENE], tuple(fits[gene] for gene in PANEL_B_GENES), distributions)
+    # D's box is fixed by C's column; the page's aspect ratio sets its height.
+    schematic_size = page_size_pt(config.schematic)
+
+    mp, schematic_ax = draw_figure(
+        fits[PANEL_A_GENE],
+        tuple(fits[gene] for gene in PANEL_B_GENES),
+        distributions,
+        schematic_size,
+    )
     assert mp.fig is not None
-    # cnsplots sets savefig.bbox to "tight"; pass bbox_inches=None so the page
-    # keeps the multipanel canvas instead of cropping to the drawn artists.
+    # cnsplots sets savefig.bbox to "tight", which would crop the page to the
+    # drawn artists and shift panel D's box away from the overlay below; keep
+    # the designed canvas. The save draws the figure, which is also what
+    # settles multipanel's measured layout before the box is read back.
     cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
-    mount_on_a4(config.canvas_pdf, config.output_pdf)
+    assemble_page(
+        config.canvas_pdf,
+        config.schematic,
+        config.output_pdf,
+        axes_box_pt(schematic_ax, mp.fig),
+    )
     rasterize_review(config.output_pdf, config.output_review)
 
     logger.success(
@@ -1285,6 +1380,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gene-fitting", type=Path, required=True, help="Release gene-level fitting TSV"
     )
+    parser.add_argument("--schematic", type=Path, required=True, help="Panel D schematic PDF")
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
     parser.add_argument("--canvas", type=Path, required=True, help="Canvas PDF before the A4 mount")
@@ -1306,6 +1402,7 @@ def main() -> int:
     setup_logger(args.verbose)
     config = Figure2Config(
         gene_fitting=args.gene_fitting,
+        schematic=args.schematic,
         output_pdf=args.output_pdf,
         output_review=args.output_review,
         canvas_pdf=args.canvas,

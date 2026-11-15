@@ -206,9 +206,9 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 ## Figure 2 — 耗竭动力学：一条拟合曲线如何定义 A、DR、DL
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 382.4 pt = A/C 行 7.2 + 100 + 行距 10 + B 行 7.2 + 258）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 382.4 pt = A/C 行 7.2 + 100 + 行距 10 + B/D 行 7.2 + 258）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
 
-**当前是 A、B、C 三个面板**（2026-11-13 起逐步搭建，其余面板待加入）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合。
+**当前是 A、B、C、D 四个面板**（2026-11-13 起逐步搭建，其余面板待加入）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；第二行 B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合；D 在 B 右侧、C 正下方，是外部绘制的生长表型分类示意图，取 C 的列宽等比缩放后矢量叠加。
 
 **产物**：
 
@@ -216,7 +216,7 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 |---|---|
 | `results/7a_figures/figure2.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure2.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
-| `results/7a_figures/_work/figure2_canvas.pdf` | 贴 A4 前的内容画布（515.28 × 382.4 pt）；排查版式时看这个 |
+| `results/7a_figures/_work/figure2_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 382.4 pt，D 区空白）；排查版式时看这个 |
 
 ---
 
@@ -290,6 +290,20 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ---
 
+### Panel D — 生长表型分类示意图（外部绘制）
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `resources/figures/figure2d.pdf`（单页，页面框即内容框，297.72 × 113.4 pt） |
+| 变换 | **等比缩放 ×0.8901**（= 265 / 297.72）：D 的预留框宽取 C 的列宽 265 pt，高按页面框长宽比得 100.94 pt；pypdf 按 `min(框宽/页宽, 框高/页高)` 缩放后居中平移到该框。原尺寸放不下——B 列（字母 + 236 pt）之后只剩约 267 pt，297.72 pt 会溢出页面右缘 |
+| 画法 | multipanel 建空 axes（`set_xticks([]) + set_yticks([]) + set_axis_off()`）；`PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点为 PDF 左下角 |
+| 版式 | 与 B 同一行、紧随 B 之后（B 的 `margin_right=0`，D 的字母列即两面板间距），顶部与 B 同一条行基线（`margin_top=10` 给 C 行的行距）；D 的左右缘与 C 的容器列对齐 |
+| 产物 | 并入 `figure2.pdf` |
+
+数据口径：示意图画的是 FYPO 生长表型的原始描述串（如 `"ESSENTIAL spores at 25,32"`、`"VIABLE WT cells at 25,32"`）经 custom script 解析为 Growth categories（Spores / Germinated / Microcolonies / Small Colonies / WT-like）的流程，示例基因 prp22、rad50、mmf2、mtf1、sgt1。页面框内 artwork 实际占 287.75 × 109.25 pt（四周约 2–5 pt 留白），缩放后约 256 × 97 pt。
+
+---
+
 ### 可调旋钮（全部在 `workflow/scripts/figures/figure2.py` 顶部）
 
 | 常量 | 当前值 | 作用 |
@@ -321,7 +335,9 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `VIABILITY_GROUPS` / `ALL_GENES` | viable, inviable / all | 小图的两行（自上而下）与主图的分组键 |
 | `DR_HIST_RANGE` / `DR_BIN_WIDTH` | −1.5…0.3 / 0.1 | DR 直方图范围与箱宽 |
 | `DL_HIST_RANGE` / `DL_BIN_WIDTH` | 0…10 / 0.5 | DL 直方图范围与箱宽 |
-| `ROW_GAP_PT` | 10 | A 行与 B 行之间 |
+| `ROW_GAP_PT` | 10 | 面板行间距（A/C 行与 B、B 与 D） |
+| `PANEL_D_WIDTH_PT` | 265（= `PANEL_C_WIDTH_PT`） | D 面板预留框宽；高由示意图页面长宽比推出 |
+| `--schematic` | `resources/figures/figure2d.pdf` | D 面板示意图 PDF；面板框取其页面框，换图后尺寸自动跟随 |
 | `CHIP_ALPHA` | 0.25 | 公式参数底色透明度 |
 | `Y_PADDING_BOTTOM` / `Y_PADDING_TOP` | 0.28 / 0.31 | A 面板 y 轴上下留白占数据跨度的比例；下限包含 A |
 | `Y_TICK_STEP` | 2 | y 刻度间隔（只在数据范围内取刻度） |

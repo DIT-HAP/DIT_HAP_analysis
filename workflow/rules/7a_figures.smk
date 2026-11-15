@@ -117,6 +117,9 @@ rule plot_figure2:
             f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/"
             "gene_level_fitting_statistics.tsv"
         ),
+        # Panel D: the externally drawn schematic, embedded as vector content at
+        # its own page size (same mechanism as Figure 1's panel A).
+        schematic="resources/figures/figure2d.pdf",
     output:
         pdf=f"{_FIGURES}/figure2.pdf",
         review=f"{_FIGURES}/figure2.review.png",
@@ -132,6 +135,7 @@ rule plot_figure2:
         """
         python workflow/scripts/figures/figure2.py \
             --gene-fitting {input.gene_fitting} \
+            --schematic {input.schematic} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \
             --canvas {output.canvas} &> {log}
