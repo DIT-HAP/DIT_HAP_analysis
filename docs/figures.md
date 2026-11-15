@@ -271,7 +271,7 @@ x 226–236 右边距（给最右 x 刻度标签留位）
 
 ### Panel C — DR 与 DL 的分布（全体基因 + viable / inviable 嵌入小图）
 
-**版式**：一个 `265 × 100` pt 的容器，放在 A 同一行的右侧。两个 `99 × 76` pt 的 mini axes：左 DR、右 DL，间距 10 pt；左装饰 34 pt（旋转的 `Number of genes` + 左图计数标签）、右装饰 23 pt（右图自己的计数标签）。两图**各自独立计数轴**（DR 峰 1,263 / DL 峰 3,113）。每个主图的空白角里嵌一组小图：两行 `20` pt 高、无刻度的 mini 直方图，上行 `viable`、下行 `inviable`，各按自身峰值缩放——只给形状，不给计数。DR 的空白角在左上（x 3 pt 起，该区域主图柱最高 15 pt），DL 的在右上（x 44 pt 起，该区域主图计数 ≤ 82）。
+**版式**：一个 `265 × 100` pt 的容器，放在 A 同一行的右侧。两个 `99 × 76` pt 的 mini axes：左 DR、右 DL，间距 27 pt；左装饰 34 pt（旋转的 `Number of genes` + DR 的计数标签）；DL 的计数标签同样放在**它自己的 y 轴左侧**，占两图之间的 27 pt，右装饰 6 pt 只给最右 x 刻度 `10` 留位。两图**各自独立计数轴**（DR 峰 1,263 / DL 峰 3,113）。每个主图的空白角里嵌一组小图：两行 `20` pt 高、无刻度的 mini 直方图，上行 `viable`、下行 `inviable`，各按自身峰值缩放，并在标签里写出自己的计数上限（1,500 / 300、3,000 / 500），否则等高柱子会被读成等计数。DR 的空白角在左上（x 3 pt 起，该区域主图柱最高 15 pt），DL 的在右上（x 44 pt 起，该区域主图计数 ≤ 82）。
 
 multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 `margin_right` 设为 0：236（A）+ 2 × 5.8（字母）+ 265 = 512.6 ≤ 515.28；C 的 plot 是 99 pt（A 为 100），这 1 pt 就是为了让 C 留在 A 这一行。
 
@@ -280,8 +280,8 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | 输入 | 与 A/B 同一张 release 表，只读 `Status`、`FYPOviability`、`DR`、`DL` |
 | 筛选 | `Status == "Success"`（4,513 行）画主图；按 `FYPOviability` 再取 `viable`（3,161）与 `inviable`（1,082）画嵌入小图；`condition-dependent`（159）与 `unknown`（111）不进图 |
 | 分箱 | DR：`−1.5…0.3`，宽 0.1（18 箱）；范围外另有 3 个基因（均为 viable，最小 −2.091），不进柱。DL：`0…10`，宽 0.5（20 箱） |
-| 主图计数轴 | 每图独立：上限 = 最大 bin × 1.08 后向上取到 `1 / 1.5 / 2 / 2.5 / 3 / 3.5 / 4 / 5 / 8` × 10^k（DR 1,500 / DL 3,500），只标 `0` 与上限两个刻度；y 刻度**不画短横线**（正数旁的短横线会被读成负号）。右图的标签放在右侧，否则两图之间没有地方 |
-| 嵌入小图 | 每格两行：`viable` 在上、`inviable` 在下，各 `52 × 20` pt、`set_axis_off()`；与主图共享 x 范围，y 各自按峰值取整（viable 1,500 / 3,000，inviable 300 / 500），标签 5.5 pt 斜体写在各自小图上方。**柱子不用参数色**，而用 Figure 1 的类别色：viable = Cell 槽 1 青 `#2f7e8f`、inviable = 槽 0 红 `#c84c3a`（`VIABILITY_COLORS`），所以小图里颜色表达的是分组，主图里颜色表达的是参数 |
+| 主图计数轴 | 每图独立：上限 = 最大 bin × 1.08 后向上取到 `1 / 1.5 / 2 / 2.5 / 3 / 3.5 / 4 / 5 / 8` × 10^k（DR 1,500 / DL 3,500），只标 `0` 与上限两个刻度；y 刻度**不画短横线**（正数旁的短横线会被读成负号）。两图的计数标签都在各自 y 轴左侧——右图的标签放在 27 pt 的列距里，读两个直方图时视线落在同一侧 |
+| 嵌入小图 | 每格两行：`viable` 在上、`inviable` 在下，各 `52 × 20` pt、`set_axis_off()`；与主图共享 x 范围，y 各自按峰值取整（viable 1,500 / 3,000，inviable 300 / 500），标签 5.5 pt 斜体写在各自小图上方并带上该上限（如 `viable (max 3,000)`），读者不必假设两组同尺度。**柱子不用参数色**，而用 Figure 1 的类别色：viable = Cell 槽 1 青 `#2f7e8f`、inviable = 槽 0 红 `#c84c3a`（`VIABILITY_COLORS`），所以小图里颜色表达的是分组，主图里颜色表达的是参数 |
 | 画法 | `cns.histplot(x=values, bins=edges, color=参数色, legend=False)`；DR 用紫（槽 6）、DL 用绿（槽 4）；柱间无描边 |
 | 轴 | x `Depletion rate (DR)` / `Depletion lag (DL)`（7 pt）；容器最左一条旋转 90° 的共享 `Number of genes`（7 pt） |
 | 产物 | 并入 `figure2.pdf` |
@@ -312,12 +312,12 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `B_TABLE_FONT_PT` / `B_TABLE_RULE_Y_PT` | 6.5 / 38 | 表字号、表头下横线高度 |
 | `PANEL_C_WIDTH_PT` / `PANEL_C_HEIGHT_PT` | 265 / 100 | C 面板容器尺寸（含字母留白的行宽约束） |
 | `C_PLOT_X_PT` / `C_PLOT_Y_PT` / `C_PLOT_WIDTH_PT` | 34 / 22 / 99 | C 主图的左装饰、底边、宽（高复用 A 的 `PLOT_HEIGHT_PT` 76） |
-| `C_COLUMN_GAP_PT` / `C_RIGHT_DECORATION_PT` | 10 / 23 | 两图间距、右图计数标签的右侧留白 |
+| `C_COLUMN_GAP_PT` / `C_RIGHT_DECORATION_PT` | 27 / 6 | 两图间距（放右图左侧的计数标签）、最右 x 刻度的留白 |
 | `C_Y_LABEL_CENTER_X_PT` | 4 | C 共享 `Number of genes` 的 x 位置 |
 | `C_Y_HEADROOM` / `C_TICK_MULTIPLIERS` | 1.08 / 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 8, 10 | 计数轴上限的向上取整规则（主图与小图共用） |
 | `C_INSET_X_PT` / `C_INSET_WIDTH_PT` | (3, 44) / 52 | 嵌入小图在 DR / DL 主图中的起点 x 与宽度 |
 | `C_INSET_TOP_PT` / `C_INSET_MINI_HEIGHT_PT` / `C_INSET_LABEL_BAND_PT` | 74 / 20 / 6 | 小图组顶部、每个小图高度、组名占的高度 |
-| `C_INSET_LABEL_FONT_PT` | 5.5 | 小图组名（viable / inviable）字号 |
+| `C_INSET_LABEL_FONT_PT` | 5.5 | 小图标签（组名 + 计数上限）字号 |
 | `VIABILITY_GROUPS` / `ALL_GENES` | viable, inviable / all | 小图的两行（自上而下）与主图的分组键 |
 | `DR_HIST_RANGE` / `DR_BIN_WIDTH` | −1.5…0.3 / 0.1 | DR 直方图范围与箱宽 |
 | `DL_HIST_RANGE` / `DL_BIN_WIDTH` | 0…10 / 0.5 | DL 直方图范围与箱宽 |
