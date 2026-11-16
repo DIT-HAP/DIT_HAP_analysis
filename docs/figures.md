@@ -378,9 +378,9 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ## Figure 3 — 基因组的连贯性：z-score、显著性、以及 term 在 DR-DL 空间的位置
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由单行面板推出（实测 157.2 pt = 字母带 7.2 + 面板 150）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由单行面板推出（实测 142.2 pt = 字母带 7.2 + 面板 135）；三个面板同高，顶、底都对齐。组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
 
-**当前是 A、B、C 三个 150 × 150 pt 面板，排在同一行**。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。
+**当前是 A、B、C 三个面板，排在同一行**：A 为 `135 × 135` pt 方形，B 和 C 为 `150 × 135` pt。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。
 
 **产物**：
 
@@ -388,11 +388,11 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 |---|---|
 | `results/7a_figures/figure3.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure3.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
-| `results/7a_figures/_work/figure3_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 157.2 pt，A 区空白）；排查版式时看这个 |
+| `results/7a_figures/_work/figure3_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 142.2 pt，A 区空白）；排查版式时看这个 |
 
-**为什么面板 A 用 pypdf 叠加**：与 Figure 1 的 A 面板同一机制——matplotlib 不能把 PDF 当矢量嵌入，`imshow` 一定栅格化。A 的预留框是 150 × 150 pt；示意图页面框 184.56 × 184.56 pt，`pypdf` 以 scale 0.8127 等比缩放并居中，文字仍是矢量。评审 PNG 从合成后的 PDF 栅格化，而不是从画布。
+**为什么面板 A 用 pypdf 叠加**：与 Figure 1 的 A 面板同一机制——matplotlib 不能把 PDF 当矢量嵌入，`imshow` 一定栅格化。A 的预留框是 135 × 135 pt；示意图页面框 184.56 × 184.56 pt，`pypdf` 以 scale 0.7315 等比缩放并居中，文字仍是矢量。评审 PNG 从合成后的 PDF 栅格化，而不是从画布。
 
-**行宽**：三个面板各 150 pt、字母列各 6 pt、面板间距 10 pt，行宽 = 6 + 150 + 10 + 6 + 150 + 10 + 6 + 150 = 488 pt；画布 515.28 pt 下右侧留约 27 pt。三块面板都是 root panel（没有 `below=` 子树），否则子树宽度会把后面的面板挤到下一行。
+**行宽**：A 135 pt、B/C 各 150 pt、字母列各 6 pt、面板间距 10 pt，行宽 = 6 + 135 + 10 + 6 + 150 + 10 + 6 + 150 = 473 pt；画布 515.28 pt 下右侧留约 42 pt。三块面板都是 root panel（没有 `below=` 子树），否则子树宽度会把后面的面板挤到下一行。
 
 ---
 
@@ -401,9 +401,9 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | 要素 | 内容 |
 |---|---|
 | 输入 | `resources/figures/figure3a.pdf`（单页，页面框即内容框，184.56 × 184.56 pt） |
-| 变换 | 等比缩放 ×0.8127（= 150 / 184.56）：示意图页面框比面板框大，pypdf 按 `min(框宽/页宽, 框高/页高)` 缩放后居中平移 |
+| 变换 | 等比缩放 ×0.7315（= 135 / 184.56）：示意图页面框比面板框大，pypdf 按 `min(框宽/页宽, 框高/页高)` 缩放后居中平移 |
 | 画法 | multipanel 建空 axes（`set_xticks([]) + set_axis_off()`）；`PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点为 PDF 左下角 |
-| 版式 | A 的 axes 为 150 × 150 pt，由 multipanel 放在行首；字母 A 在列外框左缘 |
+| 版式 | A 的 axes 为 135 × 135 pt，由 multipanel 放在行首；字母 A 在列外框左缘 |
 | 产物 | 并入 `figure3.pdf` |
 
 可编辑母版是 `resources/figures/figure3a.svg`（若存在）；**管线只读 PDF**。
@@ -412,7 +412,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ### Panel B — coherence z 与 BH-adjusted p 的联合分布（上方 + 右方边缘直方图）
 
-**版式**：一个 `150 × 150` pt 的容器，内部三块：主散点 `99 × 110` pt；上方直方图 `99 × 15` pt；右方直方图 `16 × 110` pt。左装饰 28 pt（y 刻度 + 旋转 ylabel）、下装饰 22 pt（x 刻度 + xlabel）、上/右直方图与主图间距各 3 pt、右侧留 4 pt。
+**版式**：一个 `150 × 135` pt 的容器，内部三块：主散点 `99 × 95` pt；上方直方图 `99 × 15` pt；右方直方图 `16 × 95` pt。左装饰 28 pt（y 刻度 + 旋转 ylabel）、下装饰 22 pt（x 刻度 + xlabel）、上/右直方图与主图间距各 3 pt、右侧留 4 pt。
 
 | 要素 | 内容 |
 |---|---|
@@ -432,7 +432,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ### Panel C — coherent term 的 term-level 平均 DR / DL
 
-**版式**：一个 `150 × 150` pt 的容器，与 A、B 同一行。内部一个 `92 × 124` pt 的 inset axes：左装饰 28 pt（y 刻度 + 旋转 `Mean DL`）、下装饰 22 pt（x 刻度 + `Mean DR`）、上留 4 pt；右侧 26 pt 放尺寸图例（距绘图区 4 pt）。
+**版式**：一个 `150 × 135` pt 的容器，与 A、B 同一行。内部一个 `92 × 109` pt 的 inset axes：左装饰 28 pt（y 刻度 + 旋转 `Mean DL`）、下装饰 22 pt（x 刻度 + `Mean DR`）、上留 4 pt；右侧 26 pt 放尺寸图例（距绘图区 4 pt）。
 
 | 要素 | 内容 |
 |---|---|
@@ -456,13 +456,13 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `A4_WIDTH_PT` / `A4_HEIGHT_PT` | 595.28 / 841.89 | 最终页面尺寸（210 × 297 mm） |
 | `PAGE_MARGIN_PT` | 40 | 内容页距 A4 页左、上、右的留白 |
 | `CANVAS_WIDTH_PT` | 515.28 | 内容画布宽（= A4 宽 − 2 × 页边距），即 `multipanel(max_width=...)` |
-| `PANEL_A_SIZE_PT` | 150 | A/B/C 共用的方形面板边长（A 的示意图按比例缩进这个框） |
-| `PANEL_B_WIDTH_PT` | 150 | B 容器宽（= 高） |
+| `PANEL_A_SIZE_PT` | 135 | A 的方形面板边长（示意图按比例缩进这个框） |
+| `PANEL_B_WIDTH_PT` / `PANEL_B_HEIGHT_PT` | 150 / 135 | B 容器宽、高 |
 | `PANEL_B_LEFT_DECORATION_PT` / `PANEL_B_BOTTOM_DECORATION_PT` | 28 / 22 | B 主图左、下装饰 |
 | `PANEL_B_TOP_HISTOGRAM_HEIGHT_PT` / `PANEL_B_RIGHT_HISTOGRAM_WIDTH_PT` | 15 / 16 | 上、右边缘直方图的厚度 |
 | `PANEL_B_HISTOGRAM_GAP_PT` / `PANEL_B_RIGHT_MARGIN_PT` | 3 / 4 | 直方图与主图间距、右侧留白 |
 | `PANEL_B_BINS` | 40 | 两条边缘直方图的 bin 数（与主图同域） |
-| `PANEL_C_WIDTH_PT` | 150 | C 容器宽（= 高；绘图区 92 + 图例带 26） |
+| `PANEL_C_WIDTH_PT` / `PANEL_C_HEIGHT_PT` | 150 / 135 | C 容器宽、高（宽 = 绘图区 92 + 图例带 26） |
 | `PANEL_C_PLOT_WIDTH_PT` / `PANEL_C_LEFT_DECORATION_PT` / `PANEL_C_BOTTOM_DECORATION_PT` / `PANEL_C_TOP_MARGIN_PT` | 92 / 28 / 22 / 4 | C 的 inset 几何 |
 | `PANEL_C_LEGEND_GAP_PT` | 4 | C 的尺寸图例距绘图区右缘的间距 |
 | `COHERENT_Q_MAX` / `COHERENT_Z_CUT` | 0.05 / −2.0 | 与 `config/analysis.yaml` 的 coherence cohort 定义一致，同时决定 B 的虚线和蓝色高亮 |
@@ -481,7 +481,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `PLOT_TICK_FONT_PT` / `PLOT_LABEL_FONT_PT` | 6 / 6.5 | 刻度与轴标题字号 |
 | `LEGEND_FONT_PT` / `LEGEND_TITLE_FONT_PT` | 5 / 5.5 | 图例字号 |
 
-三个面板都是 root panel、同一行流式排列；任何一块超过 150 pt 宽或三块总宽超过 515.28 pt 时 multipanel 会自动换行。改 `PANEL_A_SIZE_PT` 会同时改变三块的高度。
+三个面板都是 root panel、同一行流式排列；任何一块超过 150 pt 宽或三块总宽超过 515.28 pt 时 multipanel 会自动换行。三个面板同为 135 pt 高，字母与底边都对齐；改 `PANEL_B_HEIGHT_PT` / `PANEL_C_HEIGHT_PT` 会改变各自面板的高度，字母仍顶对齐。
 
 ---
 

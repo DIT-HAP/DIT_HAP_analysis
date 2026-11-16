@@ -26,11 +26,11 @@ whose median pairwise distance panel B scores, not the geometric median the
 coherence stage publishes (that statistic weights genes differently, and the
 panel asks for a plain mean).
 
-All three panels are 150 x 150 pt and share one row. Panel A is embedded as
-vector content, scaled from its 184.56 pt page box to that 150 pt square, the
-same pypdf overlay Figure 1 uses for its schematic: matplotlib cannot embed a
-PDF without rasterizing it. The review PNG is rasterized from the merged PDF
-rather than from the canvas.
+All three panels share one row and one 135 pt height: A is a 135 x 135 pt
+square, B and C are 150 x 135 pt. A is embedded as vector content, scaled from
+its 184.56 pt page box to its 135 pt square, the same pypdf overlay Figure 1
+uses for its schematic: matplotlib cannot embed a PDF without rasterizing it.
+The review PNG is rasterized from the merged PDF rather than from the canvas.
 
 Both plotted tables come from the de-duplicated representative set (the stage's
 paper-facing display layer), so one term contributes one point and the coherent
@@ -49,7 +49,7 @@ Input
   Columns: Name, DR, DL (one row per fitted gene).
 - resources/figures/figure3a.pdf
   One page whose page box is its content box (184.56 x 184.56 pt); it is
-  scaled to the 150 x 150 pt panel square at assembly time.
+  scaled to the 135 x 135 pt panel square at assembly time.
 
 Output
 ------
@@ -117,11 +117,15 @@ A4_HEIGHT_PT = 297.0 / MM_PER_INCH * 72.0  # 841.89
 PAGE_MARGIN_PT = 40.0  # white border at the left, top and right
 CANVAS_WIDTH_PT = A4_WIDTH_PT - 2 * PAGE_MARGIN_PT  # 515.28
 
-# All three panels are 150 x 150 pt and share one row. A is the schematic PDF's
-# page box scaled to fit that square (vector, via pypdf); B and C are containers
-# whose internal insets are laid out in the square's own point coordinates.
-PANEL_A_SIZE_PT = 150.0
+# All three panels share one row and one 135 pt height: A is the square
+# schematic box, B and C are 150 pt wide. The wide-but-short B/C keep their
+# plotting areas closer to the data's own proportions (a wide volcano, a
+# DR-DL cloud with room for DL but no dead vertical space). A's page box is
+# scaled to fit its square (vector, via pypdf); B and C lay their insets out in
+# their own pt coordinates.
+PANEL_A_SIZE_PT = 135.0
 PANEL_B_WIDTH_PT = 150.0
+PANEL_B_HEIGHT_PT = 135.0
 PANEL_B_LEFT_DECORATION_PT = 28.0  # y tick labels + y label
 PANEL_B_BOTTOM_DECORATION_PT = 22.0  # x tick labels + x label
 PANEL_B_TOP_HISTOGRAM_HEIGHT_PT = 15.0
@@ -136,9 +140,9 @@ PANEL_B_PLOT_WIDTH_PT = (
     - PANEL_B_RIGHT_MARGIN_PT
 )  # 99
 
-# Panel C is the same 150 pt square: the plot plus a narrow size-legend band on
-# its right.
+# Panel C is 150 x 135 pt: the plot plus a narrow size-legend band on its right.
 PANEL_C_WIDTH_PT = 150.0
+PANEL_C_HEIGHT_PT = 135.0
 PANEL_C_LEFT_DECORATION_PT = 28.0
 PANEL_C_BOTTOM_DECORATION_PT = 22.0
 PANEL_C_TOP_MARGIN_PT = 4.0
@@ -411,21 +415,21 @@ def draw_figure(cloud: TermCloud, terms: tuple[CoherentTerm, ...]) -> tuple[cns.
     container_b = mp.panel(
         "B",
         width=PANEL_B_WIDTH_PT,
-        height=PANEL_B_WIDTH_PT,
+        height=PANEL_B_HEIGHT_PT,
         margin_bottom=0,
     )
     blank_container(container_b)
-    render_panel_b(container_b, cloud, PANEL_B_WIDTH_PT)
+    render_panel_b(container_b, cloud, PANEL_B_HEIGHT_PT)
 
     container_c = mp.panel(
         "C",
         width=PANEL_C_WIDTH_PT,
-        height=PANEL_C_WIDTH_PT,
+        height=PANEL_C_HEIGHT_PT,
         margin_right=0,
         margin_bottom=0,
     )
     blank_container(container_c)
-    render_panel_c(container_c, terms, PANEL_C_WIDTH_PT)
+    render_panel_c(container_c, terms, PANEL_C_HEIGHT_PT)
     return mp, schematic_ax
 
 
