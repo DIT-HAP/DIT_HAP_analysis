@@ -115,6 +115,9 @@ rule finalize_enrichment:
     output:
         go_filtered=f"{_ERAW}/go_enrichment_full_filtered.tsv",
         go_full=f"{_ERAW}/go_enrichment_full.tsv",
+        # The GO slim table (BP/MF/CC) is written by the same script; Figure 3's
+        # panel E reads its BP rows, so it is declared output, not a side file.
+        go_slim=f"{_ERAW}/go_enrichment_slim.tsv",
     params:
         work_dir=_EWORK,
         output_dir=_ERAW,

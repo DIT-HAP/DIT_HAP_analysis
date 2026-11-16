@@ -34,7 +34,10 @@
 # de-duplicated representative term in coherence z versus -log10(BH-adjusted p),
 # with stacked all-term / coherent histograms along the top and right axes and
 # dashed cohort cuts; c the coherent terms' mean DR and mean DL over their scored
-# members, marker area proportional to that scored size.
+# members, marker area proportional to that scored size; d every fitted gene in
+# raw DR-DL space under the grid9 partition, each of the nine cells labelled with
+# its cluster id and gene count; e the same clusters' GO BP slim enrichment as a
+# term x cluster dot matrix (colour = -log10 FDR, area = gene ratio).
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.
@@ -167,6 +170,14 @@ rule plot_figure3:
             f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/"
             "fitting_results.tsv"
         ),
+        # Panel D: the grid variant's final clusters (raw DR/DL + the 9-cell id).
+        grid_clusters=final_clusters_path("HD_DIT_HAP", "grid9"),
+        # Panel E: that same partition's GO slim enrichment (the script keeps the
+        # BP rows and each cluster's three most significant terms).
+        go_slim=(
+            f"results/3c_enrichment/HD_DIT_HAP/grid9/"
+            f"{DATASETS['reference']['pombase_version']}/go_enrichment_slim.tsv"
+        ),
         # Panel A is drawn outside the pipeline, embedded at its own page size.
         schematic="resources/figures/figure3a.pdf",
     output:
@@ -185,6 +196,8 @@ rule plot_figure3:
         python workflow/scripts/figures/figure3.py \
             --representatives {input.representatives} \
             --fitting-results {input.fitting_results} \
+            --grid-clusters {input.grid_clusters} \
+            --go-slim {input.go_slim} \
             --schematic {input.schematic} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \

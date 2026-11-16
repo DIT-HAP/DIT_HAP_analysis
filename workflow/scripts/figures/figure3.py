@@ -26,15 +26,36 @@ whose median pairwise distance panel B scores, not the geometric median the
 coherence stage publishes (that statistic weights genes differently, and the
 panel asks for a plain mean).
 
-All three panels share one row and one 135 pt height: A is a 135 x 135 pt
-square, B and C are 150 x 135 pt. A is embedded as vector content, scaled from
-its 184.56 pt page box to its 135 pt square, the same pypdf overlay Figure 1
-uses for its schematic: matplotlib cannot embed a PDF without rasterizing it.
-The review PNG is rasterized from the merged PDF rather than from the canvas.
+Panel D returns to the gene level and makes the grid partition visible: every
+fitted gene is scattered in raw DR-DL space, two DR cuts and two DL cuts divide
+the plane into nine cells, and each cell is labelled with its cluster id and
+gene count. The cuts are the grid9 variant's (config/analysis.yaml) translated
+back to raw coordinates: DR is not rescaled before clustering (it is only
+clamped below -1.3, which cannot move a gene across a cut), while DL is divided
+by 10, so the scaled 0.05 / 0.3 cuts are drawn at DL 0.5 / 3.0. Cell membership
+is checked against the table's ``cluster`` column, so a table from any other
+partition fails instead of drawing a grid that does not describe it.
 
-Both plotted tables come from the de-duplicated representative set (the stage's
+Panel E shows the same nine clusters' GO biological-process slim enrichment as
+a term-by-cluster dot matrix. Rows are the union of each cluster's three most
+significant BP slim terms, ordered by the cluster where the term peaks; one dot
+marks each significant (term, cluster) cell, its colour is -log10(BH-adjusted
+p) and its area is the gene ratio. Cluster columns are the panel D clusters, so
+the two panels share one cluster order.
+
+Panels A-C share one row and one 135 pt height: A is a 135 x 135 pt square, B
+and C are 150 x 135 pt. A is embedded as vector content, scaled from its
+184.56 pt page box to its 135 pt square, the same pypdf overlay Figure 1 uses
+for its schematic: matplotlib cannot embed a PDF without rasterizing it. D and
+E form a second row below A-C, both 135 pt tall: D is 165 x 135 pt and E is
+320 x 135 pt. The review PNG is rasterized from the merged PDF rather than from
+the canvas.
+
+Panels B and C come from the de-duplicated representative set (the stage's
 paper-facing display layer), so one term contributes one point and the coherent
-highlight in B is exactly the set drawn in C.
+highlight in B is exactly the set drawn in C. Panels D and E instead read the
+grid9 variant's final clusters and that variant's slim enrichment, because
+their subject is the grid partition, not the coherence cohorts.
 
 Every drawing decision lives in this file. The script imports no stage module
 from ``workflow/src`` and calls no upstream renderer, so changing Figure 3
@@ -47,6 +68,11 @@ Input
   scored_member_names, median_pairwise_distance_z, q_value_coherent.
 - <HD_DIT_HAP release>/gene_level/fitting_results.tsv
   Columns: Name, DR, DL (one row per fitted gene).
+- results/3b_clustering/<dataset>/grid9/final_clusters.tsv
+  Columns: DR, DL, cluster (one row per fitted gene; raw DR/DL plus the
+  grid-applied, DR-ascending 1..9 cluster id).
+- results/3c_enrichment/<dataset>/grid9/<pombase_version>/go_enrichment_slim.tsv
+  Columns: Cluster, namespace, term_id, term, p_fdr, gene_ratio.
 - resources/figures/figure3a.pdf
   One page whose page box is its content box (184.56 x 184.56 pt); it is
   scaled to the 135 x 135 pt panel square at assembly time.
@@ -63,14 +89,17 @@ Usage
         --representatives \\
             results/3a_coherence/HD_DIT_HAP/dedup/coherence_terms_representatives.tsv \\
         --fitting-results <HD_DIT_HAP release>/gene_level/fitting_results.tsv \\
+        --grid-clusters results/3b_clustering/HD_DIT_HAP/grid9/final_clusters.tsv \\
+        --go-slim \\
+            results/3c_enrichment/HD_DIT_HAP/grid9/2026-06-01/go_enrichment_slim.tsv \\
         --schematic resources/figures/figure3a.pdf \\
         --output-pdf results/7a_figures/figure3.pdf \\
         --output-review results/7a_figures/figure3.review.png \\
         --canvas results/7a_figures/_work/figure3_canvas.pdf
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-11-15
-Version:  1.0.0
+Date:     2026-11-16
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -85,8 +114,11 @@ import sys
 import cnsplots as cns
 from loguru import logger
 from matplotlib.axes import Axes
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -149,6 +181,29 @@ PANEL_C_TOP_MARGIN_PT = 4.0
 PANEL_C_PLOT_WIDTH_PT = 92.0
 PANEL_C_LEGEND_GAP_PT = 4.0
 
+# Panels D and E form the second row, below A-C. D is 165 x 135 pt (a wide
+# DR-DL scatter: the middle DR band must still hold a count label); E is
+# 320 x 135 pt (a 110 pt term-label column, a 9-column matrix, and the colour
+# key). The row gap is D/E's top margin, so both panels stay top-aligned.
+ROW_GAP_PT = 10.0
+PANEL_D_WIDTH_PT = 165.0
+PANEL_D_HEIGHT_PT = 135.0
+PANEL_D_LEFT_DECORATION_PT = 28.0
+PANEL_D_BOTTOM_DECORATION_PT = 22.0
+PANEL_D_TOP_MARGIN_PT = 8.0
+PANEL_D_PLOT_WIDTH_PT = 137.0
+PANEL_D_PLOT_HEIGHT_PT = PANEL_D_HEIGHT_PT - PANEL_D_BOTTOM_DECORATION_PT - PANEL_D_TOP_MARGIN_PT
+
+PANEL_E_WIDTH_PT = 320.0
+PANEL_E_HEIGHT_PT = 135.0
+PANEL_E_LEFT_LABEL_PT = 110.0
+PANEL_E_BOTTOM_DECORATION_PT = 22.0
+PANEL_E_TOP_TITLE_PT = 10.0
+PANEL_E_PLOT_WIDTH_PT = 171.0
+PANEL_E_COLORBAR_GAP_PT = 5.0
+PANEL_E_COLORBAR_WIDTH_PT = 6.0
+PANEL_E_PLOT_HEIGHT_PT = PANEL_E_HEIGHT_PT - PANEL_E_BOTTOM_DECORATION_PT - PANEL_E_TOP_TITLE_PT
+
 # Panel B draws the marginal histograms on the same bin grid as the main plot;
 # 40 bins keep the count profile smooth at this size without inventing detail.
 PANEL_B_BINS = 40
@@ -177,6 +232,33 @@ GENE_COLUMN = "Name"
 DR_COLUMN = "DR"
 DL_COLUMN = "DL"
 MEMBER_SEPARATOR = ","
+
+# Panel D reads the grid variant's final clusters; panel E the matching slim table.
+CLUSTER_COLUMN = "cluster"
+SLIM_CLUSTER_COLUMN = "Cluster"
+ONTOLOGY_COLUMN = "namespace"
+TERM_ID_COLUMN = "term_id"
+TERM_COLUMN = "term"
+FDR_COLUMN = "p_fdr"
+GENE_RATIO_COLUMN = "gene_ratio"
+GRID_CLUSTER_COLUMNS = (DR_COLUMN, DL_COLUMN, CLUSTER_COLUMN)
+SLIM_COLUMNS = (
+    SLIM_CLUSTER_COLUMN,
+    ONTOLOGY_COLUMN,
+    TERM_ID_COLUMN,
+    TERM_COLUMN,
+    FDR_COLUMN,
+    GENE_RATIO_COLUMN,
+)
+
+# The grid9 cuts in RAW DR/DL space. config/analysis.yaml holds them in scaled
+# space: DR is not rescaled (only clamped below -1.3, which cannot move a gene
+# across a cut), while DL is divided by 10 before clustering, so the scaled
+# 0.05 / 0.3 cuts become DL 0.5 / 3.0 here.
+GRID_DR_CUTS = (-0.8, -0.4)
+GRID_DL_CUTS = (0.5, 3.0)
+SLIM_NAMESPACE = "BP"
+SLIM_TERMS_PER_CLUSTER = 3
 
 # The cohort definition is config.coherence's; the values are fixed here so the
 # figure draws the cut the table was thresholded on.
@@ -216,6 +298,41 @@ TERM_POINT_ALPHA = 0.80
 TERM_POINT_EDGE_PT = 0.4
 TERM_POINT_EDGE_COLOR = "white"
 
+# --- Panel D: every gene in the DR-DL plane, cut by the grid9 partition ------
+GENE_POINT_SIZE = 2.0
+GENE_POINT_ALPHA = 0.45
+GRID_LINE_WIDTH_PT = 0.6
+GRID_CELL_FONT_PT = 4.2
+GRID_CUT_FONT_PT = 4.0
+GRID_LABEL_COLOR = "#4D4D4D"
+GRID_LABEL_X_INSET_PT = 1.5
+GRID_LABEL_Y_INSET_PT = 0.6
+GRID_LABEL_STROKE_PT = 1.2
+GENE_DR_TICK_STEP = 0.5
+GENE_DL_TICK_STEP = 2.0
+PANEL_D_X_LABEL = "DR"
+PANEL_D_Y_LABEL = "DL"
+
+# --- Panel E: GO BP slim term x cluster dot matrix --------------------------
+SLIM_COLOR_MAP = "viridis"
+SLIM_DOT_EDGE_COLOR = "white"
+SLIM_DOT_EDGE_PT = 0.3
+SLIM_SIZE_BASE = 3.0
+SLIM_SIZE_SCALE = 30.0
+SLIM_TITLE = "GO BP slim enrichment"
+SLIM_X_LABEL = "Cluster  (dot size = gene ratio)"
+SLIM_CBAR_LABEL = r"$-\log_{10}$(FDR)"
+SLIM_TITLE_FONT_PT = 5.5
+SLIM_ROW_FONT_PT = 5.0
+SLIM_TICK_FONT_PT = 5.5
+SLIM_X_TICK_PAD_PT = 5.5
+SLIM_X_LABEL_FONT_PT = 6.0
+SLIM_CBAR_FONT_PT = 4.5
+SLIM_CBAR_STEP_LARGE = 10.0
+SLIM_CBAR_STEP_SMALL = 5.0
+SLIM_CBAR_LARGE_CUT = 20.0
+SLIM_CBAR_SMALL_CUT = 5.0
+
 
 # =============================================================================
 # 3. CONFIGURATION
@@ -226,6 +343,8 @@ class Figure3Config:
 
     representatives: Path
     fitting_results: Path
+    grid_clusters: Path
+    go_slim: Path
     schematic: Path
     output_pdf: Path
     output_review: Path
@@ -233,7 +352,13 @@ class Figure3Config:
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        for required in [self.representatives, self.fitting_results, self.schematic]:
+        for required in [
+            self.representatives,
+            self.fitting_results,
+            self.grid_clusters,
+            self.go_slim,
+            self.schematic,
+        ]:
             if not required.exists():
                 raise ValueError(f"Required input not found: {required}")
         for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
@@ -258,6 +383,47 @@ class CoherentTerm:
     n_scored: int
     mean_dr: float
     mean_dl: float
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class GeneCloud:
+    """Every fitted gene's raw DR/DL and its grid-applied cluster id."""
+
+    dr: np.ndarray
+    dl: np.ndarray
+    cluster: np.ndarray
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class GridCell:
+    """One cluster's grid cell: bin indices on each axis and its gene count."""
+
+    cluster: int
+    dr_bin: int
+    dl_bin: int
+    n_genes: int
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class SlimDot:
+    """One significant (term, cluster) cell of the BP slim matrix."""
+
+    term_id: str
+    cluster: int
+    significance: float
+    gene_ratio: float
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class SlimPanel:
+    """The BP slim matrix: row order, cluster order, dots and the colour ceiling."""
+
+    term_ids: tuple[str, ...]
+    terms: tuple[str, ...]
+    clusters: tuple[int, ...]
+    dots: tuple[SlimDot, ...]
+    color_max: float
+    terms_per_cluster: int
 
 
 # =============================================================================
@@ -349,6 +515,102 @@ def build_coherent_terms(table: pd.DataFrame, fitting: pd.DataFrame) -> tuple[Co
     )
 
 
+def build_gene_cloud(table: pd.DataFrame) -> GeneCloud:
+    """Return every fitted gene's raw DR/DL and validated 1-based cluster id."""
+    dr = table[DR_COLUMN].to_numpy(dtype=float)
+    dl = table[DL_COLUMN].to_numpy(dtype=float)
+    raw_cluster = table[CLUSTER_COLUMN].to_numpy(dtype=float)
+    if not np.isfinite(dr).all() or not np.isfinite(dl).all():
+        raise ValueError("the grid cluster table carries non-finite DR or DL")
+    if not np.equal(raw_cluster, np.floor(raw_cluster)).all():
+        raise ValueError("grid cluster ids must be whole numbers")
+    cluster = raw_cluster.astype(int)
+    if cluster.min() < 1:
+        raise ValueError("grid cluster ids must be 1-based")
+    return GeneCloud(dr=dr, dl=dl, cluster=cluster)
+
+
+def build_grid_cells(cloud: GeneCloud) -> tuple[GridCell, ...]:
+    """Return each cluster's single grid cell and gene count, failing on a straddle."""
+    frame = pd.DataFrame(
+        {
+            CLUSTER_COLUMN: cloud.cluster,
+            "dr_bin": np.digitize(cloud.dr, GRID_DR_CUTS),
+            "dl_bin": np.digitize(cloud.dl, GRID_DL_CUTS),
+        }
+    )
+    grouped = frame.groupby(CLUSTER_COLUMN, sort=True)
+    unique_bins = grouped[["dr_bin", "dl_bin"]].nunique()
+    if (unique_bins > 1).any(axis=None):
+        raise ValueError(
+            "a cluster's genes straddle a grid cut; the table is not the grid9 partition"
+        )
+    cell_bins = grouped[["dr_bin", "dl_bin"]].first()
+    counts = grouped.size()
+    return tuple(
+        GridCell(
+            cluster=int(cluster),
+            dr_bin=int(cell_bins.loc[cluster, "dr_bin"]),
+            dl_bin=int(cell_bins.loc[cluster, "dl_bin"]),
+            n_genes=int(counts.loc[cluster]),
+        )
+        for cluster in cell_bins.index.to_numpy()
+    )
+
+
+def slim_candidate_terms(table: pd.DataFrame, top_per_cluster: int) -> pd.DataFrame:
+    """Return the union of each cluster's top BP slim terms, ordered by home cluster."""
+    bp = table.loc[table[ONTOLOGY_COLUMN] == SLIM_NAMESPACE]
+    if bp.empty:
+        raise ValueError(f"the slim table has no {SLIM_NAMESPACE} rows")
+    ranked = bp.sort_values([SLIM_CLUSTER_COLUMN, FDR_COLUMN, TERM_COLUMN])
+    top = ranked.groupby(SLIM_CLUSTER_COLUMN, sort=True).head(top_per_cluster)
+    strongest = top.loc[top.groupby(TERM_ID_COLUMN)[FDR_COLUMN].idxmin()]
+    strongest = strongest.set_index(TERM_ID_COLUMN)
+
+    terms = top[[TERM_ID_COLUMN, TERM_COLUMN]].drop_duplicates(TERM_ID_COLUMN).copy()
+    terms["home_cluster"] = terms[TERM_ID_COLUMN].map(strongest[SLIM_CLUSTER_COLUMN])
+    terms["best_fdr"] = terms[TERM_ID_COLUMN].map(strongest[FDR_COLUMN])
+    return terms.sort_values(["home_cluster", "best_fdr", TERM_ID_COLUMN])
+
+
+def build_slim_panel(
+    table: pd.DataFrame, clusters: tuple[int, ...], top_per_cluster: int
+) -> SlimPanel:
+    """Return the BP slim dot matrix over the same cluster order as panel D."""
+    terms = slim_candidate_terms(table, top_per_cluster)
+    is_selected = (table[ONTOLOGY_COLUMN] == SLIM_NAMESPACE) & table[TERM_ID_COLUMN].isin(
+        terms[TERM_ID_COLUMN]
+    )
+    selected = table.loc[is_selected]
+    if not ((selected[FDR_COLUMN] > 0) & (selected[FDR_COLUMN] <= 1)).all():
+        raise ValueError("p_fdr must lie in (0, 1] for the -log10 colour scale")
+
+    unknown = set(selected[SLIM_CLUSTER_COLUMN].astype(int)) - set(clusters)
+    if unknown:
+        raise ValueError(f"slim terms carry clusters absent from the grid table: {sorted(unknown)}")
+
+    dots = tuple(
+        SlimDot(
+            term_id=str(term_id),
+            cluster=int(cluster),
+            significance=float(-np.log10(fdr)),
+            gene_ratio=float(gene_ratio),
+        )
+        for term_id, cluster, fdr, gene_ratio in selected[
+            [TERM_ID_COLUMN, SLIM_CLUSTER_COLUMN, FDR_COLUMN, GENE_RATIO_COLUMN]
+        ].itertuples(index=False, name=None)
+    )
+    return SlimPanel(
+        term_ids=tuple(str(term_id) for term_id in terms[TERM_ID_COLUMN]),
+        terms=tuple(str(term) for term in terms[TERM_COLUMN]),
+        clusters=clusters,
+        dots=dots,
+        color_max=float(np.ceil(max(dot.significance for dot in dots))),
+        terms_per_cluster=top_per_cluster,
+    )
+
+
 def padded_limits(low: float, high: float, padding: float) -> tuple[float, float]:
     """Pad a data range by a fraction of its span."""
     span = high - low
@@ -393,8 +655,14 @@ def apply_house_style() -> None:
     cns.setup_matplotlib(color_cycle=HOUSE_PALETTE, color_map="viridis")
 
 
-def draw_figure(cloud: TermCloud, terms: tuple[CoherentTerm, ...]) -> tuple[cns.multipanel, Axes]:
-    """Draw panels A, B and C on one row and return the multipanel plus A's axes.
+def draw_figure(
+    cloud: TermCloud,
+    terms: tuple[CoherentTerm, ...],
+    genes: GeneCloud,
+    cells: tuple[GridCell, ...],
+    slim: SlimPanel,
+) -> tuple[cns.multipanel, Axes]:
+    """Draw panels A-C on the first row and D-E on the second; return the multipanel and A's axes.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
@@ -430,6 +698,28 @@ def draw_figure(cloud: TermCloud, terms: tuple[CoherentTerm, ...]) -> tuple[cns.
     )
     blank_container(container_c)
     render_panel_c(container_c, terms, PANEL_C_HEIGHT_PT)
+
+    mp.newline()
+    container_d = mp.panel(
+        "D",
+        width=PANEL_D_WIDTH_PT,
+        height=PANEL_D_HEIGHT_PT,
+        margin_top=ROW_GAP_PT,
+        margin_bottom=0,
+    )
+    blank_container(container_d)
+    render_panel_d(container_d, genes, cells)
+
+    container_e = mp.panel(
+        "E",
+        width=PANEL_E_WIDTH_PT,
+        height=PANEL_E_HEIGHT_PT,
+        margin_top=ROW_GAP_PT,
+        margin_right=0,
+        margin_bottom=0,
+    )
+    blank_container(container_e)
+    render_panel_e(container_e, slim)
     return mp, schematic_ax
 
 
@@ -736,6 +1026,199 @@ def add_panel_c_size_legend(ax: Axes) -> None:
     )
 
 
+def render_panel_d(container: Axes, cloud: GeneCloud, cells: tuple[GridCell, ...]) -> None:
+    """Scatter every gene in DR-DL space and draw the nine-cell grid with its counts."""
+    container.set_xlim(0, PANEL_D_WIDTH_PT)
+    container.set_ylim(0, PANEL_D_HEIGHT_PT)
+    ax = container.inset_axes(
+        (
+            PANEL_D_LEFT_DECORATION_PT / PANEL_D_WIDTH_PT,
+            PANEL_D_BOTTOM_DECORATION_PT / PANEL_D_HEIGHT_PT,
+            PANEL_D_PLOT_WIDTH_PT / PANEL_D_WIDTH_PT,
+            PANEL_D_PLOT_HEIGHT_PT / PANEL_D_HEIGHT_PT,
+        )
+    )
+    x_limits = padded_limits(float(cloud.dr.min()), float(cloud.dr.max()), X_PADDING)
+    y_limits = (0.0, float(cloud.dl.max()) * MEAN_DL_HEADROOM)
+
+    ax.scatter(
+        cloud.dr,
+        cloud.dl,
+        s=GENE_POINT_SIZE,
+        color=BACKGROUND_COLOR,
+        alpha=GENE_POINT_ALPHA,
+        linewidths=0,
+    )
+    draw_grid_cuts(ax, x_limits, y_limits)
+    add_grid_cell_labels(ax, cells, x_limits, y_limits)
+    ax.set_xlim(*x_limits)
+    ax.set_ylim(*y_limits)
+    ax.set_xticks(tick_values(*x_limits, GENE_DR_TICK_STEP))
+    ax.set_yticks(tick_values(*y_limits, GENE_DL_TICK_STEP))
+    ax.set_xlabel(PANEL_D_X_LABEL, fontsize=PLOT_LABEL_FONT_PT)
+    ax.set_ylabel(PANEL_D_Y_LABEL, fontsize=PLOT_LABEL_FONT_PT)
+    ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def draw_grid_cuts(ax: Axes, x_limits: tuple[float, float], y_limits: tuple[float, float]) -> None:
+    """Draw the two DR and two DL cuts, with their values at the top and right edges."""
+    for cut in GRID_DR_CUTS:
+        ax.axvline(cut, color=FURNITURE_COLOR, linewidth=GRID_LINE_WIDTH_PT, zorder=2)
+        ax.text(
+            cut,
+            y_limits[1],
+            f"{cut:g}",
+            ha="right",
+            va="top",
+            fontsize=GRID_CUT_FONT_PT,
+            color=FURNITURE_COLOR,
+            zorder=4,
+            path_effects=label_path_effects(),
+        )
+    for cut in GRID_DL_CUTS:
+        ax.axhline(cut, color=FURNITURE_COLOR, linewidth=GRID_LINE_WIDTH_PT, zorder=2)
+        ax.text(
+            x_limits[1],
+            cut,
+            f"{cut:g}",
+            ha="right",
+            va="bottom",
+            fontsize=GRID_CUT_FONT_PT,
+            color=FURNITURE_COLOR,
+            zorder=4,
+            path_effects=label_path_effects(),
+        )
+
+
+def add_grid_cell_labels(
+    ax: Axes,
+    cells: tuple[GridCell, ...],
+    x_limits: tuple[float, float],
+    y_limits: tuple[float, float],
+) -> None:
+    """Write each cell's cluster id and gene count on the cell's left edge."""
+    dr_edges = (x_limits[0], *GRID_DR_CUTS, x_limits[1])
+    dl_edges = (y_limits[0], *GRID_DL_CUTS, y_limits[1])
+    x_offset = (x_limits[1] - x_limits[0]) * GRID_LABEL_X_INSET_PT / PANEL_D_PLOT_WIDTH_PT
+    y_offset = (y_limits[1] - y_limits[0]) * GRID_LABEL_Y_INSET_PT / PANEL_D_PLOT_HEIGHT_PT
+
+    for cell in cells:
+        x = dr_edges[cell.dr_bin] + x_offset
+        # The bottom strip holds the DL = 0 pile-up: anchor its label at the
+        # strip's top so the text stays above the piled-up genes; the taller
+        # cells are labelled at mid-height where their cloud is thin.
+        y = (
+            dl_edges[1] - y_offset
+            if cell.dl_bin == 0
+            else (dl_edges[cell.dl_bin] + dl_edges[cell.dl_bin + 1]) / 2
+        )
+        vertical = "top" if cell.dl_bin == 0 else "center"
+        ax.text(
+            x,
+            y,
+            f"C{cell.cluster}: {cell.n_genes:,}",
+            ha="left",
+            va=vertical,
+            fontsize=GRID_CELL_FONT_PT,
+            color=GRID_LABEL_COLOR,
+            zorder=4,
+            path_effects=label_path_effects(),
+        )
+
+
+def label_path_effects() -> list[pe.AbstractPathEffect]:
+    """Return the white halo that keeps panel D's grid labels legible over the cloud."""
+    return [pe.withStroke(linewidth=GRID_LABEL_STROKE_PT, foreground="white")]
+
+
+def render_panel_e(container: Axes, panel: SlimPanel) -> None:
+    """Draw the BP slim term x cluster dot matrix and its -log10(FDR) colour key."""
+    container.set_xlim(0, PANEL_E_WIDTH_PT)
+    container.set_ylim(0, PANEL_E_HEIGHT_PT)
+    ax = container.inset_axes(
+        (
+            PANEL_E_LEFT_LABEL_PT / PANEL_E_WIDTH_PT,
+            PANEL_E_BOTTOM_DECORATION_PT / PANEL_E_HEIGHT_PT,
+            PANEL_E_PLOT_WIDTH_PT / PANEL_E_WIDTH_PT,
+            PANEL_E_PLOT_HEIGHT_PT / PANEL_E_HEIGHT_PT,
+        )
+    )
+    x_of = {cluster: index for index, cluster in enumerate(panel.clusters)}
+    row_of = {term_id: index for index, term_id in enumerate(panel.term_ids)}
+    x = np.array([x_of[dot.cluster] for dot in panel.dots])
+    y = np.array([len(panel.term_ids) - 1 - row_of[dot.term_id] for dot in panel.dots])
+    significance = np.array([dot.significance for dot in panel.dots])
+    gene_ratio = np.array([dot.gene_ratio for dot in panel.dots])
+    normalizer = Normalize(vmin=0.0, vmax=panel.color_max)
+
+    ax.scatter(
+        x,
+        y,
+        s=SLIM_SIZE_BASE + gene_ratio * SLIM_SIZE_SCALE,
+        c=significance,
+        cmap=SLIM_COLOR_MAP,
+        norm=normalizer,
+        edgecolors=SLIM_DOT_EDGE_COLOR,
+        linewidths=SLIM_DOT_EDGE_PT,
+        zorder=2,
+    )
+    ax.set_xlim(-0.5, len(panel.clusters) - 0.5)
+    ax.set_ylim(-0.5, len(panel.term_ids) - 0.5)
+    ax.set_xticks(range(len(panel.clusters)))
+    ax.set_xticklabels([str(cluster) for cluster in panel.clusters])
+    ax.set_yticks(range(len(panel.term_ids)))
+    ax.set_yticklabels(list(reversed(panel.terms)))
+    ax.set_xlabel(SLIM_X_LABEL, fontsize=SLIM_X_LABEL_FONT_PT)
+    ax.tick_params(axis="x", labelsize=SLIM_TICK_FONT_PT, length=0, pad=SLIM_X_TICK_PAD_PT)
+    ax.tick_params(axis="y", labelsize=SLIM_ROW_FONT_PT, length=0, pad=2.0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    panel_title = f"{SLIM_TITLE}  ·  top {panel.terms_per_cluster} per cluster"
+    container.text(
+        0,
+        PANEL_E_HEIGHT_PT - 1,
+        panel_title,
+        ha="left",
+        va="top",
+        fontsize=SLIM_TITLE_FONT_PT,
+    )
+    add_slim_colorbar(container, normalizer, panel.color_max)
+
+
+def add_slim_colorbar(container: Axes, normalizer: Normalize, color_max: float) -> None:
+    """Draw the -log10(FDR) colour bar to the right of the matrix."""
+    left = PANEL_E_LEFT_LABEL_PT + PANEL_E_PLOT_WIDTH_PT + PANEL_E_COLORBAR_GAP_PT
+    cax = container.inset_axes(
+        (
+            left / PANEL_E_WIDTH_PT,
+            PANEL_E_BOTTOM_DECORATION_PT / PANEL_E_HEIGHT_PT,
+            PANEL_E_COLORBAR_WIDTH_PT / PANEL_E_WIDTH_PT,
+            PANEL_E_PLOT_HEIGHT_PT / PANEL_E_HEIGHT_PT,
+        )
+    )
+    ColorbarBase(cax, cmap=SLIM_COLOR_MAP, norm=normalizer, orientation="vertical")
+    ticks = significance_ticks(color_max)
+    cax.set_yticks(ticks)
+    cax.set_yticklabels([f"{tick:g}" for tick in ticks])
+    cax.tick_params(labelsize=SLIM_CBAR_FONT_PT, length=1.2, width=0.4, pad=1.5)
+    cax.yaxis.set_label_position("right")
+    cax.set_ylabel(SLIM_CBAR_LABEL, fontsize=SLIM_CBAR_FONT_PT, rotation=270, labelpad=6)
+
+
+def significance_ticks(color_max: float) -> np.ndarray:
+    """Tick the colour scale at 10, 5 or 1 unit intervals, depending on its ceiling."""
+    if color_max >= SLIM_CBAR_LARGE_CUT:
+        step = SLIM_CBAR_STEP_LARGE
+    elif color_max >= SLIM_CBAR_SMALL_CUT:
+        step = SLIM_CBAR_STEP_SMALL
+    else:
+        step = 1.0
+    return tick_values(0.0, color_max, step)
+
+
 # =============================================================================
 # 6. ASSEMBLY
 # =============================================================================
@@ -819,14 +1302,24 @@ def run(config: Figure3Config) -> tuple[float, float]:
 
     representatives = read_tsv_columns(config.representatives, REPRESENTATIVE_COLUMNS)
     fitting = read_tsv_columns(config.fitting_results, FITTING_RESULT_COLUMNS)
+    grid_clusters = read_tsv_columns(config.grid_clusters, GRID_CLUSTER_COLUMNS)
+    go_slim = read_tsv_columns(config.go_slim, SLIM_COLUMNS)
     cloud = build_term_cloud(representatives)
     terms = build_coherent_terms(representatives, fitting)
+    genes = build_gene_cloud(grid_clusters)
+    cells = build_grid_cells(genes)
+    gene_clusters = tuple(int(cluster) for cluster in np.unique(genes.cluster))
+    slim = build_slim_panel(go_slim, gene_clusters, SLIM_TERMS_PER_CLUSTER)
     logger.info(
         f"Panel B: {len(cloud.z):,} terms ({int(cloud.coherent.sum()):,} coherent); "
         f"panel C: {len(terms):,} coherent terms"
     )
+    logger.info(
+        f"Panel D: {len(genes.dr):,} genes over {len(cells)} grid cells; "
+        f"panel E: {len(slim.term_ids)} BP slim terms, {len(slim.dots)} dots"
+    )
 
-    mp, schematic_ax = draw_figure(cloud, terms)
+    mp, schematic_ax = draw_figure(cloud, terms, genes, cells, slim)
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
     # drawn artists and shift panel A's box away from the overlay below; keep
@@ -863,6 +1356,18 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Release per-gene fitting results (Name + DR + DL)",
     )
+    parser.add_argument(
+        "--grid-clusters",
+        type=Path,
+        required=True,
+        help="grid9 final_clusters.tsv (DR + DL + cluster)",
+    )
+    parser.add_argument(
+        "--go-slim",
+        type=Path,
+        required=True,
+        help="GO slim enrichment TSV (BP rows are selected)",
+    )
     parser.add_argument("--schematic", type=Path, required=True, help="Panel A schematic PDF")
     parser.add_argument("--output-pdf", type=Path, required=True, help="Final figure PDF")
     parser.add_argument("--output-review", type=Path, required=True, help="Review PNG")
@@ -886,6 +1391,8 @@ def main() -> int:
     config = Figure3Config(
         representatives=args.representatives,
         fitting_results=args.fitting_results,
+        grid_clusters=args.grid_clusters,
+        go_slim=args.go_slim,
         schematic=args.schematic,
         output_pdf=args.output_pdf,
         output_review=args.output_review,
