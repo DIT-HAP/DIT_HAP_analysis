@@ -29,6 +29,12 @@
 # right of A on the same row, each on its own count scale), with a small
 # tick-free inset in each panel's empty corner splitting that parameter by FYPO
 # viability (viable above, inviable below).
+# Figure 3: a the coherence method schematic (observed median pairwise distance,
+# permutation null, z-score), embedded as an external vector PDF; b every
+# de-duplicated representative term in coherence z versus -log10(BH-adjusted p),
+# with stacked all-term / coherent histograms along the top and right axes and
+# dashed cohort cuts; c the coherent terms' mean DR and mean DL over their scored
+# members, marker area proportional to that scored size.
 # Figure S1: a PBL vs PBR + b technical replicate + c biological replicate, the
 # first three panels of the 1a_pcr_qc QC figure re-rendered for print, plus
 # d the per-gene insertion count distribution of HD_DIT_HAP.
@@ -141,6 +147,45 @@ rule plot_figure2:
             --gene-fitting {input.gene_fitting} \
             --schematic {input.schematic} \
             --verification-merged {input.verification_merged} \
+            --output-pdf {output.pdf} \
+            --output-review {output.review} \
+            --canvas {output.canvas} &> {log}
+        """
+
+
+rule plot_figure3:
+    input:
+        # Panels B and C: the de-duplicated representative terms are the stage's
+        # paper-facing display layer (one row per non-redundant term, pooled BH q
+        # carried through from combined/), so one term contributes one point and
+        # B's coherent highlight is exactly the set C plots.
+        representatives="results/3a_coherence/HD_DIT_HAP/dedup/coherence_terms_representatives.tsv",
+        # Panel C: the release's per-gene DR/DL table, joined through the terms'
+        # scored_member_names to build the term-level means.
+        fitting_results=(
+            f"{DATASETS['snakemake_repo']}/"
+            f"{DATASETS['datasets']['HD_DIT_HAP']['release_dir']}/gene_level/"
+            "fitting_results.tsv"
+        ),
+        # Panel A is drawn outside the pipeline, embedded at its own page size.
+        schematic="resources/figures/figure3a.pdf",
+    output:
+        pdf=f"{_FIGURES}/figure3.pdf",
+        review=f"{_FIGURES}/figure3.review.png",
+        # The canvas before the vector overlay, kept for layout debugging.
+        canvas=f"{_FIGURES}/_work/figure3_canvas.pdf",
+    log:
+        "logs/7a_figures/plot_figure3.log",
+    conda:
+        "../envs/final_figures.yml"
+    message:
+        "*** [figures] Assembling Figure 3..."
+    shell:
+        """
+        python workflow/scripts/figures/figure3.py \
+            --representatives {input.representatives} \
+            --fitting-results {input.fitting_results} \
+            --schematic {input.schematic} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \
             --canvas {output.canvas} &> {log}

@@ -376,6 +376,115 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ---
 
+## Figure 3 — 基因组的连贯性：z-score、显著性、以及 term 在 DR-DL 空间的位置
+
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由单行面板推出（实测 157.2 pt = 字母带 7.2 + 面板 150）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
+
+**当前是 A、B、C 三个 150 × 150 pt 面板，排在同一行**。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。
+
+**产物**：
+
+| 文件 | 说明 |
+|---|---|
+| `results/7a_figures/figure3.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
+| `results/7a_figures/figure3.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
+| `results/7a_figures/_work/figure3_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 157.2 pt，A 区空白）；排查版式时看这个 |
+
+**为什么面板 A 用 pypdf 叠加**：与 Figure 1 的 A 面板同一机制——matplotlib 不能把 PDF 当矢量嵌入，`imshow` 一定栅格化。A 的预留框是 150 × 150 pt；示意图页面框 184.56 × 184.56 pt，`pypdf` 以 scale 0.8127 等比缩放并居中，文字仍是矢量。评审 PNG 从合成后的 PDF 栅格化，而不是从画布。
+
+**行宽**：三个面板各 150 pt、字母列各 6 pt、面板间距 10 pt，行宽 = 6 + 150 + 10 + 6 + 150 + 10 + 6 + 150 = 488 pt；画布 515.28 pt 下右侧留约 27 pt。三块面板都是 root panel（没有 `below=` 子树），否则子树宽度会把后面的面板挤到下一行。
+
+---
+
+### Panel A — 连贯性方法示意图（外部绘制）
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `resources/figures/figure3a.pdf`（单页，页面框即内容框，184.56 × 184.56 pt） |
+| 变换 | 等比缩放 ×0.8127（= 150 / 184.56）：示意图页面框比面板框大，pypdf 按 `min(框宽/页宽, 框高/页高)` 缩放后居中平移 |
+| 画法 | multipanel 建空 axes（`set_xticks([]) + set_axis_off()`）；`PdfWriter(clone_from=canvas)` + `merge_transformed_page(schematic, Transformation().scale(s).translate(x,y))`；坐标原点为 PDF 左下角 |
+| 版式 | A 的 axes 为 150 × 150 pt，由 multipanel 放在行首；字母 A 在列外框左缘 |
+| 产物 | 并入 `figure3.pdf` |
+
+可编辑母版是 `resources/figures/figure3a.svg`（若存在）；**管线只读 PDF**。
+
+---
+
+### Panel B — coherence z 与 BH-adjusted p 的联合分布（上方 + 右方边缘直方图）
+
+**版式**：一个 `150 × 150` pt 的容器，内部三块：主散点 `99 × 110` pt；上方直方图 `99 × 15` pt；右方直方图 `16 × 110` pt。左装饰 28 pt（y 刻度 + 旋转 ylabel）、下装饰 22 pt（x 刻度 + xlabel）、上/右直方图与主图间距各 3 pt、右侧留 4 pt。
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `results/3a_coherence/HD_DIT_HAP/dedup/coherence_terms_representatives.tsv` |
+| 必需列 | `source`、`group_id`、`group_name`、`n_scored_members`、`scored_member_names`、`median_pairwise_distance_z`、`q_value_coherent`（缺列在 I/O 边界直接报错） |
+| 筛选 | 全部 1,181 个去冗余代表 term；其中 coherent = `q_value_coherent <= 0.05` 且 `median_pairwise_distance_z < −2`，共 131 个（go_bp 47 / go_cc 40 / kegg_brite 29 / kegg_pathway 9 / go_macrocomplex 6） |
+| 坐标 | x = `median_pairwise_distance_z`（−7.63…6.05，两侧各 3% 留白）；y = `−log10(q_value_coherent)`（0…3.10，下侧 2%、上侧 3% 留白） |
+| 画法 | 先画非 coherent（house 灰 `#A3A3A3`、`s=4`、alpha 0.50），再画 coherent（Cell 槽 3 蓝灰 `#4e5a8a`、`s=6`、alpha 0.80），两点列都不描边；x 轴 `−log10(0.05) = 1.30` 与 y 轴 `z = −2` 画灰色虚线，线旁 4.5 pt 斜体标注 `q = 0.05` / `z = −2`；主图隐藏上、右 spine |
+| 边缘直方图 | 与主图共享 x（上）/ y（右），40 个等宽 bin；每个 bin 先画非 coherent 的灰色柱、再叠 coherent 的蓝灰柱（堆叠）；计数轴各自独立、不显示刻度与框线；空 bin 跳过（零高柱会留下基线假线）；两条直方图也分别画出 `z = −2` / `q = 0.05` 的虚线延长 |
+| 图例 | 主图右上角（该处 z > 0 且高显著性的点几乎为空）：灰点 `All terms (n = 1,181)`、蓝点 `Coherent (n = 131)`；无边框、5 pt |
+| 轴 | x `Coherence z-score`（6.5 pt），刻度间隔 2（−8…6）；y `−log10(BH-adjusted p)`（6.5 pt，mathtext），刻度间隔 1 |
+| 产物 | 并入 `figure3.pdf` |
+
+数据口径：`q_value_coherent` 是 combined 表上对所有 2,560 个 term 做 BH 的 pooled q；代表集只改变展示行、不重算 q。y 轴用 −log10 是因为 q 的上半段（>0.3）挤进了 0.7 的线性宽度、而全部显著项都在 0.05 以下；线性 q 会把 131 个 coherent 点全部压在纵轴附近。
+
+---
+
+### Panel C — coherent term 的 term-level 平均 DR / DL
+
+**版式**：一个 `150 × 150` pt 的容器，与 A、B 同一行。内部一个 `92 × 124` pt 的 inset axes：左装饰 28 pt（y 刻度 + 旋转 `Mean DL`）、下装饰 22 pt（x 刻度 + `Mean DR`）、上留 4 pt；右侧 26 pt 放尺寸图例（距绘图区 4 pt）。
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | 同 B 的代表集 + `<HD_DIT_HAP release>/gene_level/fitting_results.tsv`（只读 `Name`、`DR`、`DL`） |
+| 必需列 | 代表集同上；fit 表 `Name`、`DR`、`DL`（缺列在 I/O 边界直接报错） |
+| 成员集合 | **只用该 term 参与 coherence 的成员**：`scored_member_names` 展开后与 fit 表按 `Name` join；解析出的成员数必须等于 `n_scored_members`，任何一个成员在 fit 表里缺失都直接报错（当前 131 个 term 全部覆盖，无缺失） |
+| 变换 | 每个 term 对成员求 `mean(DR)` 与 `mean(DL)`。这是**算术平均**，不是 coherence stage 发布的 `geom_median_DR/DL`：后者是 Weiszfeld 几何中位数、按空间位置加权，而本图问的是"这组基因的平均适应度在哪里" |
+| 画法 | `ax.scatter(s = n_scored_members × 0.35, color=蓝灰, alpha=0.80, edgecolor=white, linewidth=0.4)`；点面积与成员数成正比（n=5 时约 1.8 pt²、n=207 时约 72 pt²） |
+| 尺寸图例 | 绘图区右侧、`loc="upper left", bbox_to_anchor=(1.043, 1.0)`：5 / 20 / 50 / 100 / 200 五个圆 + 数字，标题 `Genes`，无边框、5 pt（标题 5.5 pt） |
+| 轴 | x `Mean DR`，4% 留白，0.2 单位刻度（−1.0 / −0.8 / −0.6）；y `Mean DL`，0 到最大值 ×1.06，1 单位刻度（0…4）；均隐藏上、右 spine |
+| 产物 | 并入 `figure3.pdf` |
+
+数据口径：131 个 coherent term 的 `mean DR` 范围 −1.078…−0.486（中位 −0.914），`mean DL` 范围 0…4.153（中位 0.836）；成员数范围 4…207（中位 22）。平均 DR 与几何中位 DR 的相关系数 0.954，平均 DL 与几何中位 DL 为 0.976——两种统计量给出一致的 term 排序，但平均值把长尾成员也算进去，且本面板的成员集合严格等于 coherence 打分集合。
+
+---
+
+### 可调旋钮（全部在 `workflow/scripts/figures/figure3.py` 顶部）
+
+| 常量 | 当前值 | 作用 |
+|---|---:|---|
+| `A4_WIDTH_PT` / `A4_HEIGHT_PT` | 595.28 / 841.89 | 最终页面尺寸（210 × 297 mm） |
+| `PAGE_MARGIN_PT` | 40 | 内容页距 A4 页左、上、右的留白 |
+| `CANVAS_WIDTH_PT` | 515.28 | 内容画布宽（= A4 宽 − 2 × 页边距），即 `multipanel(max_width=...)` |
+| `PANEL_A_SIZE_PT` | 150 | A/B/C 共用的方形面板边长（A 的示意图按比例缩进这个框） |
+| `PANEL_B_WIDTH_PT` | 150 | B 容器宽（= 高） |
+| `PANEL_B_LEFT_DECORATION_PT` / `PANEL_B_BOTTOM_DECORATION_PT` | 28 / 22 | B 主图左、下装饰 |
+| `PANEL_B_TOP_HISTOGRAM_HEIGHT_PT` / `PANEL_B_RIGHT_HISTOGRAM_WIDTH_PT` | 15 / 16 | 上、右边缘直方图的厚度 |
+| `PANEL_B_HISTOGRAM_GAP_PT` / `PANEL_B_RIGHT_MARGIN_PT` | 3 / 4 | 直方图与主图间距、右侧留白 |
+| `PANEL_B_BINS` | 40 | 两条边缘直方图的 bin 数（与主图同域） |
+| `PANEL_C_WIDTH_PT` | 150 | C 容器宽（= 高；绘图区 92 + 图例带 26） |
+| `PANEL_C_PLOT_WIDTH_PT` / `PANEL_C_LEFT_DECORATION_PT` / `PANEL_C_BOTTOM_DECORATION_PT` / `PANEL_C_TOP_MARGIN_PT` | 92 / 28 / 22 / 4 | C 的 inset 几何 |
+| `PANEL_C_LEGEND_GAP_PT` | 4 | C 的尺寸图例距绘图区右缘的间距 |
+| `COHERENT_Q_MAX` / `COHERENT_Z_CUT` | 0.05 / −2.0 | 与 `config/analysis.yaml` 的 coherence cohort 定义一致，同时决定 B 的虚线和蓝色高亮 |
+| `COHERENT_COLOR` / `BACKGROUND_COLOR` | Cell 槽 3 `#4e5a8a` / house 灰 `#A3A3A3` | B 的高亮/背景、C 的点色 |
+| `PANEL_B_POINT_SIZE` / `PANEL_B_COHERENT_SIZE` | 4 / 6 | B 两类点面积（pt²） |
+| `PANEL_B_POINT_ALPHA` / `PANEL_B_COHERENT_ALPHA` | 0.50 / 0.80 | B 两类点透明度 |
+| `PANEL_B_X_LABEL` / `PANEL_B_Y_LABEL` | `Coherence z-score` / `−log10(BH-adjusted p)` | B 轴标题 |
+| `PANEL_C_X_LABEL` / `PANEL_C_Y_LABEL` | `Mean DR` / `Mean DL` | C 轴标题 |
+| `TERM_SIZE_SCALE` | 0.35 | C 的标记面积（pt²）/ 成员数 |
+| `TERM_SIZE_LEGEND_VALUES` | 5, 20, 50, 100, 200 | C 的尺寸图例档位 |
+| `TERM_POINT_ALPHA` / `TERM_POINT_EDGE_PT` | 0.80 / 0.4 | C 的点的透明度与白边宽度 |
+| `X_PADDING` / `Y_PADDING` / `SIGNIFICANCE_HEADROOM` | 0.03 / 0.02 / 1.03 | B 的坐标留白 |
+| `MEAN_DR_PADDING` / `MEAN_DL_HEADROOM` | 0.04 / 1.06 | C 的坐标留白 |
+| `COHERENCE_TICK_STEP` / `SIGNIFICANCE_TICK_STEP` | 2 / 1 | B 的刻度间隔 |
+| `MEAN_DR_TICK_STEP` / `MEAN_DL_TICK_STEP` | 0.2 / 1 | C 的刻度间隔 |
+| `PLOT_TICK_FONT_PT` / `PLOT_LABEL_FONT_PT` | 6 / 6.5 | 刻度与轴标题字号 |
+| `LEGEND_FONT_PT` / `LEGEND_TITLE_FONT_PT` | 5 / 5.5 | 图例字号 |
+
+三个面板都是 root panel、同一行流式排列；任何一块超过 150 pt 宽或三块总宽超过 515.28 pt 时 multipanel 会自动换行。改 `PANEL_A_SIZE_PT` 会同时改变三块的高度。
+
+---
+
 ## Figure S1 — 文库制备重复性 + 每基因插入条数分布
 
 **画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 304.4 pt）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），其余留白。内容画布由 `cns.multipanel(max_width=515.28, unit="pt")` 流式排版：
