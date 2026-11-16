@@ -41,15 +41,21 @@ a term-by-cluster dot matrix. Rows are the union of each cluster's three most
 significant BP slim terms, ordered by the cluster where the term peaks; one dot
 marks each significant (term, cluster) cell, its colour is -log10(BH-adjusted
 p) and its area is the gene ratio. Cluster columns are the panel D clusters, so
-the two panels share one cluster order.
+the two panels share one cluster order. The panel is a narrow column: term names
+are word-wrapped to a 60 pt line budget, the left and bottom axes/ticks stay
+visible, and the gene-ratio size key plus a shortened colour bar sit in a
+compact strip to the right of the matrix.
 
-Panels A-C share one row and one 135 pt height: A is a 135 x 135 pt square, B
-and C are 150 x 135 pt. A is embedded as vector content, scaled from its
-184.56 pt page box to its 135 pt square, the same pypdf overlay Figure 1 uses
-for its schematic: matplotlib cannot embed a PDF without rasterizing it. D and
-E form a second row below A-C, both 135 pt tall: D is 165 x 135 pt and E is
-320 x 135 pt. The review PNG is rasterized from the merged PDF rather than from
-the canvas.
+The figure is a two-row block. A (135 x 135 pt) sits above C (150 x 135 pt) in
+the first column; B (150 x 135 pt) sits above D (135 x 135 pt) in the second;
+E (150 x 277.2 pt) spans both rows to their right. C and D are multipanel
+`below=` subtrees of A and B, so they stay under their parents while E is one
+tall root panel. E's 277.2 pt axes = 2 x 135 (the two matrix rows) + 7.2 (the
+second row's panel-letter band), which makes E's top and bottom align with the
+A/C axes. A is embedded as vector content, scaled from its 184.56 pt page box
+to its 135 pt square, the same pypdf overlay Figure 1 uses for its schematic:
+matplotlib cannot embed a PDF without rasterizing it. The review PNG is
+rasterized from the merged PDF rather than from the canvas.
 
 Panels B and C come from the de-duplicated representative set (the stage's
 paper-facing display layer), so one term contributes one point and the coherent
@@ -117,8 +123,10 @@ from matplotlib.axes import Axes
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
+from matplotlib.font_manager import FontProperties, findfont
 from matplotlib.lines import Line2D
 import matplotlib.patheffects as pe
+from matplotlib.textpath import TextToPath
 import numpy as np
 import pandas as pd
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -181,28 +189,35 @@ PANEL_C_TOP_MARGIN_PT = 4.0
 PANEL_C_PLOT_WIDTH_PT = 92.0
 PANEL_C_LEGEND_GAP_PT = 4.0
 
-# Panels D and E form the second row, below A-C. D is 165 x 135 pt (a wide
-# DR-DL scatter: the middle DR band must still hold a count label); E is
-# 320 x 135 pt (a 110 pt term-label column, a 9-column matrix, and the colour
-# key). The row gap is D/E's top margin, so both panels stay top-aligned.
-ROW_GAP_PT = 10.0
-PANEL_D_WIDTH_PT = 165.0
+# Layout: A sits above C (first column), B above D (second column), and E
+# spans both rows to their right. C/D are multipanel subtrees (`below=`), not
+# second-row flow panels, so they stay under their parents while E remains one
+# tall root panel. E's axes are 277.2 pt = 2 x 135 + 7.2 (the C/D letter band),
+# so its top and bottom align with A/C's axes; the nominal "two 135 pt rows"
+# total 270 pt is the matrix content, the extra 7.2 pt is the letter band.
+PANEL_D_WIDTH_PT = 135.0
 PANEL_D_HEIGHT_PT = 135.0
 PANEL_D_LEFT_DECORATION_PT = 28.0
 PANEL_D_BOTTOM_DECORATION_PT = 22.0
 PANEL_D_TOP_MARGIN_PT = 8.0
-PANEL_D_PLOT_WIDTH_PT = 137.0
+PANEL_D_PLOT_WIDTH_PT = 107.0
 PANEL_D_PLOT_HEIGHT_PT = PANEL_D_HEIGHT_PT - PANEL_D_BOTTOM_DECORATION_PT - PANEL_D_TOP_MARGIN_PT
 
-PANEL_E_WIDTH_PT = 320.0
-PANEL_E_HEIGHT_PT = 135.0
-PANEL_E_LEFT_LABEL_PT = 110.0
+PANEL_E_WIDTH_PT = 150.0
+PANEL_E_HEIGHT_PT = 277.2
+PANEL_E_LEFT_LABEL_PT = 62.0
 PANEL_E_BOTTOM_DECORATION_PT = 22.0
-PANEL_E_TOP_TITLE_PT = 10.0
-PANEL_E_PLOT_WIDTH_PT = 171.0
-PANEL_E_COLORBAR_GAP_PT = 5.0
-PANEL_E_COLORBAR_WIDTH_PT = 6.0
+PANEL_E_TOP_TITLE_PT = 9.0
+PANEL_E_PLOT_WIDTH_PT = 66.0
+PANEL_E_LEGEND_GAP_PT = 3.0
+PANEL_E_LEGEND_WIDTH_PT = 18.0
+PANEL_E_LEGEND_LEFT_PT = PANEL_E_LEFT_LABEL_PT + PANEL_E_PLOT_WIDTH_PT + PANEL_E_LEGEND_GAP_PT
 PANEL_E_PLOT_HEIGHT_PT = PANEL_E_HEIGHT_PT - PANEL_E_BOTTOM_DECORATION_PT - PANEL_E_TOP_TITLE_PT
+PANEL_E_COLORBAR_WIDTH_PT = 4.0
+PANEL_E_COLORBAR_HEIGHT_PT = 90.0
+PANEL_E_COLORBAR_TOP_PT = 234.0
+PANEL_E_SIZE_LEGEND_TOP_PT = 268.0
+PANEL_E_SIZE_LEGEND_HEIGHT_PT = 30.0
 
 # Panel B draws the marginal histograms on the same bin grid as the main plot;
 # 40 bins keep the count profile smooth at this size without inventing detail.
@@ -317,17 +332,22 @@ PANEL_D_Y_LABEL = "DL"
 SLIM_COLOR_MAP = "viridis"
 SLIM_DOT_EDGE_COLOR = "white"
 SLIM_DOT_EDGE_PT = 0.3
-SLIM_SIZE_BASE = 3.0
-SLIM_SIZE_SCALE = 30.0
+SLIM_SIZE_BASE = 2.0
+SLIM_SIZE_SCALE = 18.0
+SLIM_SIZE_LEGEND_VALUES = (0.02, 0.1, 0.2, 0.3)
+SLIM_SIZE_LEGEND_TITLE = "Gene ratio"
 SLIM_TITLE = "GO BP slim enrichment"
 SLIM_X_LABEL = "Cluster  (dot size = gene ratio)"
 SLIM_CBAR_LABEL = r"$-\log_{10}$(FDR)"
+SLIM_LABEL_LINE_PT = 60.0
 SLIM_TITLE_FONT_PT = 5.5
-SLIM_ROW_FONT_PT = 5.0
-SLIM_TICK_FONT_PT = 5.5
-SLIM_X_TICK_PAD_PT = 5.5
-SLIM_X_LABEL_FONT_PT = 6.0
-SLIM_CBAR_FONT_PT = 4.5
+SLIM_ROW_FONT_PT = 4.5
+SLIM_TICK_FONT_PT = 5.0
+SLIM_X_TICK_PAD_PT = 2.0
+SLIM_X_LABEL_FONT_PT = 5.5
+SLIM_CBAR_FONT_PT = 3.4
+SLIM_SIZE_LEGEND_FONT_PT = 3.4
+SLIM_SIZE_LEGEND_TITLE_FONT_PT = 3.6
 SLIM_CBAR_STEP_LARGE = 10.0
 SLIM_CBAR_STEP_SMALL = 5.0
 SLIM_CBAR_LARGE_CUT = 20.0
@@ -662,13 +682,14 @@ def draw_figure(
     cells: tuple[GridCell, ...],
     slim: SlimPanel,
 ) -> tuple[cns.multipanel, Axes]:
-    """Draw panels A-C on the first row and D-E on the second; return the multipanel and A's axes.
+    """Draw A above C, B above D, and E spanning both rows to their right.
 
-    Returns the multipanel itself, not just its figure: cnsplots keeps the
-    measured-layout draw callback as a weak reference, so the caller must hold
-    the object until the file is written or the panels stay unmeasured. Panel
-    A's axes is returned so the caller can read its settled box for the pypdf
-    overlay.
+    A, B and E are the row's root panels; C and D are `below=` subtrees of A
+    and B. Returns the multipanel itself, not just its figure: cnsplots keeps
+    the measured-layout draw callback as a weak reference, so the caller must
+    hold the object until the file is written or the panels stay unmeasured.
+    Panel A's axes is returned so the caller can read its settled box for the
+    pypdf overlay.
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
 
@@ -689,37 +710,35 @@ def draw_figure(
     blank_container(container_b)
     render_panel_b(container_b, cloud, PANEL_B_HEIGHT_PT)
 
-    container_c = mp.panel(
-        "C",
-        width=PANEL_C_WIDTH_PT,
-        height=PANEL_C_HEIGHT_PT,
-        margin_right=0,
-        margin_bottom=0,
-    )
-    blank_container(container_c)
-    render_panel_c(container_c, terms, PANEL_C_HEIGHT_PT)
-
-    mp.newline()
-    container_d = mp.panel(
-        "D",
-        width=PANEL_D_WIDTH_PT,
-        height=PANEL_D_HEIGHT_PT,
-        margin_top=ROW_GAP_PT,
-        margin_bottom=0,
-    )
-    blank_container(container_d)
-    render_panel_d(container_d, genes, cells)
-
     container_e = mp.panel(
         "E",
         width=PANEL_E_WIDTH_PT,
         height=PANEL_E_HEIGHT_PT,
-        margin_top=ROW_GAP_PT,
         margin_right=0,
         margin_bottom=0,
     )
     blank_container(container_e)
     render_panel_e(container_e, slim)
+
+    container_c = mp.panel(
+        "C",
+        width=PANEL_C_WIDTH_PT,
+        height=PANEL_C_HEIGHT_PT,
+        below="A",
+        margin_bottom=0,
+    )
+    blank_container(container_c)
+    render_panel_c(container_c, terms, PANEL_C_HEIGHT_PT)
+
+    container_d = mp.panel(
+        "D",
+        width=PANEL_D_WIDTH_PT,
+        height=PANEL_D_HEIGHT_PT,
+        below="B",
+        margin_bottom=0,
+    )
+    blank_container(container_d)
+    render_panel_d(container_d, genes, cells)
     return mp, schematic_ax
 
 
@@ -1118,7 +1137,7 @@ def add_grid_cell_labels(
         ax.text(
             x,
             y,
-            f"C{cell.cluster}: {cell.n_genes:,}",
+            f"{cell.cluster}: {cell.n_genes:,}",
             ha="left",
             va=vertical,
             fontsize=GRID_CELL_FONT_PT,
@@ -1133,8 +1152,32 @@ def label_path_effects() -> list[pe.AbstractPathEffect]:
     return [pe.withStroke(linewidth=GRID_LABEL_STROKE_PT, foreground="white")]
 
 
+def wrap_slim_terms(terms: tuple[str, ...]) -> list[str]:
+    """Wrap every term label to the label column at the row font size."""
+    font_path = findfont(FontProperties(family=list(FONT_SANS_SERIF)))
+    font = FontProperties(fname=font_path, size=SLIM_ROW_FONT_PT)
+    engine = TextToPath()
+    return [_wrap_words(term, font, engine) for term in terms]
+
+
+def _wrap_words(text: str, font: FontProperties, engine: TextToPath) -> str:
+    """Greedy word-wrap one label to SLIM_LABEL_LINE_PT."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        width = engine.get_text_width_height_descent(candidate, font, False)[0]
+        if current and width > SLIM_LABEL_LINE_PT:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    lines.append(current)
+    return "\n".join(lines)
+
+
 def render_panel_e(container: Axes, panel: SlimPanel) -> None:
-    """Draw the BP slim term x cluster dot matrix and its -log10(FDR) colour key."""
+    """Draw the BP slim term x cluster matrix with a size key and a short colour bar."""
     container.set_xlim(0, PANEL_E_WIDTH_PT)
     container.set_ylim(0, PANEL_E_HEIGHT_PT)
     ax = container.inset_axes(
@@ -1169,14 +1212,18 @@ def render_panel_e(container: Axes, panel: SlimPanel) -> None:
     ax.set_xticks(range(len(panel.clusters)))
     ax.set_xticklabels([str(cluster) for cluster in panel.clusters])
     ax.set_yticks(range(len(panel.term_ids)))
-    ax.set_yticklabels(list(reversed(panel.terms)))
-    ax.set_xlabel(SLIM_X_LABEL, fontsize=SLIM_X_LABEL_FONT_PT)
-    ax.tick_params(axis="x", labelsize=SLIM_TICK_FONT_PT, length=0, pad=SLIM_X_TICK_PAD_PT)
-    ax.tick_params(axis="y", labelsize=SLIM_ROW_FONT_PT, length=0, pad=2.0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    ax.set_yticklabels(list(reversed(wrap_slim_terms(panel.terms))))
+    ax.set_xlabel(SLIM_X_LABEL, fontsize=SLIM_X_LABEL_FONT_PT, labelpad=2.0)
+    ax.tick_params(
+        axis="x", labelsize=SLIM_TICK_FONT_PT, length=2.0, width=0.4, pad=SLIM_X_TICK_PAD_PT
+    )
+    ax.tick_params(axis="y", labelsize=SLIM_ROW_FONT_PT, length=1.5, width=0.4, pad=1.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_linewidth(0.5)
 
-    panel_title = f"{SLIM_TITLE}  ·  top {panel.terms_per_cluster} per cluster"
+    panel_title = f"{SLIM_TITLE}  ·  top {panel.terms_per_cluster}/cluster"
     container.text(
         0,
         PANEL_E_HEIGHT_PT - 1,
@@ -1185,27 +1232,68 @@ def render_panel_e(container: Axes, panel: SlimPanel) -> None:
         va="top",
         fontsize=SLIM_TITLE_FONT_PT,
     )
+    add_slim_size_legend(container)
     add_slim_colorbar(container, normalizer, panel.color_max)
 
 
+def add_slim_size_legend(container: Axes) -> None:
+    """Draw the gene-ratio dot-size key above the colour bar."""
+    height = PANEL_E_SIZE_LEGEND_HEIGHT_PT
+    legend_ax = container.inset_axes(
+        (
+            PANEL_E_LEGEND_LEFT_PT / PANEL_E_WIDTH_PT,
+            (PANEL_E_SIZE_LEGEND_TOP_PT - height) / PANEL_E_HEIGHT_PT,
+            PANEL_E_LEGEND_WIDTH_PT / PANEL_E_WIDTH_PT,
+            height / PANEL_E_HEIGHT_PT,
+        )
+    )
+    legend_ax.set_xlim(0, PANEL_E_LEGEND_WIDTH_PT)
+    legend_ax.set_ylim(0, height)
+    legend_ax.set_axis_off()
+    legend_ax.text(
+        0,
+        height - 1,
+        SLIM_SIZE_LEGEND_TITLE,
+        ha="left",
+        va="top",
+        fontsize=SLIM_SIZE_LEGEND_TITLE_FONT_PT,
+    )
+    for index, value in enumerate(SLIM_SIZE_LEGEND_VALUES):
+        y = height - 9.0 - index * 6.5
+        legend_ax.scatter(
+            [3.0],
+            [y],
+            s=SLIM_SIZE_BASE + value * SLIM_SIZE_SCALE,
+            color=GRID_LABEL_COLOR,
+            linewidths=0,
+        )
+        legend_ax.text(
+            6.0,
+            y,
+            f"{value:g}",
+            ha="left",
+            va="center",
+            fontsize=SLIM_SIZE_LEGEND_FONT_PT,
+        )
+
+
 def add_slim_colorbar(container: Axes, normalizer: Normalize, color_max: float) -> None:
-    """Draw the -log10(FDR) colour bar to the right of the matrix."""
-    left = PANEL_E_LEFT_LABEL_PT + PANEL_E_PLOT_WIDTH_PT + PANEL_E_COLORBAR_GAP_PT
+    """Draw a short -log10(FDR) colour bar below the size key."""
     cax = container.inset_axes(
         (
-            left / PANEL_E_WIDTH_PT,
-            PANEL_E_BOTTOM_DECORATION_PT / PANEL_E_HEIGHT_PT,
+            PANEL_E_LEGEND_LEFT_PT / PANEL_E_WIDTH_PT,
+            (PANEL_E_COLORBAR_TOP_PT - PANEL_E_COLORBAR_HEIGHT_PT) / PANEL_E_HEIGHT_PT,
             PANEL_E_COLORBAR_WIDTH_PT / PANEL_E_WIDTH_PT,
-            PANEL_E_PLOT_HEIGHT_PT / PANEL_E_HEIGHT_PT,
+            PANEL_E_COLORBAR_HEIGHT_PT / PANEL_E_HEIGHT_PT,
         )
     )
     ColorbarBase(cax, cmap=SLIM_COLOR_MAP, norm=normalizer, orientation="vertical")
     ticks = significance_ticks(color_max)
     cax.set_yticks(ticks)
     cax.set_yticklabels([f"{tick:g}" for tick in ticks])
-    cax.tick_params(labelsize=SLIM_CBAR_FONT_PT, length=1.2, width=0.4, pad=1.5)
+    cax.tick_params(labelsize=SLIM_CBAR_FONT_PT, length=1.0, width=0.3, pad=1.0)
     cax.yaxis.set_label_position("right")
-    cax.set_ylabel(SLIM_CBAR_LABEL, fontsize=SLIM_CBAR_FONT_PT, rotation=270, labelpad=6)
+    cax.set_ylabel(SLIM_CBAR_LABEL, fontsize=SLIM_CBAR_FONT_PT, rotation=270, labelpad=4)
 
 
 def significance_ticks(color_max: float) -> np.ndarray:

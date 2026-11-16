@@ -378,9 +378,9 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ## Figure 3 — 基因组的连贯性：z-score、显著性、以及 term 在 DR-DL 空间的位置
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 294.4 pt = A–C 行 142.2 + D–E 行 152.2；每行 = 字母带 7.2 + 面板 135，第二行另加 10 pt 行距）。行内面板同高、顶底对齐。组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高为一个两行块（实测 284.4 pt = 7.2 字母带 + 135 + 7.2 字母带 + 135）。块内是两列上下叠放的面板（A→C、B→D）加右侧一块跨两行的 E；A/C 与 B/D 的字母与底边对齐，E 的顶/底与两列 axes 的顶/底对齐。组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
 
-**当前是 A–E 五个面板，分两行**：第一行 A、B、C；第二行 D、E。A 为 `135 × 135` pt 方形，B 和 C 为 `150 × 135` pt。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。第二行改用 grid9 变体：D 把每个拟合基因放回原始 DR-DL 平面并画出 9 格网格，每格标注 cluster id 与基因数；E 把同样的 9 个 cluster 排成 GO BP slim 的 term × cluster 点阵（颜色 = −log10 FDR，面积 = gene ratio）。
+**当前是 A–E 五个面板**：A 在左上，C 在 A 正下方；B 在 A 右侧，D 在 B 正下方；E 在 B、D 的右侧，纵向跨两行。A 为 `135 × 135` pt 方形，C 为 `150 × 135` pt（比 A 宽，左对齐）；B 为 `150 × 135` pt，D 为 `135 × 135` pt（比 B 窄，左对齐）；E 为 `150 × 277.2` pt。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。D 改用 grid9 变体：把每个拟合基因放回原始 DR-DL 平面并画出 9 格网格，每格标注 cluster id 与基因数；E 把同样的 9 个 cluster 排成 GO BP slim 的 term × cluster 点阵（颜色 = −log10 FDR，面积 = gene ratio），term 名按 60 pt 行宽折行，左/下轴与刻度保留，右侧是紧凑的 dot-size legend + 短色条。
 
 **产物**：
 
@@ -388,11 +388,11 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 |---|---|
 | `results/7a_figures/figure3.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure3.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
-| `results/7a_figures/_work/figure3_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 294.4 pt，A 区空白）；排查版式时看这个 |
+| `results/7a_figures/_work/figure3_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 284.4 pt，A 区空白）；排查版式时看这个 |
 
 **为什么面板 A 用 pypdf 叠加**：与 Figure 1 的 A 面板同一机制——matplotlib 不能把 PDF 当矢量嵌入，`imshow` 一定栅格化。A 的预留框是 135 × 135 pt；示意图页面框 184.56 × 184.56 pt，`pypdf` 以 scale 0.7315 等比缩放并居中，文字仍是矢量。评审 PNG 从合成后的 PDF 栅格化，而不是从画布。
 
-**行宽**：第一行 A 135 pt、B/C 各 150 pt、字母列各 6 pt、面板间距 10 pt，行宽 = 6 + 135 + 10 + 6 + 150 + 10 + 6 + 150 = 473 pt，右侧留约 42 pt。第二行 D 165 pt、E 320 pt，行宽 = 6 + 165 + 10 + 6 + 320 = 507 pt，右侧留约 8 pt。D 前用 `mp.newline()` 显式换行（不依赖自动折行），两行都是 root panel（没有 `below=` 子树），否则子树宽度会把后面的面板挤到下一行。
+**行宽与行高**：A/C 列的列宽由较宽的 C 决定（6 + 150 + 10 = 166 pt）；B/D 列同样由 B 决定（166 pt）；E 列 6 + 150 + 0 = 156 pt；总行宽 = 166 + 166 + 156 = 488 pt，右侧留约 27 pt。行高由最高的子树决定：A + C = 142.2 + 142.2 = 284.4 pt；E 的 axes 277.2 pt + 字母带 7.2 = 284.4 pt，所以 E 的顶/底与 A/C（以及 B/D）的 axes 对齐。C、D 用 `below="A"` / `below="B"` 挂在父面板下，E 是同一行的第三个 root panel；三者都在一行内一次排完，不依赖自动折行。
 
 ---
 
@@ -451,7 +451,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ### Panel D — 全部基因的 DR-DL 散点 + grid9 九宫格
 
-**版式**：一个 `165 × 135` pt 的容器，在第二行行首。内部一个 `137 × 105` pt 的 inset axes：左装饰 28 pt（y 刻度 + 旋转 `DL`）、下装饰 22 pt（x 刻度 + `DR`）、上留 8 pt（给两条 DR 切线的数值标注）。
+**版式**：一个 `135 × 135` pt 的容器，在 B 的正下方（左对齐，比 B 窄 15 pt）。内部一个 `107 × 105` pt 的 inset axes：左装饰 28 pt（y 刻度 + 旋转 `DL`）、下装饰 22 pt（x 刻度 + `DR`）、上留 8 pt（给两条 DR 切线的数值标注）。
 
 | 要素 | 内容 |
 |---|---|
@@ -460,8 +460,8 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | 切分口径 | `config/analysis.yaml` 的 grid9 切点在**缩放空间**：DR 只在下侧 clamp 到 −1.3（不会跨过任何切线），DL 先除以 10。因此图上的原始坐标切线是 DR `−0.8 / −0.4`、DL `0.5 / 3.0`（= 缩放空间 0.05 / 0.3 × 10） |
 | 一致性校验 | 每个 cluster 的全部基因必须落在同一个格子；跨格直接报错（防止拿错 variant 的表却画出"看似合理"的网格） |
 | 画法 | 全部基因散点：house 灰 `#A3A3A3`、`s=2`、alpha 0.45、无描边；两条 DR 竖线 + 两条 DL 横线（house 灰、0.6 pt、zorder 在点之上）；每条切线旁 4 pt 灰色数字（DR 标在顶边、DL 标在右边） |
-| 格内标注 | 每格在左缘写 `C<id>: <n>`（4.2 pt、`#4D4D4D`、白色 1.2 pt 描边光晕以免被点云淹没）。DL < 0.5 的三格因只有 6 pt 高、且 DL = 0 处有 2,600+ 个点堆成一条线，标签改锚在格子上缘（`va="top"`）；其余格子取垂直中线 |
-| 计数 | C1 440、C2 332、C3 75、C4 270、C5 106、C6 207、C7 226、C8 290、C9 2,567（C9 = WT 格） |
+| 格内标注 | 每格在左缘写 `<id>: <n>`（4.2 pt、`#4D4D4D`、白色 1.2 pt 描边光晕以免被点云淹没）。135 pt 宽下中带只有 18.9 pt，故不加 `C` 前缀、只留 `4: 270` 这类紧凑形式。DL < 0.5 的三格因只有 6 pt 高、且 DL = 0 处有 2,600+ 个点堆成一条线，标签改锚在格子上缘（`va="top"`）；其余格子取垂直中线 |
+| 计数 | 1: 440、2: 332、3: 75、4: 270、5: 106、6: 207、7: 226、8: 290、9: 2,567（9 = WT 格） |
 | 轴 | x `DR`（−2.0…0.0，0.5 单位刻度）；y `DL`（0…10.08，2 单位刻度）；隐藏上、右 spine |
 | 产物 | 并入 `figure3.pdf` |
 
@@ -471,7 +471,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ### Panel E — GO BP slim 的 term × cluster 点阵
 
-**版式**：一个 `320 × 135` pt 的容器，在 D 右侧。内部：左侧 110 pt term 标签列；`171 × 103` pt 的矩阵（9 个 cluster × 18 个 term）；右侧 5 pt 间距 + 6 pt 色条 + 刻度/标题。顶部 10 pt 留给面板标题，底部 22 pt 给 cluster 刻度与 xlabel。
+**版式**：一个 `150 × 277.2` pt 的容器，在 B、D 右侧，纵向跨两行。内部：左侧 62 pt term 标签列；`66 × 246.2` pt 的矩阵（9 个 cluster 列 × 18 个 term 行）；右侧 3 pt 间距 + 18 pt 图例带。顶部 9 pt 给面板标题，底部 22 pt 给 cluster 刻度与 xlabel。图例带里上方是 30 pt 高的 dot-size legend，下方是 90 pt 高的短色条（不再拉满矩阵高度）。
 
 | 要素 | 内容 |
 |---|---|
@@ -481,10 +481,13 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | 选词 | 每个 cluster 按 `p_fdr` 取前 3 个 term（并列时按 term 名稳定排序），再去重取并集；当前 18 个 term、33 个点 |
 | 行序 | home cluster（该 term 的 `p_fdr` 最小的 cluster）升序，再按最优 `p_fdr`、`term_id` 升序；因此每个 cluster 的 term 成块，块外的点表示该 term 在别的 cluster 也显著 |
 | 切点 | 列 = Panel D 的 cluster 顺序（1…9）；slim 表里出现 D 没有的 cluster 直接报错 |
-| 画法 | 每个显著的 (term, cluster) 格一个点：`s = 3 + gene_ratio × 30`（pt²）、颜色 = `−log10(p_fdr)`（viridis，vmin 0、vmax = ceil(最大值)）、白色 0.3 pt 描边；无框线、无刻度线 |
-| 色标 | 右侧竖直色条；刻度间隔 10（最大值 < 20 时改 5、< 5 时改 1）；标签 `−log10(FDR)`（旋转 270°、4.5 pt） |
-| 轴 | x 为 cluster id（5.5 pt，pad 5.5 pt 与 D 的刻度标签对齐）；y 为 term 名（5 pt，右对齐）；xlabel `Cluster  (dot size = gene ratio)`（6 pt） |
-| 标题 | 容器左上 `GO BP slim enrichment · top 3 per cluster`（5.5 pt） |
+| 标签折行 | term 名在 4.5 pt 下按实测宽度贪心折行，行宽上限 60 pt（`SLIM_LABEL_LINE_PT`）；当前 18 个 term 中 6 个折成 2 行 |
+| 画法 | 每个显著的 (term, cluster) 格一个点：`s = 2 + gene_ratio × 18`（pt²，最大约 8 pt²）、颜色 = `−log10(p_fdr)`（viridis，vmin 0、vmax = ceil(最大值)）、白色 0.3 pt 描边 |
+| 轴与刻度 | 保留左、下 spine（0.5 pt）和刻度线：x 刻度在 9 个 cluster 列上（5 pt 数字，tick 2 pt），y 刻度在 18 个 term 行上（4.5 pt term 名，tick 1.5 pt）；隐藏上、右 spine |
+| dot-size legend | 图例带顶部：`Gene ratio`（3.6 pt）+ 0.02 / 0.1 / 0.2 / 0.3 四个灰点（3.4 pt 数字），点面积与矩阵同一公式 |
+| 色标 | 图例带下方：90 pt 高的竖直 viridis 色条；刻度间隔 10（最大值 < 20 时改 5、< 5 时改 1）；标签 `−log10(FDR)`（旋转 270°、3.4 pt） |
+| 轴标题 | xlabel `Cluster  (dot size = gene ratio)`（5.5 pt，居中于矩阵） |
+| 标题 | 容器左上 `GO BP slim enrichment · top 3/cluster`（5.5 pt） |
 | 产物 | 并入 `figure3.pdf` |
 
 数据口径：`go_enrichment_slim.tsv` 是 3c_enrichment 的 `<variant>/<pombase_version>/` 产物（`finalize_enrichment` 写出）；它与 Panel D 必须来自同一个 variant（grid9），否则 cluster 编号不对应。
@@ -507,24 +510,27 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `PANEL_C_WIDTH_PT` / `PANEL_C_HEIGHT_PT` | 150 / 135 | C 容器宽、高（宽 = 绘图区 92 + 图例带 26） |
 | `PANEL_C_PLOT_WIDTH_PT` / `PANEL_C_LEFT_DECORATION_PT` / `PANEL_C_BOTTOM_DECORATION_PT` / `PANEL_C_TOP_MARGIN_PT` | 92 / 28 / 22 / 4 | C 的 inset 几何 |
 | `PANEL_C_LEGEND_GAP_PT` | 4 | C 的尺寸图例距绘图区右缘的间距 |
-| `ROW_GAP_PT` | 10 | A–C 行与 D–E 行之间的行距（D/E 的 `margin_top`） |
-| `PANEL_D_WIDTH_PT` / `PANEL_D_HEIGHT_PT` | 165 / 135 | D 容器宽、高 |
-| `PANEL_D_PLOT_WIDTH_PT` / `PANEL_D_LEFT_DECORATION_PT` / `PANEL_D_BOTTOM_DECORATION_PT` / `PANEL_D_TOP_MARGIN_PT` | 137 / 28 / 22 / 8 | D 的 inset 几何 |
+| `PANEL_D_WIDTH_PT` / `PANEL_D_HEIGHT_PT` | 135 / 135 | D 容器宽、高（挂在 B 下方，左对齐） |
+| `PANEL_D_PLOT_WIDTH_PT` / `PANEL_D_LEFT_DECORATION_PT` / `PANEL_D_BOTTOM_DECORATION_PT` / `PANEL_D_TOP_MARGIN_PT` | 107 / 28 / 22 / 8 | D 的 inset 几何 |
 | `GRID_DR_CUTS` / `GRID_DL_CUTS` | (−0.8, −0.4) / (0.5, 3.0) | grid9 切点的原始坐标（必须与 `config/analysis.yaml` 的 grid9 对应） |
 | `GENE_POINT_SIZE` / `GENE_POINT_ALPHA` | 2 / 0.45 | D 的基因点面积与透明度 |
 | `GRID_LINE_WIDTH_PT` / `GRID_CELL_FONT_PT` / `GRID_CUT_FONT_PT` | 0.6 / 4.2 / 4.0 | D 的网格线宽、格内标注字号、切线数值字号 |
 | `GRID_LABEL_STROKE_PT` | 1.2 | D 的格内标注白色描边光晕宽度 |
 | `GRID_LABEL_X_INSET_PT` / `GRID_LABEL_Y_INSET_PT` | 1.5 / 0.6 | D 的格内标注距格子左缘/上缘的间距（pt） |
 | `GENE_DR_TICK_STEP` / `GENE_DL_TICK_STEP` | 0.5 / 2 | D 的 x/y 刻度间隔 |
-| `PANEL_E_WIDTH_PT` / `PANEL_E_HEIGHT_PT` | 320 / 135 | E 容器宽、高 |
-| `PANEL_E_LEFT_LABEL_PT` / `PANEL_E_PLOT_WIDTH_PT` / `PANEL_E_PLOT_HEIGHT_PT` | 110 / 171 / 103 | E 的 term 标签列、矩阵宽、矩阵高 |
-| `PANEL_E_TOP_TITLE_PT` / `PANEL_E_BOTTOM_DECORATION_PT` | 10 / 22 | E 的标题带、底部装饰带 |
-| `PANEL_E_COLORBAR_GAP_PT` / `PANEL_E_COLORBAR_WIDTH_PT` | 5 / 6 | E 的色条与矩阵间距、色条宽 |
+| `PANEL_E_WIDTH_PT` / `PANEL_E_HEIGHT_PT` | 150 / 277.2 | E 容器宽、高（277.2 = 2 × 135 + 7.2，跨 A/C 与 B/D 两行） |
+| `PANEL_E_LEFT_LABEL_PT` / `PANEL_E_PLOT_WIDTH_PT` / `PANEL_E_PLOT_HEIGHT_PT` | 62 / 66 / 246.2 | E 的 term 标签列、矩阵宽、矩阵高 |
+| `PANEL_E_TOP_TITLE_PT` / `PANEL_E_BOTTOM_DECORATION_PT` | 9 / 22 | E 的标题带、底部装饰带 |
+| `PANEL_E_LEGEND_GAP_PT` / `PANEL_E_LEGEND_WIDTH_PT` | 3 / 18 | 图例带与矩阵的间距、图例带宽 |
+| `PANEL_E_COLORBAR_WIDTH_PT` / `PANEL_E_COLORBAR_HEIGHT_PT` / `PANEL_E_COLORBAR_TOP_PT` | 4 / 90 / 234 | E 短色条的宽、高、顶边 y（底部 = 144） |
+| `PANEL_E_SIZE_LEGEND_TOP_PT` / `PANEL_E_SIZE_LEGEND_HEIGHT_PT` | 268 / 30 | dot-size legend 图的顶边 y、高度 |
 | `SLIM_NAMESPACE` / `SLIM_TERMS_PER_CLUSTER` | `BP` / 3 | E 取的 GO namespace、每个 cluster 的 term 数 |
-| `SLIM_SIZE_BASE` / `SLIM_SIZE_SCALE` | 3 / 30 | E 的点面积 = base + gene_ratio × scale（pt²） |
+| `SLIM_LABEL_LINE_PT` | 60 | E 的 term 名折行行宽上限（pt，按 4.5 pt 实测宽度） |
+| `SLIM_SIZE_BASE` / `SLIM_SIZE_SCALE` | 2 / 18 | E 的点面积 = base + gene_ratio × scale（pt²） |
+| `SLIM_SIZE_LEGEND_VALUES` / `SLIM_SIZE_LEGEND_TITLE` | 0.02 / 0.1 / 0.2 / 0.3 · `Gene ratio` | dot-size legend 的档位与标题 |
 | `SLIM_COLOR_MAP` / `SLIM_CBAR_STEP_LARGE` / `SLIM_CBAR_STEP_SMALL` | `viridis` / 10 / 5 | E 的色带与色标刻度间隔（最大值 < 20 用 5、< 5 用 1） |
-| `SLIM_TITLE_FONT_PT` / `SLIM_ROW_FONT_PT` / `SLIM_TICK_FONT_PT` / `SLIM_CBAR_FONT_PT` | 5.5 / 5 / 5.5 / 4.5 | E 的标题、term 名、cluster 刻度、色标字号 |
-| `SLIM_X_TICK_PAD_PT` | 5.5 | E 的 cluster 刻度 pad（补齐 D 的 tick 长度，使两面板刻度基线对齐） |
+| `SLIM_TITLE_FONT_PT` / `SLIM_ROW_FONT_PT` / `SLIM_TICK_FONT_PT` / `SLIM_CBAR_FONT_PT` / `SLIM_SIZE_LEGEND_FONT_PT` | 5.5 / 4.5 / 5 / 3.4 / 3.4 | E 的标题、term 名、cluster 刻度、色标、size legend 字号 |
+| `SLIM_X_TICK_PAD_PT` | 2 | E 的 cluster 刻度 pad |
 | `COHERENT_Q_MAX` / `COHERENT_Z_CUT` | 0.05 / −2.0 | 与 `config/analysis.yaml` 的 coherence cohort 定义一致，同时决定 B 的虚线和蓝色高亮 |
 | `COHERENT_COLOR` / `BACKGROUND_COLOR` | Cell 槽 3 `#4e5a8a` / house 灰 `#A3A3A3` | B 的高亮/背景、C 的点色 |
 | `PANEL_B_POINT_SIZE` / `PANEL_B_COHERENT_SIZE` | 4 / 6 | B 两类点面积（pt²） |
@@ -541,7 +547,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `PLOT_TICK_FONT_PT` / `PLOT_LABEL_FONT_PT` | 6 / 6.5 | 刻度与轴标题字号 |
 | `LEGEND_FONT_PT` / `LEGEND_TITLE_FONT_PT` | 5 / 5.5 | 图例字号 |
 
-五个面板都是 root panel，分两行流式排列；D 前用 `mp.newline()` 显式换行。第一行 473 pt、第二行 507 pt，都在 515.28 pt 画布内。五个面板同为 135 pt 高，行内字母与底边对齐；改 `PANEL_*_HEIGHT_PT` 会改变对应面板高度，字母仍顶对齐。第二行整体比第一行多 10 pt（`ROW_GAP_PT`），画布高度自动重算。
+布局是一个两行块：A、B、E 是同一行的三个 root panel；C 用 `below="A"` 挂在 A 下、D 用 `below="B"` 挂在 B 下，所以它们不会参与行内流式折行，E 也保持跨两行的单块。列宽 166 + 166 + 156 = 488 pt，画布 515.28 pt 下右侧留约 27 pt；行高 284.4 pt。改 `PANEL_*_HEIGHT_PT` 会改变对应面板高度，列内字母与 axes 顶对齐；E 的高度需要保持 2 × 135 + 7.2 才能让上下边缘与两列对齐（画布高度自动重算）。
 
 ---
 
