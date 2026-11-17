@@ -25,6 +25,7 @@ from workflow.src.domain_differences.core import (
     collapse_sites,
     hand_region_map,
     hand_terms,
+    read_afdb_domains,
     read_gene_table,
     read_insertions,
     segment_counts,
@@ -477,3 +478,62 @@ def test_region_contrasts_compare_each_segment_with_the_weighted_rest():
 def test_a_single_segment_has_no_contrast():
     """Nothing to compare against: a one-segment profile gets 0, not a divide-by-zero."""
     assert region_contrasts(np.array([-0.5]), np.array([3.0])).tolist() == [0.0]
+
+
+# ---------------------------------------------------------------------------
+# read_afdb_domains — the upstream AFdb PAE/TED/ECOD segment table
+# ---------------------------------------------------------------------------
+_DOMAIN_HEADER = (
+    "systematic_id\tprotein_length\tsource\tsegment_id\tsegment_part\tstart\tend\tsegment_class\n"
+)
+
+
+def _write_domains(path: Path, rows: list[tuple]) -> Path:
+    """Write a minimal upstream-shaped table and return its path."""
+    path.write_text(_DOMAIN_HEADER + "".join("\t".join(map(str, r)) + "\n" for r in rows))
+    return path
+
+
+def test_read_afdb_domains_filters_to_the_gallery_genes(tmp_path):
+    """Genes outside the gallery are dropped; a multi-part domain stays one row per part."""
+    table = _write_domains(
+        tmp_path / "domains.tsv",
+        [
+            ("SP1", 200, "PAE", "1", 1, 1, 100, "domain"),
+            ("SP1", 200, "PAE", "2", 1, 101, 200, "disordered"),
+            ("SP1", 200, "TED", "TED01", 1, 20, 80, "high"),
+            ("SP1", 200, "TED", "TED01", 2, 90, 110, "high"),
+            ("SP2", 300, "ECOD", "nD1", 1, 5, 50, "nD1"),
+            ("SP3", 400, "ECOD", "nD1", 1, 5, 50, "nD1"),
+        ],
+    )
+    domains = read_afdb_domains(table, {"SP1": 200, "SP2": 300})
+    assert set(domains) == {"SP1", "SP2"}
+    assert len(domains["SP1"]) == 4
+    assert domains["SP1"].query("segment_id == 'TED01'")["segment_part"].tolist() == [1, 2]
+    assert list(domains["SP1"].columns) == [
+        "sid",
+        "source",
+        "segment_id",
+        "segment_part",
+        "start",
+        "end",
+        "segment_class",
+    ]
+
+
+def test_read_afdb_domains_rejects_a_protein_length_mismatch(tmp_path):
+    """A different upstream sequence would put every bar on the wrong residue."""
+    table = _write_domains(
+        tmp_path / "domains.tsv", [("SP1", 199, "PAE", "1", 1, 1, 100, "domain")]
+    )
+    with pytest.raises(ValueError, match="protein length"):
+        read_afdb_domains(table, {"SP1": 200})
+
+
+def test_read_afdb_domains_keeps_a_gene_the_upstream_lacks(tmp_path):
+    """An uncovered gene is not an error — the gallery paints its tracks as n/a."""
+    table = _write_domains(
+        tmp_path / "domains.tsv", [("SP1", 200, "PAE", "1", 1, 1, 100, "domain")]
+    )
+    assert set(read_afdb_domains(table, {"SP1": 200, "SP2": 300})) == {"SP1"}

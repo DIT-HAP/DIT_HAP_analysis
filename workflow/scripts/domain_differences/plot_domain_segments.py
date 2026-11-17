@@ -21,6 +21,15 @@ A row is read like this:
   segment only means something if its bar sits outside the band.
 - green shading marks the hand-curated non-essential region, where there is one.
 
+Above the DR profile sit three AFdb domain tracks on the same residue axis:
+PAE (AlphaFold PAE domains, disordered calls omitted), TED (pLDDT segments;
+``medium`` drawn lighter than ``high``) and ECOD (structural domains). Each
+domain gets its own colour — the house palette, then seeded random hues past its
+end — and a domain split into several parts is drawn as its parts, so a gap
+stays a gap. A track a gene has no call for, or that the upstream table does not
+cover at all, reads ``n/a``. Colouring is keyed to the domain, not to a residue
+range: the same ``segment_id`` keeps one colour across all its parts.
+
 Every row carries that key itself, in one column beside the panel, and a two-line
 caption under it: ``name segs=3 n_sites=8 sigma=0.24 lambda=0.47`` over the first
 few segment ranges and ``max|Δ|``. Every panel also titles itself with the gene,
@@ -38,11 +47,17 @@ Input
 - domain_hand_regions.tsv — the hand annotation
 - _work/insertions.parquet — the raw Forward/Reverse points
 - gene_annotation_reference.protein.parquet (1c) — the panel headings' annotation
+- resources/external/afdb_domains/{version}/afdb_domain_segments.tsv — the
+  upstream AFdb PAE/TED/ECOD segments, positioned on the same PomBase peptide
 
 Output
 ------
 - domain_segments.pdf — the gallery
 - domain_segments.review.png — page 1, for a quick look
+- domain_segments/<group>_<n>_genes.pdf — the same pages split by gene group, the
+  group's gene count in the file name; each also gets its page-1 review PNG. Every
+  page heading gives the group, the gene range on that page and the group total
+  (e.g. ``C terminus — 1-6 / 102``).
 
 Usage
 -----
@@ -53,11 +68,13 @@ Usage
         --insertions results/4a_domain_differences/HD_DIT_HAP/_work/insertions.parquet \\
         --annotation
         results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
+        --afdb-segments
+        resources/external/afdb_domains/2026-11-16/afdb_domain_segments.tsv \\
         --output results/4a_domain_differences/HD_DIT_HAP/domain_segments.pdf
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-10-14
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -66,8 +83,10 @@ Version:  1.0.0
 # 1. Standard Library Imports
 import argparse
 from collections.abc import Iterator
+import colorsys
 from dataclasses import dataclass
 from pathlib import Path
+import random
 import sys
 
 # 2. Third-party Imports
@@ -78,9 +97,11 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 import cnsplots as cns
 from matplotlib.axes import Axes
+from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from domain_differences.core import (
@@ -88,16 +109,20 @@ from domain_differences.core import (
     UNANNOTATED,
     collapse_sites,
     hand_region_map,
+    read_afdb_domains,
     read_gene_context,
 )
 from figures import (
     FIT_CAPTION_FONT_OFFSET_PT,
     FURNITURE_COLOR,
     HOUSE_SCATTER_S,
+    PANEL_SIZES_PX,
     PanelShape,
     apply_house_style,
+    cluster_color,
     fit_panels,
     grid_axes,
+    house_palette_length,
     save_pdf_pages,
 )
 from io_table import read_parquet
@@ -108,6 +133,13 @@ from logging_setup import setup_logger
 # =============================================================================
 ROWS_PER_PAGE = 6
 GENE_GROUP_LABELS = {**{T: f"{T} terminus" for T in TERM_ORDER}, UNANNOTATED: "no hand annotation"}
+# File-name slugs for the per-group PDFs, which also carry their gene count.
+GENE_GROUP_SLUGS = {
+    "C": "c_terminus",
+    "N": "n_terminus",
+    "N+C": "n_and_c_termini",
+    UNANNOTATED: "unannotated",
+}
 # Residue ranges spelled out under a panel before they are abbreviated. Three are
 # what fits on one caption line without pushing max|Δ| off the panel; the count
 # itself is on the line above, so a truncated list still says how many there are.
@@ -136,6 +168,31 @@ Y_RANGE = (-2.2, 0.4)
 # sits at -2.09, INSIDE the window, so a caption drawn over the window covers it.
 CAPTION_BAND = 0.17
 
+# The panel is a WIDE box plus a strip on top. The 30 pt strip holds the AFdb
+# domain calls in three lanes; the DR profile keeps the 100 pt it had, so the
+# strip costs page height (130/100) rather than data resolution.
+PANEL_SHAPE = PanelShape.WIDE_TALL
+TRACK_BAND_PT = 30.0
+TRACK_LANES = ("PAE", "TED", "ECOD")
+TRACK_BAND = TRACK_BAND_PT / PANEL_SIZES_PX[PANEL_SHAPE][1]
+TRACK_LANE_HEIGHT = TRACK_BAND / len(TRACK_LANES)
+TRACK_BAR_LW = 0.7 * TRACK_LANE_HEIGHT * PANEL_SIZES_PX[PANEL_SHAPE][1]
+# Probed once: house_palette_length() raises its way up to the length, and the
+# tracks would otherwise call it per gene and lane.
+PALETTE_LENGTH = house_palette_length()
+# TED calls its segments high/medium confidence; the medium ones keep the domain's
+# hue and are drawn lighter rather than in a different colour.
+TED_CLASS_ALPHA = {"high": 1.0, "medium": 0.45}
+
+# The y window: the data range plus its caption band keeps its old DR-unit span,
+# and the strip above it is added as the remaining axes fraction.
+_DATA_SPAN = (Y_RANGE[1] - Y_RANGE[0]) / (1 - CAPTION_BAND)
+_Y_BOTTOM = Y_RANGE[0] - CAPTION_BAND / (1 - CAPTION_BAND) * (Y_RANGE[1] - Y_RANGE[0])
+Y_TOP = _Y_BOTTOM + _DATA_SPAN / (1 - TRACK_BAND)
+# Ticks stay inside the data window; without an explicit list matplotlib would
+# place them across the track strip too.
+Y_TICKS = np.arange(np.floor(Y_RANGE[0] * 2) / 2, Y_RANGE[1], 0.5)
+
 # One colour per meaning across the whole figure. The Forward/Reverse pair and the
 # hand annotation come from the house palette; the site mean is deliberately
 # neutral so the two experimental channels stay the loudest thing in a panel.
@@ -159,6 +216,7 @@ class PlotConfig:
     hand_regions: Path
     insertions: Path
     annotation: Path
+    afdb_segments: Path
     output: Path
 
 
@@ -171,6 +229,7 @@ class Gallery:
     sites: dict
     raw: dict
     hand: dict
+    domains: dict
     viability: dict
     grna_dr: dict
 
@@ -206,6 +265,10 @@ def load_gallery(config: PlotConfig) -> Gallery:
         .drop(columns="_rank")
         .reset_index(drop=True)
     )
+    protein_lengths = {
+        sid: int(n) for sid, n in zip(summary["Systematic ID"], summary["protein_len"], strict=True)
+    }
+    domains = read_afdb_domains(config.afdb_segments, protein_lengths)
 
     return Gallery(
         genes=genes,
@@ -213,6 +276,7 @@ def load_gallery(config: PlotConfig) -> Gallery:
         sites=sites,
         raw=raw,
         hand=hand,
+        domains=domains,
         viability=viability,
         grna_dr=grna_dr,
     )
@@ -263,6 +327,90 @@ def draw_insertions(ax: Axes, raw: pd.DataFrame, sites: pd.DataFrame) -> None:
     )
 
 
+def domain_colors(intervals: pd.DataFrame, rng: random.Random) -> dict[str, str]:
+    """One colour per structure domain: the house palette, then seeded random hues."""
+    order = intervals.groupby("segment_id")["start"].min().sort_values().index
+    in_palette = min(len(order), PALETTE_LENGTH)
+    colors = [cluster_color(k) for k in range(1, in_palette + 1)]
+    colors += [
+        to_hex(colorsys.hsv_to_rgb(rng.random(), 0.55, 0.75))
+        for _ in range(len(order) - in_palette)
+    ]
+    return dict(zip(order, colors, strict=True))
+
+
+def draw_domain_tracks(
+    ax: Axes, domains: pd.DataFrame | None, caption_size: float, sid: str
+) -> None:
+    """PAE/TED/ECOD calls in three lanes above the DR profile, on the panel's x axis.
+
+    A domain split into several parts is drawn as its parts, so a gap stays a gap.
+    PAE's disordered calls are left out: the lane is a domain map, and a gap then
+    reads as low structural confidence rather than as a missing call.
+    """
+    # Seeded per gene so a rebuild paints the same random colours past the palette.
+    rng = random.Random(sid)
+    for index, source in enumerate(TRACK_LANES):
+        # index 0 is the top lane: axes fraction counts up from the bottom
+        lane = 1 - TRACK_LANE_HEIGHT * (index + 0.5)
+        ax.text(
+            -0.02,
+            lane,
+            source,
+            transform=ax.transAxes,
+            ha="right",
+            va="center",
+            color=SITE_MEAN_COLOR,
+            fontsize=caption_size,
+        )
+        intervals = None if domains is None else domains.loc[domains["source"].eq(source)]
+        if intervals is not None and source == "PAE":
+            intervals = intervals.loc[intervals["segment_class"].eq("domain")]
+        if intervals is None or intervals.empty:
+            ax.text(
+                0.01,
+                lane,
+                "n/a",
+                transform=ax.transAxes,
+                ha="left",
+                va="center",
+                color=FURNITURE_COLOR,
+                fontsize=caption_size,
+            )
+            continue
+
+        colors = domain_colors(intervals, rng)
+        for _, interval in intervals.iterrows():
+            start = float(interval["start"])
+            end = float(interval["end"])
+            color = colors[interval["segment_id"]]
+            alpha = TED_CLASS_ALPHA.get(interval["segment_class"], 1.0) if source == "TED" else 1.0
+            if start == end:
+                # a one-residue call has zero width in data units; a tick is its footprint
+                ax.plot(
+                    [start],
+                    [lane],
+                    marker="|",
+                    ls="",
+                    markersize=TRACK_BAR_LW * 0.6,
+                    transform=ax.get_xaxis_transform(),
+                    color=color,
+                    alpha=alpha,
+                    zorder=4,
+                )
+            else:
+                ax.plot(
+                    [start, end],
+                    [lane, lane],
+                    lw=TRACK_BAR_LW,
+                    solid_capstyle="butt",
+                    transform=ax.get_xaxis_transform(),
+                    color=color,
+                    alpha=alpha,
+                    zorder=4,
+                )
+
+
 def panel_title(name: str, viability: str | None, grna_dr: float | None) -> str:
     """The panel's heading: what the gene is, two lines because one will not fit.
 
@@ -290,11 +438,12 @@ def draw_panel(
     raw: pd.DataFrame,
     sites: pd.DataFrame,
     hand: list[tuple[int, int]],
+    domains: pd.DataFrame | None = None,
     viability: str | None = None,
     grna_dr: float | None = None,
 ) -> None:
     """One gene: heading, threshold band, hand shading, the two channels, segment levels,
-    caption."""
+    domain tracks, caption."""
     # Registered fit-critical size: the gallery's widest caption runs 149 pt at
     # 6.5 pt into a 150 pt panel and crosses the spine; 6.0 leaves 9 pt of margin.
     caption_size = plt.rcParams["font.size"] + FIT_CAPTION_FONT_OFFSET_PT
@@ -319,9 +468,10 @@ def draw_panel(
         )
 
     for start, end in hand:
-        ax.axvspan(start, end, color=HAND_COLOR, alpha=0.18, zorder=1)
+        ax.axvspan(start, end, color=HAND_COLOR, alpha=0.18, zorder=1, ymax=1 - TRACK_BAND)
 
     draw_insertions(ax, raw, sites)
+    draw_domain_tracks(ax, domains, caption_size, str(row["Systematic ID"]))
     for _, segment in segments.iterrows():
         ax.hlines(
             float(segment["mean_DR"]),
@@ -333,17 +483,14 @@ def draw_panel(
     for _, segment in segments.iloc[1:].iterrows():
         ax.axvline(int(segment["start_residue"]), color="0.55", ls="--", zorder=5)
 
-    # x range covers the hand region as well as the insertions: an annotated terminus
-    # no insertion reached is exactly the case a reader must be able to see
-    bounds = [float(sites["Residue_affected"].min()), float(sites["Residue_affected"].max())]
-    for start, end in hand:
-        bounds += [float(start), float(end)]
-    pad = max(0.02 * max(bounds), 1.0)
-    ax.set_xlim(min(bounds) - pad, max(bounds) + pad)
-    # see CAPTION_BAND: the data window ends up occupying the top 1 - CAPTION_BAND
-    # of the axes, whatever the panel's absolute size turns out to be
-    low, high = Y_RANGE
-    ax.set_ylim(low - CAPTION_BAND / (1 - CAPTION_BAND) * (high - low), high)
+    # The x range is the whole protein, not just the measured part: the tracks
+    # annotate it end to end, so a window cut to the insertions would clip them.
+    # The unmeasured flanks then read as the absence of points, which is what they are.
+    ax.set_xlim(0.5, float(row["protein_len"]) + 0.5)
+    # see CAPTION_BAND / TRACK_BAND: the data window keeps its old footprint at the
+    # foot, the track strip owns the fraction above it
+    ax.set_ylim(_Y_BOTTOM, Y_TOP)
+    ax.set_yticks(Y_TICKS)
 
     ranges = "|".join(
         f"{int(s['start_residue'])}-{int(s['end_residue'])}"
@@ -402,11 +549,11 @@ def legend_handles() -> list[Line2D]:
 # =============================================================================
 # CORE LOGIC — the gallery
 # =============================================================================
-def draw_page(page: pd.DataFrame, gallery: Gallery) -> None:
+def draw_page(page: pd.DataFrame, gallery: Gallery, start: int, end: int, total: int) -> None:
     """Draw one page of up to ROWS_PER_PAGE genes into a freshly created figure."""
     # empty labels: a row is a named gene, not a lettered panel, and its own title
     # already carries the identity
-    axes = grid_axes(ROWS_PER_PAGE, 1, labels=[], shape=PanelShape.WIDE)
+    axes = grid_axes(ROWS_PER_PAGE, 1, labels=[], shape=PANEL_SHAPE)
     for ax, (_, row) in zip(axes, page.iterrows(), strict=False):
         sid = row["Systematic ID"]
         draw_panel(
@@ -416,6 +563,7 @@ def draw_page(page: pd.DataFrame, gallery: Gallery) -> None:
             gallery.raw[sid],
             gallery.sites[sid],
             gallery.hand.get(sid, []),
+            gallery.domains.get(sid),
             gallery.viability.get(sid),
             gallery.grna_dr.get(sid),
         )
@@ -432,7 +580,7 @@ def draw_page(page: pd.DataFrame, gallery: Gallery) -> None:
     term = page["term"].iloc[0]
     fig = plt.gcf()
     fig.suptitle(
-        f"{GENE_GROUP_LABELS[term]}  —  {len(page)} genes",
+        f"{GENE_GROUP_LABELS[term]}  —  {start}-{end} / {total}",
         y=1 - SUPTITLE_STRIP / 2,
         va="center",
         fontweight="bold",
@@ -446,26 +594,54 @@ def draw_page(page: pd.DataFrame, gallery: Gallery) -> None:
 
 @logger.catch(reraise=True)
 def run(config: PlotConfig) -> int:
-    """Render every page of the gallery into one PDF, plus page 1 as a preview PNG."""
+    """Render the gallery as one combined PDF plus one PDF per gene group."""
     apply_house_style()
     gallery = load_gallery(config)
     genes = gallery.genes
-    pages = [genes.iloc[i : i + ROWS_PER_PAGE] for i in range(0, len(genes), ROWS_PER_PAGE)]
 
-    def page_figures() -> Iterator[Figure]:
-        for page in pages:
-            draw_page(page, gallery)
-            yield plt.gcf()
-            plt.close()
+    # Pages never straddle a group: the heading names the group and the page's
+    # position inside it, so a page holding two groups would have no one heading.
+    groups: list[tuple[str, list[tuple[pd.DataFrame, int, int, int]]]] = []
+    for term in (*TERM_ORDER, UNANNOTATED):
+        subset = genes[genes["term"].eq(term)]
+        total = len(subset)
+        pages = [
+            (subset.iloc[i : i + ROWS_PER_PAGE], i + 1, min(i + ROWS_PER_PAGE, total), total)
+            for i in range(0, total, ROWS_PER_PAGE)
+        ]
+        groups.append((term, pages))
 
-    save_pdf_pages(config.output.with_suffix(""), page_figures())
+    def render(pages: list[tuple[pd.DataFrame, int, int, int]], stem: Path) -> None:
+        def page_figures() -> Iterator[Figure]:
+            for page, start, end, total in pages:
+                draw_page(page, gallery, start, end, total)
+                yield plt.gcf()
+                plt.close()
+
+        save_pdf_pages(stem, page_figures())
+
+    all_pages = [page for _, pages in groups for page in pages]
+    render(all_pages, config.output.with_suffix(""))
+    # The count in the file name is what makes the split files recognisable in a
+    # directory listing; the script, not Snakemake, is what knows it.
+    split_dir = config.output.parent / config.output.stem
+    # A count in the name means different data leaves the previous run's file
+    # behind; remove only this script's own products, never the directory.
+    for stale in (*split_dir.glob("*_genes.pdf"), *split_dir.glob("*_genes.review.png")):
+        stale.unlink()
+    for term, pages in groups:
+        if pages:
+            render(pages, split_dir / f"{GENE_GROUP_SLUGS[term]}_{pages[0][3]}_genes")
 
     counts = genes["term"].value_counts()
     logger.info(
-        f"{len(genes):,} reported genes over {len(pages)} pages: "
+        f"{len(genes):,} reported genes over {len(all_pages)} pages: "
         + ", ".join(f"{term} {count}" for term, count in counts.items())
     )
-    logger.info(f"wrote {config.output.name} and its review PNG")
+    logger.info(
+        f"wrote {config.output.name}, its review PNG and "
+        f"{sum(1 for _, pages in groups if pages)} group PDFs under {split_dir.name}/"
+    )
     return 0
 
 
@@ -487,6 +663,12 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="1c_annotation gene_annotation_reference parquet (panel titles)",
     )
+    parser.add_argument(
+        "--afdb-segments",
+        type=Path,
+        required=True,
+        help="Upstream AFdb PAE/TED/ECOD segment table (resources/external copy)",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Output PDF path")
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
@@ -505,6 +687,7 @@ def main() -> int:
             hand_regions=args.hand_regions.resolve(),
             insertions=args.insertions.resolve(),
             annotation=args.annotation.resolve(),
+            afdb_segments=args.afdb_segments.resolve(),
             output=args.output.resolve(),
         )
         config.output.parent.mkdir(parents=True, exist_ok=True)

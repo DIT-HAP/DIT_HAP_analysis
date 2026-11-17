@@ -37,8 +37,11 @@
 #                                    domain_summary.tsv (one row per reported gene),
 #                                    _work/segments.parquet (index ranges)
 #   compute_domain_permutation_p  -> domain_permutation_p.tsv (OPTIONAL, see below)
-#   plot_domain_segments          -> domain_segments.pdf + .review.png (each panel
-#                                    titled with its gene, FYPOviability and gRNA DR)
+#   plot_domain_segments          -> domain_segments.pdf + .review.png and one
+#                                    domain_segments/<group>_<n>_genes.pdf per gene
+#                                    group (each panel titled with its gene,
+#                                    FYPOviability and gRNA DR, with AFdb
+#                                    PAE/TED/ECOD tracks above the profile)
 #
 # THE PERMUTATION RULE IS OFF BY DEFAULT. It is the stage's only expensive step
 # and its two p columns are reference numbers — the analysis is filtered by the
@@ -88,6 +91,10 @@ _DOMAIN_SITE_FLAG = "--by-site" if _DOMAIN_BY_SITE else "--no-by-site"
 # The hand annotation, and the protein lengths that turn "the last 20 residues"
 # into a residue interval.
 _DOMAIN_HAND_XLSX = "resources/curated/non_esential_domain_candidates.xlsx"
+# AFdb PAE/TED/ECOD segments, copied by hand from
+# AFdb_based_domain_extraction_refactor results/10_segments.tsv (2026-11-16,
+# sha256 14c882f2…ee40); the gallery draws them above each DR panel.
+_DOMAIN_AFDB_SEGMENTS = "resources/external/afdb_domains/2026-11-16/afdb_domain_segments.tsv"
 _DOMAIN_PEPTIDE_STATS = (
     f"resources/external/pombase/{DATASETS['reference']['pombase_version']}"
     f"/Protein_features/peptide_stats.tsv"
@@ -228,9 +235,9 @@ if _DOMAIN_PERMUTATION_ON:
             """
 
 
-# Depends on the three tables and the raw insertions, never on the permutation
-# table: the p's are a separate artifact by design, so the figure stays buildable
-# with the optional rule switched off.
+# Depends on the three tables, the raw insertions and the upstream AFdb domain
+# copy, never on the permutation table: the p's are a separate artifact by
+# design, so the figure stays buildable with the optional rule switched off.
 rule plot_domain_segments:
     input:
         segments=f"{_DOMAIN}/domain_segments.tsv",
@@ -241,9 +248,14 @@ rule plot_domain_segments:
         # gRNA_DR — _ANNOT_REF is read from 1c_annotate.smk, which the Snakefile
         # includes ahead of this file
         annotation=_ANNOT_REF,
+        # upstream AFdb domain calls, drawn as three tracks above each panel
+        afdb_segments=_DOMAIN_AFDB_SEGMENTS,
     output:
         pdf=f"{_DOMAIN}/domain_segments.pdf",
         review=f"{_DOMAIN}/domain_segments.review.png",
+        # one PDF per gene group, named with the group's gene count — the count
+        # is data, so the list is declared as a directory rather than by name
+        group_pdfs=directory(f"{_DOMAIN}/domain_segments"),
     log:
         "logs/4a_domain_differences/plot_segments_{dataset}.log",
     conda:
@@ -258,5 +270,6 @@ rule plot_domain_segments:
             --hand-regions {input.hand_regions} \
             --insertions {input.insertions} \
             --annotation {input.annotation} \
+            --afdb-segments {input.afdb_segments} \
             --output {output.pdf} &> {log}
         """

@@ -60,11 +60,12 @@ HOUSE_FIGURE_DPI = 360
 
 
 class PanelShape(StrEnum):
-    """The three permitted axes-box footprints, in layout pixels."""
+    """The permitted axes-box footprints, in layout pixels."""
 
     SQUARE = "square"  # 100 x 100
     TALL = "tall"  # 100 wide x 150 high
     WIDE = "wide"  # 150 wide x 100 high
+    WIDE_TALL = "wide_tall"  # 150 wide x 130 high — a WIDE panel plus a 30 px track strip
 
 
 # Axes-box (width, height) per shape. 100-150 px is the legible band at the
@@ -74,6 +75,7 @@ PANEL_SIZES_PX: dict[PanelShape, tuple[int, int]] = {
     PanelShape.SQUARE: (100, 100),
     PanelShape.TALL: (100, 150),
     PanelShape.WIDE: (150, 100),
+    PanelShape.WIDE_TALL: (150, 130),
 }
 
 # Layout pixels each cell needs on top of its axes box for decorations: y ticks +

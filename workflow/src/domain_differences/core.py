@@ -41,7 +41,8 @@ Version:  1.0.0
 # 1. Standard Library Imports
 from pathlib import Path
 
-# 2. Data Processing Imports
+# 2. Third-party Imports
+from loguru import logger
 import numpy as np
 import pandas as pd
 
@@ -87,6 +88,11 @@ XLSX_SHEETS = [
 # Terminus groups in gallery order (C first, then N, then both, then unannotated).
 TERM_ORDER = ("C", "N", "N+C")
 UNANNOTATED = "unannotated"
+
+# The upstream AFdb domain table (a copy under resources/external). One row per
+# interval: a multi-interval domain is exploded and ``segment_part`` numbers the
+# parts, so the parts of one domain are disjoint and must be drawn separately.
+DOMAIN_COLUMNS = ["source", "segment_id", "segment_part", "start", "end", "segment_class"]
 
 # Two spreadsheet rows need repairing before the gene-name lookup:
 #   "nes2" is not a PomBase gene name anywhere — it is nse2 with the letters
@@ -188,6 +194,44 @@ def read_gene_context(annotation: Path) -> tuple[dict[str, str], dict[str, float
         {sid: str(v) for sid, v in reference["FYPOviability"].items()},
         {sid: float(v) for sid, v in reference["gRNA_DR"].dropna().items()},
     )
+
+
+def read_afdb_domains(path: Path, protein_lengths: dict[str, int]) -> dict[str, pd.DataFrame]:
+    """{Systematic ID: its PAE/TED/ECOD intervals}, validated against the local protein lengths.
+
+    The upstream table positions every segment on the protein sequence, and the
+    gallery draws it on the same axis as the DIT insertions — so a gene whose
+    upstream ``protein_length`` disagrees with PomBase's would put every bar at
+    the wrong residue. That mismatch is fatal. A gene the upstream table does not
+    cover is not: the gallery paints those tracks ``n/a``.
+    """
+    table = pd.read_csv(path, sep="\t")
+    missing = {*DOMAIN_COLUMNS, "systematic_id", "protein_length"} - set(table.columns)
+    if missing:
+        raise ValueError(f"{path.name} is missing columns: {sorted(missing)}")
+
+    table = table[table["systematic_id"].isin(protein_lengths)].copy()
+    drift = table.loc[table["protein_length"].ne(table["systematic_id"].map(protein_lengths))]
+    if not drift.empty:
+        pairs = sorted(
+            {
+                (sid, int(upstream), int(protein_lengths[sid]))
+                for sid, upstream in zip(
+                    drift["systematic_id"], drift["protein_length"], strict=True
+                )
+            }
+        )
+        raise ValueError(
+            f"{len(pairs)} genes disagree with PomBase protein length "
+            f"(systematic_id, upstream, PomBase): {pairs[:5]}"
+        )
+
+    uncovered = sorted(set(protein_lengths) - set(table["systematic_id"]))
+    if uncovered:
+        logger.warning(f"{len(uncovered)} genes have no upstream domain rows: {uncovered[:10]}")
+
+    view = table.rename(columns={"systematic_id": "sid"})[["sid", *DOMAIN_COLUMNS]]
+    return {sid: frame.reset_index(drop=True) for sid, frame in view.groupby("sid", sort=False)}
 
 
 def collapse_sites(insertions: pd.DataFrame) -> pd.DataFrame:
