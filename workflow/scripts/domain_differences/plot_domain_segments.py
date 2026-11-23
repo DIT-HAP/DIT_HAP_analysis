@@ -47,8 +47,9 @@ Input
 - domain_hand_regions.tsv — the hand annotation
 - _work/insertions.parquet — the raw Forward/Reverse points
 - gene_annotation_reference.protein.parquet (1c) — the panel headings' annotation
-- resources/external/afdb_domains/{version}/afdb_domain_segments.tsv — the
-  upstream AFdb PAE/TED/ECOD segments, positioned on the same PomBase peptide
+- resources/external/afdb_domains/{version}/
+  pombe_unified_domain_segments_pae_ted_ecod.tsv — the upstream AFdb PAE/TED/ECOD
+  segments, positioned on the same PomBase peptide
 
 Output
 ------
@@ -69,7 +70,7 @@ Usage
         --annotation
         results/1c_annotation/2026-06-01/2026-08-11/gene_annotation_reference.protein.parquet \\
         --afdb-segments
-        resources/external/afdb_domains/2026-11-16/afdb_domain_segments.tsv \\
+        resources/external/afdb_domains/2026-11-23/pombe_unified_domain_segments_pae_ted_ecod.tsv \\
         --output results/4a_domain_differences/HD_DIT_HAP/domain_segments.pdf
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)

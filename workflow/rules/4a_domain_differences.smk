@@ -92,9 +92,13 @@ _DOMAIN_SITE_FLAG = "--by-site" if _DOMAIN_BY_SITE else "--no-by-site"
 # into a residue interval.
 _DOMAIN_HAND_XLSX = "resources/curated/non_esential_domain_candidates.xlsx"
 # AFdb PAE/TED/ECOD segments, copied by hand from
-# AFdb_based_domain_extraction_refactor results/10_segments.tsv (2026-11-16,
-# sha256 14c882f2…ee40); the gallery draws them above each DR panel.
-_DOMAIN_AFDB_SEGMENTS = "resources/external/afdb_domains/2026-11-16/afdb_domain_segments.tsv"
+# AFdb_based_domain_extraction/pombe_unified_domain_segments_pae_ted_ecod.tsv
+# (the repo's tracked copy of results/11_segments.tsv; 2026-11-23,
+# sha256 2a490ad5…a9b6); the gallery draws them above each DR panel.
+_DOMAIN_AFDB_SEGMENTS = (
+    "resources/external/afdb_domains/2026-11-23/"
+    "pombe_unified_domain_segments_pae_ted_ecod.tsv"
+)
 _DOMAIN_PEPTIDE_STATS = (
     f"resources/external/pombase/{DATASETS['reference']['pombase_version']}"
     f"/Protein_features/peptide_stats.tsv"
