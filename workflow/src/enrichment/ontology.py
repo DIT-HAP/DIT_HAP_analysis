@@ -179,9 +179,9 @@ class GeneMetaConfig:
             deletion_library_essentiality[
                 [
                     "Systematic ID",
-                    "Gene dispensability. This study",
-                    "Deletion mutant phenotype description",
-                    "Phenotypic classification used for analysis",
+                    "Gene_dispensability",
+                    "Phenotype_description",
+                    "Morphological_classification",
                     "Category",
                 ]
             ],

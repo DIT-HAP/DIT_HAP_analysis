@@ -93,9 +93,10 @@ SELECTED_PEPTIDE_FEATURE_COLUMNS = [
 _PARALOGUE_ID_COLUMN = "Schizosaccharomyces pombe paralogue gene stable ID"
 
 # The deletion-library twin: one `|`-joined cell per gene holding that gene's
-# paralogues, with the literal `NONE` for "none".
+# paralogues. The 2026-11-18 upstream table leaves "none" as NaN; the older file
+# used the literal `NONE`, so the parser accepts both.
 _DELETION_LIBRARY_ID_COLUMN = "Systematic ID"
-_DELETION_LIBRARY_PARALOGUE_COLUMN = "Paralogues"
+_DELETION_LIBRARY_PARALOGUE_COLUMN = "Kim_Paralog"
 
 # Accepted values of `features.paralog_source` (config/analysis.yaml). See
 # load_paralogs() for what each one actually measures.
@@ -403,7 +404,7 @@ def _add_paralog_names(pairs: pd.DataFrame, gene_meta_file: Path) -> pd.DataFram
 def parse_deletion_library_paralogs(
     deletion_library_xlsx: Path, gene_meta_file: Path
 ) -> pd.DataFrame:
-    """Hayles-2013 deletion-library `Paralogues` column -> long (gene, paralog) table.
+    """Hayles-2013 deletion-library `Kim_Paralog` column -> long (gene, paralog) table.
 
     Columns: gene_systematic_id, gene_name, paralog_systematic_id, paralog_name. The
     cell is one `|`-joined list, exploded here to long. Materialised as its own
@@ -412,18 +413,21 @@ def parse_deletion_library_paralogs(
 
     Coverage is narrower than Ensembl's: the table only describes the 4,843 genes of
     the 2013 deletion library, so the 287 coding genes outside it read as 0
-    paralogues rather than unknown ones. Its lists are also NOT symmetric — only 485
-    of 1,878 pairs are reciprocated — so the count means "paralogues this gene
-    reports", the same thing the Ensembl count means.
+    paralogues rather than unknown ones. Its lists are also not fully symmetric —
+    1,804 of the 1,880 directed pairs appear in both directions — so the count
+    means "paralogues this gene reports", the same thing the Ensembl count means.
     """
     table = pd.read_excel(
         deletion_library_xlsx,
         usecols=[_DELETION_LIBRARY_ID_COLUMN, _DELETION_LIBRARY_PARALOGUE_COLUMN],
     )
+    table = table[table[_DELETION_LIBRARY_PARALOGUE_COLUMN].notna()]
     table[_DELETION_LIBRARY_PARALOGUE_COLUMN] = (
         table[_DELETION_LIBRARY_PARALOGUE_COLUMN].astype(str).str.strip()
     )
-    table = table[table[_DELETION_LIBRARY_PARALOGUE_COLUMN].str.upper() != "NONE"]
+    paralog_values = table[_DELETION_LIBRARY_PARALOGUE_COLUMN]
+    has_no_paralog = paralog_values.str.upper().eq("NONE") | paralog_values.eq("")
+    table = table[~has_no_paralog]
     table["paralog_systematic_id"] = table[_DELETION_LIBRARY_PARALOGUE_COLUMN].str.split("|")
     pairs = (
         table.explode("paralog_systematic_id")[
@@ -612,18 +616,12 @@ def collect_phenotype_level_features(
 
     DeletionLibrary_essentiality = (
         pd.read_excel(deletion_library_xlsx)[
-            [
-                "Systematic ID",
-                "Gene dispensability. This study",
-                "Category",
-                "Sub_category",
-                "Growth_tier",
-            ]
+            ["Systematic ID", "Gene_dispensability", "Category", "Sub_category"]
         ]
         .set_index("Systematic ID")
         .rename(
             columns={
-                "Gene dispensability. This study": "DeletionLibrary_essentiality",
+                "Gene_dispensability": "DeletionLibrary_essentiality",
                 "Category": "DeletionLibrary_category",
             }
         )
@@ -747,5 +745,4 @@ def merge_all_features(
         "RevisedDeletionLibrary_essentiality"
     ].fillna("Not_determined")
     pombe_features["Sub_category"] = pombe_features["Sub_category"].fillna("Not_determined")
-    pombe_features["Growth_tier"] = pombe_features["Growth_tier"].fillna(0).astype(int)
     return pombe_features

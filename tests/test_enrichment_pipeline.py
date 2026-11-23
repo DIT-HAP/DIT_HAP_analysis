@@ -65,7 +65,7 @@ def test_gene_meta_loads_and_joins_essentiality():
         gene_ids_names_products=GENE_META, deletion_library_essentiality=DELETION_XLSX
     )
     meta = cfg.load_data()
-    assert "Gene dispensability. This study" in meta.gene_info_with_essentiality.columns
+    assert "Gene_dispensability" in meta.gene_info_with_essentiality.columns
     assert len(meta.id2name) > 0
     # gene_name has no NaN (filled with systematic id).
     assert meta.gene_info_with_essentiality["gene_name"].notna().all()

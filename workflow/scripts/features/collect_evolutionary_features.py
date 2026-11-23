@@ -9,7 +9,7 @@ scores per coding gene. Reads the coding-gene set from the DNA-level parquet.
 
 `paralog_count` has two selectable sources (config.features.paralog_source):
 - `ensembl`          — the BioMart paralog export, every homology type
-- `deletion_library` — the Hayles-2013 `Paralogues` column (curated, within-species)
+- `deletion_library` — the Hayles-2013 `Kim_Paralog` column (curated, within-species)
 
 Input
 -----

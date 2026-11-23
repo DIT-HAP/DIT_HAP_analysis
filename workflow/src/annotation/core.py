@@ -437,7 +437,7 @@ def build_pombase_metadata_block(gene_ids_parquet: Path, gene_type: str) -> pd.D
 def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
     """Build block 2: Deletion library categories.
 
-    Extracts: Systematic ID, Gene dispensability. This study (renamed to deletion_essentiality),
+    Extracts: Systematic ID, Gene_dispensability (renamed to deletion_essentiality),
     Category, Sub_category.
     """
     logger.info("Reading deletion library categories")
@@ -445,7 +445,7 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
         read_file(deletion_library_xlsx),
         {
             "Systematic ID": "systematic_id",
-            "Gene dispensability. This study": "deletion_essentiality",
+            "Gene_dispensability": "deletion_essentiality",
             "Category": "Category",
             "Sub_category": "Sub_category",
         },

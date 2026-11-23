@@ -18,7 +18,8 @@ cnsplots renderers for the deletion-library phenotype verification stage
 
 Colour contract
 ---------------
-One colour per phenotype, everywhere. The 11 raw curated ``Category`` labels
+One colour per phenotype, everywhere. The 7 raw curated ``Category`` labels
+(since the 2026-11-18 upstream re-export; older files had 11 compound labels)
 collapse onto six families (``verification.core.CATEGORY_FAMILY``) because the
 house palette holds ten colours and because "spores, germinated" and "spores"
 are the same phenotype at different resolution. Families are resolved to Cell
@@ -130,9 +131,10 @@ SCATTER_ALPHA = 0.45
 
 # Category-summary layout. multipanel sizes panels in layout pixels (72/inch)
 # from the axes box outwards, so these are the axes boxes plus the space their
-# own decorations need. ROW_LABEL_PAD_LEFT_PX is the width of the longest
-# label ("spores, germinated, divided or microcolonies  (n=76)", 50 chars at the
-# 7 pt house tick size).
+# own decorations need. ROW_LABEL_PAD_LEFT_PX was sized for the pre-2026-11
+# longest label ("spores, germinated, divided or microcolonies  (n=76)", 50 chars
+# at the 7 pt house tick size); the current 7-label vocabulary is shorter, so the
+# pad now leaves a little extra whitespace.
 # FIGURE_WIDTH_PX is multipanel's wrap width, not a page cap. The donut (150 pt)
 # + long row-name pad + strip (120 pt) row was measured at 540 and wraps into an
 # extra row at 493, so this figure keeps the wider wrap and lets the measured
@@ -452,9 +454,9 @@ def render_dr_scatter_panel(
 ) -> None:
     """Strip plot of DR per gene, categories down the y axis, jittered within each row.
 
-    Horizontal because the raw curated labels run to 45 characters ("spores,
-    germinated, divided or microcolonies"): on the x axis they either rotate
-    into the neighbouring panel or force the panel wider than the page. The
+    Horizontal because the raw curated labels can run long (pre-2026-11 files:
+    "spores, germinated, divided or microcolonies"): on the x axis they either
+    rotate into the neighbouring panel or force the panel wider than the page. The
     row labels carry the category, so the panel needs no legend of its own —
     the shared donut legend already maps each category to its colour.
     """

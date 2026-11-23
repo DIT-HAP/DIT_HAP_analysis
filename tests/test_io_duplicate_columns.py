@@ -57,15 +57,14 @@ def test_phenotype_level_duplicate_essentiality_column(tmp_path):
     # Simulate the phenotype-level structure with duplicate DeletionLibrary_essentiality
     df = pd.DataFrame(
         [
-            ["viable", "V", "WT-like", "WT-like", 11, "V", "V"],
-            ["viable", "E", "microcolonies", "microcolonies", 5, "E", "E"],
+            ["viable", "V", "WT-like", "WT-like", "V", "V"],
+            ["viable", "E", "microcolonies", "microcolonies", "E", "E"],
         ],
         columns=[
             "FYPOviability",
             "DeletionLibrary_essentiality",
             "DeletionLibrary_category",
             "Sub_category",
-            "Growth_tier",
             "DeletionLibrary_essentiality",  # Intentional duplicate
             "RevisedDeletionLibrary_essentiality",
         ],
@@ -80,8 +79,8 @@ def test_phenotype_level_duplicate_essentiality_column(tmp_path):
     assert df_read.columns.tolist().count("DeletionLibrary_essentiality") == 2
 
     # Verify both copies have the same values (they're derived from the same source)
-    assert df.iloc[:, 1].tolist() == df.iloc[:, 5].tolist()
-    assert df_read.iloc[:, 1].tolist() == df_read.iloc[:, 5].tolist()
+    assert df.iloc[:, 1].tolist() == df.iloc[:, 4].tolist()
+    assert df_read.iloc[:, 1].tolist() == df_read.iloc[:, 4].tolist()
 
 
 def test_no_duplicate_columns_works_normally(tmp_path):

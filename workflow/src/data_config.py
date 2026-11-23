@@ -45,7 +45,8 @@ import yaml
 # =============================================================================
 # GLOBAL CONSTANTS
 # =============================================================================
-DATASETS_YAML = Path(__file__).resolve().parents[2] / "config" / "datasets.yaml"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATASETS_YAML = REPO_ROOT / "config" / "datasets.yaml"
 
 # Pre-release intermediate subdir holding merge_strand_insertions output (the
 # strand-resolved PBL/PBR/Reads tables per sample_timepoint_condition). release/
@@ -118,6 +119,15 @@ class DatasetConfig:
             self.gene_level.validate_paths()
 
 
+@dataclass(kw_only=True, frozen=True)
+class ReferenceFileConfig:
+    """A committed local copy of an upstream reference file plus its provenance pin."""
+
+    local: Path
+    upstream: Path
+    sha256: str
+
+
 # =============================================================================
 # REGISTRY LOADING
 # =============================================================================
@@ -147,6 +157,17 @@ def reference_alphafold_dir() -> Path:
     """Return the registry's reference.alphafold_dir as a Path (never copied locally, see design doc
     §4)."""
     return Path(_load_registry()["reference"]["alphafold_dir"])
+
+
+def reference_deletion_library() -> ReferenceFileConfig:
+    """Resolve the committed deletion-library copy and its upstream canonical file."""
+    registry = _load_registry()
+    entry = registry["reference"]["deletion_library"]
+    return ReferenceFileConfig(
+        local=REPO_ROOT / entry["local"],
+        upstream=Path(registry["snakemake_repo"]) / entry["upstream"],
+        sha256=entry["sha256"],
+    )
 
 
 def load_dataset_config(name: str | None = None) -> DatasetConfig:

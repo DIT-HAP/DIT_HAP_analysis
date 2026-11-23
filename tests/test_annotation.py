@@ -466,7 +466,7 @@ def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
     pd.DataFrame(
         {
             "Systematic ID": ["SPAC1002.01", "SPAC1002.02"],
-            "Gene dispensability. This study": ["E", None],
+            "Gene_dispensability": ["E", None],
         }
     ).to_excel(path, index=False)
 

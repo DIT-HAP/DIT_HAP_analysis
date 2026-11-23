@@ -107,7 +107,7 @@ rule build_deletion_library_paralogs:
     conda:
         "../envs/biopython.yml"
     message:
-        "*** [paralogs] Exploding the deletion-library Paralogues column for PomBase {wildcards.pombase_version}..."
+        "*** [paralogs] Exploding the deletion-library Kim_Paralog column for PomBase {wildcards.pombase_version}..."
     shell:
         """
         python workflow/scripts/features/build_deletion_library_paralogs.py \

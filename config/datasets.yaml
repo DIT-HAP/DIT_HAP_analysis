@@ -9,6 +9,14 @@ reference:
   # AlphaFold structures are too large to copy locally (design doc §4) — referenced
   # by absolute external path instead of a resources/ copy.
   alphafold_dir: /hugedata/YushengYang/AFdb/UP000002485_284812_SCHPO_v6
+  # Canonical copy lives in DIT_HAP_snakemake; this repo keeps a committed copy so
+  # the features stage builds without the upstream checkout. Both must hash to
+  # sha256 (tests/test_data_config.py enforces it). Update the copy and the pin in
+  # the same commit when upstream replaces the file.
+  deletion_library:
+    local: resources/curated/deletion_library_categories.xlsx
+    upstream: resources/Literature/Hayles_2013_OB_merged_categories.xlsx
+    sha256: "b9549a0a1d000a9af292ed2fb7a30a2a26b84ea9ec5535974c32e84fecddfec3"
 
 datasets:
   LD_DIT_HAP:

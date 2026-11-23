@@ -78,7 +78,7 @@ def test_count_paralogs_distinguishes_none_from_one(tmp_path):
 
 
 def test_parse_deletion_library_paralogs_explodes_none_and_normalises_case(tmp_path):
-    """`|`-joined lists explode to long, NONE drops out, `.NNNC` normalises to `.NNNc`."""
+    """`|`-joined lists explode to long, NONE/NaN drop out, `.NNNC` normalises to `.NNNc`."""
     meta = _write_gene_meta(
         tmp_path,
         ["SPAC1002.13c", "SPAC1002.16c", "SPAC1002.12c", "SPBC2G2.17c", "SPAC1399.04c"],
@@ -86,8 +86,8 @@ def test_parse_deletion_library_paralogs_explodes_none_and_normalises_case(tmp_p
     xlsx = tmp_path / "deletion_library_categories.xlsx"
     pd.DataFrame(
         {
-            "Systematic ID": ["SPAC1002.13c", "SPAC1002.12c", "SPAC1002.16c"],
-            "Paralogues": ["SPBC2G2.17C", "NONE", "SPAC1399.04C|SPAC1399.04c"],
+            "Systematic ID": ["SPAC1002.13c", "SPAC1002.12c", "SPAC1002.16c", "SPAC1002.11"],
+            "Kim_Paralog": ["SPBC2G2.17C", None, "SPAC1399.04C|SPAC1399.04c", "NONE"],
         }
     ).to_excel(xlsx, index=False)
 
@@ -117,7 +117,7 @@ def test_parse_deletion_library_paralogs_falls_back_to_the_systematic_id(tmp_pat
     pd.DataFrame(
         {
             "Systematic ID": ["SPAC1002.13c"],
-            "Paralogues": ["SPBC2G2.17c"],
+            "Kim_Paralog": ["SPBC2G2.17c"],
         }
     ).to_excel(xlsx, index=False)
 
@@ -134,7 +134,7 @@ def test_deletion_library_paralogs_round_trip_through_parquet(tmp_path):
     pd.DataFrame(
         {
             "Systematic ID": ["g1", "g2"],
-            "Paralogues": ["g2", "NONE"],
+            "Kim_Paralog": ["g2", "NONE"],
         }
     ).to_excel(xlsx, index=False)
 
@@ -200,8 +200,7 @@ def test_rna_config_gene_meta_file_property(tmp_path):
 
 
 def test_merge_all_features_fills_new_deletion_library_columns():
-    """Sub_category/Growth_tier ride along with the other DeletionLibrary_* columns and get
-    NA-filled."""
+    """Sub_category rides along with the other DeletionLibrary_* columns and gets NA-filled."""
     dna_df = pd.DataFrame({"Gene_id": ["g1", "g2"], "Primary_candidate": [True, True]})
     empty_df = pd.DataFrame(index=pd.Index(["g1", "g2"], name="Gene_id"))
     network_df = pd.DataFrame(
@@ -214,7 +213,6 @@ def test_merge_all_features_fills_new_deletion_library_columns():
             "DeletionLibrary_category": ["WT-like", None],
             "RevisedDeletionLibrary_essentiality": ["V", None],
             "Sub_category": ["WT-like", None],
-            "Growth_tier": [11, None],
         },
         index=pd.Index(["g1", "g2"], name="Gene_id"),
     )
@@ -225,9 +223,6 @@ def test_merge_all_features_fills_new_deletion_library_columns():
     )
 
     assert merged.set_index("gene_systematic_id").loc["g2", "Sub_category"] == "Not_determined"
-    assert merged.set_index("gene_systematic_id").loc["g2", "Growth_tier"] == 0
-    assert merged.set_index("gene_systematic_id").loc["g1", "Growth_tier"] == 11
-    assert merged["Growth_tier"].dtype == int
 
 
 def test_merge_config_rejects_missing_level_parquet(tmp_path):

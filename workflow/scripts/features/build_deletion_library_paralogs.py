@@ -4,12 +4,12 @@
 Deletion-Library Paralogues -> Long Table
 ==========================================
 
-Explodes the Hayles-2013 deletion-library table's `Paralogues` column into one row
+Explodes the Hayles-2013 deletion-library table's `Kim_Paralog` column into one row
 per (gene, paralog) pair with both ids resolved to current PomBase systematic ids.
 
 This is not a feature level — nothing merges it into the feature matrix. It is a
 rule of its own because the parse is the awkward half (one `|`-joined cell per gene,
-the literal `NONE` for "none", a capital-Crick-strand `C` on the 2013 ids) and
+NaN for "none" in the 2026-11 table, a capital-Crick-strand `C` on the 2013 ids) and
 because the PAIRS are what a consumer usually wants; `collect_evolutionary_features`
 only needs the count, but the coherence stage's `paralog_fraction` wants the gene
 set (via that count), and any other consumer would otherwise re-parse the sheet and
@@ -17,7 +17,7 @@ re-run update_sys_ids().
 
 Input
 -----
-- The curated deletion-library categories xlsx (Paralogues column)
+- The curated deletion-library categories xlsx (Kim_Paralog column)
 - PomBase gene_IDs_names_products.tsv, for update_sys_ids()
 
 Output
@@ -83,7 +83,7 @@ class DeletionLibraryParalogsConfig:
 # =============================================================================
 @logger.catch(reraise=True)
 def run(config: DeletionLibraryParalogsConfig) -> None:
-    """Parse the Paralogues column into a long table and write it as parquet."""
+    """Parse the Kim_Paralog column into a long table and write it as parquet."""
     pairs = parse_deletion_library_paralogs(config.deletion_library_xlsx, config.gene_meta)
     write_parquet(pairs, config.output)
     logger.success(
@@ -98,7 +98,7 @@ def run(config: DeletionLibraryParalogsConfig) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(
-        description="Explode the deletion-library Paralogues column into a long table"
+        description="Explode the deletion-library Kim_Paralog column into a long table"
     )
     parser.add_argument(
         "--deletion-library-xlsx",

@@ -1,5 +1,6 @@
 """Tests for workflow/src/data_config.py registry loader and dataclasses."""
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -9,8 +10,14 @@ from workflow.src.data_config import (
     list_dataset_names,
     load_dataset_config,
     reference_alphafold_dir,
+    reference_deletion_library,
     reference_pombase_version,
 )
+
+
+def _sha256(path: Path) -> str:
+    """Return the file's SHA-256 hex digest."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_list_dataset_names_includes_all_nine_projects():
@@ -80,3 +87,17 @@ def test_reference_alphafold_dir_is_absolute_and_exists():
     path = reference_alphafold_dir()
     assert path.is_absolute()
     assert path.exists()
+
+
+def test_deletion_library_local_copy_matches_the_pin():
+    """The committed copy is exactly the canonical upstream file."""
+    ref = reference_deletion_library()
+    assert _sha256(ref.local) == ref.sha256
+
+
+def test_deletion_library_upstream_copy_matches_the_pin():
+    """When the upstream checkout is present, it still holds the pinned file."""
+    ref = reference_deletion_library()
+    if not ref.upstream.is_file():
+        pytest.skip("upstream DIT_HAP_snakemake checkout is not present")
+    assert _sha256(ref.upstream) == ref.sha256

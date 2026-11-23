@@ -76,6 +76,7 @@ _CATEGORY_ORDER = [
     "spores, germinated, divided or microcolonies",
     "spores, miscellaneous",
     "germinated",
+    "divided",
     "germinated, divided or microcolonies",
     "microcolonies",
     "microcolonies, small colonies",
@@ -91,7 +92,8 @@ _CATEGORY_ORDER = [
 # "unverified" for genes with no wet-lab call). Display text is always the raw
 # label; the family exists so one phenotype keeps one colour across every panel
 # of the stage (design decision 2026-09-17 — Cell, the house palette, holds 10
-# colours and the raw vocabulary has 11 labels).
+# colours; the raw vocabulary has 7 labels since the 2026-11-18 upstream
+# re-export, and the pre-2026-11 compound labels stay mapped below for older files).
 CATEGORY_FAMILIES = (
     "essential",
     "spores",
@@ -118,6 +120,7 @@ CATEGORY_FAMILY = {
     "spores, germinated, divided or microcolonies": "spores",
     "spores, miscellaneous": "spores",
     "germinated": "germinated",
+    "divided": "germinated",
     "germinated, divided or microcolonies": "germinated",
     "microcolonies": "microcolonies",
     "microcolonies, small colonies": "microcolonies",
@@ -144,10 +147,11 @@ BASIC_BOXPLOT_CATEGORIES = [
 # The four "critical gene" outlier groups (notebook §4.2-4.4). Each filter runs
 # against the RAW `Category` column (literal curated labels — no folding), so
 # only genes with those exact single-phenotype labels are selected; the compound
-# multi-phenotype labels do not enter these analytical groups. `sort` orders the
-# outlier gene list by DR: WT->nonWT / small->E look at the most depleted first,
-# E->V the least (sign flipped 2026-09-17 — negative DR is the depleted end, so
-# both the thresholds and every `sort` direction are mirrored from the original).
+# multi-phenotype labels (and the 2026-11 `divided` label that replaced them) do
+# not enter these analytical groups. `sort` orders the outlier gene list by DR:
+# WT->nonWT / small->E look at the most depleted first, E->V the least (sign
+# flipped 2026-09-17 — negative DR is the depleted end, so both the thresholds
+# and every `sort` direction are mirrored from the original).
 CRITICAL_GROUPS = {
     "WT2nonWT": {"filter": "Category == 'WT-like' and DR < -0.35", "sort": "asc"},
     "scE2E": {
