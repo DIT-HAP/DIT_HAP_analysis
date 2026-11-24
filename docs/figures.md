@@ -312,15 +312,15 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 |---|---|
 | 输入 | `results/2b_verification/HD_DIT_HAP/_work/merged.parquet`（2b 的每基因中间表，只读 `Category`、`DR`；2b 只发布汇总表，没有每基因的公开产物，取法与 figure_s1 读 `_work` 相同） |
 | 类顺序 | `spores → germinated → microcolonies → small colonies → WT-like`（最严重在上），`CATEGORY_ORDER` 同时是检验的相邻链 |
-| 行标签 | `类别 (n = 计数)`，计数为该类在拟合成功基因中的行数：143 / 167 / 401 / 236 / 2,919 |
+| 行标签 | `类别 (n = 计数)`，计数为该类在拟合成功基因中的行数：143 / 352 / 464 / 271 / 2,927 |
 | 画法 | `cns.violinplot(x="dr", y="category", order=..., width=0.65, add_box=True, density_norm="width")`——seaborn 默认按面积归一，密集行（WT-like）会画得更细；按宽度归一后每行的最大体厚一致（实测均约 13.6 pt），五行可横向比较。violin 体是 collections、按 `order` 一一对应，画完后按 family 上色，嵌入的白色箱线保持原样 |
 | 配色 | 沿用 verification stage 的 phenotype-family 色（Cell 槽 2/6/7/1/4）：spores 赭黄、germinated 紫、microcolonies 蓝灰、small colonies 青、WT-like 绿，使同一生长类别跨图同色 |
 | 检验 | 相邻两类（spores–germinated、germinated–microcolonies、microcolonies–small colonies、small colonies–WT-like）做双侧 Mann–Whitney U，报告未校正 p——这四对是预设的相邻严重度比较，不是探索性全排列 |
-| p 值标注 | 四条相邻对的括号共用绘图区右侧同一条竖线，只在各行的行心处伸出 3 pt 横齿，形成一把阶梯；四个标签 `p=6.1E-8`（6 pt）全部从同一 x 起排、垂直居中在各对之间，数值列是对齐的。用 accent 红（槽 0）——只在这里用红，表示显著性而非类别 |
+| p 值标注 | 四条相邻对的括号共用绘图区右缘外 3 pt 的同一条竖线；每对括号的上下横齿（各 3 pt）从行心向对内侧缩 2 pt，因此相邻括号在共享行处的端点上下分开 4 pt、不再重叠，悬空在行心之间。四个标签 `$p$=9.2E-6`（6 pt，p 为 mathtext 斜体、其余保持原样）全部从同一 x 起排、垂直居中在各对中点，数值列对齐。用 accent 红（槽 0）——只在这里用红，表示显著性而非类别 |
 | 轴 | x `Depletion rate (DR)`，范围 = 数据极值 ± 5% 跨度，1 单位刻度（−2 / −1 / 0）；y 无标题，类别已在行标签里 |
 | 产物 | 并入 `figure2.pdf` |
 
-数据口径：当前 release 的计数为 143 / 167 / 401 / 236 / 2,919；`small colonies` 是原始 curated `Category` 一档（含 32 个 E 与 204 个 V），不按 essentiality 拆分。相邻对比的 p 值：6.1e-8 / 2.8e-18 / 3.4e-45 / 2.6e-75（参考图里的 396 / 235 / 2,614 来自更早的一版 curated 表，其余计数一致）。
+数据口径：当前 release 的计数为 143 / 352 / 464 / 271 / 2,927；`small colonies` 是原始 curated `Category` 一档（含 65 个 E 与 206 个 V），不按 essentiality 拆分。相邻对比的 p 值：9.2e-6 / 4.1e-30 / 7.5e-46 / 5.3e-90。
 
 ---
 
@@ -360,7 +360,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `--schematic` | `resources/figures/figure2d.pdf` | D 面板示意图 PDF；面板框取其页面框，换图后尺寸自动跟随 |
 | `PANEL_E_WIDTH_PT` / `PANEL_E_HEIGHT_PT` | 265 / 125 | E 容器尺寸（与 D 同列，`below="D"`） |
 | `E_PLOT_X_PT` / `E_PLOT_Y_PT` / `E_PLOT_WIDTH_PT` | 85 / 20 / 139 | E 的 inset 绘图区（高 = 容器高 − 20 − 2） |
-| `E_BRACKET_OFFSET_PT` / `E_BRACKET_TICK_PT` | 3 / 3 | p 值竖线距绘图区右缘的距离、行心横齿长度（pt） |
+| `E_BRACKET_OFFSET_PT` / `E_BRACKET_ROW_GAP_PT` / `E_BRACKET_TICK_PT` | 3 / 2 / 3 | p 值竖线距绘图区右缘的距离、每对括号端点从行心的垂直内缩、横齿长度（pt） |
 | `E_VIOLIN_WIDTH` / `E_ROW_PAD` / `E_X_PADDING` | 0.65 / 0.5 / 0.05 | violin 最大体厚（行距占比，按宽度归一）、行上下留白（半行，防首末行被裁）、x 两侧留白 |
 | `CATEGORY_ORDER` / `CATEGORY_COLORS` | 见上文 | E 的行顺序 / family 配色（同时决定检验的相邻链） |
 | `CHIP_ALPHA` | 0.25 | 公式参数底色透明度 |

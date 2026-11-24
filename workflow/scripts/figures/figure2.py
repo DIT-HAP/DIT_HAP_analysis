@@ -283,10 +283,13 @@ E_VIOLIN_WIDTH = 0.65  # body thickness as a share of the row pitch
 E_ROW_PAD = 0.5  # half a row above the first row and below the last, so no body is clipped
 E_X_PADDING = 0.05  # x headroom past the most extreme DR, as a share of the span
 E_TICK_STEP = 1.0
-# All four brackets share one vertical line — a ladder through the row centres —
-# and every p label starts at the same x, so the four values read as one column.
+# All four brackets share one vertical line, but each is inset from the shared
+# row centres by E_BRACKET_ROW_GAP_PT: adjacent brackets' end ticks then sit
+# 2 x gap apart instead of landing on the same point. The ticks no longer mark
+# the y tick exactly — that is the point — while the labels stay in one column.
 # Widths are in points and converted to axes fractions for drawing.
 E_BRACKET_OFFSET_PT = 3.0  # bracket line's distance right of the plot edge
+E_BRACKET_ROW_GAP_PT = 2.0  # vertical inset from each row centre
 E_BRACKET_TICK_PT = 3.0
 E_BRACKET_LINE_WIDTH_PT = 0.6
 E_PVALUE_GAP_PT = 2.0
@@ -337,7 +340,7 @@ CATEGORY_ORDER = ("spores", "germinated", "microcolonies", "small colonies", "WT
 CATEGORY_COLUMN = "Category"
 CATEGORY_DR_COLUMNS = (CATEGORY_COLUMN, RATE_COLUMN)
 CATEGORY_LABEL_TEMPLATE = "{category} (n = {count:,})"
-P_VALUE_TEMPLATE = "p={mantissa}E{exponent}"
+P_VALUE_TEMPLATE = "$p$={mantissa}E{exponent}"
 # The verification stage's phenotype-family colours (Cell slots 2 / 6 / 7 / 1 /
 # 4), so a growth category keeps one colour across this figure and the stage's
 # own category figure.
@@ -1120,11 +1123,13 @@ def draw_p_value_ladder(ax: Axes, categories: tuple[CategoryDr, ...]) -> None:
     """Bracket each neighbouring pair right of the plot and write its p value."""
     tick = E_BRACKET_TICK_PT / E_PLOT_WIDTH_PT
     gap = E_PVALUE_GAP_PT / E_PLOT_WIDTH_PT
+    row_gap = E_BRACKET_ROW_GAP_PT / E_PLOT_HEIGHT_PT
     bracket_x = 1 + E_BRACKET_OFFSET_PT / E_PLOT_WIDTH_PT
     for index, p_value in enumerate(adjacent_p_values(categories)):
         upper = row_axes_fraction(ax, index)
         lower = row_axes_fraction(ax, index + 1)
-        top, bottom = max(upper, lower), min(upper, lower)
+        top = max(upper, lower) - row_gap
+        bottom = min(upper, lower) + row_gap
         ax.plot(
             [bracket_x - tick, bracket_x, bracket_x, bracket_x - tick],
             [top, top, bottom, bottom],
