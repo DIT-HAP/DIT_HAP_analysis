@@ -467,6 +467,7 @@ def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
         {
             "Systematic ID": ["SPAC1002.01", "SPAC1002.02"],
             "Gene_dispensability": ["E", None],
+            "Morphological_classification": ["misshapen essential", None],
         }
     ).to_excel(path, index=False)
 
@@ -474,6 +475,7 @@ def test_deletion_library_block_labels_genes_missing_a_call(tmp_path):
 
     assert block.loc["SPAC1002.01", "deletion_essentiality"] == "E"
     assert block.loc["SPAC1002.02", "deletion_essentiality"] == "Not_determined"
+    assert block.loc["SPAC1002.01", "Morphological_classification"] == "misshapen essential"
 
 
 def test_verification_block_raises_when_a_depended_on_column_is_absent(tmp_path):

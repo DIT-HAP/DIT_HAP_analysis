@@ -2,7 +2,7 @@
 # 1c_annotate.smk — Per-gene annotation reference + annotated tables
 # =============================================================================
 #
-# Parses PomBase + SGD sources once into a single wide annotation table (26
+# Parses PomBase + SGD sources once into a single wide annotation table (27
 # columns) keyed by pombe systematic ID, then joins it onto tables that need it.
 # The reference is dataset-independent (like 1b_features.smk): it depends only on a
 # PomBase version and an SGD snapshot, not on any DIT-HAP sequencing project.

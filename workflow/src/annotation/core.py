@@ -438,7 +438,8 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
     """Build block 2: Deletion library categories.
 
     Extracts: Systematic ID, Gene_dispensability (renamed to deletion_essentiality),
-    Category, Sub_category.
+    Category, Sub_category (growth phenotype classifications), plus the morphological
+    cell-shape classification (Morphological_classification).
     """
     logger.info("Reading deletion library categories")
     block = _build_block(
@@ -448,6 +449,7 @@ def build_deletion_library_block(deletion_library_xlsx: Path) -> pd.DataFrame:
             "Gene_dispensability": "deletion_essentiality",
             "Category": "Category",
             "Sub_category": "Sub_category",
+            "Morphological_classification": "Morphological_classification",
         },
     )
 

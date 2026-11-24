@@ -146,6 +146,7 @@ DETAIL_COLUMNS = [
     "taxonomic_distribution",
     "Category",
     "Sub_category",
+    "Morphological_classification",
     "verification_phenotype",
     "Sc_ortholog_id",
     "Sc_ortholog_name",
