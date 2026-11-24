@@ -229,7 +229,8 @@ def _go_plan(ontology_dir: Path, fdr_threshold: float) -> OntologyPlan:
         enrichment_kwargs={
             "alpha": fdr_threshold,
             "methods": ["fdr_bh"],
-            "prt": None,
+            # goatools 1.6.9 rejects the old `prt` kwarg; `log` suppresses printing on both.
+            "log": None,
             "propagate_counts": True,
             "relationships": {"is_a", "part_of"},
         },
@@ -259,7 +260,7 @@ def _fypo_plan(ontology_dir: Path, intermediate_dir: Path, fdr_threshold: float)
         enrichment_kwargs={
             "alpha": fdr_threshold,
             "methods": ["fdr_bh"],
-            "prt": None,
+            "log": None,
             "propagate_counts": True,
         },
         workbook_name="fission_yeast_phenotype_ontology_enrichment_results.xlsx",
@@ -288,7 +289,7 @@ def _mondo_plan(ontology_dir: Path, intermediate_dir: Path, fdr_threshold: float
         enrichment_kwargs={
             "alpha": fdr_threshold,
             "methods": ["fdr_bh"],
-            "prt": None,
+            "log": None,
             "propagate_counts": True,
         },
         workbook_name="mondo_disease_ontology_enrichment_results.xlsx",

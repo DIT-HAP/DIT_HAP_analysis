@@ -10,11 +10,12 @@ supplied as a one-page vector PDF: the observed median pairwise distance in
 
 Panel B sits to the right of A and asks how significance relates to that
 z-score across every annotated term: one point per term in the plane of
-coherence z (more negative = tighter than random) against BH-adjusted p on a
--log10 scale. The same two axes carry marginal histograms along the top and the
-right, split into all terms (grey) and the coherent cohort (blue), so the shape
-of each marginal can be read without leaving the panel. Dashed guides mark the
-cohort cut (z < -2, adjusted p <= 0.05); the coherent quadrant is upper left.
+coherence z (more negative = tighter than random) against the BH-adjusted
+p (FDR) on a linear scale. The same two axes carry marginal histograms along
+the top and the right, split into all terms (grey) and the coherent cohort
+(blue), so the shape of each marginal can be read without leaving the panel.
+Dashed guides mark the cohort cut (z < -2, FDR <= 0.05); the coherent cohort
+hugs the bottom left.
 
 Panel C drops the coherent terms onto the fitness axes themselves: one point per
 term at the mean DR and mean DL of the genes that were scored for its coherence
@@ -294,16 +295,15 @@ PANEL_B_COHERENT_ALPHA = 0.80
 CUTOFF_LINE_WIDTH_PT = 0.5
 CUTOFF_LABEL_FONT_PT = 4.5
 X_PADDING = 0.03
-Y_PADDING = 0.02
-SIGNIFICANCE_HEADROOM = 1.03
+FDR_HEADROOM = 1.03
 COHERENCE_TICK_STEP = 2.0
-SIGNIFICANCE_TICK_STEP = 1.0
+FDR_TICK_STEP = 0.2
 MEAN_DR_TICK_STEP = 0.2
 MEAN_DL_TICK_STEP = 1.0
 MEAN_DR_PADDING = 0.04
 MEAN_DL_HEADROOM = 1.06
 PANEL_B_X_LABEL = "Coherence z-score"
-PANEL_B_Y_LABEL = r"$-\log_{10}$(BH-adjusted $p$)"
+PANEL_B_Y_LABEL = r"FDR (BH-adjusted $p$)"
 PANEL_C_X_LABEL = "Mean DR"
 PANEL_C_Y_LABEL = "Mean DL"
 TERM_SIZE_LEGEND_TITLE = "Genes"
@@ -387,10 +387,10 @@ class Figure3Config:
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class TermCloud:
-    """Every representative term's z-score and -log10(q), plus the cohort mask."""
+    """Every representative term's z-score and FDR (q), plus the cohort mask."""
 
     z: np.ndarray
-    significance: np.ndarray
+    fdr: np.ndarray
     coherent: np.ndarray
 
 
@@ -462,11 +462,11 @@ def build_term_cloud(table: pd.DataFrame) -> TermCloud:
     q = table[Q_COLUMN].to_numpy(dtype=float)
     if not np.isfinite(z).all() or not np.isfinite(q).all():
         raise ValueError("coherence metrics carry non-finite z or q values")
-    if not ((q > 0) & (q <= 1)).all():
-        raise ValueError("q_value_coherent must lie in (0, 1] for the -log10 axis")
+    if not ((q >= 0) & (q <= 1)).all():
+        raise ValueError("q_value_coherent must lie in [0, 1]")
     return TermCloud(
         z=z,
-        significance=-np.log10(q),
+        fdr=q,
         coherent=coherent_mask(table),
     )
 
@@ -753,7 +753,7 @@ def blank_container(container: Axes) -> None:
 
 
 def render_panel_b(container: Axes, cloud: TermCloud, height_pt: float) -> None:
-    """Draw the z-vs-significance cloud and its two marginal histograms."""
+    """Draw the z-vs-FDR cloud and its two marginal histograms."""
     container.set_xlim(0, PANEL_B_WIDTH_PT)
     container.set_ylim(0, height_pt)
     plot_height_pt = (
@@ -763,8 +763,7 @@ def render_panel_b(container: Axes, cloud: TermCloud, height_pt: float) -> None:
         - PANEL_B_HISTOGRAM_GAP_PT
     )
     x_limits = padded_limits(float(cloud.z.min()), float(cloud.z.max()), X_PADDING)
-    y_limits = padded_limits(0.0, float(cloud.significance.max()), Y_PADDING)
-    y_limits = (y_limits[0], y_limits[1] * SIGNIFICANCE_HEADROOM)
+    y_limits = (0.0, float(cloud.fdr.max()) * FDR_HEADROOM)
 
     plot_ax = container.inset_axes(
         (
@@ -805,7 +804,7 @@ def render_panel_b_plot(
     is_background = ~cloud.coherent
     ax.scatter(
         cloud.z[is_background],
-        cloud.significance[is_background],
+        cloud.fdr[is_background],
         s=PANEL_B_POINT_SIZE,
         color=BACKGROUND_COLOR,
         alpha=PANEL_B_POINT_ALPHA,
@@ -813,7 +812,7 @@ def render_panel_b_plot(
     )
     ax.scatter(
         cloud.z[cloud.coherent],
-        cloud.significance[cloud.coherent],
+        cloud.fdr[cloud.coherent],
         s=PANEL_B_COHERENT_SIZE,
         color=COHERENT_COLOR,
         alpha=PANEL_B_COHERENT_ALPHA,
@@ -827,7 +826,7 @@ def render_panel_b_plot(
         zorder=0,
     )
     ax.axhline(
-        -np.log10(COHERENT_Q_MAX),
+        COHERENT_Q_MAX,
         color=FURNITURE_COLOR,
         linestyle="--",
         linewidth=CUTOFF_LINE_WIDTH_PT,
@@ -835,8 +834,8 @@ def render_panel_b_plot(
     )
     ax.text(
         x_limits[1],
-        -np.log10(COHERENT_Q_MAX),
-        f"$q = {COHERENT_Q_MAX:g}$",
+        COHERENT_Q_MAX,
+        f"FDR = {COHERENT_Q_MAX:g}",
         ha="right",
         va="bottom",
         fontsize=CUTOFF_LABEL_FONT_PT,
@@ -855,7 +854,7 @@ def render_panel_b_plot(
     ax.set_xlim(*x_limits)
     ax.set_ylim(*y_limits)
     ax.set_xticks(tick_values(*x_limits, COHERENCE_TICK_STEP))
-    ax.set_yticks(tick_values(y_limits[0], y_limits[1], SIGNIFICANCE_TICK_STEP))
+    ax.set_yticks(tick_values(y_limits[0], y_limits[1], FDR_TICK_STEP))
     ax.set_xlabel(PANEL_B_X_LABEL, fontsize=PLOT_LABEL_FONT_PT)
     ax.set_ylabel(PANEL_B_Y_LABEL, fontsize=PLOT_LABEL_FONT_PT)
     ax.tick_params(axis="both", labelsize=PLOT_TICK_FONT_PT)
@@ -865,7 +864,7 @@ def render_panel_b_plot(
 
 
 def add_panel_b_legend(ax: Axes, cloud: TermCloud) -> None:
-    """Name the two point styles in the empty upper-right corner."""
+    """Name the two point styles in the empty upper-left corner."""
     handles = [
         Line2D([], [], marker="o", linestyle="", markersize=3.0, color=BACKGROUND_COLOR),
         Line2D([], [], marker="o", linestyle="", markersize=3.5, color=COHERENT_COLOR),
@@ -877,7 +876,7 @@ def add_panel_b_legend(ax: Axes, cloud: TermCloud) -> None:
     ax.legend(
         handles,
         labels,
-        loc="upper right",
+        loc="upper left",
         frameon=False,
         fontsize=LEGEND_FONT_PT,
         handlelength=0.8,
@@ -895,13 +894,11 @@ def render_panel_b_marginals(
     x_limits: tuple[float, float],
     y_limits: tuple[float, float],
 ) -> None:
-    """Draw the z and significance distributions along their own axes."""
+    """Draw the z and FDR distributions along their own axes."""
     z_edges = histogram_edges(x_limits[0], x_limits[1], PANEL_B_BINS)
-    significance_edges = histogram_edges(y_limits[0], y_limits[1], PANEL_B_BINS)
+    fdr_edges = histogram_edges(y_limits[0], y_limits[1], PANEL_B_BINS)
     z_background, z_coherent = stacked_counts(cloud.z, cloud.coherent, z_edges)
-    q_background, q_coherent = stacked_counts(
-        cloud.significance, cloud.coherent, significance_edges
-    )
+    q_background, q_coherent = stacked_counts(cloud.fdr, cloud.coherent, fdr_edges)
 
     # Empty bins are skipped: a zero-height bar still renders as a hairline at
     # the baseline, which would draw a false rule across the histogram.
@@ -927,18 +924,18 @@ def render_panel_b_marginals(
     q_occupied = (q_background + q_coherent) > 0
     q_highlighted = q_coherent > 0
     right_ax.barh(
-        significance_edges[:-1][q_occupied],
+        fdr_edges[:-1][q_occupied],
         q_background[q_occupied],
-        height=np.diff(significance_edges)[q_occupied],
+        height=np.diff(fdr_edges)[q_occupied],
         align="edge",
         color=BACKGROUND_COLOR,
         linewidth=0,
     )
     right_ax.barh(
-        significance_edges[:-1][q_highlighted],
+        fdr_edges[:-1][q_highlighted],
         q_coherent[q_highlighted],
         left=q_background[q_highlighted],
-        height=np.diff(significance_edges)[q_highlighted],
+        height=np.diff(fdr_edges)[q_highlighted],
         align="edge",
         color=COHERENT_COLOR,
         linewidth=0,
@@ -951,7 +948,7 @@ def render_panel_b_marginals(
         linewidth=CUTOFF_LINE_WIDTH_PT,
     )
     right_ax.axhline(
-        -np.log10(COHERENT_Q_MAX),
+        COHERENT_Q_MAX,
         color=FURNITURE_COLOR,
         linestyle="--",
         linewidth=CUTOFF_LINE_WIDTH_PT,

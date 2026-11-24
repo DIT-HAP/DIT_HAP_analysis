@@ -380,7 +380,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 **画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高为一个两行块（实测 284.4 pt = 7.2 字母带 + 135 + 7.2 字母带 + 135）。块内是两列上下叠放的面板（A→C、B→D）加右侧一块跨两行的 E；A/C 与 B/D 的字母与底边对齐，E 的顶/底与两列 axes 的顶/底对齐。组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处，页面其余部分留白。
 
-**当前是 A–E 五个面板**：A 在左上，C 在 A 正下方；B 在 A 右侧，D 在 B 正下方；E 在 B、D 的右侧，纵向跨两行。A 为 `135 × 135` pt 方形，C 为 `150 × 135` pt（比 A 宽，左对齐）；B 为 `150 × 135` pt，D 为 `135 × 135` pt（比 B 窄，左对齐）；E 为 `150 × 277.2` pt。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 −log10(BH-adjusted p) 的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。D 改用 grid9 变体：把每个拟合基因放回原始 DR-DL 平面并画出 9 格网格，每格标注 cluster id 与基因数；E 把同样的 9 个 cluster 排成 GO BP slim 的 term × cluster 点阵（颜色 = −log10 FDR，面积 = gene ratio），term 名按 60 pt 行宽折行，左/下轴与刻度保留，右侧是紧凑的 dot-size legend + 短色条。
+**当前是 A–E 五个面板**：A 在左上，C 在 A 正下方；B 在 A 右侧，D 在 B 正下方；E 在 B、D 的右侧，纵向跨两行。A 为 `135 × 135` pt 方形，C 为 `150 × 135` pt（比 A 宽，左对齐）；B 为 `150 × 135` pt，D 为 `135 × 135` pt（比 B 窄，左对齐）；E 为 `150 × 277.2` pt。A 是连贯性方法示意图：观测的 median pairwise distance、置换零分布、以及 z-score 公式；B 把每个去冗余代表 term 放进 coherence z 与 FDR（BH-adjusted p）的平面，并在上方、右方各挂一条同轴直方图；C 把 coherent 的 term 放回 DR-DL 适应度空间，点面积是该 term 参与 coherence 计算的成员数。D 改用 grid9 变体：把每个拟合基因放回原始 DR-DL 平面并画出 9 格网格，每格标注 cluster id 与基因数；E 把同样的 9 个 cluster 排成 GO BP slim 的 term × cluster 点阵（颜色 = −log10 FDR，面积 = gene ratio），term 名按 60 pt 行宽折行，左/下轴与刻度保留，右侧是紧凑的 dot-size legend + 短色条。
 
 **产物**：
 
@@ -418,15 +418,15 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 |---|---|
 | 输入 | `results/3a_coherence/HD_DIT_HAP/dedup/coherence_terms_representatives.tsv` |
 | 必需列 | `source`、`group_id`、`group_name`、`n_scored_members`、`scored_member_names`、`median_pairwise_distance_z`、`q_value_coherent`（缺列在 I/O 边界直接报错） |
-| 筛选 | 全部 1,181 个去冗余代表 term；其中 coherent = `q_value_coherent <= 0.05` 且 `median_pairwise_distance_z < −2`，共 131 个（go_bp 47 / go_cc 40 / kegg_brite 29 / kegg_pathway 9 / go_macrocomplex 6） |
-| 坐标 | x = `median_pairwise_distance_z`（−7.63…6.05，两侧各 3% 留白）；y = `−log10(q_value_coherent)`（0…3.10，下侧 2%、上侧 3% 留白） |
-| 画法 | 先画非 coherent（house 灰 `#A3A3A3`、`s=4`、alpha 0.50），再画 coherent（Cell 槽 3 蓝灰 `#4e5a8a`、`s=6`、alpha 0.80），两点列都不描边；x 轴 `−log10(0.05) = 1.30` 与 y 轴 `z = −2` 画灰色虚线，线旁 4.5 pt 斜体标注 `q = 0.05` / `z = −2`；主图隐藏上、右 spine |
-| 边缘直方图 | 与主图共享 x（上）/ y（右），40 个等宽 bin；每个 bin 先画非 coherent 的灰色柱、再叠 coherent 的蓝灰柱（堆叠）；计数轴各自独立、不显示刻度与框线；空 bin 跳过（零高柱会留下基线假线）；两条直方图也分别画出 `z = −2` / `q = 0.05` 的虚线延长 |
-| 图例 | 主图右上角（该处 z > 0 且高显著性的点几乎为空）：灰点 `All terms (n = 1,181)`、蓝点 `Coherent (n = 131)`；无边框、5 pt |
-| 轴 | x `Coherence z-score`（6.5 pt），刻度间隔 2（−8…6）；y `−log10(BH-adjusted p)`（6.5 pt，mathtext），刻度间隔 1 |
+| 筛选 | 全部 1,183 个去冗余代表 term；其中 coherent = `q_value_coherent <= 0.05` 且 `median_pairwise_distance_z < −2`，共 143 个（go_bp 49 / go_cc 38 / kegg_brite 30 / go_macrocomplex 14 / kegg_pathway 12） |
+| 坐标 | x = `median_pairwise_distance_z`（−7.54…5.71，两侧各 3% 留白）；y = `q_value_coherent`（FDR，0…0.99999，上限 ×1.03 留白） |
+| 画法 | 先画非 coherent（house 灰 `#A3A3A3`、`s=4`、alpha 0.50），再画 coherent（Cell 槽 3 蓝灰 `#4e5a8a`、`s=6`、alpha 0.80），两点列都不描边；y 轴 `FDR = 0.05` 与 x 轴 `z = −2` 画灰色虚线，线旁 4.5 pt 标注 `FDR = 0.05` / `z = −2`；主图隐藏上、右 spine |
+| 边缘直方图 | 与主图共享 x（上）/ y（右），40 个等宽 bin；每个 bin 先画非 coherent 的灰色柱、再叠 coherent 的蓝灰柱（堆叠）；计数轴各自独立、不显示刻度与框线；空 bin 跳过（零高柱会留下基线假线）；两条直方图也分别画出 `z = −2` / `FDR = 0.05` 的虚线延长 |
+| 图例 | 主图左上角（该处 z < −2 且 FDR > 0.3 的点为空）：灰点 `All terms (n = 1,183)`、蓝点 `Coherent (n = 143)`；无边框、5 pt |
+| 轴 | x `Coherence z-score`（6.5 pt），刻度间隔 2（−8…6）；y `FDR (BH-adjusted p)`（6.5 pt），刻度间隔 0.2（0…1） |
 | 产物 | 并入 `figure3.pdf` |
 
-数据口径：`q_value_coherent` 是 combined 表上对所有 2,560 个 term 做 BH 的 pooled q；代表集只改变展示行、不重算 q。y 轴用 −log10 是因为 q 的上半段（>0.3）挤进了 0.7 的线性宽度、而全部显著项都在 0.05 以下；线性 q 会把 131 个 coherent 点全部压在纵轴附近。
+数据口径：`q_value_coherent` 是 combined 表上对所有 term 做 BH 的 pooled q；代表集只改变展示行、不重算 q。y 轴按需求用线性 FDR：q 在代表集里近似均匀（中位 ~0.38），线性轴可读；代价是 0.05 阈值只占轴高 5%，143 个 coherent 点在底边压成一条窄带。
 
 ---
 

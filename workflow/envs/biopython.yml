@@ -4,7 +4,9 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - pandas>=3.0.3
+  # Upper bound: pandarallel 1.6.5 (pulled by codon-bias) imports the
+  # ExpandingGroupby alias that pandas 3.1 removed.
+  - pandas>=3.0.3,<3.1
   - numpy>=2.5.0
   - biopython>=1.87
   - gffutils>=0.13
