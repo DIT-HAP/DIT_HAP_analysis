@@ -12,7 +12,8 @@ read from. It has two halves joined by an arrow:
   right  one example fit drawn from the release: the measured points and the
          fitted curve, with the three parameters written onto the geometry that
          defines them — A as the plateau line, DR as the slope of the tangent
-         at the inflection, DL as that tangent's x-intercept.
+         at the inflection, DL as that tangent's x-intercept — and the fit's R2
+         in the empty lower-right corner.
 
 Panel B sits directly below A at the same width: four example fits (tna1,
 pst2, rpl3801, nrs1) in a 2 x 2 grid, each mini axes repeating panel A's plot
@@ -378,6 +379,7 @@ EQUATION_FONT_PT = 6.5
 PLOT_TICK_FONT_PT = 6.5
 PLOT_LABEL_FONT_PT = 7.0
 EQUATION_LINE_GAP_PT = 0.7
+EQUATION_LINE_SPACING_PT = 9.0
 CHIP_PAD_PT = 0.8
 CHIP_ROUNDING_PT = 1.0
 CURVE_SAMPLES = 300
@@ -397,6 +399,7 @@ PARAMETER_NAMES = (
 )
 PARAMETER_NAME_FONT_PT = 7.0
 PARAMETER_NAME_GAP_PT = 9.0
+PARAMETER_TITLE_NAMES_SPACING_PT = 8.5
 X_LABEL = "Generations"
 Y_LABEL = r"LFC ($\log_2$)"
 PLATEAU_LABEL = r"$A$ (plateau)"
@@ -784,7 +787,7 @@ def render_panel(container: Axes, fit: GeneFit) -> None:
     # is placed in the panel's own pt geometry.
     container.set_xlim(0, PANEL_WIDTH_PT)
     container.set_ylim(0, PANEL_HEIGHT_PT)
-    draw_flow(container, fit)
+    draw_flow(container)
     draw_horizontal_arrow(container)
 
     plot = container.inset_axes(
@@ -1144,7 +1147,7 @@ def draw_p_value_ladder(ax: Axes, categories: tuple[CategoryDr, ...]) -> None:
         )
 
 
-def draw_flow(container: Axes, fit: GeneFit) -> None:
+def draw_flow(container: Axes) -> None:
     """Draw the three stacked flow boxes, their arrows, and the fitted equation."""
     draw_box(container, DATA_BOX_Y_PT, DATA_BOX_HEIGHT_PT)
     container.text(
@@ -1158,13 +1161,13 @@ def draw_flow(container: Axes, fit: GeneFit) -> None:
     draw_vertical_arrow(container, DATA_BOX_Y_PT, FORMULA_BOX_Y_PT + FORMULA_BOX_HEIGHT_PT)
 
     draw_box(container, FORMULA_BOX_Y_PT, FORMULA_BOX_HEIGHT_PT)
-    draw_equation(container, fit)
+    draw_equation(container)
 
     draw_vertical_arrow(container, FORMULA_BOX_Y_PT, PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT)
     draw_box(container, PARAMETER_BOX_Y_PT, PARAMETER_BOX_HEIGHT_PT)
     container.text(
         FLOW_CENTER_X_PT,
-        PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT - 4.5,
+        PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT / 2 + PARAMETER_TITLE_NAMES_SPACING_PT / 2,
         PARAMETER_BOX_TEXT,
         ha="center",
         va="center",
@@ -1232,22 +1235,14 @@ def text_extent_pt(container: Axes, text: str, fontsize: float) -> tuple[float, 
     return bbox.width * 72 / container.figure.dpi, bbox.height * 72 / container.figure.dpi
 
 
-def draw_equation(container: Axes, fit: GeneFit) -> None:
+def draw_equation(container: Axes) -> None:
     """Draw the two equation lines, centred in the formula box, with colour chips."""
     line_one, line_two = equation_lines()
-    line_one_y = FORMULA_BOX_Y_PT + 25.3
-    line_two_y = FORMULA_BOX_Y_PT + 16.3
+    center_y = FORMULA_BOX_Y_PT + FORMULA_BOX_HEIGHT_PT / 2
+    line_one_y = center_y + EQUATION_LINE_SPACING_PT / 2
+    line_two_y = center_y - EQUATION_LINE_SPACING_PT / 2
     draw_equation_line(container, line_one, line_one_y)
     draw_equation_line(container, line_two, line_two_y)
-    container.text(
-        FLOW_CENTER_X_PT,
-        FORMULA_BOX_Y_PT + 8.5,
-        rf"$R^2={fit.r2:.3f}$",
-        ha="center",
-        va="center",
-        fontsize=FLOW_TEXT_FONT_PT,
-        color=FURNITURE_COLOR,
-    )
 
 
 def draw_equation_line(container: Axes, pieces: tuple[FormulaPiece, ...], y_pt: float) -> None:
@@ -1300,7 +1295,7 @@ def draw_parameter_names(container: Axes) -> None:
     for (text, color), width_pt in zip(PARAMETER_NAMES, widths, strict=True):
         container.text(
             x_pt,
-            PARAMETER_BOX_Y_PT + 6.5,
+            PARAMETER_BOX_Y_PT + PARAMETER_BOX_HEIGHT_PT / 2 - PARAMETER_TITLE_NAMES_SPACING_PT / 2,
             text,
             ha="left",
             va="center",
@@ -1366,6 +1361,19 @@ def render_anatomy_plot(ax: Axes, fit: GeneFit) -> None:
     ax.tick_params(labelsize=PLOT_TICK_FONT_PT)
     ax.set_xlabel(X_LABEL, fontsize=PLOT_LABEL_FONT_PT)
     ax.set_ylabel(Y_LABEL, fontsize=PLOT_LABEL_FONT_PT)
+    # The fit's quality belongs to the example curve, not to the abstract flow.
+    # Bottom right stays clear: the curve ends well above the plateau line, and
+    # the delay guide's label sits at the top.
+    ax.text(
+        0.97,
+        0.02,
+        rf"$R^2={fit.r2:.3f}$",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=PLOT_TICK_FONT_PT,
+        color=FURNITURE_COLOR,
+    )
 
 
 def draw_plateau_guide(
