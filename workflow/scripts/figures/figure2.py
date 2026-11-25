@@ -49,6 +49,13 @@ Mann-Whitney U) and the four p values are written against a bracket ladder to
 the right of the plot, so the severity gradient reads top to bottom. E hangs
 below D in D's column, keeping the right half of the page to itself.
 
+Panel F closes the page on a full-width row: five colony-plate crops (tyw3,
+pmt1, gos1, ifa38, alr2) drawn outside the pipeline and supplied as one PDF
+page, embedded by the same pypdf overlay as D. The page is 566.93 pt wide —
+wider than the canvas — so it takes a row of its own and the overlay scales it
+to the canvas width; its plate images and gene names are part of the artwork,
+so the panel itself draws nothing.
+
 The genes are fixed (``PANEL_A_GENE`` and ``PANEL_B_GENES``): they are the
 instances the figure tells its story with, not per-run choices. Each curve is
 evaluated from its released amplitude, rate and lag (A, DR, DL); the five
@@ -81,6 +88,8 @@ Input
   FYPOviability).
 - resources/figures/figure2d.pdf  panel D schematic, one page whose page box
   is its content box (297.72 x 113.4 pt).
+- resources/figures/figure2f.pdf  panel F plate strip, one page whose page box
+  is its content box (566.93 x 52.55 pt).
 - results/2b_verification/<dataset>/_work/merged.parquet  panel E reads only
   Category (the curated growth label) and DR, one row per fitted gene.
 
@@ -95,6 +104,7 @@ Usage
     python workflow/scripts/figures/figure2.py \\
         --gene-fitting <release>/gene_level/gene_level_fitting_statistics.tsv \\
         --schematic resources/figures/figure2d.pdf \\
+        --schematic-f resources/figures/figure2f.pdf \\
         --verification-merged results/2b_verification/HD_DIT_HAP/_work/merged.parquet \\
         --output-pdf results/7a_figures/figure2.pdf \\
         --output-review results/7a_figures/figure2.review.png \\
@@ -298,6 +308,14 @@ E_PVALUE_FONT_PT = 6.0
 # marks significance, not a phenotype class, and stays outside the plot area.
 SIGNIFICANCE_COLOR = cns.get_hexcolors_from_apalette([0], HOUSE_PALETTE)[0]
 
+# Panel F is the colony-plate strip, a second externally drawn schematic. Its
+# page is 566.93 pt wide — wider than the canvas — so it takes a row of its
+# own. multipanel charges each panel's letter column inside the canvas width,
+# so F's box is the canvas minus that column; the overlay then scales the page
+# by 0.898 to fill it.
+PANEL_LETTER_WIDTH_PT = 6.0
+PANEL_F_WIDTH_PT = CANVAS_WIDTH_PT - PANEL_LETTER_WIDTH_PT
+
 # --- Panel vocabulary -------------------------------------------------------
 PANEL_A_GENE = "mtf1"
 PANEL_B_GENES = ("tna1", "pst2", "rpl3801", "nrs1")
@@ -448,6 +466,7 @@ class Figure2Config:
 
     gene_fitting: Path
     schematic: Path
+    schematic_f: Path
     verification_merged: Path
     output_pdf: Path
     output_review: Path
@@ -455,7 +474,13 @@ class Figure2Config:
 
     def validate(self) -> None:
         """Raise if a required input is missing, then create the output dirs."""
-        for required in [self.gene_fitting, self.schematic, self.verification_merged]:
+        required_inputs = (
+            self.gene_fitting,
+            self.schematic,
+            self.schematic_f,
+            self.verification_merged,
+        )
+        for required in required_inputs:
             if not required.exists():
                 raise ValueError(f"Required input not found: {required}")
         for output in [self.output_pdf, self.output_review, self.canvas_pdf]:
@@ -703,14 +728,15 @@ def draw_figure(
     distributions: dict[tuple[str, str], np.ndarray],
     panel_e_categories: tuple[CategoryDr, ...],
     schematic_size_pt: tuple[float, float],
-) -> tuple[cns.multipanel, Axes]:
-    """Draw panels A, C, B, D and E and return the multipanel plus panel D's axes.
+    schematic_f_size_pt: tuple[float, float],
+) -> tuple[cns.multipanel, Axes, Axes]:
+    """Draw panels A, C, B, D, E and F and return the multipanel plus D's and F's axes.
 
     Returns the multipanel itself, not just its figure: cnsplots keeps the
     measured-layout draw callback as a weak reference, so the caller must hold
-    the object until the file is written or the panels stay unmeasured. Panel
-    D's axes is returned so the caller can read its settled box for the pypdf
-    overlay.
+    the object until the file is written or the panels stay unmeasured. The two
+    schematic panels' axes are returned so the caller can read their settled
+    boxes for the pypdf overlays.
     """
     mp = cns.multipanel(max_width=CANVAS_WIDTH_PT, unit="pt")
     # A gives up its right margin so C keeps A's row: the two letters plus both
@@ -771,7 +797,21 @@ def draw_figure(
     )
     blank_container(container_e)
     render_panel_e(container_e, panel_e_categories)
-    return mp, container_d
+
+    # F closes the page on a full-width row of its own: the plate strip is
+    # wider than either column above it.
+    schematic_f_width_pt, schematic_f_height_pt = schematic_f_size_pt
+    mp.newline()
+    container_f = mp.panel(
+        "F",
+        width=PANEL_F_WIDTH_PT,
+        height=PANEL_F_WIDTH_PT * schematic_f_height_pt / schematic_f_width_pt,
+        margin_top=ROW_GAP_PT,
+        margin_bottom=0,
+        margin_right=0,
+    )
+    blank_container(container_f)
+    return mp, container_d, container_f
 
 
 def blank_container(container: Axes) -> None:
@@ -1508,30 +1548,30 @@ def axes_box_pt(ax: Axes, figure: Figure) -> tuple[float, float, float, float]:
 
 def assemble_page(
     canvas_pdf: Path,
-    schematic_pdf: Path,
+    overlays: tuple[tuple[Path, tuple[float, float, float, float]], ...],
     output_pdf: Path,
-    box_pt: tuple[float, float, float, float],
 ) -> None:
-    """Overlay the schematic on the canvas, then mount the content atop an A4 page."""
-    # The box is in PDF points already: bbox_inches=None keeps the page equal to
-    # the figure, so the figure fractions flip straight into the page's origin.
-    x_pt, y_pt, box_width_pt, box_height_pt = box_pt
+    """Overlay each schematic on the canvas, then mount the content atop an A4 page."""
+    # The boxes are in PDF points already: bbox_inches=None keeps the page equal
+    # to the figure, so the figure fractions flip straight into the page's origin.
     # The canvas page must belong to a writer before its content can grow: pypdf
     # 7 refuses content replacements on reader-owned pages.
     writer = PdfWriter(clone_from=str(canvas_pdf))
     canvas_page = writer.pages[0]
-    schematic_page = PdfReader(str(schematic_pdf)).pages[0]
+    for schematic_pdf, box_pt in overlays:
+        x_pt, y_pt, box_width_pt, box_height_pt = box_pt
+        schematic_page = PdfReader(str(schematic_pdf)).pages[0]
 
-    source_width = float(schematic_page.mediabox.width)
-    source_height = float(schematic_page.mediabox.height)
-    scale = min(box_width_pt / source_width, box_height_pt / source_height)
+        source_width = float(schematic_page.mediabox.width)
+        source_height = float(schematic_page.mediabox.height)
+        scale = min(box_width_pt / source_width, box_height_pt / source_height)
 
-    x_pt += (box_width_pt - source_width * scale) / 2
-    y_pt += (box_height_pt - source_height * scale) / 2
+        x_pt += (box_width_pt - source_width * scale) / 2
+        y_pt += (box_height_pt - source_height * scale) / 2
 
-    canvas_page.merge_transformed_page(
-        schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
-    )
+        canvas_page.merge_transformed_page(
+            schematic_page, Transformation().scale(scale).translate(x_pt, y_pt)
+        )
 
     # A4 page: the canvas keeps its designed size, inset from the page's
     # top-left corner; the rest of the page stays blank.
@@ -1594,27 +1634,32 @@ def run(config: Figure2Config) -> tuple[float, float]:
         read_parquet_columns(config.verification_merged, CATEGORY_DR_COLUMNS)
     )
 
-    # D's box is fixed by C's column; the page's aspect ratio sets its height.
+    # Each schematic's box is fixed by its column; the page's aspect ratio sets
+    # its panel's height.
     schematic_size = page_size_pt(config.schematic)
+    schematic_f_size = page_size_pt(config.schematic_f)
 
-    mp, schematic_ax = draw_figure(
+    mp, schematic_d_ax, schematic_f_ax = draw_figure(
         fits[PANEL_A_GENE],
         tuple(fits[gene] for gene in PANEL_B_GENES),
         distributions,
         categories,
         schematic_size,
+        schematic_f_size,
     )
     assert mp.fig is not None
     # cnsplots sets savefig.bbox to "tight", which would crop the page to the
-    # drawn artists and shift panel D's box away from the overlay below; keep
-    # the designed canvas. The save draws the figure, which is also what
-    # settles multipanel's measured layout before the box is read back.
+    # drawn artists and shift the schematic boxes away from the overlays below;
+    # keep the designed canvas. The save draws the figure, which is also what
+    # settles multipanel's measured layout before the boxes are read back.
     cns.savefig(config.canvas_pdf, fig=mp.fig, bbox_inches=None)
     assemble_page(
         config.canvas_pdf,
-        config.schematic,
+        (
+            (config.schematic, axes_box_pt(schematic_d_ax, mp.fig)),
+            (config.schematic_f, axes_box_pt(schematic_f_ax, mp.fig)),
+        ),
         config.output_pdf,
-        axes_box_pt(schematic_ax, mp.fig),
     )
     rasterize_review(config.output_pdf, config.output_review)
 
@@ -1632,6 +1677,7 @@ def parse_args() -> argparse.Namespace:
         "--gene-fitting", type=Path, required=True, help="Release gene-level fitting TSV"
     )
     parser.add_argument("--schematic", type=Path, required=True, help="Panel D schematic PDF")
+    parser.add_argument("--schematic-f", type=Path, required=True, help="Panel F plate strip PDF")
     parser.add_argument(
         "--verification-merged",
         type=Path,
@@ -1660,6 +1706,7 @@ def main() -> int:
     config = Figure2Config(
         gene_fitting=args.gene_fitting,
         schematic=args.schematic,
+        schematic_f=args.schematic_f,
         verification_merged=args.verification_merged,
         output_pdf=args.output_pdf,
         output_review=args.output_review,

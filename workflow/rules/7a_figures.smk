@@ -129,6 +129,9 @@ rule plot_figure2:
         # Panel D: the externally drawn schematic, embedded as vector content at
         # its own page size (same mechanism as Figure 1's panel A).
         schematic="resources/figures/figure2d.pdf",
+        # Panel F: the colony-plate strip, overlaid by the same mechanism on a
+        # full-width row of its own.
+        schematic_f="resources/figures/figure2f.pdf",
         # Panel E: the verification stage publishes only summaries, so the
         # per-gene DR + curated Category pair comes from its parquet
         # intermediate (same pattern as figure_s1's _work inputs).
@@ -149,6 +152,7 @@ rule plot_figure2:
         python workflow/scripts/figures/figure2.py \
             --gene-fitting {input.gene_fitting} \
             --schematic {input.schematic} \
+            --schematic-f {input.schematic_f} \
             --verification-merged {input.verification_merged} \
             --output-pdf {output.pdf} \
             --output-review {output.review} \

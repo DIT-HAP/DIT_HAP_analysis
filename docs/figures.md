@@ -206,9 +206,9 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 
 ## Figure 2 — 耗竭动力学：一条拟合曲线如何定义 A、DR、DL
 
-**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由两行面板推出（实测 382.4 pt = A/C 行 7.2 + 100 + 行距 10 + B/D 行 7.2 + 258）；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
+**画布**：A4 整页 595.28 × 841.89 pt（210 × 297 mm）。内容画布宽 515.28 pt（= 595.28 − 2 × 40 pt 页边距）、高由三行面板推出（实测 446.8 pt = A/C 行 7.2 + 100 + B/D 行（行距 10 + 7.2 + 258）+ F 行（行距 10 + 7.2 + 47.2））；组装时 pypdf 把内容页贴到 A4 页 (40, 40) pt 处（距左、距上、距右各 40 pt），页面其余部分留白。
 
-**当前是 A、B、C、D、E 五个面板**（2026-11-13 起逐步搭建，其余面板待加入）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；第二行 B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合；D 在 B 右侧、C 正下方，是外部绘制的生长表型分类示意图，取 C 的列宽等比缩放后矢量叠加；E 挂在 D 下方、同一列，是五类生长表型的 DR 小提琴图。
+**当前是 A、B、C、D、E、F 六个面板**（2026-11-13 起逐步搭建）。第一行左侧 A 是"模型定义"面板：数据 → 公式 → 参数的分析流程，右侧用 mtf1 的真实拟合把三个参数画成几何元素；A 右侧的 C 是 DR 与 DL 的分布（全体基因），每个直方图的空白角里嵌一组 viable / inviable 小图；第二行 B 在 A 正下方、等宽，用 2×2 的四个基因展示同一模型在真实数据上的拟合；D 在 B 右侧、C 正下方，是外部绘制的生长表型分类示意图，取 C 的列宽等比缩放后矢量叠加；E 挂在 D 下方、同一列，是五类生长表型的 DR 小提琴图；第三行 F 是横贯整行宽度的五个基因的菌落平板图（外部绘制的 PDF，与 D 同一套叠加机制）。
 
 **产物**：
 
@@ -216,7 +216,7 @@ B/C/D 用同一个 100 × 100 pt 方形 axes，三块绘图区大小一致、长
 |---|---|
 | `results/7a_figures/figure2.pdf` | 最终矢量图：单页 A4，内容距左、上、右各 40 pt |
 | `results/7a_figures/figure2.review.png` | 360 dpi 评审位图，由最终 PDF 栅格化 |
-| `results/7a_figures/_work/figure2_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 382.4 pt，D 区空白）；排查版式时看这个 |
+| `results/7a_figures/_work/figure2_canvas.pdf` | 叠加示意图前、贴 A4 前的内容画布（515.28 × 446.8 pt，D、F 区空白）；排查版式时看这个 |
 
 ---
 
@@ -306,7 +306,7 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 
 ### Panel E — 生长表型的 DR 小提琴图（相邻类两两检验）
 
-**版式**：一个 `265 × 125` pt 的容器，用 multipanel 的 `below="D"` 挂在 D 下方（同一列），与 D 相距 10 pt；D 的子树约 260 pt 仍在 B 行 275 pt 之内，所以画布高度保持 382.4 pt。容器内一个 `139 × 103` pt 的 inset axes：左侧 85 pt 给行标签（如 `small colonies (n = 236)`）与刻度，下方 20 pt 给 x 刻度与标题，右侧 41 pt 给 p 值列。
+**版式**：一个 `265 × 125` pt 的容器，用 multipanel 的 `below="D"` 挂在 D 下方（同一列），与 D 相距 10 pt；D + E 的子树约 260 pt 仍在 B 行 275 pt 之内，第二行高度仍由 B 决定。容器内一个 `139 × 103` pt 的 inset axes：左侧 85 pt 给行标签（如 `small colonies (n = 236)`）与刻度，下方 20 pt 给 x 刻度与标题，右侧 41 pt 给 p 值列。
 
 | 要素 | 内容 |
 |---|---|
@@ -321,6 +321,18 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | 产物 | 并入 `figure2.pdf` |
 
 数据口径：当前 release 的计数为 143 / 352 / 464 / 271 / 2,927；`small colonies` 是原始 curated `Category` 一档（含 65 个 E 与 206 个 V），不按 essentiality 拆分。相邻对比的 p 值：9.2e-6 / 4.1e-30 / 7.5e-46 / 5.3e-90。
+
+---
+
+### Panel F — 五个基因的菌落平板图（外部绘制）
+
+| 要素 | 内容 |
+|---|---|
+| 输入 | `resources/figures/figure2f.pdf`（单页，页面框即内容框，566.93 × 52.55 pt） |
+| 变换 | multipanel 的字母列占 6 pt 画布宽度，F 的框宽 = 515.28 − 6 = 509.28 pt，高按页面框长宽比得 47.2 pt；pypdf 按 `min(框宽/页宽, 框高/页高)` 缩放 ×0.898 后居中叠进该框，与 D 共用 `assemble_page` 的 overlays 循环 |
+| 画法 | 与 D 相同的空 axes + `merge_transformed_page`；面板本身不画任何东西——平板照片与基因名（tyw3 / pmt1 / gos1 / ifa38 / alr2，一行 5 块）都在 PDF 里 |
+| 版式 | 独占第三行：`mp.newline()` 后从画布左缘起排（字母 F 与 A/B 的字母落在同一条左缘），`margin_top=10` 给行距；页面宽 566.93 pt 比整幅画布还宽，无法与任何列并排，只能等比缩小 |
+| 产物 | 并入 `figure2.pdf` |
 
 ---
 
@@ -358,6 +370,8 @@ multipanel 会把面板字母宽度计入行宽，所以 C 定为 265 且 A 的 
 | `ROW_GAP_PT` | 10 | 面板行间距（A/C 行与 B、B 与 D） |
 | `PANEL_D_WIDTH_PT` | 265（= `PANEL_C_WIDTH_PT`） | D 面板预留框宽；高由示意图页面长宽比推出 |
 | `--schematic` | `resources/figures/figure2d.pdf` | D 面板示意图 PDF；面板框取其页面框，换图后尺寸自动跟随 |
+| `PANEL_LETTER_WIDTH_PT` / `PANEL_F_WIDTH_PT` | 6 / 509.28 | F 的框宽（= 画布宽 − multipanel 字母列）；高由 `--schematic-f` 页面长宽比推出 |
+| `--schematic-f` | `resources/figures/figure2f.pdf` | F 面板菌落平板图 PDF；换图后框高自动跟随 |
 | `PANEL_E_WIDTH_PT` / `PANEL_E_HEIGHT_PT` | 265 / 125 | E 容器尺寸（与 D 同列，`below="D"`） |
 | `E_PLOT_X_PT` / `E_PLOT_Y_PT` / `E_PLOT_WIDTH_PT` | 85 / 20 / 139 | E 的 inset 绘图区（高 = 容器高 − 20 − 2） |
 | `E_BRACKET_OFFSET_PT` / `E_BRACKET_ROW_GAP_PT` / `E_BRACKET_TICK_PT` | 3 / 2 / 3 | p 值竖线距绘图区右缘的距离、每对括号端点从行心的垂直内缩、横齿长度（pt） |
